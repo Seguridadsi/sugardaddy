@@ -1,0 +1,30 @@
+# Entrada HTTPS de la consola del nodo. Lo único del nodo que escucha hacia la
+# red del cliente, junto con las trampas.
+{
+	admin off
+	# Sin peticiones a Let's Encrypt ni a ningún sitio: el nodo no sale a
+	# buscar certificados.
+	auto_https disable_redirects
+	skip_install_trust
+}
+
+(tls-interno) {
+	# CA propia del nodo. Su raíz queda en el volumen de Caddy y la exporta
+	# instalar.sh para instalarla en los equipos que entren a la consola.
+	tls internal
+}
+
+(tls-ficheros) {
+	# Certificado de la CA del cliente, dejado en certs/ por quien instala.
+	tls /certs/certificado.pem /certs/clave.pem
+}
+
+{$CONSOLA_DOMINIO}:443 {
+	import tls-{$TLS_MODO}
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+	}
+	reverse_proxy consola:3000
+}

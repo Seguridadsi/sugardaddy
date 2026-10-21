@@ -1,0 +1,934 @@
+{
+	"id": "edf81bfb-71d7-408e-bb6c-9ea4c1b9ad08",
+	"prevId": "22864b1c-5aa1-410a-bfa0-80a9a0c1fc0e",
+	"version": "7",
+	"dialect": "postgresql",
+	"tables": {
+		"public.ajustes": {
+			"name": "ajustes",
+			"schema": "",
+			"columns": {
+				"clave": {
+					"name": "clave",
+					"type": "text",
+					"primaryKey": true,
+					"notNull": true
+				},
+				"valor": {
+					"name": "valor",
+					"type": "jsonb",
+					"primaryKey": false,
+					"notNull": true
+				}
+			},
+			"indexes": {},
+			"foreignKeys": {},
+			"compositePrimaryKeys": {},
+			"uniqueConstraints": {},
+			"policies": {},
+			"checkConstraints": {},
+			"isRLSEnabled": false
+		},
+		"public.aprobaciones": {
+			"name": "aprobaciones",
+			"schema": "",
+			"columns": {
+				"id": {
+					"name": "id",
+					"type": "uuid",
+					"primaryKey": true,
+					"notNull": true,
+					"default": "gen_random_uuid()"
+				},
+				"regla": {
+					"name": "regla",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true
+				},
+				"respuesta": {
+					"name": "respuesta",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true
+				},
+				"objetivo": {
+					"name": "objetivo",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true
+				},
+				"evento": {
+					"name": "evento",
+					"type": "uuid",
+					"primaryKey": false,
+					"notNull": true
+				},
+				"estado": {
+					"name": "estado",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"default": "'pendiente'"
+				},
+				"decidido_por": {
+					"name": "decidido_por",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": false
+				},
+				"decidido_en": {
+					"name": "decidido_en",
+					"type": "timestamp with time zone",
+					"primaryKey": false,
+					"notNull": false
+				},
+				"creado": {
+					"name": "creado",
+					"type": "timestamp with time zone",
+					"primaryKey": false,
+					"notNull": true,
+					"default": "now()"
+				}
+			},
+			"indexes": {},
+			"foreignKeys": {
+				"aprobaciones_regla_reglas_id_fk": {
+					"name": "aprobaciones_regla_reglas_id_fk",
+					"tableFrom": "aprobaciones",
+					"tableTo": "reglas",
+					"columnsFrom": ["regla"],
+					"columnsTo": ["id"],
+					"onDelete": "no action",
+					"onUpdate": "no action"
+				},
+				"aprobaciones_evento_eventos_id_fk": {
+					"name": "aprobaciones_evento_eventos_id_fk",
+					"tableFrom": "aprobaciones",
+					"tableTo": "eventos",
+					"columnsFrom": ["evento"],
+					"columnsTo": ["id"],
+					"onDelete": "no action",
+					"onUpdate": "no action"
+				}
+			},
+			"compositePrimaryKeys": {},
+			"uniqueConstraints": {},
+			"policies": {},
+			"checkConstraints": {},
+			"isRLSEnabled": false
+		},
+		"public.auditoria": {
+			"name": "auditoria",
+			"schema": "",
+			"columns": {
+				"id": {
+					"name": "id",
+					"type": "bigserial",
+					"primaryKey": true,
+					"notNull": true
+				},
+				"cuando": {
+					"name": "cuando",
+					"type": "timestamp with time zone",
+					"primaryKey": false,
+					"notNull": true,
+					"default": "now()"
+				},
+				"quien": {
+					"name": "quien",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true
+				},
+				"accion": {
+					"name": "accion",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true
+				},
+				"detalle": {
+					"name": "detalle",
+					"type": "jsonb",
+					"primaryKey": false,
+					"notNull": true,
+					"default": "'{}'::jsonb"
+				}
+			},
+			"indexes": {},
+			"foreignKeys": {},
+			"compositePrimaryKeys": {},
+			"uniqueConstraints": {},
+			"policies": {},
+			"checkConstraints": {},
+			"isRLSEnabled": false
+		},
+		"public.ejecuciones": {
+			"name": "ejecuciones",
+			"schema": "",
+			"columns": {
+				"id": {
+					"name": "id",
+					"type": "uuid",
+					"primaryKey": true,
+					"notNull": true,
+					"default": "gen_random_uuid()"
+				},
+				"evento": {
+					"name": "evento",
+					"type": "uuid",
+					"primaryKey": false,
+					"notNull": true
+				},
+				"regla": {
+					"name": "regla",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true
+				},
+				"respuesta": {
+					"name": "respuesta",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true
+				},
+				"modo": {
+					"name": "modo",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true
+				},
+				"objetivo": {
+					"name": "objetivo",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true
+				},
+				"estado": {
+					"name": "estado",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true
+				},
+				"motivo": {
+					"name": "motivo",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": false
+				},
+				"aprobacion": {
+					"name": "aprobacion",
+					"type": "uuid",
+					"primaryKey": false,
+					"notNull": false
+				},
+				"cuando": {
+					"name": "cuando",
+					"type": "timestamp with time zone",
+					"primaryKey": false,
+					"notNull": true,
+					"default": "now()"
+				}
+			},
+			"indexes": {
+				"ejecuciones_objetivo": {
+					"name": "ejecuciones_objetivo",
+					"columns": [
+						{
+							"expression": "objetivo",
+							"isExpression": false,
+							"asc": true,
+							"nulls": "last"
+						},
+						{
+							"expression": "regla",
+							"isExpression": false,
+							"asc": true,
+							"nulls": "last"
+						},
+						{
+							"expression": "cuando",
+							"isExpression": false,
+							"asc": true,
+							"nulls": "last"
+						}
+					],
+					"isUnique": false,
+					"concurrently": false,
+					"method": "btree",
+					"with": {}
+				}
+			},
+			"foreignKeys": {
+				"ejecuciones_evento_eventos_id_fk": {
+					"name": "ejecuciones_evento_eventos_id_fk",
+					"tableFrom": "ejecuciones",
+					"tableTo": "eventos",
+					"columnsFrom": ["evento"],
+					"columnsTo": ["id"],
+					"onDelete": "no action",
+					"onUpdate": "no action"
+				},
+				"ejecuciones_regla_reglas_id_fk": {
+					"name": "ejecuciones_regla_reglas_id_fk",
+					"tableFrom": "ejecuciones",
+					"tableTo": "reglas",
+					"columnsFrom": ["regla"],
+					"columnsTo": ["id"],
+					"onDelete": "no action",
+					"onUpdate": "no action"
+				},
+				"ejecuciones_aprobacion_aprobaciones_id_fk": {
+					"name": "ejecuciones_aprobacion_aprobaciones_id_fk",
+					"tableFrom": "ejecuciones",
+					"tableTo": "aprobaciones",
+					"columnsFrom": ["aprobacion"],
+					"columnsTo": ["id"],
+					"onDelete": "no action",
+					"onUpdate": "no action"
+				}
+			},
+			"compositePrimaryKeys": {},
+			"uniqueConstraints": {},
+			"policies": {},
+			"checkConstraints": {},
+			"isRLSEnabled": false
+		},
+		"public.eventos": {
+			"name": "eventos",
+			"schema": "",
+			"columns": {
+				"id": {
+					"name": "id",
+					"type": "uuid",
+					"primaryKey": true,
+					"notNull": true
+				},
+				"sensor": {
+					"name": "sensor",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true
+				},
+				"linea": {
+					"name": "linea",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true
+				},
+				"hash": {
+					"name": "hash",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true
+				},
+				"cuando": {
+					"name": "cuando",
+					"type": "timestamp with time zone",
+					"primaryKey": false,
+					"notNull": true
+				},
+				"trampa": {
+					"name": "trampa",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true
+				},
+				"modulo": {
+					"name": "modulo",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true
+				},
+				"tipo": {
+					"name": "tipo",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true
+				},
+				"accion": {
+					"name": "accion",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true
+				},
+				"severidad": {
+					"name": "severidad",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true
+				},
+				"ip": {
+					"name": "ip",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": false
+				},
+				"usuario": {
+					"name": "usuario",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": false
+				},
+				"conexion_establecida": {
+					"name": "conexion_establecida",
+					"type": "boolean",
+					"primaryKey": false,
+					"notNull": true
+				},
+				"recibido": {
+					"name": "recibido",
+					"type": "timestamp with time zone",
+					"primaryKey": false,
+					"notNull": true,
+					"default": "now()"
+				}
+			},
+			"indexes": {
+				"eventos_hash": {
+					"name": "eventos_hash",
+					"columns": [
+						{
+							"expression": "hash",
+							"isExpression": false,
+							"asc": true,
+							"nulls": "last"
+						}
+					],
+					"isUnique": true,
+					"concurrently": false,
+					"method": "btree",
+					"with": {}
+				},
+				"eventos_cuando": {
+					"name": "eventos_cuando",
+					"columns": [
+						{
+							"expression": "cuando",
+							"isExpression": false,
+							"asc": true,
+							"nulls": "last"
+						}
+					],
+					"isUnique": false,
+					"concurrently": false,
+					"method": "btree",
+					"with": {}
+				},
+				"eventos_trampa": {
+					"name": "eventos_trampa",
+					"columns": [
+						{
+							"expression": "trampa",
+							"isExpression": false,
+							"asc": true,
+							"nulls": "last"
+						}
+					],
+					"isUnique": false,
+					"concurrently": false,
+					"method": "btree",
+					"with": {}
+				},
+				"eventos_ip": {
+					"name": "eventos_ip",
+					"columns": [
+						{
+							"expression": "ip",
+							"isExpression": false,
+							"asc": true,
+							"nulls": "last"
+						}
+					],
+					"isUnique": false,
+					"concurrently": false,
+					"method": "btree",
+					"with": {}
+				}
+			},
+			"foreignKeys": {
+				"eventos_sensor_sensores_id_fk": {
+					"name": "eventos_sensor_sensores_id_fk",
+					"tableFrom": "eventos",
+					"tableTo": "sensores",
+					"columnsFrom": ["sensor"],
+					"columnsTo": ["id"],
+					"onDelete": "no action",
+					"onUpdate": "no action"
+				}
+			},
+			"compositePrimaryKeys": {},
+			"uniqueConstraints": {},
+			"policies": {},
+			"checkConstraints": {},
+			"isRLSEnabled": false
+		},
+		"public.listas": {
+			"name": "listas",
+			"schema": "",
+			"columns": {
+				"id": {
+					"name": "id",
+					"type": "bigserial",
+					"primaryKey": true,
+					"notNull": true
+				},
+				"valor": {
+					"name": "valor",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true
+				},
+				"clase": {
+					"name": "clase",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true
+				},
+				"lista": {
+					"name": "lista",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true
+				},
+				"ambito": {
+					"name": "ambito",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true
+				},
+				"motivo": {
+					"name": "motivo",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true
+				},
+				"caduca": {
+					"name": "caduca",
+					"type": "timestamp with time zone",
+					"primaryKey": false,
+					"notNull": false
+				},
+				"quien": {
+					"name": "quien",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true
+				},
+				"creado": {
+					"name": "creado",
+					"type": "timestamp with time zone",
+					"primaryKey": false,
+					"notNull": true,
+					"default": "now()"
+				}
+			},
+			"indexes": {
+				"listas_unica": {
+					"name": "listas_unica",
+					"columns": [
+						{
+							"expression": "valor",
+							"isExpression": false,
+							"asc": true,
+							"nulls": "last"
+						},
+						{
+							"expression": "lista",
+							"isExpression": false,
+							"asc": true,
+							"nulls": "last"
+						},
+						{
+							"expression": "ambito",
+							"isExpression": false,
+							"asc": true,
+							"nulls": "last"
+						}
+					],
+					"isUnique": true,
+					"concurrently": false,
+					"method": "btree",
+					"with": {}
+				}
+			},
+			"foreignKeys": {},
+			"compositePrimaryKeys": {},
+			"uniqueConstraints": {},
+			"policies": {},
+			"checkConstraints": {},
+			"isRLSEnabled": false
+		},
+		"public.llaves_emergencia": {
+			"name": "llaves_emergencia",
+			"schema": "",
+			"columns": {
+				"id": {
+					"name": "id",
+					"type": "text",
+					"primaryKey": true,
+					"notNull": true
+				},
+				"clave_publica": {
+					"name": "clave_publica",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true
+				},
+				"contador": {
+					"name": "contador",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"default": 0
+				},
+				"nombre": {
+					"name": "nombre",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true
+				},
+				"registrada_por": {
+					"name": "registrada_por",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true
+				},
+				"creado": {
+					"name": "creado",
+					"type": "timestamp with time zone",
+					"primaryKey": false,
+					"notNull": true,
+					"default": "now()"
+				},
+				"ultimo_uso": {
+					"name": "ultimo_uso",
+					"type": "timestamp with time zone",
+					"primaryKey": false,
+					"notNull": false
+				}
+			},
+			"indexes": {},
+			"foreignKeys": {},
+			"compositePrimaryKeys": {},
+			"uniqueConstraints": {},
+			"policies": {},
+			"checkConstraints": {},
+			"isRLSEnabled": false
+		},
+		"public.reglas": {
+			"name": "reglas",
+			"schema": "",
+			"columns": {
+				"id": {
+					"name": "id",
+					"type": "text",
+					"primaryKey": true,
+					"notNull": true
+				},
+				"nombre": {
+					"name": "nombre",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true
+				},
+				"severidad_minima": {
+					"name": "severidad_minima",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true
+				},
+				"trampas": {
+					"name": "trampas",
+					"type": "jsonb",
+					"primaryKey": false,
+					"notNull": false
+				},
+				"respuestas": {
+					"name": "respuestas",
+					"type": "jsonb",
+					"primaryKey": false,
+					"notNull": true
+				},
+				"activa": {
+					"name": "activa",
+					"type": "boolean",
+					"primaryKey": false,
+					"notNull": true,
+					"default": true
+				},
+				"creado": {
+					"name": "creado",
+					"type": "timestamp with time zone",
+					"primaryKey": false,
+					"notNull": true,
+					"default": "now()"
+				}
+			},
+			"indexes": {},
+			"foreignKeys": {},
+			"compositePrimaryKeys": {},
+			"uniqueConstraints": {},
+			"policies": {},
+			"checkConstraints": {},
+			"isRLSEnabled": false
+		},
+		"public.respuestas_config": {
+			"name": "respuestas_config",
+			"schema": "",
+			"columns": {
+				"modulo": {
+					"name": "modulo",
+					"type": "text",
+					"primaryKey": true,
+					"notNull": true
+				},
+				"parametros": {
+					"name": "parametros",
+					"type": "jsonb",
+					"primaryKey": false,
+					"notNull": true,
+					"default": "'{}'::jsonb"
+				},
+				"secretos_cifrados": {
+					"name": "secretos_cifrados",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": false
+				},
+				"actualizado": {
+					"name": "actualizado",
+					"type": "timestamp with time zone",
+					"primaryKey": false,
+					"notNull": true,
+					"default": "now()"
+				}
+			},
+			"indexes": {},
+			"foreignKeys": {},
+			"compositePrimaryKeys": {},
+			"uniqueConstraints": {},
+			"policies": {},
+			"checkConstraints": {},
+			"isRLSEnabled": false
+		},
+		"public.sensores": {
+			"name": "sensores",
+			"schema": "",
+			"columns": {
+				"id": {
+					"name": "id",
+					"type": "text",
+					"primaryKey": true,
+					"notNull": true
+				},
+				"nombre": {
+					"name": "nombre",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true
+				},
+				"segmento": {
+					"name": "segmento",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true
+				},
+				"clave_hash": {
+					"name": "clave_hash",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true
+				},
+				"ultimo_hash": {
+					"name": "ultimo_hash",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"default": "'0000000000000000000000000000000000000000000000000000000000000000'"
+				},
+				"ultimo_latido": {
+					"name": "ultimo_latido",
+					"type": "timestamp with time zone",
+					"primaryKey": false,
+					"notNull": false
+				},
+				"creado": {
+					"name": "creado",
+					"type": "timestamp with time zone",
+					"primaryKey": false,
+					"notNull": true,
+					"default": "now()"
+				}
+			},
+			"indexes": {},
+			"foreignKeys": {},
+			"compositePrimaryKeys": {},
+			"uniqueConstraints": {},
+			"policies": {},
+			"checkConstraints": {},
+			"isRLSEnabled": false
+		},
+		"public.trampas": {
+			"name": "trampas",
+			"schema": "",
+			"columns": {
+				"id": {
+					"name": "id",
+					"type": "text",
+					"primaryKey": true,
+					"notNull": true
+				},
+				"nombre": {
+					"name": "nombre",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true
+				},
+				"modulo": {
+					"name": "modulo",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true
+				},
+				"tipo": {
+					"name": "tipo",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true
+				},
+				"sensor": {
+					"name": "sensor",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true
+				},
+				"donde": {
+					"name": "donde",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true
+				},
+				"parametros": {
+					"name": "parametros",
+					"type": "jsonb",
+					"primaryKey": false,
+					"notNull": true,
+					"default": "'{}'::jsonb"
+				},
+				"activo": {
+					"name": "activo",
+					"type": "boolean",
+					"primaryKey": false,
+					"notNull": true,
+					"default": true
+				},
+				"creado": {
+					"name": "creado",
+					"type": "timestamp with time zone",
+					"primaryKey": false,
+					"notNull": true,
+					"default": "now()"
+				}
+			},
+			"indexes": {},
+			"foreignKeys": {
+				"trampas_sensor_sensores_id_fk": {
+					"name": "trampas_sensor_sensores_id_fk",
+					"tableFrom": "trampas",
+					"tableTo": "sensores",
+					"columnsFrom": ["sensor"],
+					"columnsTo": ["id"],
+					"onDelete": "no action",
+					"onUpdate": "no action"
+				}
+			},
+			"compositePrimaryKeys": {},
+			"uniqueConstraints": {},
+			"policies": {},
+			"checkConstraints": {},
+			"isRLSEnabled": false
+		},
+		"public.sesiones": {
+			"name": "sesiones",
+			"schema": "",
+			"columns": {
+				"id": {
+					"name": "id",
+					"type": "text",
+					"primaryKey": true,
+					"notNull": true
+				},
+				"oid": {
+					"name": "oid",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true
+				},
+				"correo": {
+					"name": "correo",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true
+				},
+				"nombre": {
+					"name": "nombre",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true
+				},
+				"roles": {
+					"name": "roles",
+					"type": "jsonb",
+					"primaryKey": false,
+					"notNull": true
+				},
+				"creado": {
+					"name": "creado",
+					"type": "timestamp with time zone",
+					"primaryKey": false,
+					"notNull": true,
+					"default": "now()"
+				},
+				"ultima_actividad": {
+					"name": "ultima_actividad",
+					"type": "timestamp with time zone",
+					"primaryKey": false,
+					"notNull": true,
+					"default": "now()"
+				},
+				"cerrada": {
+					"name": "cerrada",
+					"type": "timestamp with time zone",
+					"primaryKey": false,
+					"notNull": false
+				},
+				"soporte": {
+					"name": "soporte",
+					"type": "boolean",
+					"primaryKey": false,
+					"notNull": true,
+					"default": false
+				}
+			},
+			"indexes": {},
+			"foreignKeys": {},
+			"compositePrimaryKeys": {},
+			"uniqueConstraints": {},
+			"policies": {},
+			"checkConstraints": {},
+			"isRLSEnabled": false
+		}
+	},
+	"enums": {},
+	"schemas": {},
+	"sequences": {},
+	"roles": {},
+	"policies": {},
+	"views": {},
+	"_meta": {
+		"columns": {},
+		"schemas": {},
+		"tables": {}
+	}
+}

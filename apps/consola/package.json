@@ -1,0 +1,47 @@
+{
+	"name": "@sugardaddy/consola",
+	"private": true,
+	"version": "0.0.1",
+	"type": "module",
+	"scripts": {
+		"dev": "vite dev",
+		"build": "vite build",
+		"preview": "vite preview",
+		"prepare": "svelte-kit sync || echo ''",
+		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+		"db:generate": "drizzle-kit generate",
+		"db:migrate": "node --env-file=.env ../../node_modules/drizzle-kit/bin.cjs migrate",
+		"db:semilla": "node --env-file=.env --experimental-strip-types scripts/semilla.ts",
+		"test": "vitest --run"
+	},
+	"dependencies": {
+		"@simplewebauthn/server": "^14.0.3",
+		"drizzle-orm": "^0.45.4",
+		"maxmind": "^5.0.7",
+		"nodemailer": "10.0.14",
+		"postgres": "^3.4.9"
+	},
+	"devDependencies": {
+		"@simplewebauthn/browser": "^14.0.0",
+		"@sugardaddy/canal": "*",
+		"@sugardaddy/contrato": "*",
+		"@sugardaddy/entra": "*",
+		"@sugardaddy/estilo": "*",
+		"@sveltejs/adapter-node": "^5.5.4",
+		"@sveltejs/kit": "^2.63.0",
+		"@sveltejs/vite-plugin-svelte": "^7.1.2",
+		"@types/d3-geo": "^3.1.1",
+		"@types/node": "^22",
+		"@types/topojson-client": "^3.1.5",
+		"d3-geo": "^3.1.1",
+		"drizzle-kit": "^0.31.11",
+		"i18n-iso-countries": "^7.14.0",
+		"svelte": "^5.56.1",
+		"svelte-check": "^4.6.0",
+		"topojson-client": "^3.1.0",
+		"typescript": "^6.0.3",
+		"vite": "^8.0.16",
+		"vitest": "^4.1.11",
+		"world-atlas": "^2.0.2"
+	}
+}

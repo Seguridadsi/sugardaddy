@@ -1,0 +1,96 @@
+# Prueba automática del módulo: herramientas/probar-trampa.sh retencion-ssh
+# Se despliega en modo ssh con una línea por segundo (más o menos). Un OpenSSH
+# de verdad se queda atascado en el intercambio de versiones (lee «banner line
+# 0, 1...», el aviso legal de esta trampa, y nunca llega a las claves).
+# Después 40 conexiones a la vez desde la misma IP: entran 32 (su tope por IP)
+# y las 8 de más se cierran al momento y salen en el resumen del minuto, no
+# una línea por cada una. Por último, 6.000 conexiones cortas desde esa IP
+# gastan su parte del registro de hoy: lo que pasa no lo llena, sale en un
+# resumen por minuto. El modo banner lo cubren las pruebas unitarias
+# (imagen/fuente/reten_test.go), que corren al construir la imagen.
+parametros:
+  puerto: 22268
+  modo: ssh
+  retardo: 1
+arranque: 3
+ataques:
+  - imagen: atacante
+    orden:
+      - sh
+      - -c
+      - |
+        out=$(timeout 6 ssh -v -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -p ${puerto} root@127.0.0.1 true 2>&1)
+        echo "$out" | grep 'banner line' | head -3
+        echo "$out" | grep -q 'banner line 2' || { echo "ssh no se ha quedado leyendo líneas:"; echo "$out" | tail -5; exit 1; }
+        ! echo "$out" | tr -d '\r' | grep -qE 'banner line [0-9]+: [a-z]{1,30}$' || { echo "siguen las letras al azar de Endlessh"; exit 1; }
+        ! echo "$out" | grep -qE 'Remote protocol version|SSH2_MSG_KEXINIT|Authenticat' || { echo "ssh ha pasado de la versión"; exit 1; }
+  - imagen: atacante
+    orden:
+      - python3
+      - -c
+      - |
+        import socket, time
+        socks = [socket.create_connection(("127.0.0.1", ${puerto}), timeout=5) for _ in range(40)]
+        time.sleep(2.5)
+        cerradas = retenidas = 0
+        for s in socks:
+            s.setblocking(False)
+            try:
+                if s.recv(64) == b"":
+                    cerradas += 1
+                else:
+                    retenidas += 1
+            except BlockingIOError:
+                pass
+        print("retenidas", retenidas, "cerradas", cerradas)
+        for s in socks:
+            s.close()
+        assert retenidas == 32 and cerradas == 8, "esperaba 32 retenidas y 8 cerradas"
+  - imagen: atacante
+    orden:
+      - python3
+      - -c
+      - |
+        import socket, threading
+        P = ${puerto}
+        linea = b"SSH-2.0-" + b"x" * 240 + b"\r\n"
+        hechas = [0]
+        cerrojo = threading.Lock()
+        def corta():
+            for _ in range(750):
+                s = socket.create_connection(("127.0.0.1", P), timeout=10)
+                s.sendall(linea)
+                # Se va y espera a que la trampa cierre: así no pasa de su
+                # tope de 32 a la vez y no hay rechazos que estropeen el
+                # resumen de arriba.
+                s.shutdown(socket.SHUT_WR)
+                while s.recv(4096):
+                    pass
+                s.close()
+                with cerrojo:
+                    hechas[0] += 1
+        hs = [threading.Thread(target=corta) for _ in range(8)]
+        [h.start() for h in hs]; [h.join() for h in hs]
+        print("conexiones cortas:", hechas[0])
+        assert hechas[0] == 6000
+espera:
+  - { accion: conexion, severidad: media, conexion: true, detalle: { evento: conexion, modo: ssh } }
+  # La versión del cliente, tal cual la manda.
+  - { accion: otra, severidad: baja, detalle: { evento: cliente, datos: SSH-2.0-OpenSSH_ } }
+  # Se suelta cuando se va él, tras unos segundos y algunas líneas.
+  - { accion: otra, severidad: baja, detalle: { evento: fin, motivo: cliente } }
+  # Las 8 de más, en una sola línea de resumen a nombre de su IP.
+  - {
+      accion: conexion,
+      severidad: media,
+      detalle: { evento: rechazos, rechazadas: '8', por_tope_ip: '8', por_tope_global: '0' }
+    }
+  # Las 6.000 conexiones cortas: su IP gasta su parte del registro y lo demás
+  # sale resumido, no se queda callado hasta medianoche.
+  - {
+      accion: otra,
+      severidad: alta,
+      detalle: { evento: callados, por_tope_dia: '0', ips_distintas: '1' }
+    }
+# Los resúmenes salen una vez por minuto.
+tiempo: 75

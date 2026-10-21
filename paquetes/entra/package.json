@@ -1,0 +1,12 @@
+{
+	"name": "@sugardaddy/entra",
+	"private": true,
+	"version": "0.0.1",
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts"
+	},
+	"dependencies": {
+		"jose": "^6.2.12"
+	}
+}

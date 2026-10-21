@@ -1,0 +1,23 @@
+# Actualizador del nodo, que desde la 0.12 también hace de auxiliar: aplica la
+# configuración firmada de cada versión con docker-compose. El binario de
+# compose lo descarga herramientas/publicar-version.sh, comprobado contra la
+# huella fijada en herramientas/compose.sha256, y llega en dist/.
+#   docker build -f sensor/Dockerfile.actualizador --build-arg VERSION=0.12.0 sensor
+
+FROM golang:1.27-alpine@sha256:f92b6ef800e499660581efdabdf25d9d817a9d124eaf900924f0504e7e27e12d AS construccion
+ARG VERSION=dev
+WORKDIR /src
+COPY go.mod ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$VERSION" -o /out/actualizador ./cmd/actualizador
+
+# Distroless: sin shell ni gestor de paquetes. Corre como root porque habla
+# con el socket de Docker, que ya equivale a root en la máquina.
+FROM gcr.io/distroless/static:nonroot@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3
+# El binario de compose de la arquitectura de la imagen (en producción, amd64).
+ARG COMPOSE=dist/docker-compose-linux-amd64
+COPY --from=construccion /out/actualizador /app
+COPY ${COMPOSE} /docker-compose
+USER 0
+ENTRYPOINT ["/app"]

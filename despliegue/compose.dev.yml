@@ -1,0 +1,23 @@
+# Bases de datos de desarrollo de la consola y del panel central. En el nodo de un cliente irá en el
+# compose del nodo, sin publicar el puerto fuera de la máquina.
+name: sugardaddy-dev
+
+services:
+  postgres:
+    image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+    environment:
+      POSTGRES_USER: sugardaddy
+      POSTGRES_PASSWORD: sugardaddy
+      POSTGRES_DB: consola
+    ports:
+      - '127.0.0.1:5433:5432'
+    volumes:
+      - datos:/var/lib/postgresql/data
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U sugardaddy -d consola']
+      interval: 2s
+      retries: 20
+
+volumes:
+  datos:

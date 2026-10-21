@@ -1,0 +1,167 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://sugardaddy.seguridadsi.com/esquemas/evento.schema.json",
+	"title": "Evento normalizado",
+	"description": "Lo que pasa cuando alguien toca una trampa. Todo lo que hay detrás del sensor (respuestas, listas, SIEM) consume solo este formato. Los campos de origen y detalle los escribe el atacante: son datos hostiles.",
+	"type": "object",
+	"additionalProperties": false,
+	"required": [
+		"version",
+		"id",
+		"cuando",
+		"sensor",
+		"origen",
+		"accion",
+		"severidad",
+		"conexionEstablecida",
+		"hashAnterior"
+	],
+	"properties": {
+		"version": {
+			"enum": [1, 2],
+			"description": "2 desde la 0.8.0, cuando los señuelos pasaron a llamarse trampas. La 1 se sigue aceptando: hay eventos de la 1 encadenados y en colas de sensores sin actualizar."
+		},
+		"id": {
+			"description": "Sin prefijo urn:uuid: es la clave del evento en la base de datos.",
+			"type": "string",
+			"pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+		},
+		"cuando": {
+			"type": "string",
+			"format": "date-time"
+		},
+		"trampa": {
+			"$ref": "#/$defs/trampa"
+		},
+		"senuelo": {
+			"description": "Nombre de trampa en la versión 1.",
+			"$ref": "#/$defs/trampa"
+		},
+		"sensor": {
+			"$ref": "#/$defs/slug"
+		},
+		"origen": {
+			"description": "Quién tocó. Todo opcional: un fichero con baliza no trae puerto, un token no trae usuario.",
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"ip": {
+					"type": "string",
+					"anyOf": [
+						{
+							"format": "ipv4"
+						},
+						{
+							"format": "ipv6"
+						}
+					]
+				},
+				"puerto": {
+					"type": "integer",
+					"minimum": 0,
+					"maximum": 65535
+				},
+				"usuario": {
+					"type": "string",
+					"maxLength": 256
+				},
+				"equipo": {
+					"type": "string",
+					"maxLength": 256
+				},
+				"oculta": {
+					"description": "Lo pone el sensor, no el atacante: la IP es la del propio motor de contenedores (la pasarela de la red de la trampa o su proxy), no la de quien tocó la trampa. Desde la 0.13.1, y solo si la consola lo admite en el plan; los sensores anteriores no lo mandan.",
+					"type": "boolean"
+				}
+			}
+		},
+		"accion": {
+			"type": "string",
+			"enum": [
+				"conexion",
+				"autenticacion",
+				"comando",
+				"lectura",
+				"escritura",
+				"descarga",
+				"baliza",
+				"otra"
+			]
+		},
+		"severidad": {
+			"$ref": "#/$defs/severidad"
+		},
+		"conexionEstablecida": {
+			"description": "Verdadero solo si hubo sesión TCP completa. Un origen sin sesión puede estar falseado y nunca entra en la lista negra compartida.",
+			"type": "boolean"
+		},
+		"detalle": {
+			"description": "Lo propio de cada módulo (comando tecleado, fichero leído). Sin forma fija y hostil.",
+			"type": "object",
+			"maxProperties": 64
+		},
+		"crudo": {
+			"description": "La línea original del honeypot, por si hay que volver a ella.",
+			"type": "string",
+			"maxLength": 65536
+		},
+		"hashAnterior": {
+			"description": "sha256 de los bytes exactos del evento anterior del mismo sensor; 64 ceros en el primero. Borrar o tocar un evento rompe la cadena desde ahí.",
+			"$ref": "#/$defs/sha256"
+		}
+	},
+	"$defs": {
+		"slug": {
+			"type": "string",
+			"pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+		},
+		"sha256": {
+			"type": "string",
+			"pattern": "^[0-9a-f]{64}$"
+		},
+		"severidad": {
+			"type": "string",
+			"enum": ["baja", "media", "alta", "critica"]
+		},
+		"trampa": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["id", "modulo", "tipo"],
+			"properties": {
+				"id": {
+					"$ref": "#/$defs/slug"
+				},
+				"modulo": {
+					"$ref": "#/$defs/slug"
+				},
+				"tipo": {
+					"$ref": "trampa.schema.json#/$defs/tipo"
+				}
+			}
+		}
+	},
+	"oneOf": [
+		{
+			"properties": {
+				"version": {
+					"const": 2
+				}
+			},
+			"required": ["trampa"],
+			"not": {
+				"required": ["senuelo"]
+			}
+		},
+		{
+			"properties": {
+				"version": {
+					"const": 1
+				}
+			},
+			"required": ["senuelo"],
+			"not": {
+				"required": ["trampa"]
+			}
+		}
+	]
+}

@@ -1,0 +1,11 @@
+**/node_modules
+**/.svelte-kit
+**/build
+**/.env
+**/.env.*
+!**/.env.example
+**/.sensores.dev.json
+.claves-dev
+.git
+sensor/bin
+sensor/datos-dev

@@ -1,0 +1,241 @@
+# Retención web (H68, tarpit HTTP) con go-pot: un servidor web que contesta a
+# cualquier ruta con un fichero de configuración o de secretos inventado,
+# servido a 8 bytes por segundo, para que el escáner pierda el tiempo. Cuanto
+# más insiste una IP, más tarda en soltarla.
+version: 1
+id: retencion-web
+nombre: Retención web (tarpit HTTP)
+descripcion: >-
+  Un servidor web que responde a cualquier ruta con un fichero inventado (configuración,
+  credenciales, copias de bases de datos) enviado byte a byte, muy despacio. Registra cada
+  petición, la herramienta que la lanza y cuánto tiempo pierde el escáner atrapado.
+ficha:
+  detecta: >-
+    Escáneres y gusanos que barren la red en busca de ficheros con secretos (.env,
+    .git/config, copias de bases de datos, credenciales de la nube): su IP, las rutas que
+    prueban, la herramienta que usan y cuánto tiempo pierden atrapados. A partir de la cuarta
+    petición de una misma IP, cada respuesta tarda más, así que el barrido se alarga horas.
+  donde: >-
+    En un puerto web (8080, 80) de la red de servidores, la DMZ o la VLAN de gestión, donde
+    nadie navega: cualquier petición que llegue es de alguien que está explorando.
+  requisitos:
+    - Un sensor Linux con Docker (el del nodo o uno instalado en otra máquina).
+    - Abrir en el cortafuegos de esa máquina el puerto que elijas.
+    - 160 MB de memoria libres. Con muchos escáneres a la vez gasta como mucho un cuarto de núcleo y menos de 1 Mbit/s.
+    - Los ficheros falsos llevan claves inventadas con formato de AWS. Si un DLP o un IDS vigila esa red, puede avisar.
+  instalacion:
+    automatica: true
+versionModulo: 0.1.2
+# Sin sensorMinimo: la hora va en RFC 3339 y el puerto como número (formato.go),
+# lo que entienden también los sensores 0.12; y no usa nada del manifiesto que
+# ellos no sepan desplegar.
+tipo: contenedor
+procedencia:
+  proyecto: go-pot
+  url: https://github.com/ryanolee/go-pot
+  # Dependencias MIT, Apache-2.0, BSD-3-Clause y MPL-2.0 (HashiCorp, sin
+  # modificar). Sus avisos, y dónde está el código de las MPL, van dentro de la
+  # imagen, en /licencias.
+  licencia: MIT
+
+contenedor:
+  # Imagen propia, construida con imagen/preparar.sh desde go-pot v1.1.2 con
+  # nuestros arreglos (Fiber inmutable, topes de memoria y plazos por
+  # conexión, conexiones limitadas por IP y en total según la memoria, con
+  # reparto justo cuando se llena, respuestas de error de un servidor
+  # normal, IP del socket, src_port, hora en RFC 3339, duración en segundos,
+  # cachés por IP acotadas, robots.txt propio de cada trampa y registro
+  # rotado a diario con tope por día repartido por IP). Los ceros
+  # los cambia por el digest de verdad herramientas/publicar-trampa.sh
+  # retencion-web; el banco de pruebas (herramientas/probar-trampa.sh) la
+  # sustituye por la que construye en local.
+  imagen: ghcr.io/seguridadsi/sugardaddy-trampa-retencion-web:1.1.2-sd4@sha256:6f6dbc64ec3095734c1c16a11af01ee38c10934ed6153ef42abef15f85ff3d9a
+  puertos:
+    - { interno: 8080, expuesto: '${puerto}', protocolo: tcp }
+  entorno:
+    # go-pot lee su configuración de GOPOT__SECCION__CLAVE.
+    GOPOT__SERVER__HOST: 0.0.0.0
+    GOPOT__SERVER__PORT: '8080'
+    GOPOT__SERVER__NETWORK: tcp4
+    # La IP sale del socket: X-Forwarded-For lo pone el atacante.
+    GOPOT__SERVER__PROXY_HEADER: ''
+    # Una línea al empezar y otra al soltar cada petición, y una por lo que no
+    # llega al tarpit (otro método, cuerpo de más, cabecera de más...); si no
+    # se pudo leer, sin método ni ruta y con peticion: ilegible. En el registro rotado
+    # (rotar.go): go-pot.json, rotado a diario a go-pot.json.AAAA_MM_DD y con
+    # tope de 60 MiB por día. Cada IP puede gastar 1/16 (3,6 MiB): un solo
+    # atacante no lo llena. Lo que se calla (por el cupo de su IP o porque el
+    # día está lleno) sale en un resumen por minuto, de una reserva de 1/32
+    # del día: nunca se queda mudo hasta medianoche. Con los 7 días que guarda
+    # el sensor, menos de 480 MiB: por debajo de su cuota de 512 MiB por trampa.
+    # En la misma carpeta guarda .semilla, propia de cada trampa: de ella sale
+    # su robots.txt, distinto en cada una.
+    GOPOT__SERVER__ACCESS_LOG__MODE: both
+    GOPOT__SERVER__ACCESS_LOG__PATH: rotar:///registros/go-pot.json?tope_mb=60
+    GOPOT__SERVER__ACCESS_LOG__FIELDS_TO_LOG: id,phase,src_ip,src_port,method,host,path,qs,user_agent,duration
+    # El registro propio de go-pot (errores) va a la salida estándar, que el
+    # sensor acota.
+    GOPOT__LOGGING__LEVEL: warn
+    # Topes fijos (no los toca el cliente): la memoria va atada a ellos. 200
+    # conexiones retenidas a la vez y 50 por IP; las demás reciben un 503 al
+    # momento (y se registran). A 8 bytes por segundo, 200 conexiones son
+    # 0,83 Mbit/s de salida y un 11 % de un núcleo (medido). Fijos en la
+    # imagen (server.go):
+    #   - Conexiones abiertas: 64 por IP y, en total, las que caben en
+    #     GOMEMLIMIT con el peor caso de cada una (1.228 con 120 MiB). Las de
+    #     más se cierran sin contestar y salen en un resumen por minuto. Con
+    #     todo lleno, una IP con menos de 4 abiertas entra igualmente: se
+    #     desaloja una de la IP que más tiene (la más antigua que no está a
+    #     media petición), sin contestarle nada, y sale en el mismo resumen.
+    #     Así nadie deja ciega la trampa llenándola desde 20 IP: para dejar
+    #     fuera a una IP nueva hacen falta tantas IP como huecos (1.228).
+    #   - Plazos: 15 s para el primer byte (una conexión callada ya no ocupa
+    #     su hueco para siempre), 10 s para la cabecera, 5 s para el cuerpo y
+    #     15 s entre peticiones.
+    #   - Cuerpos de 4 KiB como mucho (go-pot no los lee): más, 413 al
+    #     momento. Los troceados no se esperan: se contesta y se cierra.
+    #   - Cabeceras de 4 KiB, y de 128 líneas y comas como mucho: más, 431 al
+    #     momento (fasthttp guarda cada línea aparte y eran hasta 130 KiB por
+    #     conexión).
+    GOPOT__STALLER__MAXIMUM_CONNECTIONS: '200'
+    GOPOT__STALLER__GROUP_LIMIT: '50'
+    GOPOT__STALLER__BYTES_PER_SECOND: '8'
+    # Nada que salga de la trampa ni otros puertos: sin clúster (gossip por el
+    # 7946), sin telemetría (Prometheus o push gateway hacia fuera), sin recast
+    # (se apagaría sola) y sin el servidor FTP.
+    GOPOT__CLUSTER__ENABLED: 'false'
+    GOPOT__TELEMETRY__ENABLED: 'false'
+    GOPOT__TELEMETRY__PROMETHEUS__ENABLED: 'false'
+    GOPOT__TELEMETRY__PUSH_GATEWAY__ENABLED: 'false'
+    GOPOT__RECAST__ENABLED: 'false'
+    GOPOT__FTP_SERVER__ENABLED: 'false'
+    # Nunca false: es lo que alarga la espera de cada IP, y sin él go-pot cae
+    # a la primera petición (puntero nulo) y entra en bucle de reinicios. Sus
+    # dos cachés por IP (1 h y 48 h) tienen máximo de 16.384 entradas cada una
+    # (cache_acotada.go): con 300.000 IP distintas, 7,6 MiB (medido). Pasado
+    # eso, la IP que lleva más tiempo sin aparecer vuelve a empezar.
+    GOPOT__TIMEOUT_WATCHER__ENABLED: 'true'
+    # Por debajo de memoriaMb: el recolector aprieta antes de que llegue el OOM.
+    # El tope de conexiones sale de aquí (server.go): si se sube memoriaMb,
+    # hay que subir esto en proporción y el tope sube con ello.
+    GOMEMLIMIT: 120MiB
+  # go-pot no guarda estado en disco: lo único que escribe es su registro.
+  registros: /registros
+
+aislamiento:
+  salida: false
+  soloLectura: true
+  # Medido: 57 MiB al arrancar (39 MiB de montón vivo), 112 MiB de pico con
+  # 200 conexiones retenidas y 103 MiB tras 16.000 peticiones en 3 s. Las
+  # cachés por IP, como mucho unos 8 MiB más. El peor caso de las conexiones
+  # (TestServidorMemoriaPeorCaso, al construir la imagen, en Linux): las 1.228
+  # que admite, desde 20 IP, cada una con la cabecera más cara que se acepta
+  # ya leída y el cuerpo de 4 KiB a medias, son 32,8 KiB cada una, 39 MiB en
+  # total; con go-pot en reposo, las retenidas y las cachés llenas, unos 90
+  # MiB vivos, por debajo de GOMEMLIMIT. Las calladas, 5 KiB cada una.
+  cpu: 0.25
+  memoriaMb: 160
+
+parametros:
+  type: object
+  required: [puerto]
+  properties:
+    puerto:
+      type: integer
+      title: Puerto
+      description: El 8080 o el 80 son los creíbles para un servidor web interno, si la máquina no los usa ya.
+      minimum: 1
+      maximum: 65535
+      default: 8080
+
+eventos:
+  fuente: { tipo: fichero, ruta: go-pot.json }
+  formato: json-lineas
+  campos:
+    # ts es la hora real de cada línea, en RFC 3339 (UTC).
+    cuando: ts
+    ip: src_ip
+    puerto: src_port
+  accion:
+    campo: phase
+    valores:
+      start: lectura
+      end: otra
+      # Lo que no llega al tarpit: otro método (un POST con un exploit),
+      # cuerpo de más, cabecera a medias, de más o mal formada. Si fasthttp no
+      # la pudo leer, sin método ni ruta (no se inventan) y con peticion: ilegible.
+      error: otra
+      rechazos: conexion
+      callados: otra
+    porDefecto: otra
+  severidad:
+    porDefecto: media
+    porValor:
+      # La línea de fin repite la petición con el tiempo que ha perdido.
+      end: baja
+      # Le están dando sin parar: lo de una IP, o de todas, deja de apuntarse
+      # una a una y sale resumido.
+      callados: alta
+      tope: alta
+  # HTTP sobre TCP, y la IP es la del socket (proxy_header vacío): el origen no está falseado.
+  conexionEstablecida: true
+  # Junta el inicio y el fin de cada petición.
+  sesion: id
+  detalle:
+    - phase
+    - method
+    - host
+    - path
+    - qs
+    - user_agent
+    - duration
+    - id
+    - status
+    - peticion
+    - sin_apuntar
+    - de_su_ip
+    - por_cupo_ip
+    - por_tope_dia
+    - rechazadas
+    - por_tope_global
+    - por_tope_ip
+    - desalojadas
+    - ips_distintas
+    - ips_sin_contar
+    - activas
+    - periodo_s
+    - tope_bytes
+    - aviso
+  resumen:
+    [method, path, user_agent, duration, status, peticion, sin_apuntar, rechazadas, desalojadas]
+  etiquetas:
+    phase: Fase
+    method: Método
+    host: Host pedido
+    path: Ruta
+    qs: Parámetros
+    user_agent: Herramienta
+    duration: Retenido (s)
+    id: Petición
+    status: Respuesta
+    peticion: Petición recibida
+    sin_apuntar: Líneas sin apuntar
+    de_su_ip: De esta IP
+    por_cupo_ip: Por el cupo de su IP
+    por_tope_dia: Por el tope del día
+    rechazadas: Conexiones rechazadas
+    por_tope_global: Por el tope total
+    por_tope_ip: Por el tope de su IP
+    desalojadas: Desalojadas para dar sitio a otra IP
+    ips_distintas: IP distintas
+    ips_sin_contar: De otras IP sin contar
+    activas: Conexiones abiertas
+    periodo_s: En los últimos (s)
+    tope_bytes: Tope diario (bytes)
+    aviso: Aviso
+    start: Pide un fichero
+    end: Se suelta
+    error: Petición que no llega al tarpit
+    rechazos: Conexiones rechazadas o desalojadas por tope (resumen)
+    callados: Le dan sin parar; lo suyo sale resumido
+    tope: Registro de hoy lleno; hasta mañana, solo resúmenes

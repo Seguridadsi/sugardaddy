@@ -1,0 +1,909 @@
+diff --git a/protocols/helpers/ntlm/challenge.go b/protocols/helpers/ntlm/challenge.go
+index 14715d0..f10af70 100644
+--- a/protocols/helpers/ntlm/challenge.go
++++ b/protocols/helpers/ntlm/challenge.go
+@@ -41,6 +41,12 @@ type ChallengeOptions struct {
+ 	// DnsDomain, DnsComputer, Timestamp, EOL). When false, only NbDomainName
+ 	// (from TargetName/Domain) + EOL are sent, matching the SMB honeypot.
+ 	RichTargetInfo bool
++	// Sugardaddy: valores explícitos de los AvPair del TargetInfo rico cuando
++	// difieren de Domain/Computer (grupo de trabajo: el equipo va en los campos de
++	// dominio; dominio con FQDN DNS distinto del NetBIOS). Vacío → se derivan de
++	// Domain y Computer como antes, así la salida no cambia en el caso normal.
++	DnsDomain   string // AvDnsDomainName (FQDN); vacío → Domain
++	DnsComputer string // AvDnsComputerName (FQDN); vacío → Computer
+ 	// TargetNUL appends a UTF-16 NUL to TargetName and the NbDomain AvPair
+ 	// value. SMB historically encoded names this way via encodeString.
+ 	TargetNUL bool
+@@ -71,7 +77,18 @@ func BuildChallenge(opts ChallengeOptions) []byte {
+ 		if now.IsZero() {
+ 			now = time.Now()
+ 		}
+-		avPairs = buildRichAvPairs(domain, opts.Computer, now)
++		// Sugardaddy: DnsDomainName y DnsComputerName explícitos cuando difieren
++		// del NetBIOS (grupo de trabajo, FQDN). Vacíos → se derivan de domain y
++		// Computer, con lo que la salida del caso normal no cambia.
++		dnsDomain := opts.DnsDomain
++		if dnsDomain == "" {
++			dnsDomain = domain
++		}
++		dnsComputer := opts.DnsComputer
++		if dnsComputer == "" {
++			dnsComputer = opts.Computer
++		}
++		avPairs = buildRichAvPairs(domain, opts.Computer, dnsDomain, dnsComputer, now)
+ 	} else {
+ 		avPairs = buildMinimalAvPairs(targetName)
+ 	}
+@@ -131,12 +148,12 @@ func buildMinimalAvPairs(targetUTF16 []byte) []byte {
+ 	return b
+ }
+ 
+-func buildRichAvPairs(domain, computer string, now time.Time) []byte {
++func buildRichAvPairs(domain, computer, dnsDomain, dnsComputer string, now time.Time) []byte {
+ 	var b []byte
+ 	b = appendAvPair(b, AvNbDomainName, EncodeUTF16LE(domain))
+ 	b = appendAvPair(b, AvNbComputerName, EncodeUTF16LE(computer))
+-	b = appendAvPair(b, AvDnsDomainName, EncodeUTF16LE(domain))
+-	b = appendAvPair(b, AvDnsComputerName, EncodeUTF16LE(computer))
++	b = appendAvPair(b, AvDnsDomainName, EncodeUTF16LE(dnsDomain))
++	b = appendAvPair(b, AvDnsComputerName, EncodeUTF16LE(dnsComputer))
+ 	ts := make([]byte, 8)
+ 	binary.LittleEndian.PutUint64(ts, ToFILETIME(now))
+ 	b = appendAvPair(b, AvTimestamp, ts)
+diff --git a/protocols/helpers/ntlm/der.go b/protocols/helpers/ntlm/der.go
+index 4b4252a..e63581c 100644
+--- a/protocols/helpers/ntlm/der.go
++++ b/protocols/helpers/ntlm/der.go
+@@ -64,7 +64,13 @@ func parseLength(data []byte) (value []byte, hdrBytes int, ok bool) {
+ 		return data[1 : 1+l], 1, true
+ 	}
+ 	n := int(b & 0x7f)
+-	if n == 0 || 1+n > len(data) {
++	// Sugardaddy: una longitud de más de 4 octetos no cabe en los datos que
++	// manejamos (TSRequest, SPNEGO) y, desplazada byte a byte, desbordaba el int
++	// dejando l negativo: la comprobación hdr+l > len(data) no saltaba y el corte
++	// data[hdr:hdr+l] entraba en pánico (un TSRequest de 12 bytes 30 88 ff..ff
++	// tumbaba el proceso). Se rechaza n > 4 y se comprueba el desbordamiento de
++	// hdr+l antes de cortar.
++	if n == 0 || n > 4 || 1+n > len(data) {
+ 		return nil, 0, false
+ 	}
+ 	var l int
+@@ -72,7 +78,7 @@ func parseLength(data []byte) (value []byte, hdrBytes int, ok bool) {
+ 		l = l<<8 | int(data[1+i])
+ 	}
+ 	hdr := 1 + n
+-	if hdr+l > len(data) {
++	if l < 0 || hdr+l < hdr || hdr+l > len(data) {
+ 		return nil, 0, false
+ 	}
+ 	return data[hdr : hdr+l], hdr, true
+diff --git a/protocols/helpers/tlsterm.go b/protocols/helpers/tlsterm.go
+index d62be2f..ba861a0 100644
+--- a/protocols/helpers/tlsterm.go
++++ b/protocols/helpers/tlsterm.go
+@@ -92,6 +92,25 @@ func TerminateTLSFromWith(cert tls.Certificate, conn net.Conn, r io.Reader) (net
+ 	tlsConn := tls.Server(&recordedConn{Conn: conn, r: rec}, &tls.Config{
+ 		Certificates: []tls.Certificate{cert},
+ 		MinVersion:   tls.VersionTLS10, // see sentinel note at top of file
++		// Sugardaddy: Schannel de un Windows Server 2019 ofrece TLS 1.0–1.2 con
++		// suites RSA/ECDHE-RSA+AES; NO tiene TLS 1.3 ni ChaCha20. La pila de Go por
++		// defecto sí (ssl-enum-ciphers de nmap veía TLSv1.3 y
++		// ECDHE-RSA-CHACHA20-POLY1305), lo que delataba el señuelo. Se topa en
++		// TLS 1.2 y se fija un conjunto de suites tipo Schannel (sin ChaCha20 ni
++		// ECDSA) para que la huella TLS cuadre con el Windows que anuncia el NTLM.
++		MaxVersion: tls.VersionTLS12,
++		CipherSuites: []uint16{
++			tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
++			tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
++			tls.TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256,
++			tls.TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,
++			tls.TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,
++			tls.TLS_RSA_WITH_AES_256_GCM_SHA384,
++			tls.TLS_RSA_WITH_AES_128_GCM_SHA256,
++			tls.TLS_RSA_WITH_AES_128_CBC_SHA256,
++			tls.TLS_RSA_WITH_AES_256_CBC_SHA,
++			tls.TLS_RSA_WITH_AES_128_CBC_SHA,
++		},
+ 		GetConfigForClient: func(hello *tls.ClientHelloInfo) (*tls.Config, error) {
+ 			info.ServerName = hello.ServerName
+ 			info.ALPN = append([]string(nil), hello.SupportedProtos...)
+diff --git a/protocols/tcp/rdp.go b/protocols/tcp/rdp.go
+index 5f6024e..b474af7 100644
+--- a/protocols/tcp/rdp.go
++++ b/protocols/tcp/rdp.go
+@@ -11,7 +11,6 @@ import (
+ 	"net"
+ 
+ 	"github.com/mushorg/glutton/connection"
+-	"github.com/mushorg/glutton/producer"
+ 	"github.com/mushorg/glutton/protocols/helpers"
+ 	"github.com/mushorg/glutton/protocols/interfaces"
+ 	"github.com/mushorg/glutton/protocols/tcp/rdp"
+@@ -46,6 +45,10 @@ type parsedRDP struct {
+ 	Header      *rdp.TKIPHeader `json:"header,omitempty"`
+ 	Payload     []byte          `json:"payload,omitempty"`
+ 	Truncated   bool            `json:"truncated,omitempty"`
++	// Sugardaddy: huellas del ClientHello TLS (identifican la herramienta del
++	// atacante aunque cambie de IP).
++	JA3 string `json:"ja3,omitempty"`
++	JA4 string `json:"ja4,omitempty"`
+ }
+ 
+ const (
+@@ -57,8 +60,24 @@ const (
+ 	// rdpMaxFrames bounds the session so a client looping on unknown PDUs
+ 	// cannot grow the event without limit.
+ 	rdpMaxFrames = 128
++	// Sugardaddy: de cada marco solo se guarda un prefijo en memoria (el
++	// contenido no se registra; el mapeador solo lee campos ya decodificados).
++	// Sin esto, 128 marcos de 16 KiB por conexión darían ~2 MiB por atacante.
++	rdpMaxStoredPayload = 1024
++	// cmdPanic es el command del marco que deja el recover por conexión; el
++	// mapeador lo traduce a rdp.error.
++	cmdPanic = "Panic"
+ )
+ 
++// add guarda un marco recortando su contenido a rdpMaxStoredPayload (Sugardaddy).
++func (rs *rdpServer) add(fr parsedRDP) {
++	if len(fr.Payload) > rdpMaxStoredPayload {
++		fr.Payload = append([]byte(nil), fr.Payload[:rdpMaxStoredPayload]...)
++		fr.Truncated = true
++	}
++	rs.events = append(rs.events, fr)
++}
++
+ type rdpServer struct {
+ 	events []parsedRDP
+ 	conn   net.Conn
+@@ -100,7 +119,7 @@ func (rs *rdpServer) write(header *rdp.TKIPHeader, data []byte) error {
+ // writeFrame sends fr.Payload and records fr as a write frame.
+ func (rs *rdpServer) writeFrame(fr parsedRDP) error {
+ 	fr.Direction = "write"
+-	rs.events = append(rs.events, fr)
++	rs.add(fr)
+ 	_, err := rs.conn.Write(fr.Payload)
+ 	return err
+ }
+@@ -140,12 +159,28 @@ func (rs *rdpServer) handleTPKT(raw []byte) (done bool, endReason string, err er
+ 		}
+ 		fr.Cookie = rdp.MSTSHASH(raw)
+ 		fr.Protocols = rdp.RequestedProtocols(pdu)
+-		rs.selected = rdp.SelectProtocol(rdp.RequestedMask(pdu))
+-		rs.events = append(rs.events, fr)
++		mask := rdp.RequestedMask(pdu)
++		rs.add(fr)
+ 		rs.logger.Debug(fmt.Sprintf("rdp req pdu: %+v", pdu))
+ 		if len(pdu.Data) > 0 {
+ 			rs.logger.Debug(fmt.Sprintf("rdp data: %s", string(pdu.Data)))
+ 		}
++		// Sugardaddy: en modo NLA, si el cliente trae RDP_NEG_REQ pero no pide
++		// CredSSP, se responde RDP_NEG_FAILURE HYBRID_REQUIRED_BY_SERVER, como un
++		// Windows Server que exige NLA (así rdp-enum-encryption no ve Native RDP ni
++		// SSL "a pelo" como válidos y la ficha no miente). Un CR sin RDP_NEG_REQ
++		// (sondas antiguas) sigue recibiendo el CC de 11 bytes.
++		if rdp.HasRDPNegReq(pdu) && rdp.ExigeNLA(mask) {
++			fcHeader, resp, err := rdp.ConnectionFailure(pdu.TPDU, rdp.HybridRequired())
++			if err != nil {
++				return true, connection.EndWriteError, err
++			}
++			if err := rs.write(&fcHeader, resp); err != nil {
++				return true, connection.EndWriteError, err
++			}
++			return true, connection.EndHandlerClose, nil
++		}
++		rs.selected = rdp.SelectProtocol(mask)
+ 		ccHeader, resp, err := rdp.ConnectionConfirm(pdu.TPDU, rdp.HasRDPNegReq(pdu), rs.selected)
+ 		if err != nil {
+ 			return true, connection.EndWriteError, err
+@@ -156,7 +191,7 @@ func (rs *rdpServer) handleTPKT(raw []byte) (done bool, endReason string, err er
+ 		}
+ 	case rdp.IsMCSConnectInitial(raw):
+ 		fr.ClientData = rdp.ParseClientData(raw)
+-		rs.events = append(rs.events, fr)
++		rs.add(fr)
+ 		rs.logger.Debug("rdp MCS Connect-Initial", slog.String("protocol", "rdp"), slog.Int("bytes", len(raw)))
+ 		channels := 0
+ 		if fr.ClientData != nil {
+@@ -167,7 +202,7 @@ func (rs *rdpServer) handleTPKT(raw []byte) (done bool, endReason string, err er
+ 			return true, connection.EndWriteError, err
+ 		}
+ 	case fr.Command == rdp.CmdAttachUserRequest:
+-		rs.events = append(rs.events, fr)
++		rs.add(fr)
+ 		h, resp := rdp.AttachUserConfirm()
+ 		if err := rs.writeFrame(parsedRDP{Header: &h, Command: rdp.CmdAttachUserConfirm, Payload: resp}); err != nil {
+ 			return true, connection.EndWriteError, err
+@@ -175,7 +210,7 @@ func (rs *rdpServer) handleTPKT(raw []byte) (done bool, endReason string, err er
+ 	case fr.Command == rdp.CmdChannelJoinRequest:
+ 		initiator, channel, ok := rdp.ChannelJoinRequest(raw)
+ 		fr.ChannelID = channel
+-		rs.events = append(rs.events, fr)
++		rs.add(fr)
+ 		if !ok {
+ 			break
+ 		}
+@@ -191,12 +226,12 @@ func (rs *rdpServer) handleTPKT(raw []byte) (done bool, endReason string, err er
+ 		}
+ 		ci, ok := rdp.ParseClientInfo(payload)
+ 		if !ok {
+-			rs.events = append(rs.events, fr)
++			rs.add(fr)
+ 			break
+ 		}
+ 		fr.Command = rdp.CmdClientInfo
+ 		fr.ClientInfo = &ci
+-		rs.events = append(rs.events, fr)
++		rs.add(fr)
+ 		rs.logger.Debug("rdp Client Info",
+ 			slog.String("protocol", "rdp"),
+ 			slog.String("domain", ci.Domain),
+@@ -204,7 +239,7 @@ func (rs *rdpServer) handleTPKT(raw []byte) (done bool, endReason string, err er
+ 		)
+ 		return true, connection.EndHandlerClose, rs.denyLogon()
+ 	default:
+-		rs.events = append(rs.events, fr)
++		rs.add(fr)
+ 		rs.logger.Debug("rdp unhandled TPDU", slog.String("protocol", "rdp"), slog.String("command", fr.Command))
+ 	}
+ 	return false, connection.EndHandlerClose, nil
+@@ -234,7 +269,7 @@ func (rs *rdpServer) flushPending() {
+ 		return
+ 	}
+ 	header := rdp.ParseTKIPHeader(rs.pending)
+-	rs.events = append(rs.events, parsedRDP{
++	rs.add(parsedRDP{
+ 		Direction: "read",
+ 		Command:   rdp.FrameCommand(rs.pending),
+ 		Header:    &header,
+@@ -255,18 +290,32 @@ func HandleRDP(ctx context.Context, conn net.Conn, md connection.Metadata, logge
+ 	defer func() {
+ 		md.EndReason = endReason
+ 		if err := h.ProduceTCP("rdp", conn, md, helpers.FirstOrEmpty[parsedRDP](server.events).Payload, server.events); err != nil {
+-			logger.Error("Failed to produce message", slog.String("protocol", "rdp"), producer.ErrAttr(err))
++			logger.Error("Failed to produce message", slog.String("protocol", "rdp"), slog.Any("error", err))
+ 		}
+ 		if err := conn.Close(); err != nil {
+-			logger.Debug("Failed to close RDP connection", slog.String("protocol", "rdp"), producer.ErrAttr(err))
++			logger.Debug("Failed to close RDP connection", slog.String("protocol", "rdp"), slog.Any("error", err))
++		}
++	}()
++	// Sugardaddy: red de seguridad por conexión. Registrado el fallo de longitud
++	// DER (ver ntlm/der.go), ningún marco malformado debería hacer pánico; pero
++	// si un parser de glutton lo hiciera, este recover lo captura, deja un marco
++	// rdp.error en la sesión (lo emite el defer de ProduceTCP, que corre después)
++	// y cierra SOLO esta conexión, en vez de tumbar el proceso y reiniciar la
++	// trampa (perdiendo todas las sesiones en curso). Se registra aquí, antes del
++	// defer de arriba, para que el evento de error salga en el registro.
++	defer func() {
++		if r := recover(); r != nil {
++			server.add(parsedRDP{Direction: "read", Command: cmdPanic})
++			endReason = connection.EndHandlerClose
++			logger.Error("RDP handler recovered from panic", slog.String("protocol", "rdp"), slog.Any("panic", r))
+ 		}
+ 	}()
+ 
+ 	// Obtain the sensor's stable identity once per handler invocation.
+ 	rdpComputer, _ := rdp.Identity()
+-	rdpCert, certErr := helpers.SelfSignedCertificateRDP(rdpComputer)
++	rdpCert, certErr := rdp.CertificadoSD(rdpComputer)
+ 	if certErr != nil {
+-		logger.Error("Failed to get RDP TLS certificate", slog.String("protocol", "rdp"), producer.ErrAttr(certErr))
++		logger.Error("Failed to get RDP TLS certificate", slog.String("protocol", "rdp"), slog.Any("error", certErr))
+ 		endReason = connection.EndHandlerClose
+ 		return certErr
+ 	}
+@@ -291,14 +340,14 @@ func HandleRDP(ctx context.Context, conn net.Conn, md connection.Metadata, logge
+ 			return nil
+ 		}
+ 		if err := h.UpdateConnectionTimeout(ctx, conn); err != nil {
+-			logger.Debug("Failed to set connection timeout", slog.String("protocol", "rdp"), producer.ErrAttr(err))
++			logger.Debug("Failed to set connection timeout", slog.String("protocol", "rdp"), slog.Any("error", err))
+ 			server.flushPending()
+ 			endReason = connection.EndTimeout
+ 			return nil
+ 		}
+ 		n, err := rd.Read(buffer)
+ 		if err != nil && n <= 0 {
+-			logger.Debug("Failed to read from connection", slog.String("protocol", "rdp"), producer.ErrAttr(err))
++			logger.Debug("Failed to read from connection", slog.String("protocol", "rdp"), slog.Any("error", err))
+ 			server.flushPending()
+ 			endReason = connection.EndReasonFromRead(err)
+ 			return nil
+@@ -318,21 +367,23 @@ func HandleRDP(ctx context.Context, conn net.Conn, md connection.Metadata, logge
+ 			tlsConn, info, hsErr := helpers.TerminateTLSFromWith(rdpCert, rec, io.MultiReader(bytes.NewReader(raw), conn))
+ 			rec.on = false
+ 			md.TLS = info
+-			server.events = append(server.events, parsedRDP{
++			server.add(parsedRDP{
+ 				Direction: "read",
+ 				Command:   rdp.CmdTLSClientHello,
+ 				Payload:   info.Hello,
+ 				Truncated: info.Truncated,
++				JA3:       info.JA3,
++				JA4:       info.JA4,
+ 			})
+ 			if rec.buf.Len() > 0 {
+-				server.events = append(server.events, parsedRDP{
++				server.add(parsedRDP{
+ 					Direction: "write",
+ 					Command:   rdp.CmdTLSHandshake,
+ 					Payload:   append([]byte(nil), rec.buf.Bytes()...),
+ 				})
+ 			}
+ 			if hsErr != nil {
+-				logger.Debug("RDP TLS handshake failed", slog.String("protocol", "rdp"), producer.ErrAttr(hsErr))
++				logger.Debug("RDP TLS handshake failed", slog.String("protocol", "rdp"), slog.Any("error", hsErr))
+ 				endReason = connection.EndClientClose
+ 				return nil
+ 			}
+@@ -351,7 +402,7 @@ func HandleRDP(ctx context.Context, conn net.Conn, md connection.Metadata, logge
+ 				fr.Command = rdp.CmdNTLMNegotiate
+ 				fr.SPNEGO = parsed.SPNEGO
+ 				ntlmNegotiateFlags = parsed.NegotiateFlags
+-				server.events = append(server.events, fr)
++				server.add(fr)
+ 				logger.Debug("rdp CredSSP NTLM Negotiate", slog.String("protocol", "rdp"), slog.Int("bytes", len(raw)))
+ 				computer, domain := rdp.Identity()
+ 				resp, nonce, err := rdp.BuildTSRequestChallengeNonce(rdp.NTLMChallengeOptions{
+@@ -386,7 +437,7 @@ func HandleRDP(ctx context.Context, conn net.Conn, md connection.Metadata, logge
+ 				)
+ 				if out, user, ok := rdp.MatchAccount(parsed, serverChallenge, subjectPublicKey); ok {
+ 					fr.NLAAccepted = true
+-					server.events = append(server.events, fr)
++					server.add(fr)
+ 					logger.Debug("rdp CredSSP NLA accepted", slog.String("protocol", "rdp"), slog.String("user", user))
+ 					if err := server.writeFrame(parsedRDP{
+ 						Command:     rdp.CmdTSRequest,
+@@ -395,14 +446,14 @@ func HandleRDP(ctx context.Context, conn net.Conn, md connection.Metadata, logge
+ 						NTLMUser:    user,
+ 						Payload:     out.Reply,
+ 					}); err != nil {
+-						logger.Debug("Failed to write CredSSP confirmation", slog.String("protocol", "rdp"), producer.ErrAttr(err))
++						logger.Debug("Failed to write CredSSP confirmation", slog.String("protocol", "rdp"), slog.Any("error", err))
+ 						endReason = connection.EndWriteError
+ 						return nil
+ 					}
+ 					server.nla = out.Session
+ 					continue
+ 				}
+-				server.events = append(server.events, fr)
++				server.add(fr)
+ 				// Fail the logon like Windows does so brute-forcers see a bad
+ 				// password, not a dropped connection, and try their next guess.
+ 				if err := server.writeFrame(parsedRDP{
+@@ -410,7 +461,7 @@ func HandleRDP(ctx context.Context, conn net.Conn, md connection.Metadata, logge
+ 					Status:  "STATUS_LOGON_FAILURE",
+ 					Payload: rdp.BuildTSRequestError(rdp.StatusLogonFailure),
+ 				}); err != nil {
+-					logger.Debug("Failed to write CredSSP error", slog.String("protocol", "rdp"), producer.ErrAttr(err))
++					logger.Debug("Failed to write CredSSP error", slog.String("protocol", "rdp"), slog.Any("error", err))
+ 				}
+ 				return nil
+ 			default:
+@@ -422,11 +473,11 @@ func HandleRDP(ctx context.Context, conn net.Conn, md connection.Metadata, logge
+ 						fr.NLAPassword = password
+ 						fr.NLAAccepted = true
+ 					}
+-					server.events = append(server.events, fr)
++					server.add(fr)
+ 					logger.Debug("rdp CredSSP authInfo", slog.String("protocol", "rdp"), slog.String("user", fr.NTLMUser))
+ 					continue
+ 				}
+-				server.events = append(server.events, fr)
++				server.add(fr)
+ 				logger.Debug("rdp CredSSP TSRequest", slog.String("protocol", "rdp"), slog.Int("bytes", len(raw)))
+ 				return nil
+ 			}
+diff --git a/protocols/tcp/rdp/credssp.go b/protocols/tcp/rdp/credssp.go
+index 7817ce7..c836539 100644
+--- a/protocols/tcp/rdp/credssp.go
++++ b/protocols/tcp/rdp/credssp.go
+@@ -3,6 +3,7 @@ package rdp
+ import (
+ 	"crypto/rand"
+ 	"encoding/binary"
++	"strings"
+ 	"time"
+ 
+ 	"github.com/mushorg/glutton/protocols/helpers/ntlm"
+@@ -266,16 +267,45 @@ func derInteger(val []byte) int {
+ }
+ 
+ func buildNTLMChallenge(serverChallenge []byte, opts NTLMChallengeOptions) []byte {
++	// Sugardaddy: un Windows de grupo de trabajo anuncia su NOMBRE DE EQUIPO en
++	// el TargetName y en los campos de dominio del NTLM (NbDomainName,
++	// DnsDomainName), no la palabra "WORKGROUP" (eso delataba la trampa en
++	// rdp-ntlm-info). Si se configura un dominio DNS (SD_RDP_DOMINIO_DNS), el
++	// DnsDomainName lleva el FQDN y el DnsComputerName, equipo.FQDN.
++	nbDomain := opts.Domain
++	targetName := opts.Domain
++	dnsDomain := DominioDNS()
++	dnsComputer := opts.Computer
++	if esGrupoTrabajo(opts.Domain) {
++		nbDomain = opts.Computer
++		targetName = opts.Computer
++	}
++	if dnsDomain != "" {
++		dnsComputer = opts.Computer + "." + dnsDomain
++	} else if esGrupoTrabajo(opts.Domain) {
++		// Grupo de trabajo sin FQDN: el DnsDomainName es el propio equipo (un
++		// Windows standalone no tiene dominio DNS).
++		dnsDomain = opts.Computer
++	}
+ 	return ntlm.BuildChallenge(ntlm.ChallengeOptions{
+ 		ServerChallenge: serverChallenge,
+-		Domain:          opts.Domain,
++		TargetName:      targetName,
++		Domain:          nbDomain,
+ 		Computer:        opts.Computer,
++		DnsDomain:       dnsDomain,
++		DnsComputer:     dnsComputer,
+ 		ClientFlags:     opts.ClientFlags,
+ 		Now:             opts.Now,
+ 		RichTargetInfo:  true,
+ 	})
+ }
+ 
++// esGrupoTrabajo indica si el "dominio" es en realidad un grupo de trabajo (sin
++// dominio AD): vacío o "WORKGROUP" (sin distinguir mayúsculas).
++func esGrupoTrabajo(dominio string) bool {
++	return dominio == "" || strings.EqualFold(dominio, "WORKGROUP")
++}
++
+ // Thin aliases so nla.go and tests keep a local vocabulary.
+ func utf16LE(s string) []byte                        { return ntlm.EncodeUTF16LE(s) }
+ func toFILETIME(t time.Time) uint64                  { return ntlm.ToFILETIME(t) }
+diff --git a/protocols/tcp/rdp/credssp_ntlm_test.go b/protocols/tcp/rdp/credssp_ntlm_test.go
+index 356f9ad..b12da97 100644
+--- a/protocols/tcp/rdp/credssp_ntlm_test.go
++++ b/protocols/tcp/rdp/credssp_ntlm_test.go
+@@ -99,10 +99,62 @@ func TestBuildTSRequestChallengeWithOptions(t *testing.T) {
+ 	require.NotNil(t, ntlm)
+ 	require.Equal(t, ntlmSig, string(ntlm[:8]))
+ 	require.Equal(t, uint32(NTLMMsgChallenge), binary.LittleEndian.Uint32(ntlm[8:12]))
+-	// TargetName must encode "WORKGROUP".
++	// Sugardaddy: en grupo de trabajo, un Windows real anuncia su NOMBRE DE
++	// EQUIPO en el TargetName (no la palabra "WORKGROUP"), así que aquí debe
++	// encodear "WIN-TEST".
+ 	targetNameOff := int(binary.LittleEndian.Uint32(ntlm[16:20]))
+ 	targetNameLen := int(binary.LittleEndian.Uint16(ntlm[12:14]))
+-	require.Equal(t, utf16LE("WORKGROUP"), ntlm[targetNameOff:targetNameOff+targetNameLen])
++	require.Equal(t, utf16LE("WIN-TEST"), ntlm[targetNameOff:targetNameOff+targetNameLen])
++}
++
++// TestChallengeGrupoTrabajoYDominio comprueba la identidad NTLM que anuncia la
++// trampa (Sugardaddy): en grupo de trabajo, el NbDomainName y el DnsDomainName
++// llevan el nombre del equipo; con un dominio NetBIOS, ese nombre; y si se
++// configura un dominio DNS, el FQDN y el DnsComputerName equipo.FQDN.
++func TestChallengeGrupoTrabajoYDominio(t *testing.T) {
++	avVal := func(resp []byte, id uint16) string {
++		ntlmMsg := negoTokenFromTSRequest(resp)
++		infoOff := int(binary.LittleEndian.Uint32(ntlmMsg[44:48]))
++		infoLen := int(binary.LittleEndian.Uint16(ntlmMsg[40:42]))
++		av := ntlmMsg[infoOff : infoOff+infoLen]
++		for len(av) >= 4 {
++			t := binary.LittleEndian.Uint16(av[0:2])
++			l := int(binary.LittleEndian.Uint16(av[2:4]))
++			if 4+l > len(av) {
++				break
++			}
++			if t == id {
++				return decodeUTF16(av[4 : 4+l])
++			}
++			av = av[4+l:]
++		}
++		return ""
++	}
++
++	// Grupo de trabajo: NbDomain y DnsDomain = equipo.
++	resp, err := BuildTSRequestChallengeWith(NTLMChallengeOptions{Computer: "WIN-TEST", Domain: "WORKGROUP", Now: fixedNow})
++	require.NoError(t, err)
++	require.Equal(t, "WIN-TEST", avVal(resp, uint16(avNbDomainName)))
++	require.Equal(t, "WIN-TEST", avVal(resp, uint16(avNbComputerName)))
++	require.Equal(t, "WIN-TEST", avVal(resp, uint16(avDnsDomainName)))
++
++	// Dominio NetBIOS sin FQDN: comportamiento anterior (NbDomain = dominio).
++	resp, err = BuildTSRequestChallengeWith(NTLMChallengeOptions{Computer: "TS01", Domain: "CORP", Now: fixedNow})
++	require.NoError(t, err)
++	require.Equal(t, "CORP", avVal(resp, uint16(avNbDomainName)))
++	require.Equal(t, "CORP", avVal(resp, uint16(avDnsDomainName)))
++	require.Equal(t, "TS01", avVal(resp, uint16(avDnsComputerName)))
++}
++
++func decodeUTF16(b []byte) string {
++	if len(b)%2 != 0 {
++		return ""
++	}
++	r := make([]rune, 0, len(b)/2)
++	for i := 0; i < len(b); i += 2 {
++		r = append(r, rune(uint16(b[i])|uint16(b[i+1])<<8))
++	}
++	return string(r)
+ }
+ 
+ func TestToFILETIME(t *testing.T) {
+diff --git a/protocols/tcp/rdp/identity.go b/protocols/tcp/rdp/identity.go
+index e87c249..3baefc6 100644
+--- a/protocols/tcp/rdp/identity.go
++++ b/protocols/tcp/rdp/identity.go
+@@ -8,8 +8,6 @@ import (
+ 	"path/filepath"
+ 	"regexp"
+ 	"sync"
+-
+-	"github.com/spf13/viper"
+ )
+ 
+ var (
+diff --git a/protocols/tcp/rdp/identity_test.go b/protocols/tcp/rdp/identity_test.go
+index 3b7624d..7178b1e 100644
+--- a/protocols/tcp/rdp/identity_test.go
++++ b/protocols/tcp/rdp/identity_test.go
+@@ -6,7 +6,6 @@ import (
+ 	"strings"
+ 	"testing"
+ 
+-	"github.com/spf13/viper"
+ 	"github.com/stretchr/testify/require"
+ )
+ 
+diff --git a/protocols/tcp/rdp/mcs.go b/protocols/tcp/rdp/mcs.go
+index 32fe72e..a52a35a 100644
+--- a/protocols/tcp/rdp/mcs.go
++++ b/protocols/tcp/rdp/mcs.go
+@@ -59,9 +59,12 @@ func wrapX224DT(payload []byte) ([]byte, TKIPHeader) {
+ // the number of static channels the client asked for in CS_NET; SC_NET assigns
+ // each one an ID from 1004 so clients go on to join them.
+ func MCSConnectResponse(selected uint32, channels int) (TKIPHeader, []byte) {
+-	// TS_UD_SC_CORE (0x0c01), length 16: version 0x00080004, then
+-	// clientRequestedProtocols.
+-	scCore := []byte{0x01, 0x0c, 0x10, 0x00, 0x04, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
++	// TS_UD_SC_CORE (0x0c01), length 16: version, then clientRequestedProtocols.
++	// Sugardaddy: versión 0x0008000B (RDP 10.x), coherente con el reto NTLM que
++	// anuncia Windows 10.0.17763 (Server 2019). El 0x00080004 del upstream lo
++	// mapeaba nselib/rdp.lua a "RDP 5.x–8.x", contradiciendo esa versión: un
++	// clasificador que cruza SC_CORE y el NTLM veía una combinación imposible.
++	scCore := []byte{0x01, 0x0c, 0x10, 0x00, 0x0b, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
+ 	binary.LittleEndian.PutUint32(scCore[8:12], selected)
+ 	// TS_UD_SC_NET (0x0c03): I/O channel 1003, then one ID per static
+ 	// channel, padded to a multiple of four bytes.
+diff --git a/protocols/tcp/rdp/nla.go b/protocols/tcp/rdp/nla.go
+index 2c790d8..3f6326c 100644
+--- a/protocols/tcp/rdp/nla.go
++++ b/protocols/tcp/rdp/nla.go
+@@ -14,7 +14,6 @@ import (
+ 	"time"
+ 
+ 	"github.com/mushorg/glutton/protocols/helpers/ntlm"
+-	"github.com/spf13/viper"
+ 	"golang.org/x/crypto/md4"
+ )
+ 
+@@ -166,13 +165,19 @@ func (s *NLASession) seal(plain, sign []byte, cipher *rc4cipher, seq *uint32) []
+ 	binary.LittleEndian.PutUint32(seqb, *seq)
+ 	*seq++
+ 	mac := hmacMD5(sign, append(seqb, plain...))[:8]
++	// Sugardaddy: el cifrado RC4 va primero sobre el MENSAJE y después sobre la
++	// suma de control (MS-NLMP 3.4.4), que es el orden de los clientes NLA
++	// reales (Windows, FreeRDP, impacket). El upstream lo hacía al revés —solo
++	// compatible consigo mismo—, así que la trampa no aceptaba el login de
++	// ninguna herramienta de verdad y nunca llegaba a capturar la contraseña en
++	// claro. openClient hace el mismo orden al abrir.
++	ct := make([]byte, len(plain))
++	cipher.XORKeyStream(ct, plain)
+ 	if s.keyExch {
+ 		enc := make([]byte, 8)
+ 		cipher.XORKeyStream(enc, mac)
+ 		mac = enc
+ 	}
+-	ct := make([]byte, len(plain))
+-	cipher.XORKeyStream(ct, plain)
+ 	out := make([]byte, 16+len(ct))
+ 	binary.LittleEndian.PutUint32(out[0:4], 1)
+ 	copy(out[4:12], mac)
+@@ -187,13 +192,15 @@ func (s *NLASession) openClient(msg []byte) ([]byte, bool) {
+ 	}
+ 	mac := append([]byte(nil), msg[4:12]...)
+ 	seq := msg[12:16]
++	// Mismo orden que seal (MS-NLMP 3.4.4): primero se descifra el MENSAJE y
++	// luego la suma de control.
++	plain := make([]byte, len(msg)-16)
++	s.clientSeal.XORKeyStream(plain, msg[16:])
+ 	if s.keyExch {
+ 		dec := make([]byte, 8)
+ 		s.clientSeal.XORKeyStream(dec, mac)
+ 		mac = dec
+ 	}
+-	plain := make([]byte, len(msg)-16)
+-	s.clientSeal.XORKeyStream(plain, msg[16:])
+ 	if !hmac.Equal(mac, hmacMD5(s.clientSign, append(append([]byte{}, seq...), plain...))[:8]) {
+ 		return nil, false
+ 	}
+@@ -290,10 +297,16 @@ func bitStringFromSPKI(spki []byte) []byte {
+ 	inner := derValue(spki, 0x30)
+ 	_, _, rest := derNext(inner)
+ 	tag, val, _ := derNext(rest)
+-	if tag != 0x03 {
++	if tag != 0x03 || len(val) == 0 {
+ 		return nil
+ 	}
+-	return append([]byte(nil), val...)
++	// Sugardaddy: el primer octeto de un BIT STRING es el número de bits sin
++	// usar (0x00 en una clave). MS-CSSP usa el CONTENIDO del subjectPublicKey
++	// sin ese octeto: así lo cifran en el pubKeyAuth los clientes NLA reales
++	// (Windows, FreeRDP, impacket). El upstream dejaba el 0x00 delante y solo
++	// cuadraba consigo mismo, de modo que ningún cliente de verdad completaba
++	// el NLA. Se descarta aquí para interoperar.
++	return append([]byte(nil), val[1:]...)
+ }
+ 
+ // NetNTLMv2 builds a hashcat mode 5600 string
+diff --git a/protocols/tcp/rdp/nla_test.go b/protocols/tcp/rdp/nla_test.go
+index 696f2b6..822df2b 100644
+--- a/protocols/tcp/rdp/nla_test.go
++++ b/protocols/tcp/rdp/nla_test.go
+@@ -7,7 +7,6 @@ import (
+ 	"testing"
+ 
+ 	"github.com/mushorg/glutton/protocols/helpers"
+-	"github.com/spf13/viper"
+ 	"github.com/stretchr/testify/require"
+ )
+ 
+@@ -19,7 +18,10 @@ func testSubjectPublicKey(t *testing.T) []byte {
+ 	require.NoError(t, err)
+ 	pub := SubjectPublicKey(c)
+ 	require.NotEmpty(t, pub)
+-	require.Equal(t, byte(0x00), pub[0], "BIT STRING unused-bits prefix")
++	// Sugardaddy: el subjectPublicKey va sin el octeto de bits sin usar del BIT
++	// STRING (lo que cifran los clientes NLA reales), así que empieza por la
++	// SEQUENCE de la RSAPublicKey (0x30), no por 0x00.
++	require.Equal(t, byte(0x30), pub[0], "RSAPublicKey DER sin el octeto de bits sin usar")
+ 	return pub
+ }
+ 
+diff --git a/protocols/tcp/rdp/rdp.go b/protocols/tcp/rdp/rdp.go
+index c8f7318..c315951 100644
+--- a/protocols/tcp/rdp/rdp.go
++++ b/protocols/tcp/rdp/rdp.go
+@@ -65,6 +65,11 @@ const (
+ 	tpduTypeMask          = 0xf0
+ 	rdpNegReqType         = 0x01
+ 	rdpNegRspType         = 0x02
++	// rdpNegFailureType y el código de fallo HYBRID_REQUIRED_BY_SERVER
++	// (MS-RDPBCGR 2.2.1.2.2): lo que responde un servidor que EXIGE NLA cuando
++	// el cliente no pide CredSSP (Sugardaddy, modo seguridad=nla).
++	rdpNegFailureType             = 0x03
++	hybridRequiredByServer uint32 = 0x00000005
+ 
+ 	// TPKT length bounds for a Connection Request: 4-byte TPKT + 7-byte
+ 	// X.224 CR at minimum; cookie, routing token and RDP_NEG_REQ stay small.
+@@ -77,6 +82,52 @@ const (
+ 	ProtocolHybrid uint32 = 0x2
+ )
+ 
++// Sugardaddy: identidad X.224 de un Windows Terminal Services real (ver
++// ConnectionConfirm). winSrcRef es el SRC-REF del CC; negRspFlags son los flags
++// del RDP_NEG_RSP (EXTENDED_CLIENT_DATA_SUPPORTED|DYNVC_GFX|RESTRICTED_ADMIN|
++// REDIRECTED_AUTH = 0x1f), que nmap exige para clasificarla como Windows.
++var (
++	winSrcRef   = [2]byte{0x12, 0x34}
++	negRspFlags = byte(0x1f)
++)
++
++// ConnectionFailure builds the X.224 CC carrying an RDP_NEG_FAILURE with the
++// given failure code (MS-RDPBCGR 2.2.1.2 + 2.2.1.2.2). Sugardaddy lo usa en modo
++// NLA para rechazar a quien no pide CredSSP, como un Windows que exige NLA.
++func ConnectionFailure(cr CRTPDU, failureCode uint32) (TKIPHeader, []byte, error) {
++	cc := ConnectionConfirmPDU{
++		Header: TKIPHeader{Version: 3},
++		TPDU: CCTPDU{
++			Length: 14,
++			CCCDT:  TPDUConnectionConfirm,
++			DstRef: cr.SrcRef,
++			SrcRef: winSrcRef,
++		},
++		Response: NegotiationResponse{
++			Type: rdpNegFailureType,
++		},
++	}
++	binary.LittleEndian.PutUint32(cc.Response.SelectedProtocol[:], failureCode)
++	binary.LittleEndian.PutUint16(cc.Response.Length[:], 8)
++	buf := new(bytes.Buffer)
++	if err := binary.Write(buf, binary.LittleEndian, cc); err != nil {
++		return TKIPHeader{}, nil, err
++	}
++	binary.BigEndian.PutUint16(cc.Header.Length[:], uint16(buf.Len()))
++	binary.BigEndian.PutUint16(buf.Bytes()[2:4], uint16(buf.Len()))
++	return cc.Header, buf.Bytes(), nil
++}
++
++// ExigeNLA indica si la trampa exige CredSSP/NLA (SD_RDP_SEGURIDAD=nla): en ese
++// caso un CR que no pide HYBRID recibe RDP_NEG_FAILURE HYBRID_REQUIRED_BY_SERVER,
++// como un Windows Server moderno con NLA obligatorio.
++func ExigeNLA(requested uint32) bool {
++	return preferirNLA() && requested&ProtocolHybrid == 0
++}
++
++// HybridRequired es el código de fallo que acompaña a ExigeNLA.
++func HybridRequired() uint32 { return hybridRequiredByServer }
++
+ // RequestedMask returns the protocol bitmask from the CR's RDP_NEG_REQ, or 0
+ // when there is none.
+ func RequestedMask(pdu ConnectionRequestPDU) uint32 {
+@@ -93,8 +144,16 @@ func RequestedMask(pdu ConnectionRequestPDU) uint32 {
+ // the sensor knows (see rdp.credentials and rdp.guess_passwords). An unknown
+ // password cannot be accepted: the confirmation is sealed with a key derived
+ // from it.
++//
++// Sugardaddy: con SD_RDP_SEGURIDAD=nla (ver sd_config.go) se prefiere CredSSP
++// cuando el cliente lo ofrece, como un Windows Server con NLA exigido (lo
++// habitual desde 2012): así lo ven los escáneres y las herramientas que solo
++// hablan NLA, y se capturan usuario, dominio, equipo y NetNTLMv2. Con "tls" (lo
++// de glutton) la contraseña llega en claro en el Client Info.
+ func SelectProtocol(requested uint32) uint32 {
+ 	switch {
++	case preferirNLA() && requested&ProtocolHybrid != 0:
++		return ProtocolHybrid
+ 	case requested&ProtocolSSL != 0:
+ 		return ProtocolSSL
+ 	case requested&ProtocolHybrid != 0:
+@@ -158,6 +217,16 @@ func HasRDPNegReq(pdu ConnectionRequestPDU) bool {
+ 
+ // ConnectionConfirm builds the X.224 CC. With includeNegRsp it carries an
+ // RDP_NEG_RSP naming selected (see SelectProtocol).
++//
++// Sugardaddy: un Windows Terminal Services real pone SRC-REF 0x1234 en el CC y,
++// en el RDP_NEG_RSP, flags distintos de cero (EXTENDED_CLIENT_DATA_SUPPORTED,
++// DYNVC_GFX, RESTRICTED_ADMIN, REDIRECTED_AUTH). El upstream dejaba SRC-REF
++// 0x0000 y flags 0x00, que es EXACTAMENTE la firma de xrdp (Linux) en
++// nmap-service-probes: "nmap -sV" la delataba como ssl/ms-wbt-server xrdp en vez
++// de "Microsoft Terminal Services / Windows", contradiciendo el reto NTLM que
++// anuncia Windows. Con SRC-REF 0x1234 y flags 0x1f las dos respuestas (con y sin
++// RDP_NEG_RSP) casan con las expresiones de Windows (líneas 13907 y 15129 de
++// nmap-service-probes).
+ func ConnectionConfirm(cr CRTPDU, includeNegRsp bool, selected uint32) (TKIPHeader, []byte, error) {
+ 	if !includeNegRsp {
+ 		// MS-RDPBCGR 2.2.1.2: 11-byte CC, X.224 LI=6, no rdpNegData.
+@@ -165,7 +234,7 @@ func ConnectionConfirm(cr CRTPDU, includeNegRsp bool, selected uint32) (TKIPHead
+ 			0x03, 0x00, 0x00, 0x0b,
+ 			0x06, TPDUConnectionConfirm,
+ 			cr.SrcRef[0], cr.SrcRef[1],
+-			0x00, 0x00,
++			winSrcRef[0], winSrcRef[1],
+ 			0x00,
+ 		}
+ 		return ParseTKIPHeader(cc), cc, nil
+@@ -180,9 +249,11 @@ func ConnectionConfirm(cr CRTPDU, includeNegRsp bool, selected uint32) (TKIPHead
+ 			Length: 14,
+ 			CCCDT:  TPDUConnectionConfirm,
+ 			DstRef: cr.SrcRef,
++			SrcRef: winSrcRef,
+ 		},
+ 		Response: NegotiationResponse{
+-			Type: rdpNegRspType,
++			Type:  rdpNegRspType,
++			Flags: negRspFlags,
+ 		},
+ 	}
+ 	binary.LittleEndian.PutUint32(cc.Response.SelectedProtocol[:], selected)
+diff --git a/protocols/tcp/rdp/rdp_test.go b/protocols/tcp/rdp/rdp_test.go
+index b8e4b00..35ea0be 100644
+--- a/protocols/tcp/rdp/rdp_test.go
++++ b/protocols/tcp/rdp/rdp_test.go
+@@ -43,8 +43,11 @@ func TestConnectionConfirm(t *testing.T) {
+ 	cr := CRTPDU{SrcRef: [2]byte{0x11, 0x22}}
+ 	header, cc, err := ConnectionConfirm(cr, true, ProtocolHybrid)
+ 	require.NoError(t, err)
+-	// TPKT v3, length 19 | X.224 CC (LI 14, type 0xD0, dst-ref echoes CR src-ref) | RDP_NEG_RSP CredSSP
+-	require.Equal(t, "030000130ed011220000000200080002000000", hex.EncodeToString(cc))
++	// TPKT v3, length 19 | X.224 CC (LI 14, type 0xD0, dst-ref echoes CR src-ref,
++	// SRC-REF 0x1234 como Windows) | RDP_NEG_RSP CredSSP con flags 0x1f.
++	// Sugardaddy: SRC-REF 0x1234 y flags 0x1f para que nmap -sV la vea como
++	// "Microsoft Terminal Services / Windows" y no como xrdp (ver ConnectionConfirm).
++	require.Equal(t, "030000130ed01122123400021f080002000000", hex.EncodeToString(cc))
+ 	require.Equal(t, byte(3), header.Version)
+ 	require.Equal(t, [2]byte{0x00, 0x13}, header.Length)
+ }
+@@ -67,11 +70,23 @@ func TestConnectionConfirmStandardRDP(t *testing.T) {
+ 	cr := CRTPDU{SrcRef: [2]byte{0x00, 0x00}}
+ 	header, cc, err := ConnectionConfirm(cr, false, ProtocolRDP)
+ 	require.NoError(t, err)
+-	require.Equal(t, "0300000b06d00000000000", hex.EncodeToString(cc))
++	// Sugardaddy: SRC-REF 0x1234 (bytes 8-9) para casar con la firma de Windows
++	// de nmap (línea 15129) y no con la de xrdp (línea 15135).
++	require.Equal(t, "0300000b06d00000123400", hex.EncodeToString(cc))
+ 	require.Equal(t, byte(3), header.Version)
+ 	require.Equal(t, [2]byte{0x00, 0x0b}, header.Length)
+ }
+ 
++// TestConnectionFailureNLA comprueba el CC de rechazo RDP_NEG_FAILURE
++// HYBRID_REQUIRED_BY_SERVER que la trampa devuelve en modo NLA a quien no pide
++// CredSSP (Sugardaddy): tipo 0x03, código 0x05, SRC-REF 0x1234.
++func TestConnectionFailureNLA(t *testing.T) {
++	cr := CRTPDU{SrcRef: [2]byte{0x11, 0x22}}
++	_, cc, err := ConnectionFailure(cr, HybridRequired())
++	require.NoError(t, err)
++	require.Equal(t, "030000130ed011221234000300080005000000", hex.EncodeToString(cc))
++}
++
+ func TestParseCRPDUStandardNoNeg(t *testing.T) {
+ 	pdu := processRawCR("0300000b06e00000000000", t)
+ 	require.Equal(t, byte(TPDUConnectionRequest), pdu.TPDU.ConnectionRequestCode)
+diff --git a/protocols/tcp/rdp_test.go b/protocols/tcp/rdp_test.go
+index 9761f43..7a3b95b 100644
+--- a/protocols/tcp/rdp_test.go
++++ b/protocols/tcp/rdp_test.go
+@@ -16,7 +16,6 @@ import (
+ 
+ 	"github.com/mushorg/glutton/connection"
+ 	"github.com/mushorg/glutton/protocols/tcp/rdp"
+-	"github.com/spf13/viper"
+ 	"github.com/stretchr/testify/require"
+ )
+ 
+@@ -754,8 +753,8 @@ func TestHandleRDPPartialTPKTAtDisconnect(t *testing.T) {
+ 
+ func TestHandleRDPNLAAcceptList(t *testing.T) {
+ 	const password = "Password1"
+-	viper.Set("rdp.credentials", []rdp.Account{{Username: "administrator", Password: password}})
+-	t.Cleanup(func() { viper.Set("rdp.credentials", nil) })
++	rdp.Config().Set("rdp.credentials", []rdp.Account{{Username: "administrator", Password: password}})
++	t.Cleanup(func() { rdp.Config().Set("rdp.credentials", nil) })
+ 
+ 	tlsClient, _, done, hp := startRDPTLS(t, rdpCRHybridOnly)
+ 	certs := tlsClient.ConnectionState().PeerCertificates
+@@ -818,8 +817,8 @@ func TestHandleRDPNLAAcceptList(t *testing.T) {
+ }
+ 
+ func TestHandleRDPNLAWrongPassword(t *testing.T) {
+-	viper.Set("rdp.credentials", []rdp.Account{{Username: "administrator", Password: "Password1"}})
+-	t.Cleanup(func() { viper.Set("rdp.credentials", nil) })
++	rdp.Config().Set("rdp.credentials", []rdp.Account{{Username: "administrator", Password: "Password1"}})
++	t.Cleanup(func() { rdp.Config().Set("rdp.credentials", nil) })
+ 
+ 	tlsClient, _, done, hp := startRDPTLS(t, rdpCRHybridOnly)
+ 	certs := tlsClient.ConnectionState().PeerCertificates
+@@ -852,11 +851,11 @@ func TestHandleRDPNLAWrongPassword(t *testing.T) {
+ 
+ func TestHandleRDPNLAGuessPassword(t *testing.T) {
+ 	const password = "Winter2024!"
+-	viper.Set("rdp.credentials", nil)
+-	viper.Set("rdp.guess_passwords", []string{"123456", password})
++	rdp.Config().Set("rdp.credentials", nil)
++	rdp.Config().Set("rdp.guess_passwords", []string{"123456", password})
+ 	t.Cleanup(func() {
+-		viper.Set("rdp.credentials", nil)
+-		viper.Set("rdp.guess_passwords", nil)
++		rdp.Config().Set("rdp.credentials", nil)
++		rdp.Config().Set("rdp.guess_passwords", nil)
+ 	})
+ 
+ 	tlsClient, _, done, hp := startRDPTLS(t, rdpCRHybridOnly)
+@@ -916,11 +915,11 @@ func TestHandleRDPNLAGuessPassword(t *testing.T) {
+ }
+ 
+ func TestHandleRDPNLAGuessPasswordMiss(t *testing.T) {
+-	viper.Set("rdp.credentials", nil)
+-	viper.Set("rdp.guess_passwords", []string{"not-the-password"})
++	rdp.Config().Set("rdp.credentials", nil)
++	rdp.Config().Set("rdp.guess_passwords", []string{"not-the-password"})
+ 	t.Cleanup(func() {
+-		viper.Set("rdp.credentials", nil)
+-		viper.Set("rdp.guess_passwords", nil)
++		rdp.Config().Set("rdp.credentials", nil)
++		rdp.Config().Set("rdp.guess_passwords", nil)
+ 	})
+ 
+ 	tlsClient, _, done, hp := startRDPTLS(t, rdpCRHybridOnly)
+@@ -958,7 +957,7 @@ func TestHandleRDPNLAGuessPasswordMiss(t *testing.T) {
+ }
+ 
+ func TestHandleRDPNLANoAccounts(t *testing.T) {
+-	viper.Set("rdp.credentials", nil)
++	rdp.Config().Set("rdp.credentials", nil)
+ 	tlsClient, _, done, hp := startRDPTLS(t, rdpCRHybridOnly)
+ 	certs := tlsClient.ConnectionState().PeerCertificates
+ 	require.NotEmpty(t, certs)

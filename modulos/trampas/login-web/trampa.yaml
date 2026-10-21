@@ -1,0 +1,277 @@
+# Trampa de portal de login web (H04). Un formulario de login HTTP que finge
+# una web interna (intranet, panel de administración o portal del empleado) en
+# el 8080: sirve el formulario en /login, responde con una página de error
+# verosímil a cada credencial probada y ACEPTA la credencial cebo configurada,
+# mostrando contenido falso plausible. Registra cada usuario y contraseña
+# probados ENTEROS, con su User-Agent, ruta y método; detecta inyección SQL y
+# Path Traversal en los campos y en la ruta, y las sondas (nmap -sV,
+# http-title, escáneres) salen con severidad baja. Código propio de
+# SeguridadSI, sin dependencias. No ejecuta nada de lo que le piden.
+version: 1
+id: login-web
+nombre: Portal de login web con credencial cebo
+descripcion: >-
+  Un portal de login HTTP que finge la web interna (intranet, panel de
+  administración o portal del empleado). Sirve el formulario en /login,
+  contesta una página de error verosímil a cada credencial probada y acepta
+  la credencial cebo, enseñando contenido falso. Registra cada usuario y
+  contraseña probados completos con IP, User-Agent, ruta y método; marca las
+  inyecciones SQL y los Path Traversal; y sube a alta la entrada con la
+  credencial cebo, que solo puede venir de un robo de credenciales.
+ficha:
+  detecta: >-
+    Quien ataca el formulario de login de una web interna: fuerza bruta y
+    rociado de credenciales (cada usuario y contraseña probados quedan
+    apuntados enteros, con la IP y el User-Agent), quien reutiliza la
+    credencial cebo sembrada (se le acepta, se le enseña contenido falso y el
+    acceso sube a alta: esa credencial solo puede haber salido de un robo de
+    datos) y quien prueba inyección SQL o Path Traversal contra el usuario,
+    la contraseña o la ruta. Las sondas y escáneres que barren el puerto
+    (nmap -sV, http-title) salen con severidad baja.
+  donde: >-
+    En la red interna, en un 8080 o el puerto web que elijas: donde un atacante
+    que ya está dentro de la red busca la intranet, el panel de administración
+    o el portal del empleado. Cualquier credencial probada contra un portal
+    interno es señal fuerte: nadie hace login en la intranet desde una
+    herramienta de fuerza bruta por accidente.
+  requisitos:
+    - Un sensor Linux con Docker (el del nodo o uno instalado en otra máquina).
+    - Abrir en el cortafuegos de esa máquina el puerto que elijas.
+    - El puerto elegido debe estar libre (que la máquina no tenga ya una web propia).
+  instalacion:
+    automatica: true
+versionModulo: 0.1.0
+# Sin sensorMinimo: la hora va en RFC 3339 y el puerto como número, lo que
+# entienden también los sensores 0.12; y no usa nada del manifiesto que ellos
+# no sepan desplegar.
+tipo: contenedor
+procedencia:
+  proyecto: Sugardaddy (SeguridadSI)
+  url: https://github.com/kinomakino/sugardaddy
+  # Código propio, sin dependencias de terceros: solo la biblioteca estándar
+  # de Go. Escrito desde el comportamiento observable de un portal web de
+  # login (formulario GET + POST con credenciales, páginas de error, 404
+  # plausibles). Los honeypots web existentes (OpenCanary BSD-3, h0neytr4p
+  # Apache-2.0, wordpot ISC) solo sirvieron de idea; no se reutilizó código.
+  licencia: Código propio (SeguridadSI); biblioteca estándar de Go, BSD-3-Clause
+
+contenedor:
+  # Imagen propia, construida con imagen/preparar.sh (código propio en Go, base
+  # scratch, usuario no root). La construye y deja aquí su digest
+  # herramientas/publicar-trampa.sh login-web; el banco de pruebas usa la local.
+  imagen: ghcr.io/seguridadsi/sugardaddy-trampa-login-web:0.1.0@sha256:695a50c28b645f72f2b1d86a7b25b442e62ff1db3b4482e21a861b44f1dc8caa
+  puertos:
+    - { interno: 8080, expuesto: '${puertoWeb}', protocolo: tcp }
+  entorno:
+    # La trampa lee su configuración de SD_LOGINWEB_*.
+    SD_LOGINWEB_LISTEN: ':8080'
+    SD_LOGINWEB_LOG: /registros/login-web.json
+    # Portal que finge ser: cambia el aspecto del formulario y el contenido
+    # falso que se enseña tras el login cebo (título y textos coherentes).
+    SD_LOGINWEB_PLANTILLA: ${plantilla}
+    # Credencial cebo: usuario y contraseña que, si se usan, se aceptan y
+    # abren el contenido falso. Contraseña vacía = no se acepta ningún login
+    # (solo se detecta y guarda cada intento).
+    SD_LOGINWEB_USUARIO: ${usuarioCebo}
+    SD_LOGINWEB_PASSWORD: ${contrasenaCebo}
+    # El puerto que ve el atacante, para el pie de las páginas de error del
+    # servidor (finge estar en la máquina y no en un contenedor).
+    SD_LOGINWEB_PUERTO: '${puertoWeb}'
+    # Identidad distinta y coherente por trampa (el token de la cookie de
+    # sesión que se planta tras el login cebo): se deriva de esta semilla.
+    # Vacía: la trampa guarda una al azar junto al registro la primera vez y
+    # la mantiene entre reinicios (la imagen es la misma para todos; lo que
+    # cambia es el dato de arranque).
+    SD_LOGINWEB_SEMILLA: ''
+    # Topes fijos (no los toca el cliente): acotan memoria, CPU y disco aunque
+    # miles de atacantes escriban. El cuerpo de un POST está topado en tamaño
+    # (más allá del tope se responde 413 sin leerlo entero y queda apuntado);
+    # las cabeceras tienen su propio tope; las conexiones a la vez están
+    # topadas en total y por IP de origen, y el rechazo queda resumido por
+    # periodo, no una línea por rechazo. El registro rota a diario por
+    # renombrado, no pasa de SD_LOGINWEB_MAX_LOG_BYTES por día y reparte ese
+    # tope por horas, por IP y en bolsas (el login cebo y las credenciales
+    # probadas aparte): una sola IP no puede cegar la trampa para las demás
+    # ni tapar con ruido las credenciales de otro; lo que no cabe se resume en
+    # una línea.
+    SD_LOGINWEB_MAX_CONN: '512'
+    SD_LOGINWEB_MAX_CONN_IP: '32'
+    SD_LOGINWEB_MAX_CUERPO_BYTES: '8192'
+    SD_LOGINWEB_MAX_LOG_BYTES: '67108864'
+    SD_LOGINWEB_RESUMEN_S: '300'
+    # El recolector de Go aprieta antes del límite de memoria del contenedor
+    # (defensa en profundidad; el Dockerfile ya lo fija).
+    GOMEMLIMIT: 48MiB
+  # La trampa solo escribe su registro (y, junto a él, la semilla de su
+  # identidad) en esta carpeta; no hay otro estado en disco.
+  registros: /registros
+
+aislamiento:
+  salida: false
+  soloLectura: true
+  cpu: 0.5
+  memoriaMb: 64
+
+parametros:
+  type: object
+  required: [puertoWeb, plantilla]
+  properties:
+    puertoWeb:
+      type: integer
+      title: Puerto del portal
+      description: El 8080 es el más creíble para una web interna, y el más buscado por los escáneres. Solo si la máquina no lo usa ya para su web de verdad.
+      minimum: 1
+      maximum: 65535
+      default: 8080
+    plantilla:
+      type: string
+      title: Portal que finge ser
+      description: >-
+        Cambia el aspecto del formulario y el contenido falso que se enseña
+        tras el login cebo. Título y textos coherentes con el portal elegido.
+      enum: ['intranet', 'admin', 'portal']
+      x-opciones:
+        'intranet': Intranet corporativa
+        'admin': Panel de administración
+        'portal': Portal del empleado
+      default: 'intranet'
+    usuarioCebo:
+      type: string
+      title: Usuario cebo
+      description: El usuario que la trampa acepta si se usa con la contraseña cebo. Por defecto admin, el más buscado.
+      pattern: '^[\x21-\x7e]{1,63}$'
+      maxLength: 63
+      default: 'admin'
+    contrasenaCebo:
+      type: string
+      title: Contraseña cebo
+      description: >-
+        Si la dejas vacía, la trampa NO acepta ningún login: solo detecta y
+        guarda cada intento (rociado de credenciales). Si pones una, acepta
+        ese usuario y contraseña, enseña el contenido falso del portal y
+        registra el acceso como alta: esa credencial solo puede venir de un
+        robo de datos.
+      pattern: '^[\x21-\x7e]{0,128}$'
+      maxLength: 128
+      default: 'admin'
+
+eventos:
+  fuente: { tipo: fichero, ruta: login-web.json }
+  formato: json-lineas
+  campos:
+    cuando: cuando
+    ip: src_ip
+    puerto: src_port
+  accion:
+    campo: eventid
+    valores:
+      web.session.connect: conexion
+      web.sondeo: conexion
+      web.session.tope: conexion
+      web.session.rechazos: conexion
+      web.login: autenticacion
+      web.login.cebo: autenticacion
+      web.comando: comando
+    porDefecto: otra
+  severidad:
+    porDefecto: media
+    porValor:
+      # La entrada con la credencial cebo sube a ALTA: esa credencial solo
+      # puede haber salido de un robo de datos. Lo grave va codificado en el
+      # propio eventid: así basta porValor y no hace falta tocar el contrato
+      # ni el adaptador.
+      web.login.cebo: alta
+      web.comando: alta
+      web.session.rechazos: alta
+      web.session.tope: alta
+      web.log.tope: alta
+      web.log.omitidos: alta
+      web.log.error: alta
+      # Un barrido nmap -sV o http-title son muchas peticiones sin valor de
+      # alerta: baja, para no llenar la consola en cada barrido de versiones.
+      web.sondeo: baja
+      web.session.connect: baja
+      web.session.closed: baja
+  # La trampa responde solo tras aceptar la conexión TCP: el origen no está
+  # falseado.
+  conexionEstablecida: true
+  detalle:
+    - eventid
+    - usuario
+    - password
+    - ruta
+    - metodo
+    - agente
+    - resultado
+    - grave
+    - motivo
+    - duration
+    - omitidos
+    - omitidos_cebo
+    - omitidos_login
+    - rechazadas
+    - de_su_ip
+    - por_tope_global
+    - por_tope_ip
+    - ips_distintas
+    - ips_sin_contar
+    - activas
+    - periodo_s
+    - perdidos
+    - error
+    - aviso
+    - tope_bytes
+  sesion: session
+  # Campo del registro que lleva la contraseña probada (completa).
+  contrasena: password
+  resumen:
+    [
+      usuario,
+      password,
+      ruta,
+      agente,
+      resultado,
+      grave,
+      motivo,
+      rechazadas,
+      omitidos,
+      aviso,
+      duration
+    ]
+  etiquetas:
+    usuario: Usuario probado
+    password: Contraseña probada
+    ruta: Ruta
+    metodo: Método
+    agente: Herramienta (User-Agent)
+    resultado: Resultado
+    grave: Por qué es grave
+    motivo: Motivo
+    omitidos: Eventos no apuntados
+    omitidos_cebo: De ellos, logins cebo
+    omitidos_login: De ellos, credenciales probadas
+    rechazadas: Conexiones rechazadas
+    de_su_ip: De esta IP
+    por_tope_global: Por el tope total
+    por_tope_ip: Por el tope de su IP
+    ips_distintas: IP distintas
+    ips_sin_contar: Rechazos de otras IP sin contar
+    activas: Conexiones a la vez
+    periodo_s: En los últimos (s)
+    perdidos: Eventos perdidos (disco)
+    error: Error del registro
+    aviso: Aviso
+    tope_bytes: Tope diario (bytes)
+    duration: Duración (s)
+    session: Sesión
+    web.session.connect: Conexión
+    web.sondeo: Sonda (escáner, ruta que no existe, petición rara)
+    web.session.tope: Petición cortada por tope de tamaño
+    web.session.rechazos: Conexiones rechazadas (resumen)
+    web.login: Login rechazado (credencial probada)
+    web.login.cebo: Login ACEPTADO con la credencial cebo
+    web.comando: Inyección o Path Traversal
+    web.session.closed: Se va
+    web.log.tope: Registro de hoy lleno, no se apunta más hasta mañana
+    web.log.omitidos: Eventos que no caben (resumen)
+    web.log.error: Fallo al escribir el registro

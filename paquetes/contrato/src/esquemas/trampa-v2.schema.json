@@ -1,0 +1,655 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://sugardaddy.seguridadsi.com/esquemas/trampa-v2.schema.json",
+	"title": "Manifiesto de honeycosa (v2)",
+	"description": "Una honeycosa se describe una vez y se puede poner de varias maneras (vías). Cada vía la ejecuta un ejecutor (contenedor@1, manual@1…), declara sus requisitos, su carga y por dónde vuelve su señal. Es solo datos. Reutiliza los $defs del v1 (trampa.schema.json); lo que el esquema no puede decir (huecos, referencias entre módulos, vías estables) lo comprueba validarHoneycosa. Ver docs/diseno/modulo-despliegue.md §2.",
+	"type": "object",
+	"additionalProperties": false,
+	"required": [
+		"version",
+		"id",
+		"nombre",
+		"descripcion",
+		"versionModulo",
+		"siembra",
+		"senal",
+		"parametros",
+		"vias"
+	],
+	"properties": {
+		"version": {
+			"const": 2
+		},
+		"id": {
+			"$ref": "evento.schema.json#/$defs/slug"
+		},
+		"nombre": {
+			"$ref": "trampa.schema.json#/properties/nombre"
+		},
+		"descripcion": {
+			"$ref": "trampa.schema.json#/properties/descripcion"
+		},
+		"ficha": {
+			"description": "Como en v1, pero «instalacion» es opcional: la consola la deduce de las vías, y la proyección para los sensores la rellena.",
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["detecta", "donde", "requisitos"],
+			"properties": {
+				"detecta": {
+					"$ref": "trampa.schema.json#/properties/ficha/properties/detecta"
+				},
+				"donde": {
+					"$ref": "trampa.schema.json#/properties/ficha/properties/donde"
+				},
+				"requisitos": {
+					"$ref": "trampa.schema.json#/properties/ficha/properties/requisitos"
+				},
+				"instalacion": {
+					"$ref": "trampa.schema.json#/properties/ficha/properties/instalacion"
+				}
+			}
+		},
+		"versionModulo": {
+			"$ref": "trampa.schema.json#/$defs/semver"
+		},
+		"procedencia": {
+			"$ref": "trampa.schema.json#/properties/procedencia"
+		},
+		"siembra": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["clase"],
+			"properties": {
+				"clase": {
+					"description": "Qué se siembra, sea cual sea la vía. Da el trampa.tipo de los eventos: servicio → contenedor, el resto igual.",
+					"enum": ["servicio", "fichero", "token", "identidad"]
+				},
+				"plantilla": {
+					"description": "Solo con clase fichero: la plantilla del cebo dentro del módulo (p. ej. plantilla/documento.docx). La lee la consola y la acuña el contrato (fichero.ts).",
+					"type": "string",
+					"minLength": 1,
+					"maxLength": 200,
+					"pattern": "^[A-Za-z0-9][A-Za-z0-9 _./-]{0,199}$"
+				},
+				"marcador": {
+					"description": "Solo con clase fichero: el hueco de la plantilla que se sustituye por la URL de baliza del cliente al acuñar (p. ej. {{BALIZA}}).",
+					"type": "string",
+					"minLength": 2,
+					"maxLength": 64,
+					"pattern": "^[{}A-Za-z0-9_-]{2,64}$"
+				}
+			}
+		},
+		"senal": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["clase"],
+			"properties": {
+				"clase": {
+					"description": "directa (el atacante habla con una trampa nuestra), registros (el sistema lo apunta y lo leemos) o baliza (el cebo avisa al relé). Para el catálogo; no decide nada.",
+					"enum": ["directa", "registros", "baliza"]
+				},
+				"eventos": {
+					"description": "Traductor por defecto de las vías que no traen el suyo: el «eventos» de v1 sin «fuente».",
+					"$ref": "#/$defs/traductor"
+				}
+			}
+		},
+		"parametros": {
+			"description": "Un JSON Schema de objeto, como en v1, con dos extensiones en los parámetros de texto: x-trampa y x-aleatorio.",
+			"type": "object",
+			"$ref": "trampa.schema.json#/$defs/parametros",
+			"properties": {
+				"properties": {
+					"type": "object",
+					"additionalProperties": {
+						"$ref": "#/$defs/parametro"
+					}
+				}
+			}
+		},
+		"vias": {
+			"description": "Las maneras de poner esta honeycosa, en orden de preferencia del autor.",
+			"type": "array",
+			"minItems": 1,
+			"maxItems": 16,
+			"items": {
+				"$ref": "#/$defs/via"
+			}
+		}
+	},
+	"$defs": {
+		"traductor": {
+			"type": "object",
+			"$ref": "trampa.schema.json#/$defs/traductor",
+			"unevaluatedProperties": false
+		},
+		"parametro": {
+			"type": "object",
+			"properties": {
+				"x-trampa": {
+					"description": "Pide elegir una trampa del cliente de estos módulos (solo en parámetros de texto).",
+					"type": "object",
+					"additionalProperties": false,
+					"required": ["modulos"],
+					"properties": {
+						"modulos": {
+							"type": "array",
+							"minItems": 1,
+							"maxItems": 16,
+							"uniqueItems": true,
+							"items": {
+								"$ref": "evento.schema.json#/$defs/slug"
+							}
+						}
+					}
+				},
+				"x-aleatorio": {
+					"description": "La consola propone una base al azar con un sufijo aleatorio, distinto en cada trampa (solo en parámetros de texto sin default).",
+					"type": "object",
+					"additionalProperties": false,
+					"required": ["bases", "sufijo"],
+					"properties": {
+						"bases": {
+							"type": "array",
+							"minItems": 1,
+							"maxItems": 32,
+							"uniqueItems": true,
+							"items": {
+								"type": "string",
+								"minLength": 1,
+								"maxLength": 64
+							}
+						},
+						"sufijo": {
+							"description": "Cuántos caracteres al azar se añaden a la base.",
+							"type": "integer",
+							"minimum": 0,
+							"maximum": 8
+						},
+						"alfabeto": {
+							"description": "De dónde salen los caracteres del sufijo; por defecto, minusculas-digitos.",
+							"enum": ["minusculas-digitos", "digitos"]
+						}
+					}
+				}
+			}
+		},
+		"ejecutor": {
+			"description": "nombre@N. Uno que la consola no conoce no invalida el manifiesto: su vía sale descartada con ejecutor.desconocido.",
+			"type": "string",
+			"pattern": "^[a-z][a-z0-9-]{0,31}@[1-9][0-9]{0,3}$"
+		},
+		"tipoDestino": {
+			"enum": [
+				"maquina",
+				"fileserver",
+				"web",
+				"paas-web",
+				"hosting",
+				"dominio",
+				"tenant",
+				"saas",
+				"otro"
+			]
+		},
+		"valorSimple": {
+			"type": ["string", "number", "boolean"]
+		},
+		"requisito": {
+			"description": "Lenguaje cerrado: un hecho, un solo operador y su motivo.",
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["hecho", "motivo"],
+			"properties": {
+				"hecho": {
+					"description": "Clave con espacio de nombres (plataforma.so, motor.modo…).",
+					"type": "string",
+					"maxLength": 64,
+					"pattern": "^[a-z][a-zA-Z0-9]*(\\.[a-zA-Z][a-zA-Z0-9]*)+$"
+				},
+				"motivo": {
+					"type": "string",
+					"minLength": 1,
+					"maxLength": 300
+				},
+				"nivel": {
+					"enum": ["exige", "avisa"]
+				},
+				"siFalta": {
+					"enum": ["descarta", "avisa", "ignora"]
+				},
+				"remedio": {
+					"type": "string",
+					"minLength": 1,
+					"maxLength": 300
+				},
+				"igual": {
+					"$ref": "#/$defs/valorSimple"
+				},
+				"en": {
+					"type": "array",
+					"minItems": 1,
+					"maxItems": 64,
+					"items": {
+						"$ref": "#/$defs/valorSimple"
+					}
+				},
+				"contiene": {
+					"$ref": "#/$defs/valorSimple"
+				},
+				"minimo": {
+					"description": "Un número, o una versión con puntos que se compara parte a parte.",
+					"oneOf": [
+						{
+							"type": "number"
+						},
+						{
+							"type": "string",
+							"pattern": "^[0-9]+(\\.[0-9]+)*$"
+						}
+					]
+				},
+				"presente": {
+					"type": "boolean"
+				}
+			},
+			"oneOf": [
+				{
+					"required": ["igual"]
+				},
+				{
+					"required": ["en"]
+				},
+				{
+					"required": ["contiene"]
+				},
+				{
+					"required": ["minimo"]
+				},
+				{
+					"required": ["presente"]
+				}
+			]
+		},
+		"paso": {
+			"description": "texto es para el cliente y admite ${…}; orden y comprobar son código y no admiten ${…}: usan el bloque de variables ($sd.<clave> o SD_<CLAVE>).",
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["texto"],
+			"properties": {
+				"texto": {
+					"type": "string",
+					"minLength": 1,
+					"maxLength": 1000
+				},
+				"orden": {
+					"type": "string",
+					"minLength": 1,
+					"maxLength": 16384
+				},
+				"comprobar": {
+					"description": "Orden que se ejecuta después de la del paso y tiene que salir bien (código 0, o True en PowerShell); si no, el script para con el texto del paso.",
+					"type": "string",
+					"minLength": 1,
+					"maxLength": 4096
+				}
+			}
+		},
+		"pasos": {
+			"type": "array",
+			"minItems": 1,
+			"maxItems": 50,
+			"items": {
+				"$ref": "#/$defs/paso"
+			}
+		},
+		"marca": {
+			"description": "Lo que tiene que cumplir un evento para atribuirlo a esta trampa. No distingue mayúsculas.",
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["campo"],
+			"properties": {
+				"campo": {
+					"type": "string",
+					"pattern": "^(origen\\.(ip|usuario|equipo)|detalle\\.[A-Za-z0-9_.-]{1,64})$"
+				},
+				"igual": {
+					"type": "string",
+					"minLength": 1,
+					"maxLength": 200
+				},
+				"contiene": {
+					"type": "string",
+					"minLength": 1,
+					"maxLength": 200
+				}
+			},
+			"oneOf": [
+				{
+					"required": ["igual"]
+				},
+				{
+					"required": ["contiene"]
+				}
+			]
+		},
+		"fuente": {
+			"description": "Por dónde vuelve la señal de la vía.",
+			"type": "object",
+			"required": ["tipo"],
+			"properties": {
+				"tipo": {
+					"enum": ["fichero", "trampa", "registros", "rele", "conector"]
+				}
+			},
+			"allOf": [
+				{
+					"if": {
+						"properties": {
+							"tipo": {
+								"const": "fichero"
+							}
+						}
+					},
+					"then": {
+						"additionalProperties": false,
+						"required": ["ruta"],
+						"properties": {
+							"tipo": true,
+							"ruta": {
+								"$ref": "trampa.schema.json#/$defs/eventos/properties/fuente/properties/ruta"
+							}
+						}
+					}
+				},
+				{
+					"if": {
+						"properties": {
+							"tipo": {
+								"const": "trampa"
+							}
+						}
+					},
+					"then": {
+						"additionalProperties": false,
+						"required": ["trampa", "marca"],
+						"properties": {
+							"tipo": true,
+							"trampa": {
+								"description": "${parametro}: un parámetro con x-trampa.",
+								"$ref": "trampa.schema.json#/$defs/hueco"
+							},
+							"marca": {
+								"$ref": "#/$defs/marca"
+							}
+						}
+					}
+				},
+				{
+					"if": {
+						"properties": {
+							"tipo": {
+								"const": "registros"
+							}
+						}
+					},
+					"then": {
+						"additionalProperties": false,
+						"required": ["canal"],
+						"properties": {
+							"tipo": true,
+							"canal": {
+								"enum": ["windows-eventos", "syslog", "journald", "directorio-activo"]
+							}
+						}
+					}
+				},
+				{
+					"if": {
+						"properties": {
+							"tipo": {
+								"const": "rele"
+							}
+						}
+					},
+					"then": {
+						"additionalProperties": false,
+						"properties": {
+							"tipo": true
+						}
+					}
+				},
+				{
+					"if": {
+						"properties": {
+							"tipo": {
+								"const": "conector"
+							}
+						}
+					},
+					"then": {
+						"additionalProperties": false,
+						"required": ["conexion"],
+						"properties": {
+							"tipo": true,
+							"conexion": {
+								"enum": ["graph", "azure", "aws", "google", "ldap"]
+							}
+						}
+					}
+				}
+			]
+		},
+		"cargaContenedor": {
+			"description": "La de contenedor@1: exactamente «contenedor» y «aislamiento» de v1, y el bloque red del modo «IP propia» si la vía lo pide.",
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["contenedor", "aislamiento"],
+			"properties": {
+				"contenedor": {
+					"$ref": "trampa.schema.json#/$defs/contenedor"
+				},
+				"aislamiento": {
+					"$ref": "trampa.schema.json#/$defs/aislamiento"
+				},
+				"red": {
+					"$ref": "trampa.schema.json#/$defs/red"
+				}
+			}
+		},
+		"cargaManual": {
+			"description": "La de manual@1: los pasos que genera la consola para ese destino. ninguno es para pasos de panel (NAS, consola de nube): solo texto.",
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["lenguaje", "pasos"],
+			"properties": {
+				"lenguaje": {
+					"enum": ["powershell", "sh", "ninguno"]
+				},
+				"pasos": {
+					"$ref": "#/$defs/pasos"
+				}
+			}
+		},
+		"via": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["id", "ejecutor", "carga", "retirada"],
+			"properties": {
+				"id": {
+					"description": "Se guarda en trampas.via: una vía publicada no cambia de id ni desaparece (regla 10).",
+					"$ref": "evento.schema.json#/$defs/slug"
+				},
+				"nombre": {
+					"description": "Cómo la ve el cliente. Por defecto, el nombre del ejecutor.",
+					"type": "string",
+					"minLength": 1,
+					"maxLength": 80
+				},
+				"ejecutor": {
+					"$ref": "#/$defs/ejecutor"
+				},
+				"destino": {
+					"description": "Tipos de destino donde vale. Por defecto, los del ejecutor.",
+					"type": "array",
+					"minItems": 1,
+					"uniqueItems": true,
+					"items": {
+						"$ref": "#/$defs/tipoDestino"
+					}
+				},
+				"antes": {
+					"description": "Ids que tuvo esta vía en versiones anteriores del módulo.",
+					"type": "array",
+					"minItems": 1,
+					"maxItems": 4,
+					"uniqueItems": true,
+					"items": {
+						"$ref": "evento.schema.json#/$defs/slug"
+					}
+				},
+				"sensorMinimo": {
+					"description": "Versión mínima del agente para esta vía (lo que en v1 estaba en la raíz).",
+					"$ref": "trampa.schema.json#/$defs/semver"
+				},
+				"requisitos": {
+					"description": "Se suman a los del ejecutor.",
+					"type": "array",
+					"maxItems": 32,
+					"items": {
+						"$ref": "#/$defs/requisito"
+					}
+				},
+				"carga": {
+					"description": "Lo que necesita el ejecutor. La de uno que la consola no conoce se guarda opaca (64 KB como mucho, lo comprueba validarHoneycosa) y nunca se interpreta.",
+					"type": "object"
+				},
+				"senal": {
+					"description": "Sin fuente, validarHoneycosa la rechaza: una vía necesita señal.",
+					"type": "object",
+					"additionalProperties": false,
+					"properties": {
+						"fuente": {
+							"$ref": "#/$defs/fuente"
+						},
+						"eventos": {
+							"description": "Traductor propio de esta vía, si el formato nativo cambia.",
+							"$ref": "#/$defs/traductor"
+						}
+					}
+				},
+				"comprobacion": {
+					"type": "object",
+					"additionalProperties": false,
+					"properties": {
+						"prueba": {
+							"description": "Lo que da «Probar»: pasos, marca opcional y ventana en minutos.",
+							"type": "object",
+							"additionalProperties": false,
+							"required": ["pasos"],
+							"properties": {
+								"pasos": {
+									"$ref": "#/$defs/pasos"
+								},
+								"marca": {
+									"$ref": "#/$defs/marca"
+								},
+								"ventanaMin": {
+									"type": "integer",
+									"minimum": 1,
+									"maximum": 60
+								}
+							}
+						},
+						"recomprobarDias": {
+							"description": "Avisa si una trampa de esta vía lleva estos días sin eventos ni prueba.",
+							"type": "integer",
+							"minimum": 1,
+							"maximum": 365
+						}
+					}
+				},
+				"retirada": {
+					"type": "object",
+					"required": ["tipo"],
+					"properties": {
+						"tipo": {
+							"enum": ["automatica", "manual"]
+						}
+					},
+					"allOf": [
+						{
+							"if": {
+								"properties": {
+									"tipo": {
+										"const": "automatica"
+									}
+								}
+							},
+							"then": {
+								"additionalProperties": false,
+								"properties": {
+									"tipo": true
+								}
+							}
+						},
+						{
+							"if": {
+								"properties": {
+									"tipo": {
+										"const": "manual"
+									}
+								}
+							},
+							"then": {
+								"additionalProperties": false,
+								"required": ["pasos"],
+								"properties": {
+									"tipo": true,
+									"pasos": {
+										"$ref": "#/$defs/pasos"
+									}
+								}
+							}
+						}
+					]
+				}
+			},
+			"allOf": [
+				{
+					"if": {
+						"properties": {
+							"ejecutor": {
+								"const": "contenedor@1"
+							}
+						}
+					},
+					"then": {
+						"properties": {
+							"carga": {
+								"$ref": "#/$defs/cargaContenedor"
+							}
+						}
+					}
+				},
+				{
+					"if": {
+						"properties": {
+							"ejecutor": {
+								"const": "manual@1"
+							}
+						}
+					},
+					"then": {
+						"properties": {
+							"carga": {
+								"$ref": "#/$defs/cargaManual"
+							}
+						}
+					}
+				}
+			]
+		}
+	}
+}

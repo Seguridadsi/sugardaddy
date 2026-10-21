@@ -1,0 +1,117 @@
+# Ejemplo de manifiesto v2 (docs/diseno/modulo-despliegue.md §8.5), para las
+# pruebas: está fuera de modulos/ para que ningún catálogo lo cargue. El módulo
+# de verdad lo escribe el equipo de trampas en modulos/trampas/credencial-ssh.
+# H21, credenciales sembradas: una conexión SSH guardada en un equipo real que
+# apunta a una trampa Cowrie del cliente. La señal es la de esa Cowrie: un
+# inicio de sesión con el usuario sembrado.
+version: 2
+id: credencial-ssh
+nombre: Credencial SSH sembrada
+descripcion: >-
+  Una conexión SSH guardada en un equipo real que apunta a una de tus trampas SSH. Nadie legítimo
+  la usa: quien la usa ha leído ese equipo.
+ficha:
+  detecta: >-
+    Quien ha leído un equipo de tu red y usa lo que encuentra: la conexión SSH guardada lleva a una
+    trampa, y el usuario sembrado dice desde qué equipo salió.
+  donde: >-
+    En equipos que un atacante querría saquear: puestos de administradores, servidores de salto,
+    equipos con herramientas de copia.
+  requisitos:
+    - Una trampa SSH (Cowrie) ya puesta y con la dirección de su destino en Destinos.
+versionModulo: 0.1.0
+siembra: { clase: identidad }
+senal: { clase: directa } # sin traductor propio: los eventos son los de la trampa objetivo
+parametros:
+  type: object
+  required: [objetivo, usuario, sesion]
+  properties:
+    objetivo: { type: string, title: Trampa SSH a la que apunta, x-trampa: { modulos: [cowrie] } }
+    usuario: # sin default: la consola propone uno distinto en cada trampa (§2.5)
+      type: string
+      title: Usuario
+      pattern: '^[a-z_][a-z0-9_-]{2,31}$'
+      x-aleatorio: { bases: [svc_backup, svc_sql, bkp_admin, svc_veeam, ansible], sufijo: 3 }
+    sesion:
+      type: string
+      title: Nombre de la conexión
+      pattern: '^[A-Za-z0-9._-]{1,40}$'
+      x-aleatorio: { bases: [srv-backup, nas, fs, sql, bastion], sufijo: 2, alfabeto: digitos }
+vias:
+  - id: windows
+    nombre: Pasos para Windows
+    ejecutor: manual@1
+    destino: [maquina]
+    requisitos:
+      - { hecho: plataforma.so, igual: windows, motivo: Estos pasos son para Windows. }
+    carga:
+      lenguaje: powershell
+      pasos:
+        - texto: Guarda en el perfil del usuario una sesión de PuTTY «${sesion}» hacia ${objetivo.direccion}.
+          orden: |
+            $k = "HKCU:\Software\SimonTatham\PuTTY\Sessions\$($sd.sesion)"
+            New-Item -Path $k -Force | Out-Null
+            Set-ItemProperty -Path $k -Name HostName -Value $sd.objetivo_direccion
+            Set-ItemProperty -Path $k -Name UserName -Value $sd.usuario
+            Set-ItemProperty -Path $k -Name PortNumber -Value ([int]$sd.objetivo_puertoSsh) -Type DWord
+    senal:
+      fuente:
+        tipo: trampa
+        trampa: ${objetivo}
+        marca: { campo: origen.usuario, igual: '${usuario}' }
+    comprobacion:
+      prueba: # se ejecuta en el propio destino (§8.3)
+        pasos:
+          - texto: Comprueba que ${destino.nombre} llega a ${objetivo.direccion}.
+            comprobar: Test-NetConnection -ComputerName $sd.objetivo_direccion -Port ([int]$sd.objetivo_puertoSsh) -InformationLevel Quiet
+          - texto: Desde ${destino.nombre}, conéctate con «${usuario}» y escribe como contraseña sdprueba${nonce}.
+            orden: ssh -p $($sd.objetivo_puertoSsh) "$($sd.usuario)@$($sd.objetivo_direccion)"
+        marca: { campo: detalle.password, igual: 'sdprueba${nonce}' }
+    retirada:
+      tipo: manual
+      pasos:
+        - texto: Borra la sesión «${sesion}» de PuTTY.
+          orden: Remove-Item -Path "HKCU:\Software\SimonTatham\PuTTY\Sessions\$($sd.sesion)" -Recurse -ErrorAction SilentlyContinue
+
+  - id: linux
+    nombre: Pasos para Linux
+    ejecutor: manual@1
+    destino: [maquina]
+    requisitos:
+      - { hecho: plataforma.so, igual: linux, motivo: Estos pasos son para Linux. }
+    carga:
+      lenguaje: sh
+      pasos:
+        - texto: Guarda en ~/.ssh/config del usuario una conexión «${sesion}» hacia ${objetivo.direccion}.
+          orden: |
+            mkdir -p "$HOME/.ssh"
+            chmod 700 "$HOME/.ssh"
+            touch "$HOME/.ssh/config"
+            chmod 600 "$HOME/.ssh/config"
+            if ! grep -qxF "Host $SD_SESION" "$HOME/.ssh/config"; then
+              printf 'Host %s\n  HostName %s\n  User %s\n  Port %s\n' "$SD_SESION" "$SD_OBJETIVO_DIRECCION" "$SD_USUARIO" "$SD_OBJETIVO_PUERTOSSH" >> "$HOME/.ssh/config"
+            fi
+    senal:
+      fuente:
+        tipo: trampa
+        trampa: ${objetivo}
+        marca: { campo: origen.usuario, igual: '${usuario}' }
+    comprobacion:
+      prueba: # se ejecuta en el propio destino (§8.3)
+        pasos:
+          - texto: Comprueba que ${destino.nombre} llega a ${objetivo.direccion}.
+            comprobar: nc -z -w 5 "$SD_OBJETIVO_DIRECCION" "$SD_OBJETIVO_PUERTOSSH"
+          - texto: Desde ${destino.nombre}, conéctate con la conexión «${sesion}» y escribe como contraseña sdprueba${nonce}.
+            # Que la trampa rechace el inicio de sesión es lo normal: lo que cuenta es
+            # el evento. Sin «|| true», el script pararía diciendo que el paso ha fallado.
+            orden: 'ssh "$SD_SESION" || true'
+        marca: { campo: detalle.password, igual: 'sdprueba${nonce}' }
+    retirada:
+      tipo: manual
+      pasos:
+        - texto: Borra la conexión «${sesion}» de ~/.ssh/config.
+          orden: |
+            f="$HOME/.ssh/config"
+            if [ -f "$f" ]; then
+              awk -v h="Host $SD_SESION" '$0 == h { s = 1; next } s && /^[ \t]/ { next } { s = 0; print }' "$f" > "$f.sd" && cat "$f.sd" > "$f" && rm -f "$f.sd"
+            fi

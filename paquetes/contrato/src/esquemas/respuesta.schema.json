@@ -1,0 +1,102 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://sugardaddy.seguridadsi.com/esquemas/respuesta.schema.json",
+	"title": "Manifiesto de respuesta",
+	"description": "Qué hace la plataforma cuando una trampa canta. El riesgo declarado decide si se ejecuta solo o espera a una persona.",
+	"type": "object",
+	"additionalProperties": false,
+	"required": [
+		"version",
+		"id",
+		"nombre",
+		"descripcion",
+		"versionModulo",
+		"familia",
+		"riesgo",
+		"ejecutor",
+		"entrada",
+		"salida",
+		"parametros"
+	],
+	"properties": {
+		"version": { "const": 1 },
+		"id": { "$ref": "evento.schema.json#/$defs/slug" },
+		"nombre": { "type": "string", "minLength": 1, "maxLength": 80 },
+		"descripcion": { "type": "string", "minLength": 1, "maxLength": 500 },
+		"versionModulo": { "$ref": "trampa.schema.json#/$defs/semver" },
+		"familia": { "enum": ["avisar", "enviar", "enriquecer", "contener", "ejecutar"] },
+		"riesgo": {
+			"description": "informativa: se ejecuta sola. contencion: aprobación humana o simulación, salvo que el cliente decida otra cosa.",
+			"enum": ["informativa", "contencion"]
+		},
+		"ejecutor": {
+			"oneOf": [
+				{
+					"type": "object",
+					"additionalProperties": false,
+					"required": ["tipo", "nombre"],
+					"properties": {
+						"tipo": { "const": "integrado" },
+						"nombre": { "$ref": "evento.schema.json#/$defs/slug" }
+					}
+				},
+				{
+					"description": "Un contenedor que recibe el evento por la entrada estándar, nunca en la línea de órdenes.",
+					"type": "object",
+					"additionalProperties": false,
+					"required": ["tipo", "imagen"],
+					"properties": {
+						"tipo": { "const": "contenedor" },
+						"imagen": { "$ref": "trampa.schema.json#/$defs/contenedor/properties/imagen" }
+					}
+				}
+			]
+		},
+		"entrada": {
+			"description": "Campos del evento que recibe la respuesta. Lo que no necesita, no lo ve.",
+			"type": "array",
+			"minItems": 1,
+			"uniqueItems": true,
+			"items": {
+				"enum": [
+					"id",
+					"cuando",
+					"trampa",
+					"sensor",
+					"origen",
+					"accion",
+					"severidad",
+					"conexionEstablecida",
+					"detalle",
+					"crudo"
+				]
+			}
+		},
+		"salida": {
+			"description": "Destinos de red que puede alcanzar. Vacío: ninguno. Admite parámetros con ${parametro}.",
+			"type": "array",
+			"items": { "type": "string", "minLength": 1 }
+		},
+		"secretos": {
+			"description": "Secretos que necesita. Se guardan cifrados en el nodo del cliente y nunca suben al panel central.",
+			"type": "array",
+			"items": {
+				"type": "object",
+				"additionalProperties": false,
+				"required": ["id", "descripcion"],
+				"properties": {
+					"id": { "$ref": "evento.schema.json#/$defs/slug" },
+					"descripcion": { "type": "string" }
+				}
+			}
+		},
+		"parametros": { "$ref": "trampa.schema.json#/$defs/parametros" }
+	},
+	"allOf": [
+		{
+			"description": "Contener y ejecutar actúan sobre la red del cliente: nunca pueden declararse informativas.",
+			"if": { "properties": { "familia": { "enum": ["contener", "ejecutar"] } } },
+			"then": { "properties": { "riesgo": { "const": "contencion" } } }
+		}
+	]
+}

@@ -1,0 +1,17 @@
+{
+	"name": "@sugardaddy/estilo",
+	"private": true,
+	"version": "0.0.1",
+	"type": "module",
+	"exports": {
+		"./app.css": "./app.css",
+		"./pictogramas": "./pictogramas.ts"
+	},
+	"scripts": {
+		"test": "vitest --run"
+	},
+	"devDependencies": {
+		"@types/node": "^22",
+		"vitest": "^4.1.8"
+	}
+}

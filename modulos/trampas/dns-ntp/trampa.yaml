@@ -1,0 +1,381 @@
+# DNS, NTP y SSDP falsos (H61, H15 y descubrimiento UPnP) con DDoSPot v2
+# (Telekom Security, MIT) y nuestro parche. Contesta como el servidor de
+# nombres, el ntpd y el demonio UPnP de una distribución concreta, con
+# presupuestos de respuesta: a quien insiste o falsifica el origen deja de
+# contestarle. Nunca resuelve ni reenvía nada. Fuera de las redes internas que
+# declara el cliente nunca contesta con más bytes de los que recibe, para que
+# su IP no sirva de reflector (ser una dirección privada no basta: detrás de
+# un cortafuegos con NAT de origen, todo Internet lo es).
+version: 1
+id: dns-ntp
+nombre: DNS, NTP y UPnP falsos
+descripcion: >-
+  Un servidor de nombres, de hora y UPnP que contesta como uno de verdad (BIND o dnsmasq,
+  ntpd, MiniDLNA o MiniUPnPd) pero no resuelve nada para nadie. Registra transferencias de
+  zona, consultas de versión, monlist, búsquedas UPnP y las ráfagas de quien intenta usarlo
+  para atacar a otros. A Internet nunca le contesta con más bytes de los que recibe.
+ficha:
+  detecta: >-
+    Quien busca servidores DNS, de hora (NTP) o UPnP en tu red: transferencias de zona
+    (AXFR), consultas de versión, consultas ANY, barridos de nombres, monlist y búsquedas
+    UPnP. Apunta cada petición (hasta 50 por equipo y servicio cada diez minutos desde
+    direcciones privadas, 5 desde Internet) y, al que insiste o falsifica su dirección para
+    atacar a otro, deja de contestarle y lo marca como ráfaga. Si una inundación le obliga a
+    callar, lo dice cada minuto en un aviso, sin perder las peticiones por TCP.
+  donde: >-
+    En la red de servidores o en la DMZ, en una máquina que no sea ya tu DNS ni tu servidor
+    de hora, con un nombre de servidor de nombres o de hora (ns2, ntp01). Dentro de la red
+    avisa de quien hace reconocimiento; expuesta a Internet enseña a quien busca servidores
+    para usarlos en ataques, sin que tu IP les sirva para ello.
+  requisitos:
+    - Un sensor Linux con Docker, versión 0.13 o posterior.
+    - Abrir en el cortafuegos de esa máquina 53 UDP y TCP, 123 UDP o 1900 UDP, según lo que enciendas.
+    - En Ubuntu el 53 lo ocupa systemd-resolved; pon DNSStubListener=no en /etc/systemd/resolved.conf o elige otro puerto.
+    - Pon tus redes en «Redes internas»; solo sus equipos reciben las respuestas completas (monlist, búsquedas UPnP, version.bind). Pruébala desde uno de ellos; desde la propia máquina contesta lo mínimo.
+    - Si un cortafuegos delante cambia la IP de origen (Azure Firewall con DNAT, VIP con NAT de origen), no pongas su red en «Redes internas», porque todo Internet llegaría desde ella.
+    - No sustituye a un DNS de verdad ni resuelve para nadie; a los nombres de tu dominio contesta REFUSED, como un servidor cerrado.
+    - Fuera de tus redes internas nunca contesta con más bytes de los que recibe (sin monlist ni búsquedas UPnP) y a version.bind contesta REFUSED, por UDP y por TCP.
+    - Si activas «Respuestas completas también a Internet», tu IP puede acabar en listas de reflectores y tu proveedor puede avisarte.
+    - Si la expones a Internet, avisa a tu proveedor; los proyectos que rastrean Internet la verán como un servidor DNS.
+  instalacion:
+    automatica: true
+versionModulo: 0.2.1
+# conexionPorCampo y severidad.porCampo son de la 0.13: un sensor anterior no
+# distinguiría las peticiones por UDP (origen falsificable) de las de TCP.
+sensorMinimo: 0.13.0
+tipo: contenedor
+procedencia:
+  proyecto: DDoSPot
+  url: https://github.com/telekom-security/ddospot
+  # Enlaza github.com/miekg/dns, golang.org/x/net y golang.org/x/sys (BSD-3-Clause)
+  # y la biblioteca estándar de Go (BSD-3-Clause); avisos en /licencias de la imagen.
+  licencia: MIT
+
+contenedor:
+  # Imagen propia, construida con imagen/preparar.sh desde la v2.0.1 fijada por
+  # commit y con sugardaddy.patch. Los ceros los cambia por el digest de verdad
+  # herramientas/publicar-trampa.sh dns-ntp (antes hay que añadir
+  # 'sugardaddy-trampa-dns-ntp' a imagenesDelNodo en infra/central.bicep y
+  # desplegar el panel); el banco de pruebas usa la que construye en local.
+  imagen: ghcr.io/seguridadsi/sugardaddy-trampa-dns-ntp:2.0.1-sd4@sha256:5f1c70c97d6aca7269c7a88d52ea43334d69e25be4acadc355b8e1ae32b748c0
+  # Dentro del contenedor escucha en 1053, 1123 y 11900 (corre sin root ni
+  # capacidades, y por debajo de 1024 no podría abrirlos en Linux anteriores
+  # a 4.11 ni en Podman); el atacante llega por los puertos elegidos (53,
+  # 123 y 1900 por defecto). Tienen que ser los de DDOSPOT_*_PORT.
+  puertos:
+    - { interno: 1053, expuesto: '${puertoDns}', protocolo: udp, si: dns }
+    - { interno: 1053, expuesto: '${puertoDns}', protocolo: tcp, si: dns }
+    - { interno: 1123, expuesto: '${puertoNtp}', protocolo: udp, si: ntp }
+    - { interno: 11900, expuesto: '${puertoSsdp}', protocolo: udp, si: ssdp }
+  entorno:
+    # Ya los fija la imagen; aquí, para que se vean al revisar el módulo. La
+    # recursión no se puede encender: con "on" la imagen no arranca.
+    DDOSPOT_DNS_RECURSION: 'off'
+    # Los puertos de dentro: los de «interno» de arriba. La imagen fija los
+    # mismos, y el de chargen (10019), que no se publica.
+    DDOSPOT_DNS_PORT: '1053'
+    DDOSPOT_NTP_PORT: '1123'
+    DDOSPOT_SSDP_PORT: '11900'
+    # Con off, fuera de las redes internas (y nunca a la pasarela del
+    # contenedor, por la que Docker entrega lo que llega por IPv6 o por la
+    # propia máquina) ninguna respuesta UDP más grande que su petición: sin
+    # monlist, READVAR ni SSDP; y a version.bind, REFUSED por UDP y por TCP,
+    # como un BIND con allow-query (un TC=1 sin motivo la delataría).
+    DDOSPOT_PUBLIC_AMPLIFICATION:
+      segun: respuestasInternet
+      valores: { 'yes': 'on', 'no': 'off' }
+    # Las únicas que reciben respuestas completas; con una mal escrita la
+    # trampa no arranca. Vacía: nadie (solo la propia trampa).
+    DDOSPOT_INTERNAL_NETS: ${redesInternas}
+    DDOSPOT_LOG_FILE: ddospot.json
+    # Tope diario del registro (50 MB), repartido para que nadie lo ciegue:
+    # peticiones UDP (origen falsificable) hasta el 60 %, que llega a lo largo
+    # del día (con una inundación se apunta una muestra hasta medianoche en
+    # vez de gastarlo en unas horas); ráfagas y redes, el 15 %; peticiones TCP,
+    # al menos el 23 %; y el 2 % para los avisos. Cada clase tiene su ritmo de
+    # líneas (10 por segundo entre las tres) y un mismo origen no pasa del 2 %
+    # del día en cada una. Lo que se calla se resume cada minuto en una línea
+    # log_dropped (cuántas, por qué y quién); una clase que gasta su parte
+    # del día apunta log_full. Rota cada día a ddospot.json.AAAA-MM-DD: siete
+    # días y el de hoy caben en los 512 MB que el sensor guarda por trampa.
+    DDOSPOT_MAX_LOG_BYTES: '52428800'
+    # Una línea por petición dentro del presupuesto de su origen, no solo la
+    # primera: se ve el barrido.
+    DDOSPOT_LOG_REQUESTS: 'on'
+    # También se apuntan los orígenes de una red /24 bloqueada: en una LAN, el
+    # atacante y sus vecinos comparten /24 y si no desaparecerían.
+    DDOSPOT_LOG_BLOCKED: 'on'
+    # A un origen privado (10/8, 172.16/12, 192.168/16) le contesta 50 veces por
+    # servicio cada diez minutos, y 500 a su /24; a uno de Internet, 5 y 20. Y
+    # en total, 50 respuestas y 64 KB por segundo como mucho.
+    DDOSPOT_PRIVATE_BUDGET: '50'
+    # Tablas de 50000 orígenes y redes (85 MB de pico medidos, llenas). Con más
+    # orígenes falsos no contesta ni apunta a ninguno nuevo hasta que caduquen
+    # (diez minutos sin paquetes); el aviso log_dropped dice cuántos paquetes
+    # se quedaron fuera.
+    DDOSPOT_MAX_SOURCES: '50000'
+    DDOSPOT_PERSONA: ${sistema}
+    DDOSPOT_HOSTNAME: ${nombreEquipo}
+    # La misma persona (UUID, puerto UPnP, servidor de hora, pares NTP) tras
+    # cada reinicio, y distinta en cada trampa aunque se repitan el nombre y
+    # la IP: la semilla de la instancia se guarda junto a su registro.
+    DDOSPOT_SEED: ${nombreEquipo}
+    DDOSPOT_SEED_FILE: persona.semilla
+    # La IP que anuncia en LOCATION de SSDP y en monlist: la de la máquina.
+    DDOSPOT_LAN_IP: ${direccion}
+    # El recolector aprieta antes del límite del contenedor.
+    GOMEMLIMIT: 100MiB
+  # No hay volúmenes escribibles: lo único que escribe es su registro, aquí.
+  registros: /var/log/ddospot
+
+aislamiento:
+  salida: false
+  soloLectura: true
+  # Medido: 3,7 MB en reposo y 85 MB de pico con 250000 orígenes falsos.
+  cpu: 0.25
+  memoriaMb: 128
+
+parametros:
+  type: object
+  required:
+    [
+      nombreEquipo,
+      sistema,
+      direccion,
+      dns,
+      puertoDns,
+      ntp,
+      puertoNtp,
+      ssdp,
+      puertoSsdp,
+      respuestasInternet
+    ]
+  properties:
+    nombreEquipo:
+      type: string
+      title: Nombre del equipo
+      description: El que devuelve hostname.bind (solo BIND). Que encaje con los servidores de nombres de la red.
+      pattern: '^[a-zA-Z0-9-]{1,63}$'
+      default: ns2
+    sistema:
+      type: string
+      title: Sistema que finge ser
+      description: >-
+        Cambia las versiones que anuncia. Solo CentOS contesta a monlist (ntpd 4.2.6), como
+        los servidores viejos que buscan los atacantes, y solo a tus redes internas.
+      enum: [centos7, centos6, debian11, ubuntu2004]
+      x-opciones:
+        centos7: CentOS 7 (BIND 9.11, ntpd 4.2.6, MiniDLNA)
+        centos6: CentOS 6 (BIND 9.8, ntpd 4.2.6, MiniDLNA)
+        debian11: Debian 11 (dnsmasq 2.85, ntpd 4.2.8, MiniUPnPd)
+        ubuntu2004: Ubuntu 20.04 (dnsmasq 2.90, ntpd 4.2.8, MiniDLNA)
+      default: centos7
+    direccion:
+      type: string
+      title: IP de la máquina
+      description: >-
+        La IP del sensor en tu red. La anuncia en las respuestas UPnP y NTP; con otra, el
+        atacante vería que no cuadra.
+      pattern: '^((25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\.){3}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])$'
+    dns:
+      type: string
+      title: DNS
+      enum: ['yes', 'no']
+      x-opciones: { 'yes': Sí, 'no': 'No' }
+      default: 'yes'
+    puertoDns:
+      type: integer
+      title: Puerto DNS (UDP y TCP)
+      description: Solo cuenta si DNS está en Sí. El 53 es el creíble.
+      minimum: 1
+      maximum: 65535
+      default: 53
+    ntp:
+      type: string
+      title: NTP
+      enum: ['yes', 'no']
+      x-opciones: { 'yes': Sí, 'no': 'No' }
+      default: 'yes'
+    puertoNtp:
+      type: integer
+      title: Puerto NTP (UDP)
+      description: Solo cuenta si NTP está en Sí. El 123 es el creíble.
+      minimum: 1
+      maximum: 65535
+      default: 123
+    ssdp:
+      type: string
+      title: SSDP (UPnP)
+      description: >-
+        Un servidor de nombres con UPnP es raro; enciéndelo si la máquina debe parecer un NAS o
+        un equipo multimedia. Nadie sirve la página que anuncia (LOCATION): quien la pida verá
+        que no hay nada.
+      enum: ['yes', 'no']
+      x-opciones: { 'yes': Sí, 'no': 'No' }
+      default: 'no'
+    puertoSsdp:
+      type: integer
+      title: Puerto SSDP (UDP)
+      description: Solo cuenta si SSDP está en Sí. El 1900 es el creíble.
+      minimum: 1
+      maximum: 65535
+      default: 1900
+    redesInternas:
+      type: string
+      title: Redes internas
+      description: >-
+        Las de tu red, separadas por comas (10.20.0.0/16, 192.168.1.0/24). Solo sus equipos
+        reciben las respuestas completas (monlist, búsquedas UPnP, version.bind), las que más
+        engañan a quien hace reconocimiento. Vacío: nadie. No pongas la red de un cortafuegos o
+        balanceador que cambie la IP de origen de lo que entra (Azure Firewall con DNAT, una
+        VIP con NAT de origen): todo Internet llegaría desde ella y tu IP serviría de reflector.
+      pattern: '^(|((25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\.){3}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])/([89]|[12][0-9]|3[0-2])(, ?((25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\.){3}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])/([89]|[12][0-9]|3[0-2])){0,31})$'
+      maxLength: 640
+      default: ''
+    respuestasInternet:
+      type: string
+      title: Respuestas completas también a Internet
+      description: >-
+        Con No (lo recomendado), fuera de tus redes internas nunca contesta con más bytes de los
+        que recibe: sin monlist ni búsquedas UPnP, y a version.bind con REFUSED, como un
+        servidor que solo atiende a su red. Así tu IP no sirve para amplificar ataques. Con Sí
+        contesta a todos como un servidor real (hasta 5 veces por origen cada diez minutos) y
+        tu IP puede acabar en listas de reflectores abiertos y en quejas a tu proveedor.
+      enum: ['yes', 'no']
+      x-opciones: { 'yes': 'Sí (tu IP puede salir como reflector)', 'no': 'No' }
+      default: 'no'
+
+eventos:
+  fuente: { tipo: fichero, ruta: ddospot.json }
+  formato: json-lineas
+  campos:
+    # "2026-10-16 21:13:05.123456", sin zona: UTC (el adaptador de la 0.13 lo lee).
+    cuando: time
+    # Solo el origen de las peticiones. El de una ráfaga (target_ip) puede ser
+    # la víctima de una reflexión: va a detalle y nunca a origen.
+    ip: src_ip
+    puerto: src_port
+  accion:
+    campo: event
+    valores:
+      request: conexion
+      # Solo si se apagara DDOSPOT_LOG_REQUESTS: una línea por origen con su primera petición.
+      scanner: conexion
+      attack_start: conexion
+    # attack_end, net_start, net_end, log_full y log_dropped.
+    porDefecto: otra
+  severidad:
+    porDefecto: media
+    porValor:
+      attack_start: alta
+      net_start: alta
+      attack_end: baja
+      net_end: baja
+      # Una clase de líneas gastó su parte del día: hasta mañana solo se
+      # resumen (las demás siguen).
+      log_full: alta
+      # Cada minuto en que se calla algo: cuántas líneas, por qué y quién.
+      log_dropped: media
+    porCampo:
+      campo: dns_type
+      valores:
+        AXFR: alta
+        IXFR: alta
+  # Por UDP el origen se puede falsificar; por TCP (DNS) ha completado el
+  # saludo. Las líneas de red y los avisos del registro no llevan proto: false.
+  conexionEstablecida: false
+  conexionPorCampo:
+    campo: proto
+    valores: { tcp: true, udp: false }
+  # req_pkt (la petición en base64) se queda solo en crudo.
+  detalle:
+    - event
+    - pot
+    - dest_port
+    - proto
+    - packets
+    - dns_name
+    - dns_type
+    - dns_cls
+    - opcode
+    - mode
+    - st
+    - mx
+    - req_size
+    - resp_size
+    - amp_guard
+    - target_ip
+    - target_port
+    - target_net
+    - sources
+    - first_seen
+    - last_seen
+    - attack_seconds
+    - persona
+    - max_bytes
+    - kind
+    - kind_bytes
+    - dropped
+    - dropped_udp
+    - dropped_tcp
+    - dropped_targets
+    - limits
+    - top_sources
+    - untracked
+  resumen:
+    [
+      pot,
+      dns_name,
+      dns_type,
+      mode,
+      st,
+      amp_guard,
+      target_ip,
+      target_net,
+      packets,
+      kind,
+      dropped,
+      top_sources
+    ]
+  etiquetas:
+    event: Tipo
+    pot: Servicio
+    dest_port: Puerto
+    proto: Transporte
+    packets: Paquetes del origen
+    dns_name: Nombre consultado
+    dns_type: Tipo de registro
+    dns_cls: Clase
+    opcode: Código de operación
+    mode: Modo NTP
+    st: Busca (ST)
+    mx: Espera (MX)
+    req_size: Tamaño de la petición
+    resp_size: Tamaño de la respuesta
+    amp_guard: Respuesta frenada (recortada, sin respuesta o rechazada)
+    target_ip: Dirección de la ráfaga (escáner insistente o víctima)
+    target_port: Puerto de la ráfaga
+    target_net: Red bloqueada
+    sources: Orígenes en la red
+    first_seen: Primer paquete
+    last_seen: Último paquete
+    attack_seconds: Duración (s)
+    persona: Sistema fingido
+    max_bytes: Tope diario (bytes)
+    kind: Clase de líneas
+    kind_bytes: Parte del día de la clase (bytes)
+    dropped: Líneas calladas
+    dropped_udp: Peticiones UDP calladas
+    dropped_tcp: Peticiones TCP calladas
+    dropped_targets: Ráfagas calladas
+    limits: Por qué (ritmo, cupo del origen, reparto o tope del día)
+    top_sources: Orígenes con más líneas calladas
+    untracked: Paquetes sin apuntar (tablas llenas)
+    request: Petición
+    scanner: Visita
+    attack_start: Ráfaga (escaneo insistente o reflexión)
+    attack_end: Fin de la ráfaga
+    net_start: Red entera sin respuesta
+    net_end: Fin del bloqueo de la red
+    log_full: Parte del registro de hoy gastada, esa clase se resume hasta mañana
+    log_dropped: Líneas calladas en el último minuto

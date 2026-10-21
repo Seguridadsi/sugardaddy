@@ -1,0 +1,43 @@
+node_modules
+
+# Output
+/apps/*/build
+/apps/*/.svelte-kit
+/sensor/bin
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env
+.env
+.env.*
+!.env.example
+
+# Vite
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+
+# Secretos — nunca en el repositorio
+*.pem
+*.key
+*.pfx
+.azure/
+
+# Registros
+*.log
+npm-debug.log*
+.sensores.dev.json
+/sensor/datos-dev
+/.claves-dev
+/despliegue/nodo/imagenes.env
+
+# Ficheros de Entra de los clientes (llevan secretos)
+entra-*.env
+apps/consola/geo/
+/sensor/dist
+/sensor/probartrampa
+
+# Salidas de compilación
+/apps/*/build
+/apps/*/dist

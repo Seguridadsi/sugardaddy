@@ -1,0 +1,289 @@
+# SSH y Telnet falsos con Cowrie. Es el módulo de referencia: si un honeypot
+# nuevo no cabe en este formato, el que cambia es el formato, no el núcleo.
+version: 1
+id: cowrie
+nombre: SSH y Telnet falsos
+descripcion: >-
+  Un servidor SSH y Telnet que acepta credenciales débiles y deja al atacante en una
+  shell simulada. Registra cada intento de acceso, cada comando y cada descarga.
+ficha:
+  detecta: >-
+    Quien intenta entrar por SSH o Telnet: las contraseñas que prueba, los comandos que
+    teclea, lo que intenta descargar y si quiere usar la máquina de trampolín hacia otras.
+  donde: >-
+    Donde un atacante buscaría servidores Linux: la red de servidores, la DMZ o una VLAN de
+    usuarios. Con un nombre de equipo y un puerto que encajen con los de tu red.
+  requisitos:
+    - Un sensor Linux con Docker (el del nodo o uno instalado en otra máquina).
+    - Abrir en el cortafuegos de esa máquina el puerto que elijas.
+  instalacion:
+    automatica: true
+versionModulo: 0.2.2
+tipo: contenedor
+procedencia:
+  proyecto: Cowrie
+  url: https://github.com/cowrie/cowrie
+  licencia: BSD-3-Clause
+
+contenedor:
+  # Imagen propia, construida con imagen/preparar.sh desde el Cowrie fijado:
+  # sin JA4H ni el resto de JA4+ con licencia FoxIO 1.1 (no comercial), y con
+  # tope en lo que apunta del atacante (ver COWRIE_OUTPUT_JSONLOG_MAX_BYTES_DAY).
+  # La construye y deja aquí su digest herramientas/publicar-trampa.sh cowrie.
+  imagen: ghcr.io/seguridadsi/sugardaddy-trampa-cowrie:3.1.2-sd3@sha256:c9830f78d845711ebc782e798a15af9b18886467d4379e194d2bc72899d00129
+  # Sin imagen pública: la de Docker Hub (cowrie/cowrie) lleva JA4+ con
+  # licencia FoxIO 1.1 y no tiene el tope de cowrie.json. A un sensor sin
+  # credencial del registro (anterior a la 0.12.1, o sin relevo) la consola
+  # no le manda esta trampa y dice por qué hasta que se ponga al día.
+  puertos:
+    - { interno: 2222, expuesto: '${puertoSsh}', protocolo: tcp }
+    - { interno: 2223, expuesto: '${puertoTelnet}', protocolo: tcp, si: telnet }
+  entorno:
+    # Cowrie lee su configuración de COWRIE_<SECCIÓN>_<CLAVE>.
+    COWRIE_HONEYPOT_HOSTNAME: ${nombreEquipo}
+    COWRIE_TELNET_ENABLED: ${telnet}
+    # Los usuarios y contraseñas que dejan entrar están en el userdb.txt de aquí.
+    COWRIE_HONEYPOT_ETC_PATH: /cowrie/sd-etc
+    # Tope por fichero de lo que el atacante descarga: si no, podría llenar el disco del cliente.
+    COWRIE_HONEYPOT_DOWNLOAD_LIMIT_SIZE: '10485760'
+    # Lo que sube o descarga el atacante va al /tmp del contenedor (tmpfs de 16 MB
+    # que pone el sensor), no al volumen: subiendo en bucle no llena el disco del
+    # cliente. Tiene que ser /tmp tal cual: Cowrie no crea la carpeta. Con el tmpfs
+    # lleno las subidas se siguen registrando, con el SHA-256 de lo que cupo.
+    COWRIE_HONEYPOT_DOWNLOAD_PATH: /tmp
+    # Sin ttylog: nadie lo lee, y con el tmpfs lleno Cowrie no abre la shell ni
+    # ejecuta comandos si tiene que escribirlo. Si se enciende, que sea en /tmp.
+    COWRIE_HONEYPOT_TTYLOG: 'false'
+    COWRIE_HONEYPOT_TTYLOG_PATH: /tmp
+    # Tope de cowrie.json (solo en la imagen propia). Cada valor que manda el
+    # atacante se recorta antes de apuntarlo (usuario y contraseña a 256
+    # bytes, comandos a 4 KB, cualquier otro campo a 2 KB, y message con lo ya
+    # recortado), con el campo recortado diciendo qué y cuánto medía. Y no
+    # pasa de 50 MB al día (UTC), repartidos: cada origen (IPv4 o /64), como
+    # mucho el 4 % en intentos de acceso y otro 4 % en lo que hace tras entrar;
+    # los accesos de todos, como mucho el 60 % (el resto queda para lo que
+    # pasa dentro); una reserva para lo primero de cada origen nuevo y otra
+    # para los avisos. Lo que se calla se resume en una línea log_dropped por
+    # minuto como mucho, y cada parte que se llena deja una línea log_full.
+    # Rota a diario a cowrie.json.AAAA-MM-DD: con la semana que guarda el
+    # sensor, 400 MB como mucho, por debajo de su cuota por trampa. Si al
+    # arrancar el cowrie.json de hoy lo dejó otra imagen (la pública, sin
+    # tope, antes del relevo), se aparta como rotado y el día empieza de cero.
+    COWRIE_OUTPUT_JSONLOG_MAX_BYTES_DAY: '52428800'
+    COWRIE_SSH_VERSION:
+      segun: sistema
+      valores:
+        debian-12: SSH-2.0-OpenSSH_9.2p1 Debian-2+deb12u3
+        ubuntu-22: SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.6
+        ubuntu-20: SSH-2.0-OpenSSH_8.2p1 Ubuntu-4ubuntu0.9
+        centos-7: SSH-2.0-OpenSSH_7.4
+    COWRIE_SHELL_KERNEL_VERSION:
+      segun: sistema
+      valores:
+        debian-12: 6.1.0-21-amd64
+        ubuntu-22: 5.15.0-91-generic
+        ubuntu-20: 5.4.0-169-generic
+        centos-7: 3.10.0-1160.105.1.el7.x86_64
+    COWRIE_SHELL_KERNEL_BUILD_STRING:
+      segun: sistema
+      valores:
+        debian-12: '#1 SMP PREEMPT_DYNAMIC Debian 6.1.90-1 (2024-05-03)'
+        ubuntu-22: '#101-Ubuntu SMP Tue Nov 14 13:30:08 UTC 2023'
+        ubuntu-20: '#187-Ubuntu SMP Thu Nov 23 14:52:28 UTC 2023'
+        centos-7: '#1 SMP Thu Dec 7 15:39:45 UTC 2023'
+  ficheros:
+    # Formato de Cowrie: usuario:x:contraseña, con * para cualquiera y ! para rechazar.
+    - { destino: /cowrie/sd-etc/userdb.txt, contenido: '${accesos}' }
+  # Claves SSH y estado de Cowrie. Lo que sube o descarga el atacante va a /tmp.
+  escribibles: [/cowrie/cowrie-git/var/lib/cowrie]
+  registros: /cowrie/cowrie-git/var/log/cowrie
+
+aislamiento:
+  salida: false
+  soloLectura: true
+  cpu: 0.5
+  memoriaMb: 256
+
+parametros:
+  type: object
+  required: [nombreEquipo, puertoSsh, sistema, accesos]
+  properties:
+    nombreEquipo:
+      type: string
+      title: Nombre del equipo
+      description: El que verá el atacante en el prompt. Que encaje con los nombres de la red.
+      pattern: '^[a-zA-Z0-9-]{1,63}$'
+      default: srv-backup01
+    puertoSsh:
+      type: integer
+      title: Puerto SSH
+      description: El 22 es el más creíble, pero solo si la máquina no usa ya el 22 para su SSH de verdad.
+      minimum: 1
+      maximum: 65535
+      default: 2222
+    telnet:
+      type: string
+      title: Telnet
+      description: Un Telnet abierto atrae mucho ataque automático (cámaras, routers). Si no, no se abre su puerto.
+      enum: ['yes', 'no']
+      x-opciones: { 'yes': Sí, 'no': 'No' }
+      default: 'no'
+    puertoTelnet:
+      type: integer
+      title: Puerto Telnet
+      description: Solo cuenta si Telnet está en Sí. El 23 es el habitual.
+      minimum: 1
+      maximum: 65535
+      default: 2223
+    sistema:
+      type: string
+      title: Sistema que finge ser
+      description: Cambia la versión de SSH que anuncia y lo que responde uname.
+      enum: [debian-12, ubuntu-22, ubuntu-20, centos-7]
+      x-opciones:
+        debian-12: Debian 12
+        ubuntu-22: Ubuntu 22.04
+        ubuntu-20: Ubuntu 20.04
+        centos-7: CentOS 7
+      default: debian-12
+    accesos:
+      type: string
+      title: Usuarios y contraseñas que dejan entrar
+      description: >-
+        Una regla por línea, usuario:x:contraseña. Un * vale cualquiera y un ! delante
+        la rechaza. Se aplican en orden: con root:x:!root y luego root:x:*, root entra
+        con todo menos con "root".
+      x-multilinea: true
+      pattern: '^([^:\s]{1,64}:x:[^\s]{1,128}(\r?\n|$))+$'
+      maxLength: 4000
+      default: |-
+        root:x:!root
+        root:x:!123456
+        root:x:*
+        admin:x:*
+        ubuntu:x:*
+
+eventos:
+  fuente: { tipo: fichero, ruta: cowrie.json }
+  formato: json-lineas
+  campos:
+    cuando: timestamp
+    ip: src_ip
+    puerto: src_port
+    usuario: username
+  accion:
+    campo: eventid
+    valores:
+      cowrie.session.connect: conexion
+      cowrie.login.success: autenticacion
+      cowrie.login.failed: autenticacion
+      cowrie.command.input: comando
+      cowrie.command.failed: comando
+      cowrie.session.file_download: descarga
+      cowrie.session.file_upload: escritura
+    porDefecto: otra
+    ignorar:
+      - cowrie.log.closed
+      - cowrie.client.size
+      - cowrie.session.params
+  severidad:
+    porDefecto: media
+    porAccion:
+      autenticacion: alta
+      comando: critica
+      descarga: critica
+      escritura: critica
+    porValor:
+      # Contexto de la sesión: su cliente, su huella y cuánto duró.
+      cowrie.client.version: baja
+      cowrie.client.kex: baja
+      cowrie.session.closed: baja
+      # Usar la trampa de trampolín hacia otra máquina, y lo que manda por ahí.
+      cowrie.direct-tcpip.request: critica
+      cowrie.direct-tcpip.data: critica
+      # Le están dando sin parar: parte del registro de hoy llena, o se resume lo que se calla.
+      cowrie.sugardaddy.log_full: alta
+      cowrie.sugardaddy.log_dropped: alta
+  # Cowrie solo registra tras completar el saludo TCP: el origen no está falseado.
+  conexionEstablecida: true
+  # La contraseña se recoge completa (decisión de SeguridadSI, 2026-10-14): si
+  # un empleado se equivoca de servidor y teclea la suya, quedará en la consola.
+  detalle:
+    - eventid
+    - session
+    - protocol
+    - password
+    - input
+    - url
+    - outfile
+    - filename
+    - shasum
+    - size
+    - version
+    - hassh
+    - duration
+    - dst_ip
+    - dst_port
+    - data
+    - ja4
+    - recortado
+    - aviso
+    - lleno
+    - tope_bytes
+    - omitidos
+    - por_cupo_ip
+    - por_cupo_accesos
+    - por_registro_lleno
+    - de_su_ip
+    - ips_distintas
+    - ips_sin_contar
+    - eventos
+    - periodo_s
+  sesion: session
+  contrasena: password
+  resumen: [password, input, url, filename, version, duration, data, aviso, omitidos]
+  etiquetas:
+    session: Sesión
+    protocol: Protocolo
+    password: Contraseña
+    input: Comando
+    url: Descarga desde
+    outfile: Guardado en
+    filename: Fichero
+    shasum: SHA-256
+    size: Tamaño
+    version: Cliente
+    hassh: Huella del cliente (HASSH)
+    duration: Duración (s)
+    dst_ip: Destino
+    dst_port: Puerto de destino
+    data: Envía
+    ja4: Huella TLS (JA4)
+    recortado: Recortado (tamaño original)
+    aviso: Aviso
+    lleno: Parte llena
+    tope_bytes: Tope diario (bytes)
+    omitidos: Eventos no apuntados
+    por_cupo_ip: Por el tope de su origen
+    por_cupo_accesos: Por el tope de los accesos
+    por_registro_lleno: Por el registro lleno
+    de_su_ip: De esa IP
+    ips_distintas: IP distintas
+    ips_sin_contar: De IP sin contar una a una
+    eventos: Qué se ha callado
+    periodo_s: Periodo (s)
+    cowrie.session.connect: Conexión
+    cowrie.client.version: Cliente SSH
+    cowrie.client.kex: Negociación de cifrado
+    cowrie.login.success: Entra
+    cowrie.login.failed: Contraseña rechazada
+    cowrie.command.input: Comando
+    cowrie.command.failed: Comando desconocido
+    cowrie.session.file_download: Descarga
+    cowrie.session.file_upload: Sube un fichero
+    cowrie.direct-tcpip.request: Intenta usarla de trampolín
+    cowrie.direct-tcpip.data: Manda por el túnel
+    cowrie.direct-tcpip.ja4: Huella TLS por el túnel
+    cowrie.session.closed: Se va
+    cowrie.sugardaddy.log_full: Registro de hoy lleno (esa parte), hasta mañana se resume
+    cowrie.sugardaddy.log_dropped: Eventos no apuntados por tope (resumen)

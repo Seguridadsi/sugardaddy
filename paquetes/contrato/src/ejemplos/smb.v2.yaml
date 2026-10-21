@@ -1,0 +1,373 @@
+# Ejemplo de manifiesto v2 (docs/diseno/modulo-despliegue.md §2.1), para las
+# pruebas del contrato, del elector y de las herramientas: está fuera de
+# modulos/ para que ningún catálogo lo cargue. La carpeta compartida falsa con
+# dos vías. La de contenedor es la trampa de modulos/trampas/smb tal cual (su
+# contenedor, su aislamiento, sus parámetros y su traductor): el sensor recibe
+# lo mismo, y herramientas/probar-trampa.sh la prueba con la prueba.yaml de
+# smb. La manual, en un servidor de ficheros Windows del cliente, está
+# declarada, pero su señal sale del Visor de eventos y el elector la descarta
+# hasta que exista el recolector (módulo de control): así se ve desde el primer
+# día qué falta.
+version: 2
+id: smb
+nombre: Carpeta compartida falsa
+descripcion: >-
+  Un servidor de ficheros que enseña una carpeta compartida con nombres creíbles y registra quién la
+  busca, entra y abre ficheros.
+# Sin «instalacion»: la consola la deduce de las vías y la proyección para los
+# sensores la rellena.
+ficha:
+  detecta: >-
+    Movimiento lateral y gusanos por SMB: quién busca carpetas compartidas, con qué usuario entra
+    y qué ficheros abre.
+  donde: >-
+    En la red de servidores o de puestos, con un nombre de servidor de ficheros creíble (FS01).
+  requisitos:
+    - Un sensor Linux con Docker, o un servidor de ficheros Windows con la auditoría de recursos compartidos activada.
+versionModulo: 0.1.0
+procedencia:
+  proyecto: glutton
+  url: https://github.com/mushorg/glutton
+  licencia: MIT AND BSD-3-Clause
+
+siembra:
+  clase: servicio
+
+senal:
+  clase: directa
+  # Traductor por defecto: el de la vía de contenedor, que es el «eventos» de la
+  # trampa smb sin su fuente (el JSON de glutton).
+  eventos:
+    formato: json-lineas
+    campos:
+      cuando: cuando
+      ip: src_ip
+      puerto: src_port
+      usuario: usuario
+      equipo: equipo
+    accion:
+      campo: eventid
+      valores:
+        smb.session.connect: conexion
+        smb.session.negotiate: conexion
+        smb.session.auth: autenticacion
+        smb.session.anonymous: autenticacion
+        smb.session.rechazos: otra
+        smb.tree.connect: lectura
+        smb.file.open: lectura
+        smb.file.write: escritura
+        smb.rpc.call: comando
+        smb.exploit: comando
+      porDefecto: otra
+    severidad:
+      porDefecto: media
+      porValor:
+        smb.session.connect: baja
+        smb.session.negotiate: baja
+        smb.session.auth: alta
+        # Sesión nula o de invitado (un barrido rutinario tipo nmap -sC): media, no
+        # alta, para no tapar los inicios de sesión con credenciales de verdad.
+        smb.session.anonymous: media
+        smb.tree.connect: media
+        smb.file.open: media
+        smb.file.write: alta
+        smb.rpc.call: media
+        # EternalBlue/DoublePulsar: el vector de WannaCry y NotPetya.
+        smb.exploit: critica
+        # El registro va lleno y se está callando parte: la consola tiene que verlo.
+        smb.log.omitidos: alta
+        # Conexiones rechazadas por tope (global o por IP): un atacante intentando
+        # dejar la trampa muda.
+        smb.session.rechazos: alta
+    # SMB es TCP: el saludo se completó, el origen no está falseado.
+    conexionEstablecida: true
+    detalle:
+      - eventid
+      - dst_port
+      - proto
+      - dialecto
+      - dominio
+      - password
+      - ntlm_version
+      - ntlm_hash
+      - reto
+      - recurso
+      - fichero
+      - huella
+      - tamano
+      - interfaz
+      - opnum
+      - comando
+      - grave
+      - variante
+      - motivo_cierre
+      - omitidos
+      - por_tipo
+      - ips_ruidosas
+      - ips_distintas
+      - periodo_s
+      - tope_bytes
+      - motivo
+      - error
+    contrasena: password
+    sesion: session
+    resumen: [dominio, recurso, fichero, grave, ntlm_version, comando, interfaz, omitidos, motivo]
+    etiquetas:
+      eventid: Evento
+      dst_port: Puerto
+      proto: Transporte
+      dialecto: Dialecto SMB
+      dominio: Dominio
+      password: Contraseña (si va en claro)
+      ntlm_version: Tipo de NTLM
+      ntlm_hash: Hash NetNTLM (hex)
+      reto: Reto del servidor (hex)
+      recurso: Recurso compartido
+      fichero: Fichero
+      huella: Huella del contenido (SHA-256)
+      tamano: Tamaño capturado (bytes)
+      interfaz: Interfaz DCERPC
+      opnum: Operación DCERPC
+      comando: Comando SMB
+      grave: Por qué es grave
+      variante: Variante de la respuesta
+      motivo_cierre: Motivo de cierre
+      omitidos: Eventos no apuntados
+      por_tipo: Por tipo de evento
+      ips_ruidosas: IP que más se callan
+      ips_distintas: IP distintas calladas
+      periodo_s: En los últimos (s)
+      tope_bytes: Tope diario (bytes)
+      motivo: Se calla por
+      error: Error del registro
+      smb.session.connect: Conexión
+      smb.session.negotiate: Negociación SMB
+      smb.session.auth: Inicio de sesión (credenciales)
+      smb.session.anonymous: Sesión nula o de invitado
+      smb.tree.connect: Conexión a un recurso
+      smb.file.open: Abre un fichero
+      smb.file.write: Escribe un fichero
+      smb.rpc.call: Llamada DCERPC
+      smb.exploit: Sonda de exploit (EternalBlue/DoublePulsar)
+      smb.log.omitidos: Eventos que no caben (resumen)
+      smb.session.rechazos: Conexiones rechazadas por tope (resumen)
+
+parametros:
+  type: object
+  required: [puertoSmb, nombreEquipo, dominio, recurso]
+  properties:
+    puertoSmb:
+      type: integer
+      title: Puerto SMB
+      description: El 445 es el estándar de SMB y el más creíble y atacado. Solo si la máquina no lo usa ya para compartir ficheros.
+      minimum: 1
+      maximum: 65535
+      default: 445
+    nombreEquipo:
+      type: string
+      title: Nombre del equipo
+      description: El nombre NetBIOS que anuncia en la negociación y en el reto NTLM. Que encaje con los servidores de ficheros de la red (FS01, NAS01).
+      pattern: '^[A-Za-z0-9-]{1,15}$'
+      default: FS01
+    dominio:
+      type: string
+      title: Dominio o grupo de trabajo
+      description: El dominio/grupo que anuncia. Pon el de tu red para que parezca un servidor más.
+      pattern: '^[A-Za-z0-9-]{1,15}$'
+      default: WORKGROUP
+    recursos:
+      type: string
+      title: Recursos compartidos
+      description: >-
+        Nombres de recursos creíbles, separados por comas (Finanzas, RRHH, Backups). Hacen la
+        trampa más creíble y aparecen en el registro; la trampa acepta la conexión a cualquier
+        recurso y nunca sirve datos de verdad.
+      pattern: '^[^\x00]{0,256}$'
+      maxLength: 256
+      default: 'Finanzas,RRHH,Backups,IT$'
+    # Solo para la vía de Windows: la carpeta que se comparte en el servidor del
+    # cliente. Van en sus órdenes, así que llevan un pattern anclado (regla 6).
+    recurso:
+      type: string
+      title: Carpeta compartida
+      description: Solo para la vía de Windows.
+      pattern: '^[A-Za-z0-9 _-]{1,40}$'
+      default: Nominas
+    # La carpeta la crean los pasos y la retirada la borra: sin default, la
+    # consola propone una con un final al azar (§2.5), para que no pueda ser
+    # una que ya tuviera el cliente. No se ve desde la red (solo el nombre del
+    # recurso), así que el final no delata nada. No es obligatoria: la vía de
+    # contenedor no la usa, y sin ella renderizar no da los pasos de Windows.
+    ruta:
+      type: string
+      title: Carpeta en el servidor
+      description: >-
+        Solo para la vía de Windows. Una carpeta que aún no exista, dentro de una que sí: la crean
+        los pasos y la retirada la borra.
+      pattern: '^[A-Za-z]:\\[A-Za-z0-9 _\\-]{1,200}$'
+      x-aleatorio: { bases: ['C:\Compartido-', 'C:\Datos-', 'C:\Ficheros-'], sufijo: 6 }
+
+vias:
+  - id: contenedor
+    nombre: En un sensor
+    ejecutor: contenedor@1
+    # destino: se omite → los del ejecutor (máquinas con sensor)
+    # requisitos: se omiten → [] (los del ejecutor se añaden solos)
+    carga:
+      contenedor:
+        # Imagen propia, construida con imagen/preparar.sh (que llama a la base común
+        # modulos/comun/glutton) desde el commit fijado de glutton y con
+        # sugardaddy.patch. Los ceros los cambia por el digest de verdad
+        # herramientas/publicar-trampa.sh smb; el banco de pruebas usa la local.
+        imagen: ghcr.io/seguridadsi/sugardaddy-trampa-smb:1.0.1-sd1@sha256:74a21da1f5b9e9a4f1a4a3502833b9c49b56336b1711338afb010398e43e6a13
+        puertos:
+          - { interno: 1445, expuesto: '${puertoSmb}', protocolo: tcp }
+        entorno:
+          # El binario escucha SIEMPRE en el 1445 interno (el contrato pide 1024 o más); el puerto que ve el atacante
+          # lo mapea Docker (puertos.expuesto). El protocolo y el módulo los fija la
+          # imagen; aquí se repiten para que se vean al revisar el módulo.
+          SD_GLUTTON_PROTO: smb
+          SD_GLUTTON_MODULE: smb
+          SD_GLUTTON_LISTEN: ':1445'
+          SD_GLUTTON_LOG_DIR: /registros
+          # Identidad que anuncia (nombre NetBIOS y dominio/grupo): que cuadre con tu red.
+          SD_GLUTTON_EQUIPO: ${nombreEquipo}
+          SD_GLUTTON_DOMINIO: ${dominio}
+          # Recursos compartidos creíbles que se ofrecen (a efectos de credibilidad y
+          # registro; la trampa acepta la conexión a cualquiera y nunca sirve datos).
+          SD_GLUTTON_RECURSOS: ${recursos}
+          # Topes (no los toca el cliente): acotan memoria, CPU y disco aunque miles de
+          # atacantes se conecten a la vez. Conexiones totales y por IP; inactividad;
+          # tope del registro por día (64 MB), con pase libre a los primeros de cada
+          # tipo por si una IP intenta cegarlo; y el prefijo que se captura de lo que
+          # suben o inyectan (el contenido no se guarda: solo huella y tamaño), para
+          # que la RAM vaya holgada en 128 MB.
+          SD_GLUTTON_MAX_CONN: '128'
+          SD_GLUTTON_MAX_CONN_IP: '8'
+          SD_GLUTTON_IDLE_S: '30'
+          # Vida máxima absoluta de una conexión: aunque el atacante mande keepalives
+          # para no caer por inactividad, se cierra a los 120 s y se vuelca lo
+          # capturado (si no, los eventos tardaban minutos o se perdían al parar).
+          SD_GLUTTON_VIDA_S: '120'
+          SD_GLUTTON_MAX_LOG_BYTES: '67108864'
+          SD_GLUTTON_LIBRES_TIPO: '64'
+          # Eventos que nunca deben silenciarse del todo: cada IP tiene su propia bolsa
+          # garantizada para exploits e inicios de sesión, aunque otras IP llenen el día.
+          SD_GLUTTON_PRIORITARIOS: 'smb.exploit,smb.session.auth'
+          SD_GLUTTON_LIBRES_PRIO: '128'
+          SD_GLUTTON_RESUMEN_S: '300'
+          SD_GLUTTON_MAX_IPS: '4096'
+          SD_GLUTTON_MAX_FILE_BYTES: '1048576'
+          SD_GLUTTON_MAX_TX_BYTES: '1048576'
+          # Presupuesto de bytes leídos por conexión: superado, se corta (acota memoria
+          # y CPU aunque una IP mande muchos marcos).
+          SD_GLUTTON_MAX_CONN_BYTES: '4194304'
+          # El recolector de Go aprieta antes del límite del contenedor.
+          GOMEMLIMIT: 96MiB
+        # Lo único que escribe es su registro, aquí.
+        registros: /registros
+      aislamiento:
+        salida: false
+        soloLectura: true
+        cpu: 0.5
+        memoriaMb: 128
+    senal:
+      fuente: { tipo: fichero, ruta: smb.json }
+    comprobacion:
+      prueba:
+        pasos:
+          - texto: Desde otro equipo de la red, conéctate por SMB a ${destino.direccion} (puerto ${puertoSmb}) con el usuario sdprueba${nonce} y cualquier contraseña.
+        marca: { campo: origen.usuario, contiene: 'sdprueba${nonce}' }
+    retirada: { tipo: automatica }
+
+  - id: carpeta-auditada
+    nombre: En tu servidor de ficheros Windows
+    ejecutor: manual@1
+    destino: [fileserver]
+    requisitos:
+      - {
+          hecho: plataforma.so,
+          igual: windows,
+          motivo: Los pasos son para un servidor de ficheros Windows.
+        }
+      - {
+          hecho: shell.powershell,
+          minimo: '5.1',
+          motivo: Los pasos usan PowerShell 5.1 o posterior.
+        }
+    carga:
+      lenguaje: powershell
+      pasos:
+        # La auditoría es un requisito que se comprueba, no un paso que se
+        # aplica: la retirada no podría dejarla como estaba (§6.3).
+        - texto: >-
+            Comprueba que la auditoría de recursos compartidos detallada registra los accesos. Si
+            no, actívala tú (o por directiva de grupo): estos pasos no la cambian y la retirada
+            tampoco la toca.
+          # Por el GUID de la subcategoría y su valor numérico, que no cambian con el idioma.
+          comprobar: |
+            $f = Join-Path $env:TEMP ([guid]::NewGuid().ToString() + '.csv')
+            auditpol /backup /file:$f | Out-Null
+            $v = (Import-Csv -LiteralPath $f | Where-Object { $_.'Subcategory GUID' -eq '{0CCE9244-69AE-11D9-BED3-505054503030}' }).'Setting Value'
+            Remove-Item -LiteralPath $f -Force
+            ([int]$v -band 1) -eq 1
+        # Ni el recurso ni la carpeta pueden ser del cliente: si ya hay un recurso
+        # con ese nombre (apunte a donde apunte) o ya existe la carpeta (aunque
+        # esté vacía), para sin tocar nada. Tampoco crea las carpetas de encima,
+        # que la retirada no sabría si quitar. Volver a ejecutarlo para con el
+        # mismo mensaje: no se distingue lo de una colocación anterior de lo del
+        # cliente, y así nunca hace de trampa algo suyo.
+        - texto: >-
+            Crea la carpeta ${ruta} y compártela como «${recurso}», solo lectura para todos. Si
+            ya hay un recurso con ese nombre o ya existe la carpeta, para sin tocar nada.
+          orden: |
+            if (Get-SmbShare -Name $sd.recurso -ErrorAction SilentlyContinue) {
+              throw 'Ya hay un recurso compartido con ese nombre. Si lo crearon estos pasos, ya está hecho; si no, elige otro nombre.'
+            }
+            if (Test-Path -LiteralPath $sd.ruta) {
+              throw 'La carpeta ya existe. Si la crearon estos pasos, ya está hecho; si no, elige otra.'
+            }
+            if (-not (Test-Path -LiteralPath (Split-Path -Parent $sd.ruta) -PathType Container)) {
+              throw 'No existe la carpeta que la contiene: estos pasos solo crean la última.'
+            }
+            New-Item -ItemType Directory -Path $sd.ruta | Out-Null
+            try { New-SmbShare -Name $sd.recurso -Path $sd.ruta -ReadAccess 'Everyone' | Out-Null }
+            catch { Remove-Item -LiteralPath $sd.ruta -Force; throw }
+    senal:
+      fuente: { tipo: registros, canal: windows-eventos }
+      # Traductor propio: los campos del evento de Windows (5140 y 5145).
+      eventos:
+        formato: json-lineas
+        campos:
+          {
+            cuando: TimeCreated,
+            ip: IpAddress,
+            puerto: IpPort,
+            usuario: SubjectUserName,
+            equipo: SubjectDomainName
+          }
+        accion: { campo: EventID, valores: { '5140': lectura, '5145': lectura }, porDefecto: otra }
+        severidad: { porDefecto: alta }
+        conexionEstablecida: true
+        detalle: [EventID, ShareName, RelativeTargetName, AccessMask]
+    retirada:
+      tipo: manual
+      pasos:
+        # Solo lo que dejan los pasos de colocar: un recurso con ese nombre que
+        # apunta a esta carpeta, vacía. Un recurso que apunta a otra carpeta no
+        # se toca; uno cuya carpeta tiene algo, tampoco, y el paso para y lo
+        # dice. Una carpeta sin el recurso no se borra: sin él, no se sabe si la
+        # crearon estos pasos. Con la ruta propuesta, que no puede existir antes,
+        # no borra nada del cliente aunque se retire sin haber colocado.
+        - texto: >-
+            Deja de compartir «${recurso}» y borra la carpeta ${ruta}, si es lo que pusieron los
+            pasos de colocar: el recurso apunta a esa carpeta y la carpeta sigue vacía.
+          orden: |
+            $r = Get-SmbShare -Name $sd.recurso -ErrorAction SilentlyContinue
+            if ($r -and $r.Path -eq $sd.ruta) {
+              if ((Test-Path -LiteralPath $sd.ruta) -and (Get-ChildItem -LiteralPath $sd.ruta -Force | Select-Object -First 1)) {
+                throw 'La carpeta tiene algo que no pusieron estos pasos: no se toca nada. Si el recurso es de esta trampa, vacía la carpeta y vuelve a ejecutarlo.'
+              }
+              Remove-SmbShare -Name $sd.recurso -Force
+              if (Test-Path -LiteralPath $sd.ruta) { Remove-Item -LiteralPath $sd.ruta -Force }
+            }

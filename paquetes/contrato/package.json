@@ -1,0 +1,23 @@
+{
+	"name": "@sugardaddy/contrato",
+	"private": true,
+	"version": "0.0.1",
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts",
+		"./esquemas/*": "./src/esquemas/*"
+	},
+	"scripts": {
+		"test": "vitest --run"
+	},
+	"dependencies": {
+		"ajv": "^8.17.1",
+		"ajv-formats": "^3.0.1",
+		"yaml": "^2.8.1"
+	},
+	"devDependencies": {
+		"@types/node": "^22",
+		"typescript": "^6.0.3",
+		"vitest": "^4.1.8"
+	}
+}

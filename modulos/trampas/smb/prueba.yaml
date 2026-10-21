@@ -1,0 +1,141 @@
+# Prueba automática del módulo: herramientas/probar-trampa.sh smb
+# Se despliega la trampa y se ataca desde la imagen 'atacante' como lo haría un
+# intruso contra un servidor de ficheros Windows: un barrido con nmap (versión,
+# scripts por defecto, enumeración de recursos y la comprobación MS17-010), un
+# inicio de sesión real con credenciales y operaciones de fichero con smbclient
+# (SMB1), y un login con impacket desde python3 (SMB2) para capturar NetNTLMv2.
+# Tienen que salir estos eventos. Las IP de origen son locales (la red aislada
+# del banco) y nada se ejecuta: la trampa ni sirve datos ni sale a la red.
+parametros:
+  puertoSmb: 30445
+  nombreEquipo: FS01
+  dominio: EMPRESA
+  recursos: 'Finanzas,RRHH,Backups,IT$'
+arranque: 3
+ataques:
+  - imagen: atacante
+    puedeFallar: true
+    orden:
+      - sh
+      - -c
+      - |
+        PORT=${puertoSmb}
+        # Espera a que la trampa conteste (como el bucle de cowrie).
+        for i in $(seq 1 20); do
+          python3 -c "import socket,sys; socket.create_connection(('127.0.0.1',int(sys.argv[1])),2).close()" "$PORT" 2>/dev/null && break
+          sleep 1
+        done
+
+        # nmap -sV: el escáner que identifica el servicio (microsoft-ds). Sin
+        # scripts: los scripts smb-* de nmap solo corren en 139/445 y el banco usa
+        # un puerto alto, así que las acciones de protocolo las hacen las
+        # herramientas de abajo (más deterministas y sin depender del puerto).
+        nmap -sV -p "$PORT" 127.0.0.1 2>&1 | tail -6 || true
+
+        # Inicio de sesión con credenciales (SMB1/NTLMv2) y operaciones de fichero:
+        # conexión al recurso Finanzas, escritura y apertura de un fichero. La
+        # imagen fija "client min protocol = SMB2_02", así que para SMB1 hay que
+        # bajarlo también con --option.
+        smbclient //127.0.0.1/FINANZAS -p "$PORT" -m NT1 --option='client min protocol=NT1' \
+          -U 'EMPRESA\jgarcia%Secr3to-Largo-2026' \
+          -c 'put /etc/hostname notas.txt; get notas.txt /tmp/x.txt; ls' 2>&1 | tail -10 || true
+
+        # Login con impacket desde python3 (evita el fallo de charset_normalizer de
+        # smbclient.py): un login real (NetNTLMv2 -> auth) y uno anónimo/invitado
+        # (-> anonymous), y una llamada DCERPC por SMB1 (srvsvc -> rpc.call). Al
+        # final, la sonda PeekNamedPipe de MS17-010 por SMB1 (-> exploit crítico).
+        python3 - "$PORT" <<'PY'
+        import sys, socket, struct
+        port = int(sys.argv[1])
+        from impacket.smbconnection import SMBConnection
+        # Login real por SMB2/3 (NetNTLMv2).
+        try:
+            c = SMBConnection(remoteName='FS01', remoteHost='127.0.0.1', sess_port=port)
+            c.login('jgarcia', 'Secr3to-Largo-2026', 'EMPRESA')
+            try: c.connectTree('Finanzas')
+            except Exception as e: print('tree', e)
+            c.close()
+        except Exception as e:
+            print('login', e)
+        # Login anónimo/invitado.
+        try:
+            c = SMBConnection(remoteName='FS01', remoteHost='127.0.0.1', sess_port=port)
+            c.login('', '')
+            c.close()
+        except Exception as e:
+            print('anon', e)
+        # Llamada DCERPC por SMB1 (srvsvc), para que quede un smb.rpc.call.
+        try:
+            from impacket.smb import SMB_DIALECT
+            c = SMBConnection(remoteName='FS01', remoteHost='127.0.0.1', sess_port=port, preferredDialect=SMB_DIALECT)
+            c.login('jgarcia', 'Secr3to-Largo-2026', 'EMPRESA')
+            try: c.listShares()
+            except Exception as e: print('shares', e)
+            c.close()
+        except Exception as e:
+            print('smb1', e)
+        # Sonda MS17-010: SMB1 negotiate + SMB_COM_TRANSACTION PeekNamedPipe (el
+        # patrón de smb-vuln-ms17-010 / WannaCry / Metasploit smb_ms17_010).
+        def h(cmd, mid, tid=0, uid=0):
+            b = bytearray(32); b[0:4] = b'\xffSMB'; b[4] = cmd; b[9] = 0x18
+            struct.pack_into('<H', b, 10, 0xc801)
+            struct.pack_into('<H', b, 24, tid); struct.pack_into('<H', b, 28, uid)
+            struct.pack_into('<H', b, 30, mid)
+            return bytes(b)
+        def envia(s, pdu): s.sendall(struct.pack('>I', len(pdu)) + pdu)
+        try:
+            s = socket.create_connection(('127.0.0.1', port), timeout=10)
+            dial = b'\x02NT LM 0.12\x00'
+            envia(s, h(0x72, 1) + b'\x00' + struct.pack('<H', len(dial)) + dial)
+            s.recv(1024)
+            body = bytearray(1 + 32 + 2)         # WordCount + 16 words + ByteCount
+            body[0] = 16                         # WordCount = 14 + 2 setup
+            body[27] = 2                         # SetupCount
+            struct.pack_into('<H', body, 29, 0x0023)  # Setup[0] = PeekNamedPipe
+            envia(s, h(0x25, 2, tid=1, uid=1) + bytes(body))
+            s.recv(1024)
+            s.close()
+        except Exception as e:
+            print('ms17', e)
+        print('impacket hecho')
+        PY
+        true
+espera:
+  # Hubo saludo TCP completo: el origen no está falseado.
+  - { accion: conexion, conexion: true, severidad: baja, detalle: { eventid: smb.session.connect } }
+  # La negociación SMB que mira el escáner.
+  - { accion: conexion, severidad: baja, detalle: { eventid: smb.session.negotiate } }
+  # Inicio de sesión con credenciales: usuario completo y tipo de NTLM.
+  - {
+      accion: autenticacion,
+      severidad: alta,
+      usuario: jgarcia,
+      detalle: { eventid: smb.session.auth, ntlm_version: NTLMv2 }
+    }
+  # Sesión nula o de invitado (nmap -sC / login anónimo): media, no alta.
+  - { accion: autenticacion, severidad: media, detalle: { eventid: smb.session.anonymous } }
+  # Conexión a un recurso compartido, con el usuario de la sesión.
+  - {
+      accion: lectura,
+      severidad: media,
+      usuario: jgarcia,
+      detalle: { eventid: smb.tree.connect, recurso: FINANZAS }
+    }
+  # Apertura de un fichero.
+  - { accion: lectura, severidad: media, detalle: { eventid: smb.file.open } }
+  # Escritura de un fichero: alta, con el usuario de la sesión (no solo la cuenta del login).
+  - {
+      accion: escritura,
+      severidad: alta,
+      usuario: jgarcia,
+      detalle: { eventid: smb.file.write, fichero: notas.txt }
+    }
+  # Llamada DCERPC (enumeración de recursos por srvsvc).
+  - { accion: comando, severidad: media, detalle: { eventid: smb.rpc.call } }
+  # Sonda de exploit MS17-010 (PeekNamedPipe sobre IPC$): crítica, con su motivo.
+  - {
+      accion: comando,
+      severidad: critica,
+      detalle: { eventid: smb.exploit, grave: ms17-010-sonda }
+    }
+tiempo: 60

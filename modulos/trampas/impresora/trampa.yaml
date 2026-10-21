@@ -1,0 +1,348 @@
+# Impresora de red falsa (H69). Una impresora de oficina que responde creíble
+# en sus tres caras —9100 RAW/PJL, 631 IPP y una web de administración— y
+# registra a quien intenta aprovecharla: los comandos PJL de reconocimiento y
+# robo de ficheros (estilo PRET), los trabajos que manda (de los que guarda solo
+# la huella y el tamaño, nunca el contenido), los inicios de sesión de la web y,
+# sobre todo, el cambio del servidor LDAP/SMTP por el del atacante (passback de
+# credenciales). Código propio de SeguridadSI, sin dependencias.
+version: 1
+id: impresora
+nombre: Impresora de red
+descripcion: >-
+  Una impresora de oficina que contesta como una de verdad en 9100 (RAW/PJL), 631 (IPP) y
+  una web de administración, pero no imprime ni ejecuta nada. Registra el reconocimiento y el
+  robo de ficheros por PJL (PRET), los trabajos (solo huella y tamaño), los intentos de
+  inicio de sesión y el cambio del servidor LDAP/SMTP por el del atacante (passback).
+ficha:
+  detecta: >-
+    Quien busca impresoras en la red y trata de aprovecharlas: comandos PJL de reconocimiento
+    (@PJL INFO), listado y lectura de ficheros de la impresora con recorrido de rutas
+    (FSDIRLIST, FSUPLOAD, estilo PRET), desfiguración del panel (RDYMSG), peticiones IPP y
+    trabajos de impresión, credenciales por defecto probadas en la web y, la señal más
+    valiosa, el «passback»: el atacante apunta el servidor LDAP o SMTP al suyo para quedarse
+    la cuenta de servicio, y deja la IP de su equipo.
+  donde: >-
+    Donde habría una impresora: la red de la oficina, una VLAN de impresión o una DMZ. Con
+    los puertos 9100, 631 y 80, que salen en el reconocimiento interno (nmap) de cualquier
+    atacante. En una máquina que no sea ya tu servidor de impresión.
+  requisitos:
+    - Un sensor Linux con Docker (el del nodo o uno instalado en otra máquina).
+    - Abrir en el cortafuegos de esa máquina los puertos que enciendas (9100 y, si los activas, 631 y 80).
+    - No la pongas en una máquina que ya use el 9100, el 631 (cupsd) o el 80 para su propio servicio.
+    - 'Los escáneres de vulnerabilidades propios (Nessus, Qualys) la tocarán: ten a mano sus IP para distinguirlas.'
+  instalacion:
+    automatica: true
+versionModulo: 0.1.0
+tipo: contenedor
+procedencia:
+  proyecto: Sugardaddy (SeguridadSI)
+  url: https://github.com/kinomakino/sugardaddy
+  # Código propio; sin dependencias de terceros: solo la biblioteca estándar de Go.
+  licencia: Código propio (SeguridadSI); biblioteca estándar de Go, BSD-3-Clause
+
+contenedor:
+  # Imagen propia, construida con imagen/preparar.sh (código propio en Go, base
+  # scratch, usuario no root). La construye y deja aquí su digest
+  # herramientas/publicar-trampa.sh impresora; el banco de pruebas usa la local.
+  imagen: ghcr.io/seguridadsi/sugardaddy-trampa-impresora:0.1.0@sha256:2760c2256eee10002f10238cbe02894bede6af2b0d50c8b7a05a2ab213eed44f
+  puertos:
+    - { interno: 9100, expuesto: '${puertoRaw}', protocolo: tcp }
+    - { interno: 1631, expuesto: '${puertoIpp}', protocolo: tcp, si: ipp }
+    - { interno: 1080, expuesto: '${puertoWeb}', protocolo: tcp, si: web }
+  entorno:
+    # La trampa lee su configuración de SD_IMPRESORA_*.
+    SD_IMPRESORA_RAW: 'on'
+    SD_IMPRESORA_RAW_LISTEN: ':9100'
+    SD_IMPRESORA_IPP:
+      segun: ipp
+      valores: { 'yes': 'on', 'no': 'off' }
+    SD_IMPRESORA_IPP_LISTEN: ':1631'
+    SD_IMPRESORA_WEB:
+      segun: web
+      valores: { 'yes': 'on', 'no': 'off' }
+    SD_IMPRESORA_WEB_LISTEN: ':1080'
+    SD_IMPRESORA_LOG: /registros/impresora.json
+    # Los puertos que anuncia la persona (URL de IPP y enlaces de la web): los
+    # que ve el atacante, no los internos del contenedor.
+    SD_IMPRESORA_PUERTO_IPP: '${puertoIpp}'
+    SD_IMPRESORA_PUERTO_WEB: '${puertoWeb}'
+    # Modelo que finge. "auto": uno realista derivado de la semilla, distinto en
+    # cada trampa. No se suplanta a ningún fabricante real (regla de tpot.md §5).
+    SD_IMPRESORA_MODELO: ${modelo}
+    SD_IMPRESORA_NOMBRE: ${nombreEquipo}
+    SD_IMPRESORA_UBICACION: ${ubicacion}
+    # Identidad distinta y coherente por trampa (modelo, serie, firmware, MAC,
+    # UUID, IP): se deriva de esta semilla. Vacía: la trampa guarda una al azar
+    # junto al registro la primera vez y la mantiene entre reinicios (la imagen
+    # es la misma para todos; lo que cambia es el dato de arranque).
+    SD_IMPRESORA_SEMILLA: ''
+    # Topes fijos (no los toca el cliente): acotan memoria, CPU y disco aunque
+    # miles de atacantes escriban. Las conexiones tienen cupo total y por IP; de
+    # cada trabajo solo se recorren MAX_JOB_BYTES para la huella y el resto se
+    # descarta (nunca se guarda el contenido); una petición HTTP/IPP se lee hasta
+    # MAX_REQ_BYTES. El registro rota a diario por renombrado, no pasa de
+    # MAX_LOG_BYTES por día y lo reparte por horas, por IP y en bolsas (lo grave,
+    # las contraseñas y los avisos aparte): una sola IP no puede cegar la trampa
+    # para las demás, dejando pasar siempre los primeros de cada tipo.
+    SD_IMPRESORA_MAX_CONN: '256'
+    SD_IMPRESORA_MAX_CONN_IP: '16'
+    SD_IMPRESORA_MAX_LINE_BYTES: '8192'
+    SD_IMPRESORA_MAX_REQ_BYTES: '262144'
+    # Bytes de un cuerpo HTTP/IPP que se RETIENEN en memoria a la vez por
+    # conexión (los atributos IPP y los formularios caben de sobra). El resto se
+    # pasa en flujo a la huella y se descarta: así maxConex × este tope queda muy
+    # por debajo de memoriaMb y unos cuerpos lentos no tumban la trampa por OOM.
+    SD_IMPRESORA_MAX_BODY_MEM: '32768'
+    SD_IMPRESORA_MAX_JOB_BYTES: '4194304'
+    SD_IMPRESORA_MAX_LOG_BYTES: '67108864'
+    SD_IMPRESORA_RESUMEN_S: '300'
+    # El recolector de Go aprieta antes del límite del contenedor (defensa en
+    # profundidad; el Dockerfile ya lo fija).
+    GOMEMLIMIT: 48MiB
+  # La trampa solo escribe su registro (y, junto a él, la semilla de su
+  # identidad) en esta carpeta; no hay otro estado en disco.
+  registros: /registros
+
+aislamiento:
+  salida: false
+  soloLectura: true
+  cpu: 0.5
+  memoriaMb: 64
+
+parametros:
+  type: object
+  required: [puertoRaw, ipp, puertoIpp, web, puertoWeb, modelo]
+  properties:
+    puertoRaw:
+      type: integer
+      title: Puerto RAW/JetDirect
+      description: El 9100 es el estándar de impresión directa, el más creíble y el más buscado. Solo cámbialo si la máquina ya lo usa.
+      minimum: 1
+      maximum: 65535
+      default: 9100
+    ipp:
+      type: string
+      title: Encender IPP (631)
+      description: El puerto de impresión moderno (IPP/CUPS). Creíble para los drivers y para ipptool. Apágalo si la máquina ya tiene un cupsd en el 631.
+      enum: ['yes', 'no']
+      default: 'yes'
+    puertoIpp:
+      type: integer
+      title: Puerto IPP
+      description: El 631 es el estándar de IPP. Es también el que anuncia la impresora en sus URL, así que debe ser el que el atacante alcanza.
+      minimum: 1
+      maximum: 65535
+      default: 631
+    web:
+      type: string
+      title: Encender la web de administración (80)
+      description: La página de administración de la impresora, donde se ven los intentos de login y el cambio del servidor LDAP/SMTP (passback). Apágala si la máquina ya tiene un servidor web en el 80.
+      enum: ['yes', 'no']
+      default: 'yes'
+    puertoWeb:
+      type: integer
+      title: Puerto web
+      description: El 80 es el estándar de la web de una impresora. Es el que anuncia en sus enlaces, así que debe ser el que el atacante alcanza.
+      minimum: 1
+      maximum: 65535
+      default: 80
+    modelo:
+      type: string
+      title: Modelo que finge ser
+      description: >-
+        El modelo que devuelve @PJL INFO ID y que muestra la web e IPP. Déjalo en «auto» para
+        que la trampa use uno realista derivado de su semilla (distinto en cada trampa). Si
+        pones un texto, será el modelo exacto. No se suplanta a ningún fabricante real.
+      pattern: '^[\x20-\x7e]{1,80}$'
+      maxLength: 80
+      default: 'auto'
+    nombreEquipo:
+      type: string
+      title: Nombre del equipo
+      description: >-
+        El nombre de red de la impresora (el que muestra la web y anuncia IPP). Que encaje
+        con cómo nombras las impresoras en tu red. Vacío (lo normal en despliegues masivos),
+        lo deriva de la semilla, distinto en cada trampa: así miles de despliegues no
+        anuncian todos el mismo nombre, que sería una huella común de la trampa.
+      pattern: '^[A-Za-z0-9-]{0,63}$'
+      default: ''
+    ubicacion:
+      type: string
+      title: Ubicación
+      description: La ubicación física que muestra la impresora (p. ej. «Planta 2 - Administración»). Vacía, la deriva de la semilla.
+      maxLength: 120
+      default: ''
+
+eventos:
+  fuente: { tipo: fichero, ruta: impresora.json }
+  formato: json-lineas
+  campos:
+    cuando: cuando
+    ip: src_ip
+    puerto: src_port
+    usuario: usuario
+  accion:
+    campo: eventid
+    valores:
+      impresora.session.connect: conexion
+      impresora.session.rechazos: conexion
+      impresora.session.tope: conexion
+      impresora.pjl.info: comando
+      impresora.pjl.fs: lectura
+      impresora.pjl.traversal: lectura
+      impresora.pjl.escritura: escritura
+      impresora.pjl.control: comando
+      impresora.pjl.job: escritura
+      impresora.ps.peligroso: comando
+      impresora.ipp.peticion: comando
+      impresora.ipp.trabajo: escritura
+      impresora.web.get: comando
+      impresora.web.login: autenticacion
+      impresora.web.passback: escritura
+      impresora.web.config: escritura
+    porDefecto: otra
+  severidad:
+    porDefecto: media
+    porAccion:
+      conexion: baja
+      autenticacion: alta
+      comando: media
+      lectura: media
+      escritura: media
+    porValor:
+      # Lo grave y lo leve van codificados en el propio eventid: así basta
+      # porValor y no hace falta tocar el contrato ni el adaptador.
+      impresora.session.connect: baja
+      impresora.pjl.info: media
+      impresora.pjl.fs: media
+      # Robo de ficheros de la impresora con recorrido de rutas (PRET).
+      impresora.pjl.traversal: critica
+      # Escritura/borrado en los ficheros de la impresora.
+      impresora.pjl.escritura: alta
+      # Desfiguración del panel o bloqueo (RDYMSG, contraseña de trabajo).
+      impresora.pjl.control: alta
+      # Operadores PostScript peligrosos por el 9100 (robo/borrado de ficheros o
+      # control del servidor, estilo PRET en modo ps).
+      impresora.ps.peligroso: critica
+      impresora.ipp.peticion: baja
+      impresora.web.get: baja
+      # Cambio del servidor LDAP/SMTP al del atacante: robo de la cuenta de servicio.
+      impresora.web.passback: critica
+      impresora.web.config: alta
+      # Conexiones rechazadas por tope: un atacante aporrea la trampa.
+      impresora.session.rechazos: alta
+      impresora.session.tope: alta
+      # El registro va lleno y se calla parte: avisos que la consola ve.
+      impresora.log.tope: alta
+      impresora.log.omitidos: alta
+      impresora.log.error: alta
+  # Todos los servicios son TCP: el origen no está falseado. (Sin SNMP/UDP; por
+  # eso no hace falta conexionPorCampo ni, por tanto, sensorMinimo.)
+  conexionEstablecida: true
+  detalle:
+    - eventid
+    - servicio
+    - comando
+    - args
+    - ruta
+    - operacion
+    - recurso
+    - metodo
+    - agente
+    - usuario
+    - password
+    - texto
+    - campo
+    - valor
+    - servidor
+    - huella
+    - tam
+    - grave
+    - motivo
+    - omitidos
+    - omitidos_graves
+    - omitidos_auth
+    - rechazadas
+    - de_su_ip
+    - por_tope_global
+    - por_tope_ip
+    - ips_distintas
+    - ips_sin_contar
+    - activas
+    - periodo_s
+    - perdidos
+    - error
+    - aviso
+    - tope_bytes
+  contrasena: password
+  sesion: session
+  resumen:
+    [
+      servicio,
+      comando,
+      operacion,
+      ruta,
+      usuario,
+      password,
+      texto,
+      servidor,
+      campo,
+      valor,
+      huella,
+      tam,
+      grave,
+      aviso
+    ]
+  etiquetas:
+    servicio: Servicio
+    comando: Comando PJL
+    args: Argumentos
+    ruta: Ruta
+    operacion: Operación IPP
+    recurso: Recurso
+    metodo: Método HTTP
+    agente: Cliente (User-Agent)
+    usuario: Usuario
+    password: Contraseña
+    texto: Texto
+    campo: Campo
+    valor: Valor
+    servidor: Servidor del atacante
+    huella: Huella del trabajo (sha256)
+    tam: Tamaño (bytes)
+    grave: Por qué es grave
+    motivo: Se calla por
+    omitidos: Eventos no apuntados
+    omitidos_graves: De ellos, graves
+    omitidos_auth: De ellos, contraseñas
+    rechazadas: Conexiones rechazadas
+    de_su_ip: De esta IP
+    por_tope_global: Por el tope total
+    por_tope_ip: Por el tope de su IP
+    ips_distintas: IP distintas
+    ips_sin_contar: Rechazos de otras IP sin contar
+    activas: Conexiones a la vez
+    periodo_s: En los últimos (s)
+    perdidos: Eventos perdidos (disco)
+    error: Error del registro
+    aviso: Aviso
+    tope_bytes: Tope diario (bytes)
+    impresora.session.connect: Conexión
+    impresora.session.rechazos: Conexiones rechazadas (resumen)
+    impresora.session.tope: Conexión cortada por tope
+    impresora.pjl.info: Reconocimiento PJL
+    impresora.pjl.fs: Acceso a ficheros de la impresora
+    impresora.pjl.traversal: Robo de ficheros con recorrido de rutas
+    impresora.pjl.escritura: Escritura/borrado en la impresora
+    impresora.pjl.control: Control del panel (desfiguración/bloqueo)
+    impresora.pjl.job: Trabajo de impresión
+    impresora.ps.peligroso: PostScript peligroso (robo de ficheros/control)
+    impresora.ipp.peticion: Petición IPP
+    impresora.ipp.trabajo: Trabajo IPP
+    impresora.web.get: Navegación por la web
+    impresora.web.login: Intento de inicio de sesión
+    impresora.web.passback: Passback de credenciales (LDAP/SMTP)
+    impresora.web.config: Cambio de configuración
+    impresora.log.tope: Registro de hoy lleno, no se apunta más hasta mañana
+    impresora.log.omitidos: Eventos que no caben (resumen)
+    impresora.log.error: Fallo al escribir el registro

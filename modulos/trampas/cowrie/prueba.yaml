@@ -1,0 +1,81 @@
+# Prueba automática del módulo: herramientas/probar-trampa.sh cowrie
+# Se despliega con estos parámetros, se ataca y tienen que salir estos eventos.
+parametros:
+  nombreEquipo: srv-prueba
+  puertoSsh: 22299
+  sistema: debian-12
+  accesos: "root:x:!root\nroot:x:*"
+ataques:
+  # Contraseña rechazada (root:x:!root) y después una que entra y teclea un comando.
+  # Se repite hasta que Cowrie contesta (con la máquina cargada tarda en arrancar):
+  # sshpass sale con 5 cuando el servidor rechaza la contraseña.
+  - imagen: atacante
+    orden:
+      - sh
+      - -c
+      - 'for i in $(seq 1 20); do sshpass -p root ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 -p ${puertoSsh} root@127.0.0.1 true; [ $? -eq 5 ] && exit 0; sleep 2; done; exit 1'
+  - imagen: atacante
+    orden:
+      - sh
+      - -c
+      - "for i in 1 2 3 4 5; do sshpass -p 'Prueba-2026' ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 -p ${puertoSsh} root@127.0.0.1 'uname -a' && exit 0; sleep 2; done; exit 1"
+  # Un login con una contraseña de 100 KB. OpenSSH no manda más de 1023 bytes
+  # de contraseña, así que va con el cliente SSH de Twisted de la imagen
+  # pública de Cowrie (fijada por digest; su entrada es python3). Un solo
+  # intento, con un usuario que no entra.
+  - imagen: cowrie/cowrie:3.1.2@sha256:019726c8deef20729162cda492d9385917b579c9ace6368e47e7566cd2491ba1
+    orden:
+      - -c
+      - |
+        import sys
+        from twisted.conch.ssh import connection, transport, userauth
+        from twisted.internet import defer, protocol, reactor
+
+        class Auth(userauth.SSHUserAuthClient):
+            enviadas = 0
+
+            def getPassword(self, prompt=None):
+                if Auth.enviadas:
+                    return None
+                Auth.enviadas += 1
+                return defer.succeed(b"A" * 102400)
+
+            def auth_publickey(self):
+                return False
+
+            def auth_keyboard_interactive(self):
+                return False
+
+        class Cliente(transport.SSHClientTransport):
+            def verifyHostKey(self, clave, huella):
+                return defer.succeed(True)
+
+            def connectionSecure(self):
+                self.requestService(Auth(b"admin", connection.SSHConnection()))
+
+        def parar(*_):
+            if reactor.running:
+                reactor.stop()
+
+        fabrica = protocol.ClientFactory()
+        fabrica.protocol = Cliente
+        fabrica.clientConnectionLost = fabrica.clientConnectionFailed = parar
+        reactor.connectTCP("127.0.0.1", ${puertoSsh}, fabrica)
+        reactor.callLater(30, parar)
+        reactor.run()
+        sys.exit(0 if Auth.enviadas == 1 else 1)
+espera:
+  - { accion: conexion, conexion: true }
+  - { accion: autenticacion, detalle: { password: root, eventid: cowrie.login.failed } }
+  - {
+      accion: autenticacion,
+      severidad: alta,
+      detalle: { password: Prueba-2026, eventid: cowrie.login.success }
+    }
+  - { accion: comando, severidad: critica, detalle: { input: uname -a } }
+  # La de 100 KB, recortada a 256 bytes y con la marca de lo que medía.
+  - {
+      accion: autenticacion,
+      usuario: admin,
+      detalle: { eventid: cowrie.login.failed, password: AAAA, recortado: password (102400 bytes) }
+    }

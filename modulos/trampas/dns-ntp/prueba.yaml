@@ -1,0 +1,143 @@
+# Prueba automática del módulo: herramientas/probar-trampa.sh dns-ntp
+# Se despliega con estos parámetros, se ataca y tienen que salir estos eventos.
+# Todo llega por 127.0.0.1, así que Docker lo entrega desde la pasarela del
+# contenedor: la trampa no sabe de quién es y lo trata como de Internet (sin
+# respuestas más grandes que la petición, version.bind con REFUSED), aunque
+# la pasarela esté dentro de las redes internas declaradas: es lo que haría
+# un cortafuegos con NAT de origen, y es lo que se prueba aquí. Las
+# respuestas completas a las redes internas, que una IP privada sin declarar
+# no las recibe, y el reparto del registro bajo una inundación de orígenes
+# falsos los prueban las pruebas del parche al construir la imagen. La
+# pasarela es privada: cuenta como un solo origen, con 50 peticiones por
+# servicio antes de ser ráfaga.
+parametros:
+  nombreEquipo: ns-prueba
+  sistema: centos7
+  direccion: 192.0.2.53
+  dns: 'yes'
+  puertoDns: 35353
+  ntp: 'yes'
+  puertoNtp: 31123
+  ssdp: 'yes'
+  puertoSsdp: 31900
+  # Abarca la pasarela del contenedor, que aun así no recibe respuestas completas.
+  redesInternas: '10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16'
+  respuestasInternet: 'no'
+ataques:
+  # Un nombre de la empresa por UDP: REFUSED, del mismo tamaño que la pregunta.
+  - imagen: atacante
+    orden: [dig, '@127.0.0.1', -p, '${puertoDns}', +tries=1, +time=3, intranet.corp.local, A]
+  # version.bind desde fuera de las redes internas: REFUSED por UDP, sin TC=1
+  # (que la delataría con una sola sonda), y lo mismo por TCP, sin versión.
+  - imagen: atacante
+    orden:
+      - sh
+      - -c
+      - |
+        r=$(dig @127.0.0.1 -p ${puertoDns} +ignore +tries=1 +time=3 version.bind TXT CH)
+        echo "$r"
+        echo "$r" | grep -q 'status: REFUSED' || { echo "por UDP no contesta REFUSED"; exit 1; }
+        echo "$r" | grep -E '^;; flags:' | grep -qw tc && { echo "por UDP llega con TC=1"; exit 1; }
+        t=$(dig @127.0.0.1 -p ${puertoDns} +tcp +tries=1 +time=3 version.bind TXT CH)
+        echo "$t"
+        echo "$t" | grep -q 'status: REFUSED' || { echo "por TCP no contesta REFUSED"; exit 1; }
+        echo "$r$t" | grep -q 'TXT.*"9\.' && { echo "da la versión fuera de las redes internas"; exit 1; }
+        exit 0
+  # ANY por UDP (sin que dig pase a TCP) y una transferencia de zona por TCP.
+  - imagen: atacante
+    orden: [dig, '@127.0.0.1', -p, '${puertoDns}', +notcp, +tries=1, +time=3, isc.org, ANY]
+  - imagen: atacante
+    puedeFallar: true
+    orden: [dig, '@127.0.0.1', -p, '${puertoDns}', +tries=1, +time=3, corp.local, AXFR]
+  # monlist y M-SEARCH ssdp:all: más grandes que la petición, así que no contesta.
+  - imagen: atacante
+    orden:
+      - python3
+      - -c
+      - |
+        import socket
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.settimeout(2)
+        s.sendto(b"\x17\x00\x03\x2a" + bytes(44), ("127.0.0.1", ${puertoNtp}))
+        try:
+            n = len(s.recv(4096))
+        except socket.timeout:
+            print("monlist sin respuesta")
+        else:
+            raise SystemExit("monlist contesta %d bytes a una dirección que no es de la red interna" % n)
+  - imagen: atacante
+    orden:
+      - python3
+      - -c
+      - |
+        import socket
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.settimeout(3)
+        m = b'M-SEARCH * HTTP/1.1\r\nHOST: 239.255.255.250:1900\r\nMAN: "ssdp:discover"\r\nMX: 1\r\nST: ssdp:all\r\n\r\n'
+        s.sendto(m, ("127.0.0.1", ${puertoSsdp}))
+        try:
+            n = len(s.recv(4096))
+        except socket.timeout:
+            print("ssdp:all sin respuesta")
+        else:
+            raise SystemExit("M-SEARCH contesta %d bytes a una dirección que no es de la red interna" % n)
+  # 55 peticiones NTP de hora (48 bytes, contesta 48): a partir de la 51.ª del
+  # origen (contando el monlist) no contesta y la apunta como ráfaga.
+  - imagen: atacante
+    orden:
+      - python3
+      - -c
+      - |
+        import socket
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.settimeout(0.5)
+        n = 0
+        for i in range(55):
+            s.sendto(b"\xe3" + bytes(47), ("127.0.0.1", ${puertoNtp}))
+            try:
+                assert len(s.recv(2048)) == 48
+                n += 1
+            except socket.timeout:
+                pass
+        print("respuestas", n, "de 55")
+        assert 0 < n <= 49
+espera:
+  - {
+      accion: conexion,
+      severidad: media,
+      conexion: false,
+      detalle: { event: request, pot: dns, dns_type: A, dns_name: intranet.corp.local }
+    }
+  - {
+      accion: conexion,
+      conexion: false,
+      detalle:
+        { event: request, dns_name: version.bind, dns_cls: CH, proto: udp, amp_guard: rechazada }
+    }
+  - {
+      accion: conexion,
+      conexion: true,
+      detalle:
+        { event: request, dns_name: version.bind, dns_cls: CH, proto: tcp, amp_guard: rechazada }
+    }
+  - { accion: conexion, conexion: false, detalle: { event: request, dns_type: ANY, proto: udp } }
+  - {
+      accion: conexion,
+      severidad: alta,
+      conexion: true,
+      detalle: { event: request, dns_type: AXFR, proto: tcp }
+    }
+  - {
+      accion: conexion,
+      conexion: false,
+      detalle: { event: request, pot: ntp, mode: MONLIST, amp_guard: sin respuesta }
+    }
+  - {
+      accion: conexion,
+      conexion: false,
+      detalle: { event: request, pot: ssdp, st: 'ssdp:all', amp_guard: sin respuesta }
+    }
+  - {
+      accion: conexion,
+      severidad: alta,
+      conexion: false,
+      detalle: { event: attack_start, pot: ntp }
+    }
+tiempo: 20

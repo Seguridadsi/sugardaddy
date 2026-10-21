@@ -1,0 +1,252 @@
+# Carpeta compartida (SMB) falsa (H08). Un servidor de ficheros Windows (SMB1 y
+# SMB2) que negocia, acepta cualquier inicio de sesión y deja "conectar" a sus
+# recursos, pero no sirve ni un byte de verdad: registra quién entra (usuario,
+# dominio, equipo y el hash NetNTLMv2 que llega), a qué recurso se conecta, qué
+# ficheros abre o intenta escribir (solo nombre, huella y tamaño) y las sondas
+# de gusanos tipo EternalBlue/DoublePulsar, que marca como críticas. Construida
+# sobre la base común de glutton (MIT); nunca ejecuta nada, nunca sale a la red
+# y nunca guarda el contenido que suba el atacante.
+version: 1
+id: smb
+nombre: Carpeta compartida (SMB)
+descripcion: >-
+  Un servidor de ficheros Windows (SMB) que parece una carpeta compartida de la red: negocia,
+  acepta el inicio de sesión y responde como uno real, pero no sirve ni ejecuta nada. Registra
+  cada negociación, el usuario, dominio y equipo que se autentican (con el hash NetNTLMv2 si
+  llega), el recurso al que se conectan, los ficheros que abren o intentan escribir (solo nombre,
+  huella y tamaño) y las sondas de gusanos como EternalBlue y DoublePulsar, marcadas como críticas.
+ficha:
+  detecta: >-
+    Movimiento lateral y gusanos en tu red por SMB (el puerto 445): intentos de inicio de sesión
+    con robo de credenciales (captura usuario, dominio, equipo y el hash NetNTLMv2 para que veas
+    quién y desde dónde), conexión a recursos compartidos, apertura y escritura de ficheros, y
+    sondas de EternalBlue/DoublePulsar (MS17-010), el vector de WannaCry y NotPetya.
+  donde: >-
+    En la red de servidores o de puestos, en una máquina que no comparta ya ficheros por SMB, con
+    un nombre de servidor de ficheros creíble (FS01, NAS01). Es el vector número uno de ransomware
+    y robo de credenciales: cualquiera que toque este 445 es sospechoso.
+  requisitos:
+    - Un sensor Linux con Docker (el del nodo o uno instalado en otra máquina).
+    - Abrir en el cortafuegos de esa máquina el puerto que elijas (el 445 es el creíble).
+    - En Windows el 445 lo tiene el propio sistema; usa esta trampa en un sensor Linux, no en el puesto.
+  instalacion:
+    automatica: true
+versionModulo: 0.1.0
+tipo: contenedor
+procedencia:
+  proyecto: glutton
+  url: https://github.com/mushorg/glutton
+  # Base común glutton (MIT), con sugardaddy.patch. Enlaza golang.org/x/crypto
+  # (BSD-3-Clause) y la biblioteca estándar de Go (BSD-3-Clause); avisos en
+  # /licencias de la imagen. Sin dependencias GPL/AGPL ni sin licencia (se quita
+  # hpfeeds y la capa TPROXY/pcap del upstream).
+  licencia: MIT AND BSD-3-Clause
+
+contenedor:
+  # Imagen propia, construida con imagen/preparar.sh (que llama a la base común
+  # modulos/comun/glutton) desde el commit fijado de glutton y con
+  # sugardaddy.patch. Los ceros los cambia por el digest de verdad
+  # herramientas/publicar-trampa.sh smb; el banco de pruebas usa la local.
+  imagen: ghcr.io/seguridadsi/sugardaddy-trampa-smb:1.0.1-sd1@sha256:74a21da1f5b9e9a4f1a4a3502833b9c49b56336b1711338afb010398e43e6a13
+  puertos:
+    - { interno: 1445, expuesto: '${puertoSmb}', protocolo: tcp }
+  entorno:
+    # El binario escucha SIEMPRE en el 1445 interno (el contrato pide 1024 o más); el puerto que ve el atacante
+    # lo mapea Docker (puertos.expuesto). El protocolo y el módulo los fija la
+    # imagen; aquí se repiten para que se vean al revisar el módulo.
+    SD_GLUTTON_PROTO: smb
+    SD_GLUTTON_MODULE: smb
+    SD_GLUTTON_LISTEN: ':1445'
+    SD_GLUTTON_LOG_DIR: /registros
+    # Identidad que anuncia (nombre NetBIOS y dominio/grupo): que cuadre con tu red.
+    SD_GLUTTON_EQUIPO: ${nombreEquipo}
+    SD_GLUTTON_DOMINIO: ${dominio}
+    # Recursos compartidos creíbles que se ofrecen (a efectos de credibilidad y
+    # registro; la trampa acepta la conexión a cualquiera y nunca sirve datos).
+    SD_GLUTTON_RECURSOS: ${recursos}
+    # Topes (no los toca el cliente): acotan memoria, CPU y disco aunque miles de
+    # atacantes se conecten a la vez. Conexiones totales y por IP; inactividad;
+    # tope del registro por día (64 MB), con pase libre a los primeros de cada
+    # tipo por si una IP intenta cegarlo; y el prefijo que se captura de lo que
+    # suben o inyectan (el contenido no se guarda: solo huella y tamaño), para
+    # que la RAM vaya holgada en 128 MB.
+    SD_GLUTTON_MAX_CONN: '128'
+    SD_GLUTTON_MAX_CONN_IP: '8'
+    SD_GLUTTON_IDLE_S: '30'
+    # Vida máxima absoluta de una conexión: aunque el atacante mande keepalives
+    # para no caer por inactividad, se cierra a los 120 s y se vuelca lo
+    # capturado (si no, los eventos tardaban minutos o se perdían al parar).
+    SD_GLUTTON_VIDA_S: '120'
+    SD_GLUTTON_MAX_LOG_BYTES: '67108864'
+    SD_GLUTTON_LIBRES_TIPO: '64'
+    # Eventos que nunca deben silenciarse del todo: cada IP tiene su propia bolsa
+    # garantizada para exploits e inicios de sesión, aunque otras IP llenen el día.
+    SD_GLUTTON_PRIORITARIOS: 'smb.exploit,smb.session.auth'
+    SD_GLUTTON_LIBRES_PRIO: '128'
+    SD_GLUTTON_RESUMEN_S: '300'
+    SD_GLUTTON_MAX_IPS: '4096'
+    SD_GLUTTON_MAX_FILE_BYTES: '1048576'
+    SD_GLUTTON_MAX_TX_BYTES: '1048576'
+    # Presupuesto de bytes leídos por conexión: superado, se corta (acota memoria
+    # y CPU aunque una IP mande muchos marcos).
+    SD_GLUTTON_MAX_CONN_BYTES: '4194304'
+    # El recolector de Go aprieta antes del límite del contenedor.
+    GOMEMLIMIT: 96MiB
+  # Lo único que escribe es su registro, aquí.
+  registros: /registros
+
+aislamiento:
+  salida: false
+  soloLectura: true
+  cpu: 0.5
+  memoriaMb: 128
+
+parametros:
+  type: object
+  required: [puertoSmb, nombreEquipo, dominio]
+  properties:
+    puertoSmb:
+      type: integer
+      title: Puerto SMB
+      description: El 445 es el estándar de SMB y el más creíble y atacado. Solo si la máquina no lo usa ya para compartir ficheros.
+      minimum: 1
+      maximum: 65535
+      default: 445
+    nombreEquipo:
+      type: string
+      title: Nombre del equipo
+      description: El nombre NetBIOS que anuncia en la negociación y en el reto NTLM. Que encaje con los servidores de ficheros de la red (FS01, NAS01).
+      pattern: '^[A-Za-z0-9-]{1,15}$'
+      default: FS01
+    dominio:
+      type: string
+      title: Dominio o grupo de trabajo
+      description: El dominio/grupo que anuncia. Pon el de tu red para que parezca un servidor más.
+      pattern: '^[A-Za-z0-9-]{1,15}$'
+      default: WORKGROUP
+    recursos:
+      type: string
+      title: Recursos compartidos
+      description: >-
+        Nombres de recursos creíbles, separados por comas (Finanzas, RRHH, Backups). Hacen la
+        trampa más creíble y aparecen en el registro; la trampa acepta la conexión a cualquier
+        recurso y nunca sirve datos de verdad.
+      pattern: '^[^\x00]{0,256}$'
+      maxLength: 256
+      default: 'Finanzas,RRHH,Backups,IT$'
+
+eventos:
+  fuente: { tipo: fichero, ruta: smb.json }
+  formato: json-lineas
+  campos:
+    cuando: cuando
+    ip: src_ip
+    puerto: src_port
+    usuario: usuario
+    equipo: equipo
+  accion:
+    campo: eventid
+    valores:
+      smb.session.connect: conexion
+      smb.session.negotiate: conexion
+      smb.session.auth: autenticacion
+      smb.session.anonymous: autenticacion
+      smb.session.rechazos: otra
+      smb.tree.connect: lectura
+      smb.file.open: lectura
+      smb.file.write: escritura
+      smb.rpc.call: comando
+      smb.exploit: comando
+    porDefecto: otra
+  severidad:
+    porDefecto: media
+    porValor:
+      smb.session.connect: baja
+      smb.session.negotiate: baja
+      smb.session.auth: alta
+      # Sesión nula o de invitado (un barrido rutinario tipo nmap -sC): media, no
+      # alta, para no tapar los inicios de sesión con credenciales de verdad.
+      smb.session.anonymous: media
+      smb.tree.connect: media
+      smb.file.open: media
+      smb.file.write: alta
+      smb.rpc.call: media
+      # EternalBlue/DoublePulsar: el vector de WannaCry y NotPetya.
+      smb.exploit: critica
+      # El registro va lleno y se está callando parte: la consola tiene que verlo.
+      smb.log.omitidos: alta
+      # Conexiones rechazadas por tope (global o por IP): un atacante intentando
+      # dejar la trampa muda.
+      smb.session.rechazos: alta
+  # SMB es TCP: el saludo se completó, el origen no está falseado.
+  conexionEstablecida: true
+  detalle:
+    - eventid
+    - dst_port
+    - proto
+    - dialecto
+    - dominio
+    - password
+    - ntlm_version
+    - ntlm_hash
+    - reto
+    - recurso
+    - fichero
+    - huella
+    - tamano
+    - interfaz
+    - opnum
+    - comando
+    - grave
+    - variante
+    - motivo_cierre
+    - omitidos
+    - por_tipo
+    - ips_ruidosas
+    - ips_distintas
+    - periodo_s
+    - tope_bytes
+    - motivo
+    - error
+  contrasena: password
+  sesion: session
+  resumen: [dominio, recurso, fichero, grave, ntlm_version, comando, interfaz, omitidos, motivo]
+  etiquetas:
+    eventid: Evento
+    dst_port: Puerto
+    proto: Transporte
+    dialecto: Dialecto SMB
+    dominio: Dominio
+    password: Contraseña (si va en claro)
+    ntlm_version: Tipo de NTLM
+    ntlm_hash: Hash NetNTLM (hex)
+    reto: Reto del servidor (hex)
+    recurso: Recurso compartido
+    fichero: Fichero
+    huella: Huella del contenido (SHA-256)
+    tamano: Tamaño capturado (bytes)
+    interfaz: Interfaz DCERPC
+    opnum: Operación DCERPC
+    comando: Comando SMB
+    grave: Por qué es grave
+    variante: Variante de la respuesta
+    motivo_cierre: Motivo de cierre
+    omitidos: Eventos no apuntados
+    por_tipo: Por tipo de evento
+    ips_ruidosas: IP que más se callan
+    ips_distintas: IP distintas calladas
+    periodo_s: En los últimos (s)
+    tope_bytes: Tope diario (bytes)
+    motivo: Se calla por
+    error: Error del registro
+    smb.session.connect: Conexión
+    smb.session.negotiate: Negociación SMB
+    smb.session.auth: Inicio de sesión (credenciales)
+    smb.session.anonymous: Sesión nula o de invitado
+    smb.tree.connect: Conexión a un recurso
+    smb.file.open: Abre un fichero
+    smb.file.write: Escribe un fichero
+    smb.rpc.call: Llamada DCERPC
+    smb.exploit: Sonda de exploit (EternalBlue/DoublePulsar)
+    smb.log.omitidos: Eventos que no caben (resumen)
+    smb.session.rechazos: Conexiones rechazadas por tope (resumen)

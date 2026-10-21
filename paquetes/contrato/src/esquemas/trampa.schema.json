@@ -1,0 +1,587 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://sugardaddy.seguridadsi.com/esquemas/trampa.schema.json",
+	"title": "Manifiesto de trampa",
+	"description": "Todo lo que la plataforma necesita saber de un honeypot para desplegarlo, aislarlo y entender sus registros. Es solo datos: un módulo no trae código que corra en el nodo.",
+	"type": "object",
+	"additionalProperties": false,
+	"required": [
+		"version",
+		"id",
+		"nombre",
+		"descripcion",
+		"versionModulo",
+		"tipo",
+		"parametros",
+		"eventos"
+	],
+	"properties": {
+		"version": {
+			"const": 1
+		},
+		"id": {
+			"$ref": "evento.schema.json#/$defs/slug"
+		},
+		"nombre": {
+			"type": "string",
+			"minLength": 1,
+			"maxLength": 80
+		},
+		"descripcion": {
+			"type": "string",
+			"minLength": 1,
+			"maxLength": 500
+		},
+		"ficha": {
+			"description": "Lo que ve el cliente en el catálogo para decidir si la quiere y cómo instalarla.",
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["detecta", "donde", "requisitos", "instalacion"],
+			"properties": {
+				"detecta": {
+					"type": "string",
+					"minLength": 1,
+					"maxLength": 600
+				},
+				"donde": {
+					"type": "string",
+					"minLength": 1,
+					"maxLength": 600
+				},
+				"requisitos": {
+					"type": "array",
+					"maxItems": 10,
+					"items": {
+						"type": "string",
+						"maxLength": 200
+					}
+				},
+				"instalacion": {
+					"type": "object",
+					"additionalProperties": false,
+					"required": ["automatica"],
+					"properties": {
+						"automatica": {
+							"description": "Se despliega desde la consola y el sensor lo hace solo.",
+							"type": "boolean"
+						},
+						"manual": {
+							"description": "Pasos para que lo haga el administrador del cliente, si hay camino manual.",
+							"type": "array",
+							"maxItems": 20,
+							"items": {
+								"type": "string",
+								"maxLength": 500
+							}
+						}
+					}
+				}
+			}
+		},
+		"versionModulo": {
+			"$ref": "#/$defs/semver"
+		},
+		"sensorMinimo": {
+			"description": "Versión mínima del sensor que sabe desplegar esta trampa (porque usa algo del manifiesto que los anteriores no entienden). La consola no la manda a sensores más viejos ni a los que no dicen su versión, y dice por qué.",
+			"$ref": "#/$defs/semver"
+		},
+		"tipo": {
+			"$ref": "#/$defs/tipo"
+		},
+		"procedencia": {
+			"description": "De qué proyecto viene, para revisar su licencia antes de firmarlo.",
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["proyecto", "url", "licencia"],
+			"properties": {
+				"proyecto": {
+					"type": "string"
+				},
+				"url": {
+					"type": "string",
+					"format": "uri"
+				},
+				"licencia": {
+					"type": "string"
+				}
+			}
+		},
+		"contenedor": {
+			"$ref": "#/$defs/contenedor"
+		},
+		"red": {
+			"$ref": "#/$defs/red"
+		},
+		"fichero": {
+			"$ref": "#/$defs/fichero"
+		},
+		"token": {
+			"$ref": "#/$defs/token"
+		},
+		"identidad": {
+			"$ref": "#/$defs/identidad"
+		},
+		"aislamiento": {
+			"$ref": "#/$defs/aislamiento"
+		},
+		"parametros": {
+			"$ref": "#/$defs/parametros"
+		},
+		"eventos": {
+			"$ref": "#/$defs/eventos"
+		}
+	},
+	"allOf": [
+		{
+			"if": {
+				"properties": {
+					"tipo": {
+						"const": "contenedor"
+					}
+				}
+			},
+			"then": {
+				"required": ["contenedor", "aislamiento"]
+			}
+		},
+		{
+			"if": {
+				"required": ["red"]
+			},
+			"then": {
+				"required": ["contenedor", "tipo"]
+			}
+		},
+		{
+			"if": {
+				"properties": {
+					"tipo": {
+						"const": "fichero"
+					}
+				}
+			},
+			"then": {
+				"required": ["fichero"]
+			}
+		},
+		{
+			"if": {
+				"properties": {
+					"tipo": {
+						"const": "token"
+					}
+				}
+			},
+			"then": {
+				"required": ["token"]
+			}
+		},
+		{
+			"if": {
+				"properties": {
+					"tipo": {
+						"const": "identidad"
+					}
+				}
+			},
+			"then": {
+				"required": ["identidad"]
+			}
+		}
+	],
+	"$defs": {
+		"tipo": {
+			"type": "string",
+			"enum": ["contenedor", "fichero", "token", "identidad"]
+		},
+		"semver": {
+			"type": "string",
+			"pattern": "^\\d+\\.\\d+\\.\\d+$"
+		},
+		"nombreParametro": {
+			"type": "string",
+			"pattern": "^[A-Za-z][A-Za-z0-9]{0,63}$"
+		},
+		"hueco": {
+			"type": "string",
+			"pattern": "^\\$\\{[A-Za-z][A-Za-z0-9]{0,63}\\}$"
+		},
+		"contenedor": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["imagen", "puertos", "registros"],
+			"properties": {
+				"imagen": {
+					"description": "Siempre fijada por digest: una etiqueta puede cambiar debajo de la firma.",
+					"type": "string",
+					"pattern": "^([a-z0-9.-]+(:[0-9]+)?/)?[a-z0-9._/-]+(:[A-Za-z0-9._-]+)?@sha256:[0-9a-f]{64}$"
+				},
+				"imagenPublica": {
+					"description": "Imagen alternativa, de un registro público, para los sensores que no anuncian credencial del registro privado (cabecera Sugardaddy-Registro: si). La consola se la manda como imagen y este campo no llega nunca al sensor. También fijada por digest. Sin ella, la imagen se da por privada y la trampa no se manda a esos sensores; si la imagen ya es pública, pon aquí la misma.",
+					"$ref": "#/$defs/contenedor/properties/imagen"
+				},
+				"puertos": {
+					"type": "array",
+					"minItems": 1,
+					"items": {
+						"type": "object",
+						"additionalProperties": false,
+						"required": ["interno", "expuesto", "protocolo"],
+						"properties": {
+							"interno": {
+								"description": "El puerto dentro del contenedor: 1024 o más, porque allí la trampa corre sin privilegios (lo comprueba validarTrampa, con su motivo).",
+								"type": "integer",
+								"minimum": 1,
+								"maximum": 65535
+							},
+							"expuesto": {
+								"description": "Un número fijo (al que el nodo puede sumar su desplazamiento) o ${parametro}, que se usa tal cual.",
+								"oneOf": [
+									{
+										"type": "integer",
+										"minimum": 1,
+										"maximum": 65535
+									},
+									{
+										"$ref": "#/$defs/hueco"
+									}
+								]
+							},
+							"protocolo": {
+								"enum": ["tcp", "udp"]
+							},
+							"si": {
+								"description": "Parámetro que enciende este puerto: solo se publica si vale yes o true.",
+								"$ref": "#/$defs/nombreParametro"
+							}
+						}
+					}
+				},
+				"entorno": {
+					"description": "Variables de entorno. Admite ${parametro} para tomar el valor del formulario, o un valor según lo que se eligió en un parámetro.",
+					"type": "object",
+					"additionalProperties": {
+						"oneOf": [
+							{
+								"type": "string"
+							},
+							{
+								"type": "object",
+								"additionalProperties": false,
+								"required": ["segun", "valores"],
+								"properties": {
+									"segun": {
+										"$ref": "#/$defs/nombreParametro"
+									},
+									"valores": {
+										"type": "object",
+										"additionalProperties": {
+											"type": "string"
+										}
+									}
+								}
+							}
+						]
+					}
+				},
+				"ficheros": {
+					"description": "Ficheros de configuración que el sensor escribe a partir de los parámetros y monta de solo lectura en el contenedor.",
+					"type": "array",
+					"maxItems": 8,
+					"items": {
+						"type": "object",
+						"additionalProperties": false,
+						"required": ["destino", "contenido"],
+						"properties": {
+							"destino": {
+								"type": "string",
+								"pattern": "^/[^.]*(\\.[a-z]+)?$"
+							},
+							"contenido": {
+								"type": "string",
+								"maxLength": 65536
+							}
+						}
+					}
+				},
+				"escribibles": {
+					"description": "Carpetas que el honeypot necesita escribir aunque el resto sea de solo lectura. Cada una es un volumen propio, que empieza con lo que trae la imagen.",
+					"type": "array",
+					"maxItems": 8,
+					"items": {
+						"type": "string",
+						"pattern": "^/[^.]*$"
+					}
+				},
+				"registros": {
+					"description": "Carpeta del contenedor donde el honeypot escribe sus registros. El sensor la monta y la lee; es lo único escribible.",
+					"type": "string",
+					"pattern": "^/"
+				}
+			}
+		},
+		"fichero": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["plantilla", "baliza"],
+			"properties": {
+				"plantilla": {
+					"type": "string"
+				},
+				"baliza": {
+					"enum": ["dns", "http", "auditoria"]
+				}
+			}
+		},
+		"token": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["clase"],
+			"properties": {
+				"clase": {
+					"enum": ["aws", "azure", "url", "dns"]
+				}
+			}
+		},
+		"identidad": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["destino"],
+			"properties": {
+				"destino": {
+					"enum": ["usuario-ad", "spn", "credencial-sembrada"]
+				}
+			}
+		},
+		"aislamiento": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["salida", "soloLectura", "cpu", "memoriaMb"],
+			"properties": {
+				"salida": {
+					"description": "Si el contenedor puede abrir conexiones hacia fuera. Una trampa con salida es un trampolín para el atacante.",
+					"type": "boolean"
+				},
+				"soloLectura": {
+					"type": "boolean"
+				},
+				"cpu": {
+					"type": "number",
+					"exclusiveMinimum": 0,
+					"maximum": 2
+				},
+				"memoriaMb": {
+					"type": "integer",
+					"minimum": 32,
+					"maximum": 2048
+				}
+			}
+		},
+		"red": {
+			"description": "El modo de red «IP propia» (docs/diseno/red.md): la trampa no va en el puente aislado con NAT, sino con una IP propia en el segmento del cliente. Solo la despliega un sensor que informa el hecho red.capa2; donde no, el elector descarta la vía con su motivo.",
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["modo"],
+			"properties": {
+				"modo": {
+					"const": "ip-propia"
+				},
+				"capturar": {
+					"description": "Rangos que la trampa puede leer del enlace (CIDR IPv4 separados por comas, con ${huecos} de parámetros): el sensor compila el filtro BPF que solo deja pasar ese tráfico y solo entonces concede NET_RAW. Sin capturar, sin NET_RAW. El valor sustituido se valida al desplegar.",
+					"type": "string",
+					"minLength": 1,
+					"maxLength": 640
+				}
+			}
+		},
+		"parametros": {
+			"description": "Un JSON Schema de objeto. La consola pinta el formulario a partir de él.",
+			"type": "object",
+			"required": ["type", "properties"],
+			"properties": {
+				"type": {
+					"const": "object"
+				},
+				"properties": {
+					"type": "object"
+				}
+			}
+		},
+		"eventos": {
+			"description": "Adaptador declarativo: de dónde salen los registros nativos del honeypot (fuente) y cómo pasar de ellos al evento normalizado (el traductor).",
+			"type": "object",
+			"$ref": "#/$defs/traductor",
+			"required": ["fuente"],
+			"properties": {
+				"fuente": {
+					"type": "object",
+					"additionalProperties": false,
+					"required": ["tipo"],
+					"properties": {
+						"tipo": {
+							"enum": ["fichero", "rele", "directorio-activo"]
+						},
+						"ruta": {
+							"description": "Relativa a la carpeta de registros del contenedor.",
+							"type": "string",
+							"pattern": "^[^/].*$",
+							"not": {
+								"pattern": "\\.\\."
+							}
+						}
+					}
+				}
+			},
+			"unevaluatedProperties": false
+		},
+		"traductor": {
+			"description": "Cómo pasar del registro nativo del honeypot al evento normalizado: todo «eventos» menos «fuente». Va abierto para que «eventos» le sume la fuente; quien lo use solo (el manifiesto v2, en senal.eventos) lo cierra con unevaluatedProperties.",
+			"type": "object",
+			"required": ["formato", "campos", "accion", "severidad", "conexionEstablecida"],
+			"properties": {
+				"formato": {
+					"enum": ["json-lineas"]
+				},
+				"campos": {
+					"description": "Campo del evento normalizado → ruta en el registro nativo, con puntos para anidar.",
+					"type": "object",
+					"additionalProperties": false,
+					"required": ["cuando"],
+					"properties": {
+						"cuando": {
+							"type": "string"
+						},
+						"ip": {
+							"type": "string"
+						},
+						"puerto": {
+							"type": "string"
+						},
+						"usuario": {
+							"type": "string"
+						},
+						"equipo": {
+							"type": "string"
+						}
+					}
+				},
+				"accion": {
+					"type": "object",
+					"additionalProperties": false,
+					"required": ["campo", "valores", "porDefecto"],
+					"properties": {
+						"campo": {
+							"type": "string"
+						},
+						"valores": {
+							"type": "object",
+							"additionalProperties": {
+								"$ref": "evento.schema.json#/properties/accion"
+							}
+						},
+						"porDefecto": {
+							"$ref": "evento.schema.json#/properties/accion"
+						},
+						"ignorar": {
+							"description": "Valores del campo que no son un evento (arranque, estadísticas internas).",
+							"type": "array",
+							"items": {
+								"type": "string"
+							}
+						}
+					}
+				},
+				"severidad": {
+					"type": "object",
+					"additionalProperties": false,
+					"required": ["porDefecto"],
+					"properties": {
+						"porDefecto": {
+							"$ref": "evento.schema.json#/$defs/severidad"
+						},
+						"porAccion": {
+							"type": "object",
+							"propertyNames": {
+								"$ref": "evento.schema.json#/properties/accion"
+							},
+							"additionalProperties": {
+								"$ref": "evento.schema.json#/$defs/severidad"
+							}
+						},
+						"porValor": {
+							"description": "Por valor nativo del campo de acción; manda sobre porAccion. Para afinar dentro de una misma acción (una despedida no pesa como un intento de túnel).",
+							"type": "object",
+							"additionalProperties": {
+								"$ref": "evento.schema.json#/$defs/severidad"
+							}
+						},
+						"porCampo": {
+							"description": "Por el valor de otro campo nativo (p. ej. el CVE que se intenta explotar); manda sobre todo lo anterior. Desde la 0.13.",
+							"type": "object",
+							"additionalProperties": false,
+							"required": ["campo", "valores"],
+							"properties": {
+								"campo": { "type": "string", "minLength": 1, "maxLength": 128 },
+								"valores": {
+									"type": "object",
+									"additionalProperties": {
+										"$ref": "evento.schema.json#/$defs/severidad"
+									}
+								}
+							}
+						}
+					}
+				},
+				"conexionEstablecida": {
+					"description": "Si los eventos de esta trampa implican una sesión TCP completa (el origen no está falseado).",
+					"type": "boolean"
+				},
+				"conexionPorCampo": {
+					"description": "Si hay sesión completa según el valor de un campo nativo (p. ej. tcp sí, udp no: por UDP el origen se puede falsificar). Un valor que no está en la lista se queda con conexionEstablecida. Desde la 0.13; un sensor anterior usa conexionEstablecida.",
+					"type": "object",
+					"additionalProperties": false,
+					"required": ["campo", "valores"],
+					"properties": {
+						"campo": { "type": "string", "minLength": 1, "maxLength": 128 },
+						"valores": { "type": "object", "additionalProperties": { "type": "boolean" } }
+					}
+				},
+				"detalle": {
+					"description": "Lista blanca de campos nativos que se copian a detalle. Lo que no esté aquí se queda solo en crudo.",
+					"type": "array",
+					"items": {
+						"type": "string"
+					},
+					"maxItems": 64
+				},
+				"contrasena": {
+					"description": "Campo de detalle con la contraseña que prueba el atacante, si la trampa tiene login. La consola las reúne todas y avisa si llevan el nombre de la empresa.",
+					"type": "string",
+					"pattern": "^[A-Za-z0-9_.-]{1,64}$"
+				},
+				"sesion": {
+					"description": "Campo de detalle que agrupa los eventos de una misma visita del atacante. La consola la enseña entera al pinchar en uno.",
+					"type": "string",
+					"pattern": "^[A-Za-z0-9_.-]{1,64}$"
+				},
+				"resumen": {
+					"description": "Campos de detalle que se enseñan en la fila de la lista; el resto, al desplegarla.",
+					"type": "array",
+					"items": {
+						"type": "string"
+					},
+					"maxItems": 16
+				},
+				"etiquetas": {
+					"description": "Nombre en la consola de los campos de detalle y de los valores nativos de la acción.",
+					"type": "object",
+					"maxProperties": 128,
+					"additionalProperties": {
+						"type": "string",
+						"maxLength": 80
+					}
+				}
+			}
+		}
+	}
+}

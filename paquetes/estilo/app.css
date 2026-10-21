@@ -1,0 +1,348 @@
+/*
+ * Sistema visual de Sugardaddy (el mismo de Roadmap Seguridad).
+ * Regla: ningún componente define un color literal, todos salen de estas fichas.
+ */
+
+/*
+ * La consola va en oscuro: se mira en un SOC, a menudo de noche. La paleta
+ * clara sigue bajo [data-theme="light"] por si hace falta.
+ */
+
+:root {
+	/* superficies */
+	--bg: #0a0b0c;
+	--surface: #131516;
+	--surface-2: #1c1f21;
+	--sunk: #0e1011;
+
+	/* texto */
+	--ink: #e9eeed;
+	--ink-2: #98a3a2;
+	--ink-3: #78827f;
+
+	/* líneas */
+	--line: #262a2b;
+	--line-strong: #3b4143;
+
+	/* acento */
+	--accent: #4fc3b8;
+	--accent-ink: #06201e;
+	--accent-soft: #123330;
+
+	/*
+	 * Fondo de los iconos de las trampas (su logotipo o la abeja): claro en
+	 * los dos temas, porque llevan contornos negros que en oscuro se pierden.
+	 */
+	--logo-fondo: #f3f5f4;
+
+	/*
+	 * Colores de la marca (marca/README.md), los mismos en los dos temas. Solo
+	 * para lo que presenta Sugardaddy, como la landing del panel: las pantallas
+	 * de trabajo siguen con el acento.
+	 */
+	--marca: #f5b800;
+	--marca-ink: #111111;
+
+	/* semánticos: estado de las cosas, nunca decoración */
+	--ok: #6fbf73;
+	--warn: #e3a85b;
+	--crit: #e8877c;
+
+	/* severidad de un evento: de lo que se apunta a lo que despierta a alguien */
+	--s-baja: #78827f;
+	--s-media: #6fa8ff;
+	--s-alta: #e3a85b;
+	--s-critica: #e8877c;
+
+	/* profundidad */
+	--shadow: 0 1px 2px rgba(0, 0, 0, 0.5), 0 8px 20px -10px rgba(0, 0, 0, 0.7);
+	--shadow-lift: 0 2px 8px rgba(0, 0, 0, 0.6), 0 20px 40px -16px rgba(0, 0, 0, 0.8);
+
+	/* forma y ritmo */
+	--r: 14px;
+	--r-sm: 9px;
+
+	/* tipos */
+	--font-display: 'Archivo', 'Instrument Sans', system-ui, sans-serif;
+	--font-body: 'Instrument Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+	--font-mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', monospace;
+
+	color-scheme: dark;
+}
+
+:root[data-theme='light'] {
+	--bg: #eff2f1;
+	--surface: #ffffff;
+	--surface-2: #e6eae9;
+	--sunk: #e9edec;
+	--ink: #151c1c;
+	--ink-2: #5c6867;
+	--ink-3: #859392;
+	--line: #d2d9d7;
+	--line-strong: #b9c3c1;
+	--accent: #0e5e5a;
+	--accent-ink: #ffffff;
+	--accent-soft: #d9e9e7;
+	--logo-fondo: #ffffff;
+	--ok: #2f7d32;
+	--warn: #b26b00;
+	--crit: #a8332a;
+	--s-baja: #859392;
+	--s-media: #1f6feb;
+	--s-alta: #b26b00;
+	--s-critica: #a8332a;
+	--shadow: 0 1px 2px rgba(20, 32, 31, 0.06), 0 6px 18px -8px rgba(20, 32, 31, 0.18);
+	--shadow-lift: 0 2px 6px rgba(20, 32, 31, 0.1), 0 18px 34px -14px rgba(20, 32, 31, 0.32);
+	color-scheme: light;
+}
+
+*,
+*::before,
+*::after {
+	box-sizing: border-box;
+}
+
+html,
+body {
+	margin: 0;
+}
+
+body {
+	background: var(--bg);
+	color: var(--ink);
+	font-family: var(--font-body);
+	font-size: 15px;
+	line-height: 1.5;
+	-webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3,
+h4 {
+	font-family: var(--font-display);
+	margin: 0;
+	text-wrap: balance;
+	letter-spacing: -0.015em;
+}
+
+a {
+	color: var(--accent);
+}
+
+button {
+	font: inherit;
+	color: inherit;
+	background: none;
+	border: none;
+	cursor: pointer;
+}
+
+img {
+	max-width: 100%;
+}
+
+:focus-visible {
+	outline: 2.5px solid var(--accent);
+	outline-offset: 2px;
+	border-radius: 6px;
+}
+
+/* primitivos compartidos */
+
+.eyebrow {
+	font-family: var(--font-mono);
+	font-size: 10.5px;
+	letter-spacing: 0.14em;
+	text-transform: uppercase;
+	color: var(--ink-3);
+}
+
+.mono {
+	font-family: var(--font-mono);
+	font-variant-numeric: tabular-nums;
+}
+
+.panel {
+	background: var(--surface);
+	border: 1px solid var(--line);
+	border-radius: var(--r);
+	box-shadow: var(--shadow);
+}
+
+.tag {
+	font-size: 11px;
+	font-weight: 600;
+	padding: 3px 8px;
+	border-radius: 99px;
+	background: var(--surface-2);
+	color: var(--ink-2);
+	white-space: nowrap;
+}
+
+.tag.on {
+	background: var(--accent-soft);
+	color: var(--accent);
+}
+
+/* severidad de un evento */
+.sev {
+	font-family: var(--font-mono);
+	font-size: 10px;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	padding: 2.5px 7px;
+	border-radius: 5px;
+	font-weight: 500;
+	white-space: nowrap;
+	background: color-mix(in oklab, var(--sev) 16%, var(--surface));
+	color: var(--sev);
+}
+
+.sev-baja {
+	--sev: var(--s-baja);
+}
+.sev-media {
+	--sev: var(--s-media);
+}
+.sev-alta {
+	--sev: var(--s-alta);
+}
+.sev-critica {
+	--sev: var(--s-critica);
+}
+
+/* formularios */
+input,
+select,
+textarea {
+	font: inherit;
+	color: var(--ink);
+	background: var(--sunk);
+	border: 1px solid var(--line-strong);
+	border-radius: var(--r-sm);
+	padding: 8px 11px;
+	width: 100%;
+}
+
+label {
+	display: block;
+	font-size: 12.5px;
+	font-weight: 600;
+	color: var(--ink-2);
+	margin: 12px 0 5px;
+}
+
+.boton {
+	border: 1px solid var(--line-strong);
+	border-radius: var(--r-sm);
+	padding: 7px 14px;
+	font-size: 13px;
+	font-weight: 600;
+	color: var(--ink);
+	background: var(--surface-2);
+	text-decoration: none;
+	display: inline-block;
+}
+
+.boton:hover {
+	border-color: var(--ink-3);
+}
+
+.boton.principal {
+	background: var(--accent);
+	border-color: var(--accent);
+	color: var(--accent-ink);
+}
+
+.boton.peligro {
+	color: var(--crit);
+	border-color: color-mix(in oklab, var(--crit) 45%, var(--line));
+	background: color-mix(in oklab, var(--crit) 10%, var(--surface));
+}
+
+/* barra superior, la misma en la consola y en el panel central */
+
+.barra {
+	display: flex;
+	align-items: center;
+	gap: 18px;
+	flex-wrap: wrap;
+	padding: 10px 20px;
+	padding-top: calc(10px + env(safe-area-inset-top, 0px));
+	background: var(--surface);
+	border-bottom: 1px solid var(--line);
+}
+
+.marca {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	text-decoration: none;
+	color: inherit;
+}
+
+.cuadro {
+	display: grid;
+	place-items: center;
+	width: 30px;
+	height: 30px;
+	border-radius: var(--r-sm);
+	background: var(--accent);
+	color: var(--accent-ink);
+	font-family: var(--font-display);
+	font-weight: 700;
+	font-size: 12px;
+	letter-spacing: 0.02em;
+}
+
+.marca b {
+	font-family: var(--font-display);
+	font-weight: 600;
+	font-size: 16px;
+	letter-spacing: -0.02em;
+}
+
+.barra nav {
+	display: flex;
+	gap: 4px;
+	margin-right: auto;
+	flex-wrap: wrap;
+}
+
+.barra nav a {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 6px 12px;
+	border-radius: 99px;
+	font-size: 13.5px;
+	font-weight: 600;
+	color: var(--ink-2);
+	text-decoration: none;
+}
+
+.barra nav a:hover {
+	background: var(--surface-2);
+}
+
+.barra nav a[aria-current='page'] {
+	background: var(--accent-soft);
+	color: var(--accent);
+}
+
+main.contenido {
+	max-width: 1280px;
+	margin: 0 auto;
+	padding-block: 26px 80px;
+	padding-inline: 16px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		transition: none !important;
+		animation: none !important;
+	}
+}

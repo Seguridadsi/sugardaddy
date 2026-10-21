@@ -1,0 +1,3388 @@
+diff --git a/internal/amp/amp.go b/internal/amp/amp.go
+new file mode 100644
+index 0000000..d8de9af
+--- /dev/null
++++ b/internal/amp/amp.go
+@@ -0,0 +1,193 @@
++// Package amp keeps the UDP pots from answering a source on the Internet
++// with more bytes than it sent (Sugardaddy). A UDP source can be forged:
++// whatever the budgets, a pot that answers a forged source with more bytes
++// than the request is a reflector, and scanners of the Internet list the
++// address of the host as one.
++package amp
++
++import (
++	"bufio"
++	"encoding/binary"
++	"encoding/hex"
++	"fmt"
++	"net/netip"
++	"os"
++	"strconv"
++	"strings"
++)
++
++// Values of the amp_guard field of a log line.
++const (
++	// Truncated: the answer kept only its header and question (DNS, TC=1).
++	Truncated = "recortada"
++	// Dropped: no answer, it would have been larger than the request.
++	Dropped = "sin respuesta"
++	// Refused: a CHAOS question (version.bind) of a source that may not get
++	// larger answers is answered REFUSED over UDP and TCP alike, as a BIND
++	// whose allow-query leaves it out (DNS).
++	Refused = "rechazada"
++)
++
++// Guard tells which sources may get answers larger than their requests.
++// A nil Guard lets every source get them, as the original DDoSPot does.
++//
++// Being a private address (RFC 1918, fc00::/7) is not enough: a firewall
++// that translates the source of what it lets in (DNAT with SNAT, as Azure
++// Firewall always does, a FortiGate VIP with NAT, a hide NAT) hands over
++// the whole Internet from one private address. Only the networks the
++// operator names as internal, and loopback, get full answers.
++type Guard struct {
++	// Public lets every source get them, within the budgets of the
++	// limiter (DDOSPOT_PUBLIC_AMPLIFICATION=on).
++	Public   bool
++	internal []netip.Prefix
++	proxies  map[netip.Addr]bool
++}
++
++// New returns a Guard. internal are the networks whose sources get full
++// answers (DDOSPOT_INTERNAL_NETS); none means that only loopback does. The
++// proxies are addresses that hand over packets of anyone, such as the
++// gateway of the container: Docker's userland proxy sends the packets of
++// loopback and IPv6 clients from it, and their true source is unknown.
++// They never get full answers, also inside an internal network.
++func New(public bool, internal []netip.Prefix, proxies ...netip.Addr) *Guard {
++	g := &Guard{Public: public, proxies: map[netip.Addr]bool{}}
++	for _, p := range internal {
++		g.internal = append(g.internal, unmap(p))
++	}
++	for _, a := range proxies {
++		g.proxies[a.Unmap()] = true
++	}
++	return g
++}
++
++// unmap turns an IPv4-mapped IPv6 prefix into the IPv4 one, without host bits.
++func unmap(p netip.Prefix) netip.Prefix {
++	if p.Addr().Is4In6() {
++		p = netip.PrefixFrom(p.Addr().Unmap(), max(p.Bits()-96, 0))
++	}
++	return p.Masked()
++}
++
++// Full reports whether src may get answers larger than its requests: an
++// address of an internal network, or a loopback one (which the kernel only
++// takes from the host itself), that is not a proxy; any address when
++// Public is on.
++func (g *Guard) Full(src netip.Addr) bool {
++	if g == nil || g.Public {
++		return true
++	}
++	a := src.Unmap()
++	if g.proxies[a] {
++		return false
++	}
++	return a.IsLoopback() || g.Internal(a)
++}
++
++// Internal reports whether a is in one of the internal networks.
++func (g *Guard) Internal(a netip.Addr) bool {
++	if g == nil {
++		return false
++	}
++	a = a.Unmap()
++	for _, p := range g.internal {
++		if p.Contains(a) {
++			return true
++		}
++	}
++	return false
++}
++
++// Allow reports whether an answer of resp bytes may go to src for a request
++// of req bytes: never more bytes than the request, unless Full.
++func (g *Guard) Allow(src netip.Addr, req, resp int) bool {
++	return resp <= req || g.Full(src)
++}
++
++// MaxNets caps the networks of ParseNets.
++const MaxNets = 32
++
++var ula = netip.MustParsePrefix("fc00::/7")
++
++// narrowEnough: at most a /8 of IPv4, a /16 of IPv6 or the unique local
++// addresses of IPv6 (fc00::/7).
++func narrowEnough(p netip.Prefix) bool {
++	if p.Addr().Is4() {
++		return p.Bits() >= 8
++	}
++	return p.Bits() >= 16 || p.Bits() >= ula.Bits() && ula.Contains(p.Addr())
++}
++
++// ParseNets reads a list of networks separated by commas, each as an
++// address with its prefix length (10.20.0.0/16, fd00::/8), spaces allowed
++// around them. An empty list is valid. Host bits are cleared. A network
++// wider than /8 (IPv4), /16 (IPv6) or fc00::/7 is refused: it would make a
++// large part of the Internet internal, which is what
++// DDOSPOT_PUBLIC_AMPLIFICATION=on says out loud.
++func ParseNets(s string) ([]netip.Prefix, error) {
++	if strings.TrimSpace(s) == "" {
++		return nil, nil
++	}
++	var out []netip.Prefix
++	for _, f := range strings.Split(s, ",") {
++		f = strings.TrimSpace(f)
++		p, err := netip.ParsePrefix(f)
++		if err != nil {
++			return nil, fmt.Errorf("%q is not a network such as 10.20.0.0/16", f)
++		}
++		p = unmap(p)
++		if !narrowEnough(p) {
++			return nil, fmt.Errorf("%q is wider than /8 (IPv4), /16 (IPv6) or fc00::/7", f)
++		}
++		out = append(out, p)
++	}
++	if len(out) > MaxNets {
++		return nil, fmt.Errorf("more than %d networks", MaxNets)
++	}
++	return out, nil
++}
++
++// Gateways returns the gateways of the routes in route (/proc/net/route)
++// and route6 (/proc/net/ipv6_route). A file that is missing or does not
++// parse adds nothing.
++func Gateways(route, route6 string) []netip.Addr {
++	var out []netip.Addr
++	if f, err := os.Open(route); err == nil {
++		s := bufio.NewScanner(f)
++		for s.Scan() {
++			// Iface Destination Gateway Flags ...; Gateway in host order.
++			c := strings.Fields(s.Text())
++			if len(c) < 4 || c[0] == "Iface" {
++				continue
++			}
++			flags, err1 := strconv.ParseUint(c[3], 16, 16)
++			gw, err2 := strconv.ParseUint(c[2], 16, 32)
++			if err1 != nil || err2 != nil || flags&0x2 == 0 || gw == 0 { // RTF_GATEWAY
++				continue
++			}
++			var b [4]byte
++			binary.NativeEndian.PutUint32(b[:], uint32(gw))
++			out = append(out, netip.AddrFrom4(b))
++		}
++		f.Close()
++	}
++	if f, err := os.Open(route6); err == nil {
++		s := bufio.NewScanner(f)
++		for s.Scan() {
++			// dest plen src plen nexthop metric refcnt use flags iface
++			c := strings.Fields(s.Text())
++			if len(c) < 10 {
++				continue
++			}
++			b, err := hex.DecodeString(c[4])
++			if err != nil || len(b) != 16 {
++				continue
++			}
++			if a := netip.AddrFrom16([16]byte(b)); !a.IsUnspecified() {
++				out = append(out, a)
++			}
++		}
++		f.Close()
++	}
++	return out
++}
+diff --git a/internal/amp/amp_test.go b/internal/amp/amp_test.go
+new file mode 100644
+index 0000000..c21b41a
+--- /dev/null
++++ b/internal/amp/amp_test.go
+@@ -0,0 +1,99 @@
++package amp
++
++import (
++	"net/netip"
++	"os"
++	"path/filepath"
++	"slices"
++	"strings"
++	"testing"
++)
++
++func TestFull(t *testing.T) {
++	g := New(false, []netip.Prefix{netip.MustParsePrefix("10.20.0.0/16"), netip.MustParsePrefix("192.168.1.0/24"),
++		netip.MustParsePrefix("172.16.0.0/12"), netip.MustParsePrefix("fd00::/8"), netip.MustParsePrefix("203.0.113.0/24")},
++		netip.MustParseAddr("172.18.0.1"))
++	for a, want := range map[string]bool{
++		"10.20.2.3":           true,
++		"192.168.1.20":        true,
++		"172.20.0.9":          true,
++		"::ffff:192.168.1.20": true,
++		"fd00::5":             true,
++		"203.0.113.9":         true, // public, but named internal
++		"127.0.0.1":           true,
++		"10.98.0.2":           false, // private, not named: the SNAT of a firewall
++		"192.168.2.20":        false,
++		"172.18.0.1":          false, // the proxy, inside 172.16/12
++		"::ffff:172.18.0.1":   false,
++		"198.51.100.7":        false,
++		"100.64.0.1":          false,
++		"169.254.1.1":         false,
++		"2001:db8::1":         false,
++		"8.8.8.8":             false,
++	} {
++		if g.Full(netip.MustParseAddr(a)) != want {
++			t.Errorf("%s: full %v", a, !want)
++		}
++	}
++	if !New(true, nil).Full(netip.MustParseAddr("198.51.100.7")) || !(*Guard)(nil).Full(netip.MustParseAddr("198.51.100.7")) {
++		t.Fatal("public on or nil guard limits")
++	}
++	pub := netip.MustParseAddr("198.51.100.7")
++	if !g.Allow(pub, 48, 48) || g.Allow(pub, 48, 49) || !g.Allow(netip.MustParseAddr("10.20.0.1"), 8, 600) {
++		t.Fatal("Allow")
++	}
++}
++
++// Hallazgo: con un cortafuegos que hace DNAT+SNAT delante (Azure Firewall,
++// VIP con NAT), todo Internet llega desde una IP privada que no es la
++// pasarela del contenedor. Sin redes internas declaradas, ninguna dirección
++// privada recibe respuestas más grandes que su petición; solo loopback.
++func TestPrivateIsNotInternalByItself(t *testing.T) {
++	g := New(false, nil, netip.MustParseAddr("10.98.0.1"))
++	for _, a := range []string{"10.98.0.2", "192.168.65.3", "172.17.0.5", "fd12::1", "::ffff:10.0.0.9"} {
++		if g.Full(netip.MustParseAddr(a)) || g.Allow(netip.MustParseAddr(a), 48, 592) {
++			t.Errorf("%s gets full answers without being an internal network", a)
++		}
++	}
++	if !g.Full(netip.MustParseAddr("127.0.0.1")) || !g.Full(netip.MustParseAddr("::1")) {
++		t.Error("loopback")
++	}
++}
++
++func TestParseNets(t *testing.T) {
++	got, err := ParseNets(" 10.20.0.0/16, 192.168.1.7/24,fd00::/8 ,::ffff:172.16.0.0/108,fc00::/7")
++	want := []netip.Prefix{netip.MustParsePrefix("10.20.0.0/16"), netip.MustParsePrefix("192.168.1.0/24"),
++		netip.MustParsePrefix("fd00::/8"), netip.MustParsePrefix("172.16.0.0/12"), netip.MustParsePrefix("fc00::/7")}
++	if err != nil || !slices.Equal(got, want) {
++		t.Fatalf("%v %v", got, err)
++	}
++	if n, err := ParseNets("  "); err != nil || n != nil {
++		t.Fatalf("empty: %v %v", n, err)
++	}
++	many := strings.Repeat("10.0.0.0/24,", MaxNets) + "10.0.1.0/24"
++	for _, bad := range []string{"10.0.0.0", "10.0.0.0/33", "0.0.0.0/0", "8.0.0.0/7", "::/0", "2000::/3", "10.0.0.0/8,", "x", "2000::/7", many, "fe80::%eth0/64"} {
++		if _, err := ParseNets(bad); err == nil {
++			t.Errorf("%q accepted", bad)
++		}
++	}
++}
++
++func TestGateways(t *testing.T) {
++	d := t.TempDir()
++	r4 := filepath.Join(d, "route")
++	r6 := filepath.Join(d, "ipv6_route")
++	// 172.18.0.1 as the kernel prints it on a little-endian host.
++	os.WriteFile(r4, []byte("Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT\n"+
++		"eth0\t00000000\t010012AC\t0003\t0\t0\t0\t00000000\t0\t0\t0\n"+
++		"eth0\t000012AC\t00000000\t0001\t0\t0\t0\t0000FFFF\t0\t0\t0\n"), 0o644)
++	os.WriteFile(r6, []byte("00000000000000000000000000000000 00 00000000000000000000000000000000 00 fd000000000000000000000000000001 00000400 00000001 00000000 00000003 eth0\n"+
++		"fd000000000000000000000000000000 40 00000000000000000000000000000000 00 00000000000000000000000000000000 00000100 00000001 00000000 00000001 eth0\n"), 0o644)
++	got := Gateways(r4, r6)
++	want := []netip.Addr{netip.MustParseAddr("172.18.0.1"), netip.MustParseAddr("fd00::1")}
++	if !slices.Equal(got, want) {
++		t.Fatalf("%v", got)
++	}
++	if len(Gateways(filepath.Join(d, "no"), filepath.Join(d, "no6"))) != 0 {
++		t.Fatal("missing files")
++	}
++}
+diff --git a/internal/app/app.go b/internal/app/app.go
+index ee23de6..ee869de 100644
+--- a/internal/app/app.go
++++ b/internal/app/app.go
+@@ -5,18 +5,23 @@ package app
+ import (
+ 	"context"
+ 	crand "crypto/rand"
++	"crypto/sha256"
+ 	"encoding/binary"
++	"encoding/hex"
+ 	"fmt"
+ 	"io"
+ 	"math/rand"
+ 	"net"
+ 	"os"
++	"path/filepath"
+ 	"strconv"
++	"strings"
+ 	"sync"
+ 	"time"
+ 
+ 	"github.com/miekg/dns"
+ 
++	"github.com/telekom-security/ddospot/internal/amp"
+ 	"github.com/telekom-security/ddospot/internal/chargen"
+ 	dnspot "github.com/telekom-security/ddospot/internal/dns"
+ 	"github.com/telekom-security/ddospot/internal/events"
+@@ -27,8 +32,9 @@ import (
+ 	"github.com/telekom-security/ddospot/internal/ssdp"
+ )
+ 
+-// Version is the version of the program.
+-const Version = "2.0.0"
++// Version is the version of the program: DDoSPot v2.0.1 with the fourth
++// version of the patch of Sugardaddy, as the tag of its image.
++const Version = "2.0.1-sd4"
+ 
+ const (
+ 	tickEvery   = time.Second
+@@ -59,11 +65,60 @@ func Run(ctx context.Context, cfg Config, up dnspot.Upstream) error {
+ 	return runWithAddrs(ctx, cfg, up, nil)
+ }
+ 
+-// rollPersona rolls the persona with a seed from crypto/rand.
+-func rollPersona() persona.Persona {
++// rollPersona rolls the persona with a seed from crypto/rand, or from
++// cfg.Seed and the seed of the instance in cfg.SeedFile (Sugardaddy), so
++// that the same trap answers as the same host after a restart and two traps
++// with the same parameters (the default host name, the same address in two
++// networks) do not answer as the same host. The profile, host name and LAN
++// address of cfg win.
++func rollPersona(cfg Config) persona.Persona {
+ 	var seed [8]byte
+ 	crand.Read(seed[:])
+-	return persona.Roll(rand.New(rand.NewSource(int64(binary.LittleEndian.Uint64(seed[:])))))
++	inst, err := instanceSeed(cfg)
++	if err != nil {
++		fmt.Fprintf(stdout, "persona seed file: %v (the persona follows DDOSPOT_SEED only)\n", err)
++	}
++	if cfg.Seed != "" || inst != "" {
++		h := sha256.Sum256([]byte(cfg.Seed + "\x00" + inst))
++		copy(seed[:], h[:8])
++	}
++	r := rand.New(rand.NewSource(int64(binary.LittleEndian.Uint64(seed[:]))))
++	return persona.RollFixed(r, time.Now(), cfg.Persona, cfg.Hostname, cfg.LAN)
++}
++
++// instanceSeed returns the seed of this instance kept in cfg.SeedFile in
++// cfg.LogDir, the directory that outlives the container: 32 random bytes
++// in hex, written on the first start (and again if the file is not one).
++// Without a SeedFile it returns "".
++func instanceSeed(cfg Config) (string, error) {
++	if cfg.SeedFile == "" {
++		return "", nil
++	}
++	path := filepath.Join(cfg.LogDir, cfg.SeedFile)
++	if b, err := os.ReadFile(path); err == nil {
++		if s := strings.TrimSpace(string(b)); len(s) == 64 {
++			if _, err := hex.DecodeString(s); err == nil {
++				return s, nil
++			}
++		}
++	}
++	var b [32]byte
++	if _, err := crand.Read(b[:]); err != nil {
++		return "", err
++	}
++	s := hex.EncodeToString(b[:])
++	if err := os.MkdirAll(cfg.LogDir, 0o750); err != nil {
++		return "", err
++	}
++	tmp := path + ".tmp"
++	if err := os.WriteFile(tmp, []byte(s+"\n"), 0o600); err != nil {
++		return "", err
++	}
++	if err := os.Rename(tmp, path); err != nil {
++		os.Remove(tmp)
++		return "", err
++	}
++	return s, nil
+ }
+ 
+ type listeners struct {
+@@ -132,6 +187,22 @@ func newDNSServers(h dns.Handler, pc net.PacketConn, l net.Listener, started fun
+ 	return udp, tcp
+ }
+ 
++// routeFiles are the route tables read for the gateways of the container;
++// tests replace them.
++var routeFiles = [2]string{"/proc/net/route", "/proc/net/ipv6_route"}
++
++// newGuard returns the amplification guard of cfg and its words for the
++// startup line: with public amplification off, only the internal networks
++// of cfg (never the gateways of the container) get full answers.
++func newGuard(cfg Config) (*amp.Guard, string) {
++	if cfg.PublicAmplification {
++		return amp.New(true, nil), "public_amplification=on"
++	}
++	gw := amp.Gateways(routeFiles[0], routeFiles[1])
++	internal := cfg.Internal()
++	return amp.New(false, internal, gw...), fmt.Sprintf("public_amplification=off internal=%v proxies=%v", internal, gw)
++}
++
+ // report prints the lines the log budget left out and the lines lost to
+ // errors since the last call, each only when there were any.
+ func report(out io.Writer, w *jsonlog.Writer) {
+@@ -143,6 +214,18 @@ func report(out io.Writer, w *jsonlog.Writer) {
+ 	}
+ }
+ 
++// notice writes into the single log what its budgets and shares, and the
++// full tables of lim, left out since the last call (Sugardaddy): the
++// sensor reads that line, it does not read this output. The packets that
++// the full tables left out are also printed.
++func notice(out io.Writer, w *jsonlog.Writer, lim *limit.Limiter) {
++	n := lim.Untracked()
++	w.Notice(n)
++	if n > 0 {
++		fmt.Fprintf(out, "packets of new sources left out, tables full: %d\n", n)
++	}
++}
++
+ // reportUpstream prints a change of the health of the DNS upstream.
+ func reportUpstream(out io.Writer, ok bool, err error) {
+ 	if ok {
+@@ -181,14 +264,30 @@ func waitUntil(wg *sync.WaitGroup, by time.Time) bool {
+ }
+ 
+ func runWithAddrs(ctx context.Context, cfg Config, up dnspot.Upstream, addrs chan<- Addrs) error {
+-	p := rollPersona()
+-	fmt.Fprintf(stdout, "ddospot v%s persona=%s\n", Version, p.ID)
++	p := rollPersona(cfg)
++	guard, guardWords := newGuard(cfg)
++	fmt.Fprintf(stdout, "ddospot v%s persona=%s %s\n", Version, p.ID, guardWords)
+ 
+ 	jl, err := jsonlog.Open(cfg.LogDir, time.Now)
+ 	if err != nil {
+ 		return err
+ 	}
+-	lim := limit.New(limit.Defaults(cfg.Classify), time.Now, events.New(jl, p.ID))
++	logger := events.New(jl, p.ID)
++	if cfg.LogFile != "" {
++		jl.Single(cfg.LogFile)
++		jl.Cap(cfg.MaxLogBytes)
++		logger.Uniform = true
++	}
++	logger.Requests = cfg.LogRequests
++	lc := limit.Defaults(cfg.Classify)
++	lc.LogBlocked, lc.LogRequests = cfg.LogBlocked, cfg.LogRequests
++	if cfg.MaxSources > 0 {
++		lc.MaxSources, lc.MaxNets = cfg.MaxSources, cfg.MaxSources
++	}
++	if cfg.PrivateBudget > 0 {
++		lc.PerSourcePrivate, lc.PerNetPrivate = cfg.PrivateBudget, 10*cfg.PrivateBudget
++	}
++	lim := limit.New(lc, time.Now, logger)
+ 
+ 	ls, err := listen(cfg)
+ 	if err != nil {
+@@ -206,10 +305,14 @@ func runWithAddrs(ctx context.Context, cfg Config, up dnspot.Upstream, addrs cha
+ 		up = dot
+ 	}
+ 
+-	// The UDP pots.
++	// The UDP pots. Sugardaddy: answers larger than their requests only to
++	// sources of the internal networks, unless cfg.PublicAmplification. The
++	// gateways of the container are never internal: Docker's userland proxy
++	// hands over the packets of any client from there.
+ 	cg := chargen.New(ls.chargen, lim)
+ 	nt := ntp.New(ls.ntp, lim, &p)
+ 	sd := ssdp.New(ls.ssdp, lim, &p)
++	cg.Guard, nt.Guard, sd.Guard = guard, guard, guard
+ 	var pots sync.WaitGroup
+ 	for _, serve := range []func() error{cg.Serve, nt.Serve, sd.Serve} {
+ 		pots.Go(func() { serve() })
+@@ -217,7 +320,9 @@ func runWithAddrs(ctx context.Context, cfg Config, up dnspot.Upstream, addrs cha
+ 
+ 	// DNS on UDP and TCP.
+ 	started := make(chan struct{}, 2)
+-	du, dt := newDNSServers(dnspot.NewHandler(&p, lim, up), ls.dns, ls.tcp, func() { started <- struct{}{} })
++	dh := dnspot.NewHandler(&p, lim, up)
++	dh.Guard = guard
++	du, dt := newDNSServers(dh, ls.dns, ls.tcp, func() { started <- struct{}{} })
+ 	dnsErr := make(chan error, 2)
+ 	var dnsServing sync.WaitGroup
+ 	for _, s := range []*dns.Server{du, dt} {
+@@ -240,7 +345,12 @@ func runWithAddrs(ctx context.Context, cfg Config, up dnspot.Upstream, addrs cha
+ 	stopTickers := make(chan struct{})
+ 	var tickers sync.WaitGroup
+ 	tickers.Go(func() { every(tickEvery, stopTickers, lim.Tick) })
+-	tickers.Go(func() { every(reportEvery, stopTickers, func() { report(stdout, jl) }) })
++	tickers.Go(func() {
++		every(reportEvery, stopTickers, func() {
++			notice(stdout, jl, lim)
++			report(stdout, jl)
++		})
++	})
+ 	dotCtx, dotCancel := context.WithCancel(context.Background())
+ 	var dotRun sync.WaitGroup
+ 	if dot != nil {
+@@ -290,6 +400,7 @@ func runWithAddrs(ctx context.Context, cfg Config, up dnspot.Upstream, addrs cha
+ 	tickers.Wait()
+ 
+ 	lim.Flush()
++	notice(stdout, jl, lim)
+ 	jl.Close()
+ 	report(stdout, jl)
+ 	return runErr
+diff --git a/internal/app/app_test.go b/internal/app/app_test.go
+index be7525e..27f1d5d 100644
+--- a/internal/app/app_test.go
++++ b/internal/app/app_test.go
+@@ -120,14 +120,14 @@ func TestFromEnv(t *testing.T) {
+ 
+ func TestFromEnvDefaults(t *testing.T) {
+ 	c, err := FromEnv(func(string) string { return "" })
+-	want := Config{LogDir: "/var/log/ddospot", Recursion: true, Classify: time.Minute, Chargen: ":19", DNS: ":53", NTP: ":123", SSDP: ":1900"}
++	want := Config{LogDir: "/var/log/ddospot", Recursion: false, Classify: time.Minute, Chargen: ":19", DNS: ":53", NTP: ":123", SSDP: ":1900"}
+ 	if err != nil || c != want {
+ 		t.Fatalf("%+v %v", c, err)
+ 	}
+ 	c, err = FromEnv(func(k string) string {
+-		return map[string]string{"DDOSPOT_LOG_DIR": "/tmp/x", "DDOSPOT_DNS_RECURSION": "on", "DDOSPOT_CLASSIFY_SECONDS": "600"}[k]
++		return map[string]string{"DDOSPOT_LOG_DIR": "/tmp/x", "DDOSPOT_DNS_RECURSION": "off", "DDOSPOT_CLASSIFY_SECONDS": "600"}[k]
+ 	})
+-	if err != nil || c.LogDir != "/tmp/x" || !c.Recursion || c.Classify != 600*time.Second {
++	if err != nil || c.LogDir != "/tmp/x" || c.Recursion || c.Classify != 600*time.Second {
+ 		t.Fatalf("%+v %v", c, err)
+ 	}
+ }
+@@ -269,7 +269,7 @@ func TestStartupLine(t *testing.T) {
+ 		t.Fatal(err)
+ 	}
+ 	s := out.String()
+-	if !strings.HasPrefix(s, "ddospot v2.0.0 persona=") || strings.Count(s, "\n") != 1 || len(s) <= len("ddospot v2.0.0 persona=\n") {
++	if !strings.HasPrefix(s, "ddospot v"+Version+" persona=") || strings.Count(s, "\n") != 1 || len(s) <= len("ddospot v"+Version+" persona=\n") {
+ 		t.Fatalf("%q", s)
+ 	}
+ }
+diff --git a/internal/app/config.go b/internal/app/config.go
+index beb6071..b31eb6e 100644
+--- a/internal/app/config.go
++++ b/internal/app/config.go
+@@ -2,8 +2,13 @@ package app
+ 
+ import (
+ 	"fmt"
++	"net/netip"
++	"regexp"
+ 	"strconv"
++	"strings"
+ 	"time"
++
++	"github.com/telekom-security/ddospot/internal/amp"
+ )
+ 
+ // Config holds the settings of a run.
+@@ -13,22 +18,79 @@ type Config struct {
+ 	Classify  time.Duration // classification hold of a new source
+ 
+ 	// Listen addresses of the pots; DNS is used for UDP and TCP.
++	// Sugardaddy: their ports come from DDOSPOT_CHARGEN_PORT,
++	// DDOSPOT_DNS_PORT, DDOSPOT_NTP_PORT and DDOSPOT_SSDP_PORT.
+ 	Chargen, DNS, NTP, SSDP string
++
++	// Sugardaddy: one log file with uniform lines (DDOSPOT_LOG_FILE), a fixed
++	// persona (DDOSPOT_PERSONA, DDOSPOT_HOSTNAME, DDOSPOT_LAN_IP, DDOSPOT_SEED),
++	// sources of blocked networks logged too (DDOSPOT_LOG_BLOCKED), smaller
++	// tables, one line per request and budgets of private sources.
++	LogFile, Persona, Hostname, Seed string
++	LAN                              netip.Addr
++	LogBlocked                       bool
++	// SeedFile (DDOSPOT_SEED_FILE, a plain file name in LogDir) keeps a
++	// random seed of this instance that rolls the persona with Seed.
++	SeedFile string
++	// MaxSources caps the tables of sources and of networks
++	// (DDOSPOT_MAX_SOURCES); 0 keeps the default of the limiter.
++	MaxSources int
++	// LogRequests: one line per request of a source within its budget,
++	// instead of one line with its first request (DDOSPOT_LOG_REQUESTS).
++	LogRequests bool
++	// PrivateBudget: packets of a private source per pot answered in a
++	// window, ten times as many for its /24 (DDOSPOT_PRIVATE_BUDGET); 0
++	// keeps the budgets of public sources.
++	PrivateBudget int
++	// PublicAmplification lets sources that are not private get answers
++	// over UDP larger than their requests (DDOSPOT_PUBLIC_AMPLIFICATION, on
++	// or off, default off): a forged source would make a reflector of the
++	// host.
++	PublicAmplification bool
++	// InternalNets are the networks whose sources get answers over UDP
++	// larger than their requests when PublicAmplification is off
++	// (DDOSPOT_INTERNAL_NETS, CIDR separated by commas, empty by default:
++	// only loopback). Being private is not enough: a firewall that
++	// translates the source hands over the Internet from a private address.
++	// It is kept as the list ParseNets reads, in canonical form, so that
++	// Config stays comparable.
++	InternalNets string
++	// MaxLogBytes caps the bytes a UTC day of LogFile (DDOSPOT_MAX_LOG_BYTES,
++	// 1 MiB to 1 GiB, default 50 MiB when there is a LogFile).
++	MaxLogBytes int64
+ }
+ 
++// Internal returns the networks of InternalNets, which FromEnv checked.
++func (c Config) Internal() []netip.Prefix {
++	n, _ := amp.ParseNets(c.InternalNets)
++	return n
++}
++
++// DefaultMaxLogBytes is the cap a day of the single log file (Sugardaddy):
++// a week of rotated files and the one of today stay under 512 MB.
++const DefaultMaxLogBytes = 50 << 20
++
++var (
++	logFileRe  = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
++	hostnameRe = regexp.MustCompile(`^[a-zA-Z0-9-]{1,63}$`)
++	personas   = map[string]bool{"centos6": true, "centos7": true, "debian11": true, "ubuntu2004": true}
++)
++
+ const (
+ 	minClassify = 1
+ 	maxClassify = 600
+ )
+ 
+ // FromEnv reads the settings from the environment through getenv:
+-// DDOSPOT_LOG_DIR (default /var/log/ddospot), DDOSPOT_DNS_RECURSION (on or
+-// off, default on) and DDOSPOT_CLASSIFY_SECONDS (integer 1-600, default 60).
+-// The pots listen on their well-known ports on all addresses.
++// DDOSPOT_LOG_DIR (default /var/log/ddospot), DDOSPOT_DNS_RECURSION (only
++// off in this build) and DDOSPOT_CLASSIFY_SECONDS (integer 1-600, default
++// 60), and those of Sugardaddy described in Config.
++// The pots listen on all addresses, on their well-known ports unless the
++// environment says otherwise (Sugardaddy).
+ func FromEnv(getenv func(string) string) (Config, error) {
+ 	c := Config{
+ 		LogDir:    "/var/log/ddospot",
+-		Recursion: true,
++		Recursion: false,
+ 		Classify:  60 * time.Second,
+ 		Chargen:   ":19",
+ 		DNS:       ":53",
+@@ -38,12 +100,132 @@ func FromEnv(getenv func(string) string) (Config, error) {
+ 	if v := getenv("DDOSPOT_LOG_DIR"); v != "" {
+ 		c.LogDir = v
+ 	}
++	// Sugardaddy: this build never resolves for others, "on" stops it.
+ 	switch v := getenv("DDOSPOT_DNS_RECURSION"); v {
+-	case "", "on":
+-	case "off":
+-		c.Recursion = false
++	case "", "off":
++	default:
++		return Config{}, fmt.Errorf("DDOSPOT_DNS_RECURSION must be off in this build, got %q", v)
++	}
++	if v := getenv("DDOSPOT_LOG_FILE"); v != "" {
++		if !logFileRe.MatchString(v) {
++			return Config{}, fmt.Errorf("DDOSPOT_LOG_FILE must be a plain file name, got %q", v)
++		}
++		c.LogFile = v
++	}
++	if v := getenv("DDOSPOT_PERSONA"); v != "" {
++		if !personas[v] {
++			return Config{}, fmt.Errorf("DDOSPOT_PERSONA must be centos6, centos7, debian11 or ubuntu2004, got %q", v)
++		}
++		c.Persona = v
++	}
++	if v := getenv("DDOSPOT_HOSTNAME"); v != "" {
++		if !hostnameRe.MatchString(v) {
++			return Config{}, fmt.Errorf("DDOSPOT_HOSTNAME must be 1-63 letters, digits or hyphens, got %q", v)
++		}
++		c.Hostname = v
++	}
++	if v := getenv("DDOSPOT_LAN_IP"); v != "" {
++		a, err := netip.ParseAddr(v)
++		if err != nil || !a.Is4() {
++			return Config{}, fmt.Errorf("DDOSPOT_LAN_IP must be an IPv4 address, got %q", v)
++		}
++		c.LAN = a
++	}
++	if c.Seed = getenv("DDOSPOT_SEED"); len(c.Seed) > 256 {
++		return Config{}, fmt.Errorf("DDOSPOT_SEED is longer than 256 bytes")
++	}
++	if v := getenv("DDOSPOT_SEED_FILE"); v != "" {
++		// Not a name of the log file or of its rotations, which the sensor
++		// reads and removes.
++		if !logFileRe.MatchString(v) || c.LogFile != "" && strings.HasPrefix(v, c.LogFile) {
++			return Config{}, fmt.Errorf("DDOSPOT_SEED_FILE must be a plain file name apart from the log file, got %q", v)
++		}
++		c.SeedFile = v
++	}
++	switch v := getenv("DDOSPOT_LOG_BLOCKED"); v {
++	case "", "off":
++	case "on":
++		c.LogBlocked = true
++	default:
++		return Config{}, fmt.Errorf("DDOSPOT_LOG_BLOCKED must be on or off, got %q", v)
++	}
++	switch v := getenv("DDOSPOT_LOG_REQUESTS"); v {
++	case "", "off":
++	case "on":
++		c.LogRequests = true
++	default:
++		return Config{}, fmt.Errorf("DDOSPOT_LOG_REQUESTS must be on or off, got %q", v)
++	}
++	// Sugardaddy: smaller tables keep a flood of forged sources within the
++	// memory of the container; with full tables nobody new gets an answer.
++	if v := getenv("DDOSPOT_MAX_SOURCES"); v != "" {
++		n, err := strconv.Atoi(v)
++		if err != nil || strconv.Itoa(n) != v || n < 1000 || n > 200000 {
++			return Config{}, fmt.Errorf("DDOSPOT_MAX_SOURCES must be an integer from 1000 to 200000, got %q", v)
++		}
++		c.MaxSources = n
++	}
++	if v := getenv("DDOSPOT_PRIVATE_BUDGET"); v != "" {
++		n, ok := digits(v)
++		if !ok || n < 5 || n > 1000 {
++			return Config{}, fmt.Errorf("DDOSPOT_PRIVATE_BUDGET must be an integer from 5 to 1000, got %q", v)
++		}
++		c.PrivateBudget = n
++	}
++	switch v := getenv("DDOSPOT_PUBLIC_AMPLIFICATION"); v {
++	case "", "off":
++	case "on":
++		c.PublicAmplification = true
+ 	default:
+-		return Config{}, fmt.Errorf("DDOSPOT_DNS_RECURSION must be on or off, got %q", v)
++		return Config{}, fmt.Errorf("DDOSPOT_PUBLIC_AMPLIFICATION must be on or off, got %q", v)
++	}
++	if v := getenv("DDOSPOT_INTERNAL_NETS"); v != "" {
++		if len(v) > 1024 {
++			return Config{}, fmt.Errorf("DDOSPOT_INTERNAL_NETS is longer than 1024 bytes")
++		}
++		n, err := amp.ParseNets(v)
++		if err != nil {
++			return Config{}, fmt.Errorf("DDOSPOT_INTERNAL_NETS: %v", err)
++		}
++		var canon []string
++		for _, p := range n {
++			canon = append(canon, p.String())
++		}
++		c.InternalNets = strings.Join(canon, ",")
++	}
++	if v := getenv("DDOSPOT_MAX_LOG_BYTES"); v != "" {
++		n, err := strconv.ParseInt(v, 10, 64)
++		if err != nil || strconv.FormatInt(n, 10) != v || n < 1<<20 || n > 1<<30 {
++			return Config{}, fmt.Errorf("DDOSPOT_MAX_LOG_BYTES must be an integer from 1048576 to 1073741824, got %q", v)
++		}
++		c.MaxLogBytes = n
++	} else if c.LogFile != "" {
++		c.MaxLogBytes = DefaultMaxLogBytes
++	}
++	// Sugardaddy: the ports the pots listen on inside the container
++	// (DDOSPOT_CHARGEN_PORT, DDOSPOT_DNS_PORT, DDOSPOT_NTP_PORT and
++	// DDOSPOT_SSDP_PORT, 1-65535, each its own). The image sets ports of
++	// 1024 or more: it runs without root or capabilities, and binding a
++	// lower one needs a kernel that lets anybody do it (Linux 4.11 or later
++	// under Docker), which CentOS/RHEL 7 and Podman may not give. The port
++	// the attacker reaches is the one the sensor publishes, and dest_port in
++	// the log stays the well-known port of the pot.
++	used := map[string]string{}
++	for _, p := range []struct {
++		env  string
++		addr *string
++	}{{"DDOSPOT_CHARGEN_PORT", &c.Chargen}, {"DDOSPOT_DNS_PORT", &c.DNS}, {"DDOSPOT_NTP_PORT", &c.NTP}, {"DDOSPOT_SSDP_PORT", &c.SSDP}} {
++		if v := getenv(p.env); v != "" {
++			n, err := strconv.Atoi(v)
++			if err != nil || strconv.Itoa(n) != v || n < 1 || n > 65535 {
++				return Config{}, fmt.Errorf("%s must be an integer from 1 to 65535, got %q", p.env, v)
++			}
++			*p.addr = ":" + v
++		}
++		if other, ok := used[*p.addr]; ok {
++			return Config{}, fmt.Errorf("%s repeats the port of %s (%s)", p.env, other, *p.addr)
++		}
++		used[*p.addr] = p.env
+ 	}
+ 	if v := getenv("DDOSPOT_CLASSIFY_SECONDS"); v != "" {
+ 		n, ok := digits(v)
+diff --git a/internal/app/manifiesto_test.go b/internal/app/manifiesto_test.go
+new file mode 100644
+index 0000000..7ac18e9
+--- /dev/null
++++ b/internal/app/manifiesto_test.go
+@@ -0,0 +1,244 @@
++package app
++
++// Sugardaddy: the console checks the parameters of the trap with the
++// patterns and enums of its manifest (trampa.yaml, which preparar.sh copies
++// into testdata) and the sensor passes them to the environment unchecked:
++// a value that the manifest lets through and FromEnv refuses leaves the
++// container restarting for ever. Every value the manifest accepts must
++// start the trap.
++
++import (
++	"bufio"
++	"fmt"
++	"os"
++	"regexp"
++	"strconv"
++	"strings"
++	"testing"
++)
++
++// manifestParams are the parameters of the manifest that go to the
++// environment, with the variables they go to.
++var manifestParams = map[string][]string{
++	"nombreEquipo":  {"DDOSPOT_HOSTNAME", "DDOSPOT_SEED"},
++	"direccion":     {"DDOSPOT_LAN_IP"},
++	"redesInternas": {"DDOSPOT_INTERNAL_NETS"},
++}
++
++// manifestPatterns returns the patterns of the parameters of trampa.yaml
++// and the values of the enum of sistema. It reads only what it needs, line
++// by line: the patterns are single-quoted scalars of the properties under
++// parametros, four spaces in.
++func manifestPatterns(t testing.TB) (map[string]*regexp.Regexp, []string) {
++	t.Helper()
++	f, err := os.Open("testdata/trampa.yaml")
++	if err != nil {
++		t.Fatalf("falta el manifiesto (lo copia preparar.sh): %v", err)
++	}
++	defer f.Close()
++	prop := regexp.MustCompile(`^    ([A-Za-z]+):\s*$`)
++	pattern := regexp.MustCompile(`^      pattern:\s*'(.*)'\s*$`)
++	enum := regexp.MustCompile(`^      enum:\s*\[(.*)\]\s*$`)
++	pats := map[string]*regexp.Regexp{}
++	var personas []string
++	in, name := false, ""
++	s := bufio.NewScanner(f)
++	for s.Scan() {
++		l := s.Text()
++		switch {
++		case l == "parametros:":
++			in = true
++		case in && l != "" && l[0] != ' ' && l[0] != '#':
++			in = false
++		case !in:
++		case prop.MatchString(l):
++			name = prop.FindStringSubmatch(l)[1]
++		case name != "" && pattern.MatchString(l):
++			p := strings.ReplaceAll(pattern.FindStringSubmatch(l)[1], "''", "'")
++			re, err := regexp.Compile(p)
++			if err != nil {
++				t.Fatalf("patrón de %s: %v", name, err)
++			}
++			pats[name] = re
++		case name == "sistema" && enum.MatchString(l):
++			for _, v := range strings.Split(enum.FindStringSubmatch(l)[1], ",") {
++				personas = append(personas, strings.TrimSpace(v))
++			}
++		}
++	}
++	if err := s.Err(); err != nil {
++		t.Fatal(err)
++	}
++	for p := range manifestParams {
++		if pats[p] == nil {
++			t.Fatalf("el manifiesto no tiene patrón para %s", p)
++		}
++	}
++	if len(personas) == 0 {
++		t.Fatal("el manifiesto no tiene los valores de sistema")
++	}
++	return pats, personas
++}
++
++// startsWith reports why the trap would not start with env=v, or nil.
++func startsWith(env, v string) error {
++	_, err := FromEnv(func(k string) string {
++		if k == env {
++			return v
++		}
++		return ""
++	})
++	return err
++}
++
++// checkManifestValue fails t if the pattern of param accepts v and the
++// trap does not start with it.
++func checkManifestValue(t testing.TB, pats map[string]*regexp.Regexp, param, v string) {
++	t.Helper()
++	if !pats[param].MatchString(v) {
++		return
++	}
++	for _, env := range manifestParams[param] {
++		if err := startsWith(env, v); err != nil {
++			t.Errorf("%s=%q: la consola lo acepta y la trampa no arranca: %v", param, v, err)
++		}
++	}
++}
++
++// octetForms are the ways of writing n with one to three digits: "7",
++// "07" and "007".
++func octetForms(n int) []string {
++	out := []string{strconv.Itoa(n)}
++	for _, f := range []string{"%02d", "%03d"} {
++		if s := fmt.Sprintf(f, n); s != out[len(out)-1] {
++			out = append(out, s)
++		}
++	}
++	return out
++}
++
++// Hallazgo: el patrón de «Redes internas» (y el de la IP de la máquina)
++// aceptaba octetos con un cero a la izquierda («10.01.0.0/16», «00.0.0.0/8»)
++// que netip rechaza: la consola daba el valor por bueno y la trampa no
++// arrancaba. Cada octeto de 0 a 999, con y sin ceros, en cada posición, y
++// cada longitud de prefijo: lo que el patrón acepta, la trampa lo arranca.
++func TestManifestPatternsStartTheTrap(t *testing.T) {
++	pats, personas := manifestPatterns(t)
++	for n := 0; n < 1000; n++ {
++		for _, o := range octetForms(n) {
++			for i := range 4 {
++				q := []string{"10", "20", "0", "53"}
++				q[i] = o
++				a := strings.Join(q, ".")
++				checkManifestValue(t, pats, "direccion", a)
++				checkManifestValue(t, pats, "redesInternas", a+"/16")
++				checkManifestValue(t, pats, "redesInternas", "10.0.0.0/8, "+a+"/24")
++			}
++		}
++	}
++	for b := range 41 {
++		for _, f := range []string{"%d", "%02d"} {
++			checkManifestValue(t, pats, "redesInternas", "10.20.0.0/"+fmt.Sprintf(f, b))
++		}
++	}
++	// Las que encontró la revisión: el patrón las rechaza.
++	for param, vs := range map[string][]string{
++		"redesInternas": {"10.01.0.0/16", "00.0.0.0/8", "01.2.3.0/24", "10.0.0.0/8, 192.168.01.0/24", "192.168.001.0/24"},
++		"direccion":     {"10.01.0.5", "010.20.0.5", "10.20.0.05"},
++	} {
++		for _, v := range vs {
++			if pats[param].MatchString(v) {
++				t.Errorf("%s=%q aceptado por el patrón", param, v)
++			}
++		}
++	}
++	// Y lo que sí vale sigue valiendo.
++	nets := make([]string, 32)
++	for i := range nets {
++		nets[i] = fmt.Sprintf("10.%d.0.0/16", i)
++	}
++	for param, vs := range map[string][]string{
++		"redesInternas": {"", "10.20.0.0/16, 192.168.1.0/24", "10.0.0.0/8,172.16.0.0/12", "0.0.0.0/8", "255.255.255.255/32", strings.Join(nets, ", ")},
++		"direccion":     {"192.0.2.53", "0.0.0.0", "100.64.0.1", "255.255.255.255"},
++		"nombreEquipo":  {"ns2", "ntp01", strings.Repeat("a", 63)},
++	} {
++		for _, v := range vs {
++			if !pats[param].MatchString(v) {
++				t.Errorf("%s=%q rechazado por el patrón", param, v)
++			}
++			checkManifestValue(t, pats, param, v)
++		}
++	}
++	if pats["redesInternas"].MatchString(strings.Join(nets, ", ") + ", 10.99.0.0/16") {
++		t.Error("33 redes aceptadas por el patrón")
++	}
++	for _, p := range personas {
++		if err := startsWith("DDOSPOT_PERSONA", p); err != nil {
++			t.Errorf("sistema=%q: %v", p, err)
++		}
++	}
++}
++
++// Lo mismo con entradas cualesquiera (go test -fuzz=FuzzManifestPatterns);
++// sin -fuzz corre con estas semillas.
++func FuzzManifestPatterns(f *testing.F) {
++	pats, _ := manifestPatterns(f)
++	for _, s := range []string{"10.01.0.0/16", "00.0.0.0/8", "01.2.3.0/24", "10.0.0.0/8, 192.168.01.0/24", "10.01.0.5",
++		"10.20.0.0/16, 192.168.1.0/24", "192.0.2.53", "ns-2", ""} {
++		f.Add(s)
++	}
++	f.Fuzz(func(t *testing.T, v string) {
++		for param := range manifestParams {
++			checkManifestValue(t, pats, param, v)
++		}
++	})
++}
++
++// Sugardaddy: the sensor publishes the internal ports of the manifest
++// (puertos[].interno) and the trap opens the ones of DDOSPOT_*_PORT, which
++// the manifest also sets; if they differed, the trap would listen where
++// nothing arrives. They must be the same and of 1024 or more: inside the
++// container the trap runs without root or capabilities.
++func TestManifestPortsAreTheOnesTheTrapOpens(t *testing.T) {
++	f, err := os.Open("testdata/trampa.yaml")
++	if err != nil {
++		t.Fatalf("falta el manifiesto (lo copia preparar.sh): %v", err)
++	}
++	defer f.Close()
++	port := regexp.MustCompile(`^    - \{ interno: (\d+), expuesto: '\$\{[A-Za-z]+\}', protocolo: (udp|tcp), si: (dns|ntp|ssdp) \}$`)
++	envLine := regexp.MustCompile(`^    (DDOSPOT_(DNS|NTP|SSDP)_PORT): '(\d+)'$`)
++	internal := map[string]string{} // pot -> port
++	env := map[string]string{}      // variable -> port
++	s := bufio.NewScanner(f)
++	for s.Scan() {
++		if m := port.FindStringSubmatch(s.Text()); m != nil {
++			if p, ok := internal[m[3]]; ok && p != m[1] {
++				t.Errorf("%s con dos puertos internos: %s y %s", m[3], p, m[1])
++			}
++			internal[m[3]] = m[1]
++		}
++		if m := envLine.FindStringSubmatch(s.Text()); m != nil {
++			env[m[1]] = m[3]
++		}
++	}
++	if err := s.Err(); err != nil {
++		t.Fatal(err)
++	}
++	c, err := FromEnv(func(k string) string { return env[k] })
++	if err != nil {
++		t.Fatalf("con los puertos del manifiesto la trampa no arranca: %v", err)
++	}
++	for pot, addr := range map[string]string{"dns": c.DNS, "ntp": c.NTP, "ssdp": c.SSDP} {
++		p := internal[pot]
++		if p == "" {
++			t.Errorf("el manifiesto no publica %s", pot)
++			continue
++		}
++		if addr != ":"+p {
++			t.Errorf("%s: el manifiesto publica el %s y la trampa escucha en %s", pot, p, addr)
++		}
++		if n, _ := strconv.Atoi(p); n < 1024 {
++			t.Errorf("%s: el puerto interno %s es menor que 1024", pot, p)
++		}
++	}
++}
+diff --git a/internal/app/sugardaddy_test.go b/internal/app/sugardaddy_test.go
+new file mode 100644
+index 0000000..850e270
+--- /dev/null
++++ b/internal/app/sugardaddy_test.go
+@@ -0,0 +1,291 @@
++package app
++
++import (
++	"net"
++	"net/netip"
++	"os"
++	"path/filepath"
++	"strings"
++	"testing"
++	"time"
++
++	"github.com/telekom-security/ddospot/internal/events"
++	"github.com/telekom-security/ddospot/internal/jsonlog"
++	"github.com/telekom-security/ddospot/internal/limit"
++)
++
++func TestSugardaddyEnv(t *testing.T) {
++	env := map[string]string{"DDOSPOT_LOG_FILE": "ddospot.json", "DDOSPOT_PERSONA": "debian11", "DDOSPOT_HOSTNAME": "ns2",
++		"DDOSPOT_LAN_IP": "10.20.0.53", "DDOSPOT_SEED": "ns2", "DDOSPOT_LOG_BLOCKED": "on", "DDOSPOT_MAX_SOURCES": "50000", "DDOSPOT_LOG_REQUESTS": "on", "DDOSPOT_PRIVATE_BUDGET": "50"}
++	c, err := FromEnv(func(k string) string { return env[k] })
++	if err != nil || c.Recursion || c.LogFile != "ddospot.json" || c.Persona != "debian11" || c.Hostname != "ns2" ||
++		c.LAN != netip.MustParseAddr("10.20.0.53") || c.Seed != "ns2" || !c.LogBlocked || c.MaxSources != 50000 || !c.LogRequests || c.PrivateBudget != 50 {
++		t.Fatalf("%+v %v", c, err)
++	}
++	for k, v := range map[string]string{"DDOSPOT_DNS_RECURSION": "on", "DDOSPOT_LOG_FILE": "../x", "DDOSPOT_PERSONA": "win2019",
++		"DDOSPOT_HOSTNAME": "a b", "DDOSPOT_LAN_IP": "2001:db8::1", "DDOSPOT_LOG_BLOCKED": "yes", "DDOSPOT_MAX_SOURCES": "0999", "DDOSPOT_LOG_REQUESTS": "1", "DDOSPOT_PRIVATE_BUDGET": "4"} {
++		if _, err := FromEnv(func(x string) string {
++			if x == k {
++				return v
++			}
++			return ""
++		}); err == nil {
++			t.Errorf("%s=%q aceptado", k, v)
++		}
++	}
++	a, b := rollPersona(c), rollPersona(c)
++	if a.ID != "debian11" || a.Hostname != "ns2" || a.LAN != c.LAN || a.UUIDs[0] != b.UUIDs[0] || a.SSDPPort != b.SSDPPort {
++		t.Fatalf("%+v\n%+v", a, b)
++	}
++	for _, p := range a.Peers {
++		if p.Is4() && p.As4()[0] == 10 && (p.As4()[1] != 20 || p.As4()[2] != 0) {
++			t.Fatalf("par fuera de la red del anfitrión: %v", p)
++		}
++	}
++}
++
++// Inside the container the pots listen on ports of 1024 or more, as the
++// image sets: without root or capabilities a lower one only binds where the
++// kernel lets anybody do it, and not in CentOS/RHEL 7 or Podman.
++func TestSugardaddyPortsEnv(t *testing.T) {
++	ports := map[string]string{"DDOSPOT_CHARGEN_PORT": "10019", "DDOSPOT_DNS_PORT": "1053", "DDOSPOT_NTP_PORT": "1123", "DDOSPOT_SSDP_PORT": "11900"}
++	c, err := FromEnv(func(k string) string { return ports[k] })
++	if err != nil || c.Chargen != ":10019" || c.DNS != ":1053" || c.NTP != ":1123" || c.SSDP != ":11900" {
++		t.Fatalf("%+v %v", c, err)
++	}
++	// Each on its own: unset, the well-known one.
++	c, err = FromEnv(func(k string) string { return map[string]string{"DDOSPOT_DNS_PORT": "1053"}[k] })
++	if err != nil || c.Chargen != ":19" || c.DNS != ":1053" || c.NTP != ":123" || c.SSDP != ":1900" {
++		t.Fatalf("%+v %v", c, err)
++	}
++	for _, k := range []string{"DDOSPOT_CHARGEN_PORT", "DDOSPOT_DNS_PORT", "DDOSPOT_NTP_PORT", "DDOSPOT_SSDP_PORT"} {
++		for _, v := range []string{"0", "65536", "01053", "+1053", "-1", "1053 ", "53a", "1e3"} {
++			if _, err := FromEnv(func(x string) string {
++				if x == k {
++					return v
++				}
++				return ""
++			}); err == nil {
++				t.Errorf("%s=%q aceptado", k, v)
++			}
++		}
++	}
++	// Two UDP pots cannot share a port, with it set or by default.
++	for _, env := range []map[string]string{
++		{"DDOSPOT_DNS_PORT": "1053", "DDOSPOT_NTP_PORT": "1053"},
++		{"DDOSPOT_SSDP_PORT": "123"},
++	} {
++		if _, err := FromEnv(func(k string) string { return env[k] }); err == nil || !strings.Contains(err.Error(), "repeats the port") {
++			t.Errorf("%v: %v", env, err)
++		}
++	}
++	// And they really listen there.
++	free := func() string {
++		pc, err := net.ListenPacket("udp", "127.0.0.1:0")
++		if err != nil {
++			t.Fatal(err)
++		}
++		defer pc.Close()
++		return strings.TrimPrefix(pc.LocalAddr().String(), "127.0.0.1:")
++	}
++	got := map[string]string{"DDOSPOT_CHARGEN_PORT": free(), "DDOSPOT_DNS_PORT": free(), "DDOSPOT_NTP_PORT": free(), "DDOSPOT_SSDP_PORT": free()}
++	if c, err = FromEnv(func(k string) string { return got[k] }); err != nil {
++		t.Skipf("puertos libres repetidos: %v", err)
++	}
++	ls, err := listen(c)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer ls.close()
++	for _, x := range []struct {
++		env  string
++		addr net.Addr
++	}{{"DDOSPOT_CHARGEN_PORT", ls.chargen.LocalAddr()}, {"DDOSPOT_DNS_PORT", ls.dns.LocalAddr()}, {"DDOSPOT_DNS_PORT", ls.tcp.Addr()},
++		{"DDOSPOT_NTP_PORT", ls.ntp.LocalAddr()}, {"DDOSPOT_SSDP_PORT", ls.ssdp.LocalAddr()}} {
++		if !strings.HasSuffix(x.addr.String(), ":"+got[x.env]) {
++			t.Errorf("%s=%s escucha en %s", x.env, got[x.env], x.addr)
++		}
++	}
++}
++
++func TestSugardaddyAmplificationEnv(t *testing.T) {
++	c, err := FromEnv(func(k string) string { return map[string]string{"DDOSPOT_LOG_FILE": "ddospot.json"}[k] })
++	if err != nil || c.PublicAmplification || c.MaxLogBytes != DefaultMaxLogBytes {
++		t.Fatalf("%+v %v", c, err)
++	}
++	c, err = FromEnv(func(k string) string {
++		return map[string]string{"DDOSPOT_PUBLIC_AMPLIFICATION": "on", "DDOSPOT_MAX_LOG_BYTES": "1048576"}[k]
++	})
++	if err != nil || !c.PublicAmplification || c.MaxLogBytes != 1<<20 {
++		t.Fatalf("%+v %v", c, err)
++	}
++	for k, v := range map[string]string{"DDOSPOT_PUBLIC_AMPLIFICATION": "yes", "DDOSPOT_MAX_LOG_BYTES": "1048575"} {
++		if _, err := FromEnv(func(x string) string {
++			if x == k {
++				return v
++			}
++			return ""
++		}); err == nil {
++			t.Errorf("%s=%q aceptado", k, v)
++		}
++	}
++	if _, err := FromEnv(func(x string) string {
++		return map[string]string{"DDOSPOT_MAX_LOG_BYTES": "01048576"}[x]
++	}); err == nil {
++		t.Error("leading zero accepted")
++	}
++}
++
++// The guard is wired to the pots: with loopback as the gateway of the
++// container, mode 3 is answered and monlist is not, and its line says why.
++func TestSugardaddyGuardWired(t *testing.T) {
++	out := captureStdout(t)
++	d := t.TempDir()
++	route := filepath.Join(d, "route")
++	os.WriteFile(route, []byte("Iface\tDestination\tGateway \tFlags\neth0\t00000000\t0100007F\t0003\n"), 0o644)
++	old := routeFiles
++	routeFiles = [2]string{route, filepath.Join(d, "none")}
++	t.Cleanup(func() { routeFiles = old })
++	cfg := localConfig(d)
++	cfg.LogFile, cfg.LogRequests, cfg.Persona, cfg.MaxLogBytes = "ddospot.json", true, "centos7", DefaultMaxLogBytes
++	a, stop := startApp(t, cfg)
++	c, err := net.Dial("udp", a.NTP)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer c.Close()
++	ask := func(req []byte) bool {
++		c.Write(req)
++		c.SetReadDeadline(time.Now().Add(300 * time.Millisecond))
++		_, err := c.Read(make([]byte, 2048))
++		return err == nil
++	}
++	mode3 := make([]byte, 48)
++	mode3[0] = 4<<3 | 3
++	if !ask(mode3) || ask(append([]byte{0x17, 0x00, 0x03, 0x2a}, make([]byte, 44)...)) {
++		t.Fatal("guard not wired")
++	}
++	if err := stop(); err != nil {
++		t.Fatal(err)
++	}
++	if !strings.Contains(out.String(), "public_amplification=off internal=[] proxies=[127.0.0.1]") {
++		t.Fatalf("%q", out.String())
++	}
++	var dropped int
++	for _, ev := range readJSON(t, filepath.Join(d, "ddospot.json")) {
++		if ev["event"] == "request" && ev["mode"] == "MONLIST" && ev["amp_guard"] == "sin respuesta" && ev["resp_size"] == float64(0) {
++			dropped++
++		}
++	}
++	if dropped != 1 {
++		t.Fatal("no line for the monlist without answer")
++	}
++}
++
++// Hallazgo: el freno daba respuestas completas a todo origen privado que no
++// fuera la pasarela, y detrás de un cortafuegos con DNAT+SNAT eso es todo
++// Internet. Ahora solo las redes de DDOSPOT_INTERNAL_NETS (validadas al
++// arrancar: con una mal escrita no arranca) y nunca la pasarela.
++func TestSugardaddyInternalNets(t *testing.T) {
++	c, err := FromEnv(func(k string) string {
++		return map[string]string{"DDOSPOT_INTERNAL_NETS": "10.20.0.7/16, 192.168.1.0/24,172.16.0.0/12"}[k]
++	})
++	if err != nil || c.InternalNets != "10.20.0.0/16,192.168.1.0/24,172.16.0.0/12" {
++		t.Fatalf("%+v %v", c, err)
++	}
++	for _, bad := range []string{"10.20.0.0", "0.0.0.0/0", "10.0.0.0/8;", "todas", strings.Repeat("10.0.0.0/24,", 100)} {
++		if _, err := FromEnv(func(k string) string { return map[string]string{"DDOSPOT_INTERNAL_NETS": bad}[k] }); err == nil {
++			t.Errorf("%q aceptado", bad)
++		}
++	}
++	d := t.TempDir()
++	route := filepath.Join(d, "route")
++	// Pasarela 172.18.0.1, dentro de 172.16/12.
++	os.WriteFile(route, []byte("Iface\tDestination\tGateway \tFlags\neth0\t00000000\t010012AC\t0003\n"), 0o644)
++	old := routeFiles
++	routeFiles = [2]string{route, filepath.Join(d, "none")}
++	t.Cleanup(func() { routeFiles = old })
++	g, words := newGuard(c)
++	if words != "public_amplification=off internal=[10.20.0.0/16 192.168.1.0/24 172.16.0.0/12] proxies=[172.18.0.1]" {
++		t.Fatalf("%q", words)
++	}
++	for a, want := range map[string]bool{"10.20.3.4": true, "192.168.1.9": true, "172.20.0.2": true,
++		"172.18.0.1": false, "10.98.0.2": false, "192.168.65.3": false, "198.51.100.10": false} {
++		if g.Full(netip.MustParseAddr(a)) != want {
++			t.Errorf("%s: full %v", a, !want)
++		}
++	}
++	// Sin la variable, ninguna dirección privada recibe respuestas completas.
++	c, _ = FromEnv(func(string) string { return "" })
++	if g, _ := newGuard(c); g.Full(netip.MustParseAddr("10.98.0.2")) || g.Full(netip.MustParseAddr("192.168.1.9")) {
++		t.Fatal("private sources get full answers without DDOSPOT_INTERNAL_NETS")
++	}
++}
++
++// Cada minuto (y al parar) el registro único apunta lo que se ha callado,
++// también los paquetes de orígenes nuevos que no cupieron en las tablas.
++func TestSugardaddyNoticeWired(t *testing.T) {
++	out := captureStdout(t)
++	d := t.TempDir()
++	jl, _ := jsonlog.Open(d, time.Now)
++	jl.Single("ddospot.json")
++	jl.Cap(DefaultMaxLogBytes)
++	lc := limit.Defaults(time.Minute)
++	lc.MaxSources, lc.MaxNets = 1, 1
++	lim := limit.New(lc, time.Now, events.New(jl, "centos7"))
++	s := limit.Sample{Transport: "udp", Req: []byte{1}}
++	for i := 0; i < 3; i++ {
++		lim.Admit(limit.NTP, netip.AddrPortFrom(netip.AddrFrom4([4]byte{192, 0, 2, byte(i)}), 123), s, 1, 48)
++	}
++	notice(stdout, jl, lim)
++	jl.Close()
++	ev := readJSON(t, filepath.Join(d, "ddospot.json"))
++	if len(ev) != 1 || ev[0]["event"] != "log_dropped" || ev[0]["untracked"] != float64(2) {
++		t.Fatalf("%v", ev)
++	}
++	if !strings.Contains(out.String(), "tables full: 2") {
++		t.Fatalf("%q", out.String())
++	}
++}
++
++// Credibilidad: con el nombre por defecto (ns2) toda la flota tenía la misma
++// semilla y, con ella, el mismo UUID UPnP, puerto, servidor de hora y pares.
++// La semilla de la instancia, guardada en la carpeta de registros, hace que
++// dos trampas con los mismos parámetros no contesten como el mismo equipo y
++// que cada una siga siendo la misma tras reiniciar.
++func TestSugardaddySeedPerInstance(t *testing.T) {
++	env := func(dir string) Config {
++		c, err := FromEnv(func(k string) string {
++			return map[string]string{"DDOSPOT_LOG_DIR": dir, "DDOSPOT_LOG_FILE": "ddospot.json", "DDOSPOT_PERSONA": "debian11",
++				"DDOSPOT_HOSTNAME": "ns2", "DDOSPOT_LAN_IP": "192.168.1.53", "DDOSPOT_SEED": "ns2", "DDOSPOT_SEED_FILE": "persona.semilla"}[k]
++		})
++		if err != nil {
++			t.Fatal(err)
++		}
++		return c
++	}
++	d1, d2 := t.TempDir(), t.TempDir()
++	a, again, other := rollPersona(env(d1)), rollPersona(env(d1)), rollPersona(env(d2))
++	if a.UUIDs[0] != again.UUIDs[0] || a.SSDPPort != again.SSDPPort || a.RefID != again.RefID {
++		t.Fatal("the same instance changed its persona on restart")
++	}
++	if a.UUIDs[0] == other.UUIDs[0] || a.SSDPPort == other.SSDPPort && a.ConfigID == other.ConfigID {
++		t.Fatalf("two instances with the same parameters answer as the same host: %v %v", a.UUIDs, other.UUIDs)
++	}
++	b, err := os.ReadFile(filepath.Join(d1, "persona.semilla"))
++	if err != nil || len(strings.TrimSpace(string(b))) != 64 {
++		t.Fatalf("%q %v", b, err)
++	}
++	// Un fichero que no es una semilla se rehace.
++	os.WriteFile(filepath.Join(d1, "persona.semilla"), []byte("x"), 0o600)
++	if c := rollPersona(env(d1)); c.UUIDs[0] == a.UUIDs[0] {
++		t.Fatal("broken seed file kept")
++	}
++	for _, bad := range []string{"../x", "ddospot.json.semilla", "ddospot.json"} {
++		if _, err := FromEnv(func(k string) string {
++			return map[string]string{"DDOSPOT_LOG_FILE": "ddospot.json", "DDOSPOT_SEED_FILE": bad}[k]
++		}); err == nil {
++			t.Errorf("%q accepted", bad)
++		}
++	}
++}
+diff --git a/internal/chargen/chargen.go b/internal/chargen/chargen.go
+index 63add0c..5768339 100644
+--- a/internal/chargen/chargen.go
++++ b/internal/chargen/chargen.go
+@@ -6,6 +6,7 @@ import (
+ 	"net/netip"
+ 	"sync/atomic"
+ 
++	"github.com/telekom-security/ddospot/internal/amp"
+ 	"github.com/telekom-security/ddospot/internal/limit"
+ 	"github.com/telekom-security/ddospot/internal/udp"
+ )
+@@ -41,6 +42,9 @@ type Server struct {
+ 	conn *net.UDPConn
+ 	lim  *limit.Limiter
+ 	off  atomic.Uint32
++	// Guard (Sugardaddy) keeps answers larger than their requests from
++	// public sources; nil answers everyone. Set it before Serve.
++	Guard *amp.Guard
+ }
+ 
+ // New returns a Server reading from conn.
+@@ -54,6 +58,10 @@ func (s *Server) Serve() error {
+ }
+ 
+ func (s *Server) handle(req []byte, src netip.AddrPort) {
++	if !s.Guard.Allow(src.Addr(), len(req), Size) {
++		s.lim.Admit(limit.Chargen, src, limit.Sample{Transport: "udp", Req: req, Fields: map[string]any{"amp_guard": amp.Dropped}}, 0, 0)
++		return
++	}
+ 	sample := limit.Sample{Transport: "udp", Req: req, RespSize: Size, Fields: map[string]any{}}
+ 	if !s.lim.Admit(limit.Chargen, src, sample, 1, Size) {
+ 		return
+diff --git a/internal/chargen/sugardaddy_test.go b/internal/chargen/sugardaddy_test.go
+new file mode 100644
+index 0000000..3eadcdb
+--- /dev/null
++++ b/internal/chargen/sugardaddy_test.go
+@@ -0,0 +1,30 @@
++package chargen
++
++import (
++	"net/netip"
++	"testing"
++	"time"
++
++	"github.com/telekom-security/ddospot/internal/amp"
++	"github.com/telekom-security/ddospot/internal/testutil"
++)
++
++func TestGuardChargen(t *testing.T) {
++	srv, cli := testutil.UDPPair(t)
++	lim, obs := testutil.RequestLimiter()
++	s := New(srv, lim)
++	s.Guard = amp.New(false, nil, netip.MustParseAddr("127.0.0.1"))
++	go s.Serve()
++	cli.Write([]byte("x"))
++	if testutil.ReadTimeout(cli, 300*time.Millisecond) != 0 {
++		t.Fatal("answered a public source")
++	}
++	big := make([]byte, Size)
++	cli.Write(big)
++	if testutil.ReadTimeout(cli, 300*time.Millisecond) != Size {
++		t.Fatal("no answer to a request as large as the answer")
++	}
++	if r := obs.Requests(); len(r) != 2 || r[0].Sample.Fields["amp_guard"] != amp.Dropped {
++		t.Fatalf("%+v", r)
++	}
++}
+diff --git a/internal/dns/server.go b/internal/dns/server.go
+index e02276a..e63ca3c 100644
+--- a/internal/dns/server.go
++++ b/internal/dns/server.go
+@@ -15,6 +15,7 @@ import (
+ 
+ 	"github.com/miekg/dns"
+ 
++	"github.com/telekom-security/ddospot/internal/amp"
+ 	"github.com/telekom-security/ddospot/internal/bucket"
+ 	"github.com/telekom-security/ddospot/internal/limit"
+ 	"github.com/telekom-security/ddospot/internal/persona"
+@@ -41,6 +42,12 @@ type Handler struct {
+ 
+ 	mu    sync.Mutex     // guards tcpUp
+ 	tcpUp *bucket.Bucket // upstream share of questions over TCP
++
++	// Guard (Sugardaddy) keeps answers over UDP larger than their requests
++	// from sources outside the internal networks, and CHAOS answers from
++	// them over both transports; nil answers everyone. Set it before
++	// serving.
++	Guard *amp.Guard
+ }
+ 
+ // NewHandler returns a Handler; up nil turns recursion off.
+@@ -158,6 +165,13 @@ func (h *Handler) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
+ 	resp, miss := h.build(r)
+ 	if miss == nil {
+ 		resp = Limit(resp, r, udp)
++		if g := h.guard(src, resp, len(req), udp); g != "" {
++			sample.Fields["amp_guard"] = g
++			if g == amp.Dropped {
++				h.lim.Admit(limit.DNS, src, sample, 0, 0)
++				return
++			}
++		}
+ 		if h.admit(src, sample, packedLen(resp), udp) {
+ 			w.WriteMsg(resp)
+ 		}
+@@ -179,7 +193,63 @@ func (h *Handler) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
+ 	} else {
+ 		fill(resp, r.Question[0], e)
+ 	}
+-	w.WriteMsg(Limit(resp, r, udp))
++	resp = Limit(resp, r, udp)
++	if h.guard(src, resp, len(req), udp) == amp.Dropped {
++		return
++	}
++	w.WriteMsg(resp)
++}
++
++// guard keeps the answers of a source that may not get larger ones
++// (Sugardaddy) within the size of their requests, and the same on both
++// transports. It returns the amp_guard value of the log line, "" when the
++// answer goes as it is.
++//
++// A CHAOS question with an answer (version.bind, hostname.bind) is answered
++// REFUSED, over UDP and over TCP, with only the question and the OPT
++// record: what a BIND whose allow-query leaves the source out sends, and
++// what this server already answers to every question of class IN. A TC=1
++// without a reason of size, or a version over TCP that UDP refuses, would
++// tell a scanner what this is with one probe.
++//
++// Any other answer over UDP larger than its request keeps only its header,
++// question and OPT record, with TC=1: a real client asks again over TCP,
++// where the source cannot be forged. When even that is larger than the
++// request, it is not sent.
++func (h *Handler) guard(src netip.AddrPort, resp *dns.Msg, req int, udp bool) string {
++	if h.Guard.Full(src.Addr()) {
++		return ""
++	}
++	if len(resp.Question) == 1 && resp.Question[0].Qclass == dns.ClassCHAOS && len(resp.Answer) > 0 {
++		resp.Rcode = dns.RcodeRefused
++		resp.Authoritative = false
++		bare(resp)
++		if !udp || packedLen(resp) <= req {
++			return amp.Refused
++		}
++		return amp.Dropped
++	}
++	if !udp || packedLen(resp) <= req {
++		return ""
++	}
++	resp.Truncated = true
++	bare(resp)
++	if packedLen(resp) <= req {
++		return amp.Truncated
++	}
++	return amp.Dropped
++}
++
++// bare leaves only the header, the question and the OPT record of resp.
++func bare(resp *dns.Msg) {
++	resp.Answer, resp.Ns = nil, nil
++	var extra []dns.RR
++	for _, rr := range resp.Extra {
++		if rr.Header().Rrtype == dns.TypeOPT {
++			extra = append(extra, rr)
++		}
++	}
++	resp.Extra = extra
+ }
+ 
+ // takeTCPUp takes one upstream query from the share of questions over TCP.
+diff --git a/internal/dns/sugardaddy_test.go b/internal/dns/sugardaddy_test.go
+new file mode 100644
+index 0000000..4f3c9aa
+--- /dev/null
++++ b/internal/dns/sugardaddy_test.go
+@@ -0,0 +1,114 @@
++package dnspot
++
++import (
++	"net"
++	"net/netip"
++	"testing"
++
++	"github.com/miekg/dns"
++
++	"github.com/telekom-security/ddospot/internal/amp"
++	"github.com/telekom-security/ddospot/internal/testutil"
++)
++
++func reqLen(t *testing.T, m *dns.Msg) int {
++	t.Helper()
++	b, err := m.Pack()
++	if err != nil {
++		t.Fatal(err)
++	}
++	return len(b)
++}
++
++// Hallazgo: version.bind por UDP desde fuera volvía siempre con TC=1, una
++// huella de una sola sonda. Ahora, a un origen que no es de la red interna,
++// una pregunta CHAOS con respuesta se contesta REFUSED, sin TC, con solo la
++// pregunta y el OPT, por UDP y por TCP por igual (un BIND con allow-query
++// que lo deja fuera), como ya contesta a toda pregunta IN. A la red interna,
++// a loopback o con Public, la respuesta completa por los dos transportes.
++func TestGuardRefusesChaosToOutsiders(t *testing.T) {
++	lim, obs := testutil.RequestLimiter()
++	h := NewHandler(per("centos7"), lim, nil)
++	h.Guard = amp.New(false, []netip.Prefix{netip.MustParsePrefix("10.20.0.0/16"), netip.MustParsePrefix("172.16.0.0/12")},
++		netip.MustParseAddr("172.18.0.1"))
++	ver := query("version.bind.", dns.TypeTXT, dns.ClassCHAOS)
++	refused := func(m *dns.Msg, req *dns.Msg) bool {
++		return m != nil && !m.Truncated && m.Rcode == dns.RcodeRefused && !m.Authoritative && len(m.Answer) == 0 &&
++			len(m.Ns) == 0 && len(m.Question) == 1 && m.Question[0] == req.Question[0] && packedLen(m) <= reqLen(t, req)
++	}
++
++	if m := serve(t, h, udpFrom(), ver); !refused(m, ver) {
++		t.Fatalf("outside UDP: %v", m)
++	}
++	if r := obs.Requests(); len(r) != 1 || r[0].Sample.Fields["amp_guard"] != amp.Refused || r[0].Sample.RespSize != reqLen(t, ver) {
++		t.Fatalf("%+v", r)
++	}
++	edns := query("version.bind.", dns.TypeTXT, dns.ClassCHAOS)
++	edns.SetEdns0(1232, false)
++	if m := serve(t, h, udpFrom(), edns); !refused(m, edns) || m.IsEdns0() == nil {
++		t.Fatalf("outside UDP with EDNS: %v", m)
++	}
++	// Ni rellenando la petición hasta el tamaño de la respuesta.
++	padded := query("version.bind.", dns.TypeTXT, dns.ClassCHAOS)
++	padded.SetEdns0(1232, false)
++	padded.IsEdns0().Option = append(padded.IsEdns0().Option, &dns.EDNS0_PADDING{Padding: make([]byte, 200)})
++	if m := serve(t, h, udpFrom(), padded); !refused(m, padded) {
++		t.Fatalf("padded: %v", m)
++	}
++	// Por TCP lo mismo: la versión no sale por un transporte y no por el otro.
++	if m := serve(t, h, tcpFrom(), ver); !refused(m, ver) {
++		t.Fatalf("outside TCP: %v", m)
++	}
++	for _, name := range []string{"hostname.bind.", "id.server.", "version.server."} {
++		q := query(name, dns.TypeTXT, dns.ClassCHAOS)
++		if m := serve(t, h, udpFrom(), q); !refused(m, q) {
++			t.Fatalf("%s: %v", name, m)
++		}
++	}
++	in := query("intranet.corp.local.", dns.TypeANY, dns.ClassINET)
++	if m := serve(t, h, udpFrom(), in); m == nil || m.Truncated || m.Rcode != dns.RcodeRefused || packedLen(m) > reqLen(t, in) {
++		t.Fatalf("REFUSED: %v", m)
++	}
++	// El gateway del contenedor entrega paquetes de cualquiera, también dentro de 172.16/12.
++	if m := serve(t, h, &testutil.DNSRecorder{Remote: &net.UDPAddr{IP: net.IPv4(172, 18, 0, 1), Port: 40000}}, ver); !refused(m, ver) {
++		t.Fatalf("gateway: %v", m)
++	}
++	// Una IP privada que no es de la red interna (el SNAT de un cortafuegos).
++	if m := serve(t, h, &testutil.DNSRecorder{Remote: &net.UDPAddr{IP: net.IPv4(10, 98, 0, 2), Port: 40000}}, ver); !refused(m, ver) {
++		t.Fatalf("private, not internal: %v", m)
++	}
++	for name, w := range map[string]*testutil.DNSRecorder{
++		"internal udp": {Remote: &net.UDPAddr{IP: net.IPv4(10, 20, 0, 66), Port: 40000}},
++		"internal tcp": {Remote: &net.TCPAddr{IP: net.IPv4(10, 20, 0, 67), Port: 40000}},
++		"loopback":     {Remote: &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 40000}},
++	} {
++		if m := serve(t, h, w, ver); m == nil || m.Truncated || m.Rcode != dns.RcodeSuccess || len(m.Answer) != 1 || !m.Authoritative {
++			t.Fatalf("%s: %v", name, m)
++		}
++	}
++	h.Guard = amp.New(true, nil)
++	if m := serve(t, h, udpFrom(), ver); m == nil || m.Truncated || len(m.Answer) != 1 {
++		t.Fatalf("public on: %v", m)
++	}
++}
++
++// TC=1 queda solo para una respuesta IN que de verdad no cabe en la petición.
++func TestGuardTruncatesOnlyOversizedClassIN(t *testing.T) {
++	h := NewHandler(per("centos7"), nil, nil)
++	h.Guard = amp.New(false, nil)
++	q := query("www.example.com.", dns.TypeA, dns.ClassINET)
++	resp := new(dns.Msg)
++	resp.SetReply(q)
++	for i := 0; i < 4; i++ {
++		resp.Answer = append(resp.Answer, &dns.A{Hdr: dns.RR_Header{Name: q.Question[0].Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 60},
++			A: net.IPv4(192, 0, 2, byte(i))})
++	}
++	src := netip.MustParseAddrPort("198.51.100.9:4000")
++	if g := h.guard(src, resp.Copy(), reqLen(t, q), false); g != "" {
++		t.Fatalf("TCP: %q", g)
++	}
++	m := resp.Copy()
++	if g := h.guard(src, m, reqLen(t, q), true); g != amp.Truncated || !m.Truncated || len(m.Answer) != 0 || m.Rcode != dns.RcodeSuccess {
++		t.Fatalf("UDP: %q %v", g, m)
++	}
++}
+diff --git a/internal/events/events.go b/internal/events/events.go
+index 2f7e9ea..7c819f5 100644
+--- a/internal/events/events.go
++++ b/internal/events/events.go
+@@ -36,6 +36,12 @@ var Ports = map[limit.Proto]int{
+ type Logger struct {
+ 	w       *jsonlog.Writer
+ 	persona string
++	// Uniform (Sugardaddy): scanner lines also carry event "scanner", pot
++	// and dest_port, so that one file can hold the lines of every pot.
++	Uniform bool
++	// Requests (Sugardaddy): the limiter reports every request within the
++	// budget (limit.Config.LogRequests); scanner lines would repeat them.
++	Requests bool
+ }
+ 
+ // New returns a Logger writing to w; persona is the ID of the persona.
+@@ -59,14 +65,48 @@ func seconds(first, last time.Time) int {
+ 	return int(last.Sub(first) / time.Second)
+ }
+ 
++// origin is who a scanner or request line of s is about, for the shares of
++// the single log file (Sugardaddy): its source, verified over TCP.
++func origin(s limit.Source) jsonlog.Origin {
++	return jsonlog.Origin{Src: s.Addr, Verified: s.Sample.Transport == "tcp"}
++}
++
+ // Scanner writes a source that stayed within its budget into the log file
+ // of its pot. verified is true for a source that completed a TCP handshake.
+ func (l *Logger) Scanner(s limit.Source) {
+-	if !l.w.Allow(Files[s.Proto]) {
++	if l.Requests || !l.w.AllowFrom(Files[s.Proto], origin(s)) {
+ 		return
+ 	}
+ 	ev := sampleEvent(s.Sample)
+ 	ev["time"] = jsonlog.Time(s.First)
++	if l.Uniform {
++		ev["event"] = "scanner"
++		ev["pot"] = string(s.Proto)
++		ev["dest_port"] = Ports[s.Proto]
++	}
++	ev["src_ip"] = s.Addr.String()
++	ev["src_port"] = s.Port
++	ev["role"] = "scanner"
++	ev["packets"] = s.Packets
++	ev["proto"] = s.Sample.Transport
++	ev["persona"] = l.persona
++	ev["verified"] = s.Sample.Transport == "tcp"
++	ev["resp_size"] = s.Sample.RespSize
++	l.w.WriteFrom(Files[s.Proto], origin(s), ev)
++}
++
++// Request writes one request of a source within its budget into the log
++// file of its pot (Sugardaddy): event "request", the packet as sample, and
++// packets the number of the packet of the source in its window.
++func (l *Logger) Request(s limit.Source) {
++	if !l.w.AllowFrom(Files[s.Proto], origin(s)) {
++		return
++	}
++	ev := sampleEvent(s.Sample)
++	ev["event"] = "request"
++	ev["time"] = jsonlog.Time(s.Last)
++	ev["pot"] = string(s.Proto)
++	ev["dest_port"] = Ports[s.Proto]
+ 	ev["src_ip"] = s.Addr.String()
+ 	ev["src_port"] = s.Port
+ 	ev["role"] = "scanner"
+@@ -75,7 +115,7 @@ func (l *Logger) Scanner(s limit.Source) {
+ 	ev["persona"] = l.persona
+ 	ev["verified"] = s.Sample.Transport == "tcp"
+ 	ev["resp_size"] = s.Sample.RespSize
+-	l.w.Write(Files[s.Proto], ev)
++	l.w.WriteFrom(Files[s.Proto], origin(s), ev)
+ }
+ 
+ func (l *Logger) target(event string, s limit.Source) map[string]any {
+diff --git a/internal/events/sugardaddy_test.go b/internal/events/sugardaddy_test.go
+new file mode 100644
+index 0000000..d2f97fa
+--- /dev/null
++++ b/internal/events/sugardaddy_test.go
+@@ -0,0 +1,88 @@
++package events
++
++import (
++	"net/netip"
++	"path/filepath"
++	"testing"
++	"time"
++
++	"github.com/telekom-security/ddospot/internal/jsonlog"
++	"github.com/telekom-security/ddospot/internal/limit"
++)
++
++func TestUniformLines(t *testing.T) {
++	d := t.TempDir()
++	w, _ := jsonlog.Open(d, time.Now)
++	w.Single("ddospot.json")
++	l := New(w, "debian11")
++	l.Uniform = true
++	src := limit.Source{Proto: limit.NTP, Addr: netip.MustParseAddr("192.0.2.1"), Port: 4000,
++		First: time.Date(2026, 10, 16, 9, 0, 0, 0, time.UTC), Last: time.Date(2026, 10, 16, 9, 1, 0, 0, time.UTC), Packets: 9,
++		Sample: limit.Sample{Transport: "udp", Req: []byte{1}, ReqSize: 1, Fields: map[string]any{"mode": "MONLIST"}}}
++	l.Scanner(src)
++	l.TargetStart(src)
++	l.NetStart(limit.Net{Prefix: netip.MustParsePrefix("192.0.2.0/24"), First: src.First, Last: src.Last, Packets: 21, Sources: 1})
++	w.Close()
++	ev := readJSON(t, filepath.Join(d, "ddospot.json"))
++	if len(ev) != 3 {
++		t.Fatalf("%v", ev)
++	}
++	s := ev[0]
++	if s["event"] != "scanner" || s["pot"] != "ntp" || s["dest_port"] != float64(123) || s["time"] != "2026-10-16 09:00:00.000000" || s["src_ip"] != "192.0.2.1" {
++		t.Fatalf("%v", s)
++	}
++	if ev[1]["event"] != "attack_start" || ev[1]["first_seen"] != "2026-10-16 09:00:00.000000" || ev[2]["time"] != "2026-10-16 09:01:00.000000" {
++		t.Fatalf("%v", ev[1:])
++	}
++}
++
++func TestRequestLines(t *testing.T) {
++	d := t.TempDir()
++	w, _ := jsonlog.Open(d, time.Now)
++	w.Single("ddospot.json")
++	l := New(w, "centos7")
++	l.Uniform, l.Requests = true, true
++	src := limit.Source{Proto: limit.DNS, Addr: netip.MustParseAddr("192.0.2.1"), Port: 4001, Packets: 2,
++		First: time.Date(2026, 10, 16, 9, 0, 0, 0, time.UTC), Last: time.Date(2026, 10, 16, 9, 0, 1, 0, time.UTC),
++		Sample: limit.Sample{Transport: "tcp", Req: []byte{1, 2}, ReqSize: 2, RespSize: 39, Fields: map[string]any{"dns_type": "AXFR"}}}
++	l.Request(src)
++	l.Scanner(src)
++	w.Close()
++	ev := readJSON(t, filepath.Join(d, "ddospot.json"))
++	if len(ev) != 1 {
++		t.Fatalf("%v", ev)
++	}
++	q := ev[0]
++	if q["event"] != "request" || q["pot"] != "dns" || q["dest_port"] != float64(53) || q["src_port"] != float64(4001) ||
++		q["packets"] != float64(2) || q["verified"] != true || q["dns_type"] != "AXFR" || q["time"] != "2026-10-16 09:00:01.000000" {
++		t.Fatalf("%v", q)
++	}
++}
++
++// Hallazgo: las peticiones UDP agotaban el presupuesto de líneas que también
++// usaban las TCP. Con el cubo de UDP vacío, una AXFR por TCP se apunta y la
++// siguiente petición UDP no.
++func TestTCPRequestsHaveTheirOwnBudget(t *testing.T) {
++	d := t.TempDir()
++	frozen := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
++	w, _ := jsonlog.Open(d, func() time.Time { return frozen })
++	w.Single("ddospot.json")
++	w.Cap(50 << 20)
++	l := New(w, "centos7")
++	l.Uniform, l.Requests = true, true
++	udp := limit.Source{Proto: limit.DNS, Port: 5353, Last: frozen, Packets: 1,
++		Sample: limit.Sample{Transport: "udp", Req: []byte{1}, ReqSize: 1, Fields: map[string]any{"dns_type": "A"}}}
++	for i := 0; i < 1000; i++ {
++		udp.Addr = netip.AddrFrom4([4]byte{10, 250, byte(i >> 8), byte(i)})
++		l.Request(udp)
++	}
++	tcp := limit.Source{Proto: limit.DNS, Addr: netip.MustParseAddr("10.250.100.1"), Port: 4001, Last: frozen, Packets: 1,
++		Sample: limit.Sample{Transport: "tcp", Req: []byte{1}, ReqSize: 1, Fields: map[string]any{"dns_type": "AXFR"}}}
++	l.Request(tcp)
++	l.Request(udp)
++	w.Close()
++	ev := readJSON(t, filepath.Join(d, "ddospot.json"))
++	if len(ev) != 151 || ev[150]["dns_type"] != "AXFR" || ev[150]["verified"] != true {
++		t.Fatalf("%d lines, last %v", len(ev), ev[len(ev)-1])
++	}
++}
+diff --git a/internal/jsonlog/jsonlog.go b/internal/jsonlog/jsonlog.go
+index 445235b..340992f 100644
+--- a/internal/jsonlog/jsonlog.go
++++ b/internal/jsonlog/jsonlog.go
+@@ -46,6 +46,72 @@ type Writer struct {
+ 	dropped uint64
+ 	errors  uint64
+ 	closed  bool
++	single  string // Sugardaddy: every line goes to this file
++	day     string // UTC day of the open single file
++	// Sugardaddy: bytes a day of the single file (0: no cap), bytes of the
++	// day so far, and the shares of the day among the kinds of lines and
++	// the sources (sugardaddy.go).
++	maxBytes int64
++	bytes    int64
++	shares
++}
++
++// Cap limits the single file to n bytes a UTC day (Sugardaddy), shared out
++// among the kinds of lines and the sources as sugardaddy.go tells: a kind
++// that spends its share of the day writes one log_full line and the rest
++// go on. The bytes an earlier run wrote the same day count, once
++// (chargeEarlier). Call it before the first Write; n <= 0 leaves the file
++// without a cap.
++func (w *Writer) Cap(n int64) {
++	w.mu.Lock()
++	defer w.mu.Unlock()
++	w.maxBytes = max(n, 0)
++}
++
++func day(t time.Time) string { return t.UTC().Format("2006-01-02") }
++
++// Single sends the lines of all five files to the file name in dir, with
++// a line budget for each kind of line, and moves it aside to
++// name.YYYY-MM-DD when the UTC day changes (Sugardaddy). Call it before the
++// first Write.
++func (w *Writer) Single(name string) {
++	w.mu.Lock()
++	defer w.mu.Unlock()
++	w.single = name
++	w.shares.init()
++}
++
++// rotate closes the single file and moves it aside when its day is over,
++// also when it was left by an earlier run, and starts the shares of the
++// new day. Called with mu held.
++func (w *Writer) rotate(now time.Time) {
++	today := day(now)
++	path := filepath.Join(w.dir, w.single)
++	if w.day == "" {
++		if fi, err := os.Stat(path); err == nil {
++			if d := day(fi.ModTime()); d != today {
++				w.day = d
++			} else {
++				// What the earlier run wrote today counts once in the cap
++				// and in the share of the lines; its kinds are not known
++				// (sugardaddy.go).
++				w.bytes = fi.Size()
++				w.chargeEarlier(fi.Size(), now)
++			}
++		}
++	}
++	if w.day != "" && w.day != today {
++		if f := w.files[w.single]; f != nil {
++			f.Close()
++			delete(w.files, w.single)
++		}
++		if _, err := os.Stat(path + "." + w.day); os.IsNotExist(err) {
++			os.Rename(path, path+"."+w.day)
++		}
++		w.bytes = 0
++		w.shares.newDay()
++	}
++	w.day = today
+ }
+ 
+ // Open returns a writer for dir. Files are opened on first use. The
+@@ -76,7 +142,12 @@ func (w *Writer) budget(file string) *bucket.Bucket {
+ // file names (anything else is a programming error and panics). Keys are
+ // sorted. A nil event writes nothing. A line beyond the budget is counted by
+ // Dropped and not encoded, a line lost to an error by Errors.
+-func (w *Writer) Write(file string, ev map[string]any) {
++func (w *Writer) Write(file string, ev map[string]any) { w.WriteFrom(file, Origin{}, ev) }
++
++// WriteFrom is Write for a line about o (Sugardaddy): in the single file
++// it takes the line budget and the share of the day of its kind and of its
++// source.
++func (w *Writer) WriteFrom(file string, o Origin, ev map[string]any) {
+ 	if !allowed[file] {
+ 		panic("jsonlog: unknown log file " + file)
+ 	}
+@@ -89,32 +160,64 @@ func (w *Writer) Write(file string, ev map[string]any) {
+ 		return
+ 	}
+ 	now := w.now()
++	if w.single != "" {
++		w.writeShared(file, o, ev, now)
++		return
++	}
+ 	b := w.budget(file)
+ 	if !b.Can(1, now) {
+ 		w.dropped++
+ 		return
+ 	}
++	buf, ok := w.encode(ev)
++	if !ok {
++		return
++	}
++	f := w.open(file)
++	if f == nil {
++		return
++	}
++	b.Take(1, now)
++	w.append(f, buf.Bytes())
++}
++
++// encode returns ev as one JSON line, or false after counting the error.
++func (w *Writer) encode(ev map[string]any) (*bytes.Buffer, bool) {
+ 	var buf bytes.Buffer
+ 	enc := json.NewEncoder(&buf)
+ 	enc.SetEscapeHTML(false)
+ 	if enc.Encode(ev) != nil {
+ 		w.errors++
+-		return
++		return nil, false
+ 	}
++	return &buf, true
++}
++
++// open returns file, opened on first use, or nil after counting the
++// error. Called with mu held.
++func (w *Writer) open(file string) *os.File {
+ 	f := w.files[file]
+ 	if f == nil {
+ 		var err error
+-		f, err = os.OpenFile(filepath.Join(w.dir, file), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o640)
++		// Sugardaddy: readable by others, the sensor reads it without capabilities.
++		f, err = os.OpenFile(filepath.Join(w.dir, file), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+ 		if err != nil {
+ 			w.errors++
+-			return
++			return nil
+ 		}
+ 		w.files[file] = f
+ 	}
+-	b.Take(1, now)
+-	if n, err := f.Write(buf.Bytes()); err != nil || n != buf.Len() {
++	return f
++}
++
++// append writes b to f and returns the bytes written. Called with mu held.
++func (w *Writer) append(f *os.File, b []byte) int64 {
++	n, err := f.Write(b)
++	w.bytes += int64(n)
++	if err != nil || n != len(b) {
+ 		w.errors++
+ 	}
++	return int64(n)
+ }
+ 
+ // Allow reports whether a line for file would be written now, without
+@@ -122,7 +225,10 @@ func (w *Writer) Write(file string, ev map[string]any) {
+ // would be left out. A false answer with the budget spent counts that line
+ // in Dropped; after Close the answer is false and nothing is counted. file
+ // must be one of the five log file names, as for Write.
+-func (w *Writer) Allow(file string) bool {
++func (w *Writer) Allow(file string) bool { return w.AllowFrom(file, Origin{}) }
++
++// AllowFrom is Allow for a line about o (Sugardaddy), as WriteFrom.
++func (w *Writer) AllowFrom(file string, o Origin) bool {
+ 	if !allowed[file] {
+ 		panic("jsonlog: unknown log file " + file)
+ 	}
+@@ -131,7 +237,11 @@ func (w *Writer) Allow(file string) bool {
+ 	if w.closed {
+ 		return false
+ 	}
+-	if !w.budget(file).Can(1, w.now()) {
++	now := w.now()
++	if w.single != "" {
++		return w.allowShared(file, o, now)
++	}
++	if !w.budget(file).Can(1, now) {
+ 		w.dropped++
+ 		return false
+ 	}
+diff --git a/internal/jsonlog/sugardaddy.go b/internal/jsonlog/sugardaddy.go
+new file mode 100644
+index 0000000..df65005
+--- /dev/null
++++ b/internal/jsonlog/sugardaddy.go
+@@ -0,0 +1,386 @@
++package jsonlog
++
++// Sugardaddy: the shares of the single file. One flood must not blind the
++// log for everyone else until midnight:
++//
++//   - Each kind of line has a line budget of its own: requests over UDP,
++//     whose source may be forged, never take the budget of requests over
++//     TCP, whose source completed a handshake, nor that of the bursts.
++//   - The bytes of a day are shared out: requests over UDP up to 60 %,
++//     bursts and networks up to 15 %, every line but the notices up to
++//     98 %, so that requests over TCP keep at least 23 %; the notices have
++//     the other 2 % (a line a minute all day takes under 1 % of 50 MB).
++//     The shares of UDP and of the bursts come through the day: a quarter
++//     at midnight and the rest evenly until the next one, so that under a
++//     flood they are sampled all day instead of spent in the first hours.
++//   - One source (an IPv4 address, an IPv6 /64) writes at most 2 % of the
++//     day for each kind, so that one host, however long it insists, cannot
++//     take the share of the others.
++//   - What is left out is not silent: Notice writes one log_dropped line a
++//     minute with how many lines of each kind, why and the sources that
++//     lost most; a kind that spends its share writes one log_full line.
++//
++// The file keeps its fixed name, its daily rotation and its total cap.
++
++import (
++	"cmp"
++	"fmt"
++	"math/bits"
++	"net/netip"
++	"slices"
++	"strings"
++	"time"
++
++	"github.com/telekom-security/ddospot/internal/bucket"
++)
++
++// Origin is who a line is about, for the shares of the single file: the
++// source of a request and whether it completed a TCP handshake. The zero
++// Origin is a line without a source, such as a target.
++type Origin struct {
++	Src      netip.Addr
++	Verified bool
++}
++
++// Events of the notices of the single file.
++const (
++	// FullEvent: a kind of line spent its share of the day; its later lines
++	// of that day are dropped and counted in the log_dropped lines.
++	FullEvent = "log_full"
++	// DroppedEvent: what the budgets and shares left out since the last one.
++	DroppedEvent = "log_dropped"
++)
++
++type kind int
++
++const (
++	unverified kind = iota // a request over UDP: the source may be forged
++	verified               // a request over TCP: the source completed a handshake
++	targetKind             // bursts and blocked networks
++	kinds
++)
++
++var (
++	// kindNames are the values of the field kind of log_full.
++	kindNames = [kinds]string{"peticiones UDP", "peticiones TCP", "ráfagas y redes"}
++	// kindFields count the dropped lines of each kind in log_dropped.
++	kindFields = [kinds]string{"dropped_udp", "dropped_tcp", "dropped_targets"}
++	// Line budgets per kind: together 10 lines a second, the 600 a minute
++	// that the sensor sends of one trap.
++	kindRates  = [kinds]float64{4, 3, 3}
++	kindBursts = [kinds]float64{150, 100, 200}
++	// Shares of the bytes of a day, per mille of the cap; verified has what
++	// the lines may take (linesShare) and the others leave.
++	kindShares = [kinds]int64{600, linesShare, 150}
++	// Whether the share comes through the day.
++	kindPaced = [kinds]bool{true, false, true}
++)
++
++const (
++	linesShare  = 980 // every line but the notices, per mille of the cap
++	sourceShare = 20  // one source and kind, per mille of the cap
++	paceHead    = 250 // per mille of a paced share there at midnight
++	// maxSources bounds the table of the bytes of each source; a source
++	// beyond it is not held to its share (the kind still is).
++	maxSources = 20000
++	// maxDropSources bounds the sources counted between two notices, and
++	// topSources is how many of them a notice names.
++	maxDropSources = 1024
++	topSources     = 5
++	daySeconds     = 24 * 60 * 60
++)
++
++type reason int
++
++const (
++	byRate   reason = iota // the line budget of the kind
++	bySource               // the share of the day of the source
++	byPace                 // the share of the kind that has come so far today
++	byDay                  // the share of the kind for the whole day
++	reasons
++)
++
++var reasonNames = [reasons]string{"ritmo de líneas", "cupo diario del origen", "reparto del día", "tope del día"}
++
++type srcKey struct {
++	addr     netip.Addr
++	verified bool
++}
++
++// drops is what was left out since the last notice.
++type drops struct {
++	kinds   [kinds]uint64
++	reasons [reasons]uint64
++	sources map[netip.Addr]uint64
++}
++
++// shares is the state of the shares of the single file; Writer holds it
++// and mu guards it.
++type shares struct {
++	lines    [kinds]*bucket.Bucket
++	used     [kinds]int64
++	notices  int64        // bytes of the notices today
++	kindFull [kinds]bool  // its share of today is spent and its log_full written
++	lastSize [kinds]int64 // of the last line of the kind, for the guess of Allow
++	srcUsed  map[srcKey]int64
++	period   drops
++}
++
++func (s *shares) init() {
++	for k := range kinds {
++		s.lines[k] = bucket.New(kindRates[k], kindBursts[k])
++	}
++	s.newDay()
++}
++
++func (s *shares) newDay() {
++	s.used = [kinds]int64{}
++	s.notices = 0
++	s.kindFull = [kinds]bool{}
++	s.srcUsed = map[srcKey]int64{}
++}
++
++func kindOf(file string, o Origin) kind {
++	switch {
++	case file == targetsFile:
++		return targetKind
++	case o.Verified:
++		return verified
++	}
++	return unverified
++}
++
++// sourceOf is the address a source is counted by: an IPv6 host has a /64.
++func sourceOf(a netip.Addr) netip.Addr {
++	a = a.Unmap()
++	if a.Is6() {
++		a = netip.PrefixFrom(a, 64).Masked().Addr()
++	}
++	return a
++}
++
++// part returns perMille of the cap.
++func (w *Writer) part(perMille int64) int64 { return w.maxBytes * perMille / 1000 }
++
++// limitOf returns the bytes kind k may have written by now today. A paced
++// share grows every second, not in steps of a thousandth of it (31 KB
++// every two minutes with the 50 MB of the trap), which under a flood left
++// UDP silent up to two minutes at a time. The product is taken in 128 bits:
++// share*num cannot overflow, and the quotient is at most share.
++func (w *Writer) limitOf(k kind, now time.Time) int64 {
++	share := w.part(kindShares[k])
++	if !kindPaced[k] || share <= 0 {
++		return share
++	}
++	u := now.UTC()
++	secs := uint64(u.Hour()*3600 + u.Minute()*60 + u.Second())
++	num := paceHead*daySeconds + (1000-paceHead)*secs
++	hi, lo := bits.Mul64(uint64(share), num)
++	q, _ := bits.Div64(hi, lo, 1000*daySeconds)
++	return int64(q)
++}
++
++// chargeEarlier charges the n bytes that an earlier run wrote today to
++// the paced shares, whose kinds the file does not tell apart: to requests
++// over UDP as much as they may have written by now, the rest to the bursts
++// as much as theirs, and what is left counts only in the cap and in the
++// share of the lines, which is what holds the requests over TCP. Charging
++// it all to UDP left UDP silent for hours under a flood after a restart,
++// paying for the TCP lines and notices of the morning; charging nothing
++// would give the paced kinds their morning twice. Called with mu held,
++// once a day at most, after Cap.
++func (w *Writer) chargeEarlier(n int64, now time.Time) {
++	for _, k := range [...]kind{unverified, targetKind} {
++		c := min(n, w.limitOf(k, now))
++		w.used[k] = c
++		n -= c
++	}
++}
++
++// check tells whether a line of size bytes of kind k about o fits now, or
++// why not. Called with mu held, after rotate.
++func (w *Writer) check(k kind, o Origin, size int64, now time.Time) (reason, bool) {
++	if w.maxBytes > 0 {
++		switch {
++		case w.kindFull[k] || w.bytes-w.notices+size > w.part(linesShare) || w.used[k]+size > w.part(kindShares[k]):
++			return byDay, false
++		case w.used[k]+size > w.limitOf(k, now):
++			return byPace, false
++		case o.Src.IsValid() && w.srcUsed[srcKey{sourceOf(o.Src), o.Verified}]+size > w.part(sourceShare):
++			return bySource, false
++		}
++	}
++	if !w.lines[k].Can(1, now) {
++		return byRate, false
++	}
++	return 0, true
++}
++
++// drop counts a line left out; the first one of a kind that spent its
++// share of the day also writes the log_full line of that kind. Called with
++// mu held, after rotate.
++func (w *Writer) drop(k kind, o Origin, r reason, now time.Time) {
++	if r == byDay && !w.kindFull[k] {
++		w.kindFull[k] = true
++		w.notice(map[string]any{"event": FullEvent, "time": Time(now), "max_bytes": w.maxBytes,
++			"kind": kindNames[k], "kind_bytes": w.part(kindShares[k])})
++	}
++	w.dropped++
++	p := &w.period
++	p.kinds[k]++
++	p.reasons[r]++
++	if !o.Src.IsValid() {
++		return
++	}
++	if p.sources == nil {
++		p.sources = map[netip.Addr]uint64{}
++	}
++	a := sourceOf(o.Src)
++	if _, ok := p.sources[a]; ok || len(p.sources) < maxDropSources {
++		p.sources[a]++
++	}
++}
++
++// allowShared is AllowFrom for the single file: a line as long as the
++// last one of its kind must fit, so that a caller under a flood does not
++// build lines that Write would leave out. Called with mu held.
++func (w *Writer) allowShared(file string, o Origin, now time.Time) bool {
++	w.rotate(now)
++	k := kindOf(file, o)
++	if r, ok := w.check(k, o, max(w.lastSize[k], 1), now); !ok {
++		w.drop(k, o, r, now)
++		return false
++	}
++	return true
++}
++
++// writeShared is WriteFrom for the single file. Called with mu held.
++func (w *Writer) writeShared(file string, o Origin, ev map[string]any, now time.Time) {
++	w.rotate(now)
++	k := kindOf(file, o)
++	if r, ok := w.check(k, o, 1, now); !ok {
++		w.drop(k, o, r, now) // without encoding the line
++		return
++	}
++	buf, ok := w.encode(ev)
++	if !ok {
++		return
++	}
++	size := int64(buf.Len())
++	w.lastSize[k] = size
++	if r, ok := w.check(k, o, size, now); !ok {
++		w.drop(k, o, r, now)
++		if r == bySource {
++			// Spent for today: Allow says no from now on.
++			w.addSource(o, w.part(sourceShare))
++		}
++		return
++	}
++	f := w.open(w.single)
++	if f == nil {
++		return
++	}
++	w.lines[k].Take(1, now)
++	n := w.append(f, buf.Bytes())
++	w.used[k] += n
++	w.addSource(o, w.srcUsed[srcKey{sourceOf(o.Src), o.Verified}]+n)
++}
++
++// addSource sets the bytes of today of the source of o, if it has one and
++// it is in the table or the table has room.
++func (w *Writer) addSource(o Origin, n int64) {
++	if !o.Src.IsValid() {
++		return
++	}
++	key := srcKey{sourceOf(o.Src), o.Verified}
++	if _, ok := w.srcUsed[key]; ok || len(w.srcUsed) < maxSources {
++		w.srcUsed[key] = n
++	}
++}
++
++// notice writes a notice line within the share of the notices and the cap
++// of the day, outside the line budgets. Called with mu held, after rotate.
++func (w *Writer) notice(ev map[string]any) {
++	buf, ok := w.encode(ev)
++	if !ok {
++		return
++	}
++	size := int64(buf.Len())
++	if w.maxBytes > 0 && (w.notices+size > w.part(1000-linesShare) || w.bytes+size > w.maxBytes) {
++		w.dropped++
++		return
++	}
++	if f := w.open(w.single); f != nil {
++		w.notices += w.append(f, buf.Bytes())
++	}
++}
++
++// Notice writes one log_dropped line into the single file with what the
++// budgets and shares left out since the last call: how many lines of each
++// kind, the limits that left them out and the sources that lost most. With
++// untracked, the packets of new sources that the limiter could not hold
++// because its tables were full. It writes nothing when nothing was left
++// out, without a single file or after Close. Call it once a minute.
++func (w *Writer) Notice(untracked uint64) {
++	w.mu.Lock()
++	defer w.mu.Unlock()
++	if w.closed || w.single == "" {
++		return
++	}
++	now := w.now()
++	w.rotate(now)
++	p := w.period
++	w.period = drops{}
++	var total uint64
++	for _, n := range p.kinds {
++		total += n
++	}
++	if total == 0 && untracked == 0 {
++		return
++	}
++	ev := map[string]any{"event": DroppedEvent, "time": Time(now), "dropped": total}
++	for k, n := range p.kinds {
++		if n > 0 {
++			ev[kindFields[k]] = n
++		}
++	}
++	if untracked > 0 {
++		ev["untracked"] = untracked
++	}
++	var why []string
++	for r, n := range p.reasons {
++		if n > 0 {
++			why = append(why, reasonNames[r])
++		}
++	}
++	if len(why) > 0 {
++		ev["limits"] = strings.Join(why, ", ")
++	}
++	if top := topOf(p.sources); top != "" {
++		ev["top_sources"] = top
++	}
++	w.notice(ev)
++}
++
++// topOf names the sources that lost most lines, with their counts.
++func topOf(m map[netip.Addr]uint64) string {
++	type count struct {
++		a netip.Addr
++		n uint64
++	}
++	var all []count
++	for a, n := range m {
++		all = append(all, count{a, n})
++	}
++	slices.SortFunc(all, func(x, y count) int {
++		if c := cmp.Compare(y.n, x.n); c != 0 {
++			return c
++		}
++		return x.a.Compare(y.a)
++	})
++	var out []string
++	for _, c := range all[:min(len(all), topSources)] {
++		out = append(out, fmt.Sprintf("%s (%d)", c.a, c.n))
++	}
++	return strings.Join(out, ", ")
++}
+diff --git a/internal/jsonlog/sugardaddy_test.go b/internal/jsonlog/sugardaddy_test.go
+new file mode 100644
+index 0000000..3dc4113
+--- /dev/null
++++ b/internal/jsonlog/sugardaddy_test.go
+@@ -0,0 +1,477 @@
++package jsonlog
++
++import (
++	"encoding/json"
++	"net/netip"
++	"os"
++	"path/filepath"
++	"strings"
++	"testing"
++	"time"
++)
++
++func TestSingleFileRotatesByDay(t *testing.T) {
++	d := t.TempDir()
++	now := time.Date(2026, 10, 16, 23, 59, 59, 0, time.UTC)
++	w, _ := Open(d, func() time.Time { return now })
++	w.Single("ddospot.json")
++	w.Write("ntpot.log", map[string]any{"a": 1})
++	w.Write("targets.log", map[string]any{"b": 2})
++	now = now.Add(2 * time.Second)
++	w.Write("dnspot.log", map[string]any{"c": 3})
++	w.Close()
++	old, _ := os.ReadFile(filepath.Join(d, "ddospot.json.2026-10-16"))
++	cur, _ := os.ReadFile(filepath.Join(d, "ddospot.json"))
++	if strings.Count(string(old), "\n") != 2 || strings.TrimSpace(string(cur)) != `{"c":3}` {
++		t.Fatalf("rotado %q, actual %q", old, cur)
++	}
++	fi, err := os.Stat(filepath.Join(d, "ddospot.json"))
++	if err != nil || fi.Mode().Perm() != 0o644 {
++		t.Fatalf("permisos %v %v", fi.Mode(), err)
++	}
++	for _, f := range []string{"ntpot.log", "targets.log", "dnspot.log"} {
++		if _, err := os.Stat(filepath.Join(d, f)); err == nil {
++			t.Fatalf("%s creado en modo de un fichero", f)
++		}
++	}
++}
++
++func TestSingleFileLeftByEarlierDay(t *testing.T) {
++	d := t.TempDir()
++	p := filepath.Join(d, "ddospot.json")
++	os.WriteFile(p, []byte("viejo\n"), 0o644)
++	ayer := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
++	os.Chtimes(p, ayer, ayer)
++	w, _ := Open(d, func() time.Time { return ayer.Add(24 * time.Hour) })
++	w.Single("ddospot.json")
++	w.Write("ssdpot.log", map[string]any{"n": 1})
++	w.Close()
++	if b, _ := os.ReadFile(p + ".2026-10-15"); string(b) != "viejo\n" {
++		t.Fatalf("%q", b)
++	}
++}
++
++// readLines returns the JSON lines of path.
++func readLines(t *testing.T, path string) []map[string]any {
++	t.Helper()
++	b, err := os.ReadFile(path)
++	if err != nil {
++		t.Fatal(err)
++	}
++	var out []map[string]any
++	for _, l := range strings.Split(strings.TrimSpace(string(b)), "\n") {
++		if l == "" {
++			continue
++		}
++		var m map[string]any
++		if err := json.Unmarshal([]byte(l), &m); err != nil {
++			t.Fatalf("%q: %v", l, err)
++		}
++		out = append(out, m)
++	}
++	return out
++}
++
++// request is a request line of about size bytes at now, as events.Logger
++// writes it.
++func request(src netip.Addr, tcp bool, size int, now time.Time) map[string]any {
++	proto := "udp"
++	if tcp {
++		proto = "tcp"
++	}
++	return map[string]any{"event": "request", "time": Time(now), "src_ip": src.String(), "proto": proto, "verified": tcp,
++		"req_pkt": strings.Repeat("A", max(size-130, 0))}
++}
++
++func count(ev []map[string]any, f func(map[string]any) bool) int {
++	n := 0
++	for _, e := range ev {
++		if f(e) {
++			n++
++		}
++	}
++	return n
++}
++
++// Hallazgo: con ruido UDP de orígenes falsificados (unas 18 por segundo de
++// 34 orígenes durante 75 s) se perdían 9 de cada 10 transferencias de zona
++// por TCP, que compartían el cubo de líneas con el UDP. Cada clase de línea
++// tiene ahora su cubo: las diez AXFR quedan apuntadas.
++func TestUDPFloodKeepsTCPLines(t *testing.T) {
++	d := t.TempDir()
++	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
++	w, _ := Open(d, func() time.Time { return now })
++	w.Single("ddospot.json")
++	w.Cap(50 << 20)
++	step := time.Second / 18
++	for i := 0; i < 75*18; i++ {
++		now = now.Add(step)
++		src := netip.AddrFrom4([4]byte{10, 250, byte(i % 34 / 8), byte(i % 34)})
++		o := Origin{Src: src}
++		if w.AllowFrom("dnspot.log", o) {
++			w.WriteFrom("dnspot.log", o, request(src, false, 960, now))
++		}
++		if i%135 == 67 { // ten AXFR over TCP from ten real hosts
++			axfr := netip.AddrFrom4([4]byte{10, 250, 100, byte(i / 135)})
++			o := Origin{Src: axfr, Verified: true}
++			if w.AllowFrom("dnspot.log", o) {
++				ev := request(axfr, true, 200, now)
++				ev["dns_type"] = "AXFR"
++				w.WriteFrom("dnspot.log", o, ev)
++			}
++		}
++	}
++	w.Notice(0)
++	w.Close()
++	ev := readLines(t, filepath.Join(d, "ddospot.json"))
++	axfr := count(ev, func(e map[string]any) bool { return e["dns_type"] == "AXFR" })
++	udp := count(ev, func(e map[string]any) bool { return e["proto"] == "udp" })
++	if axfr != 10 || udp > 150+4*76 || udp < 150+4*74 {
++		t.Fatalf("AXFR %d of 10, UDP %d", axfr, udp)
++	}
++	last := ev[len(ev)-1]
++	if last["event"] != DroppedEvent || last["dropped_udp"] != float64(75*18-udp) || last["dropped_tcp"] != nil ||
++		!strings.Contains(last["limits"].(string), "ritmo de líneas") || !strings.HasPrefix(last["top_sources"].(string), "10.250.") {
++		t.Fatalf("%v", last)
++	}
++}
++
++// Una inundación UDP de orígenes siempre nuevos todo un día: su parte del
++// día llega poco a poco, así que hay líneas UDP en cada hora en vez de
++// gastarlo todo en las primeras y callar hasta medianoche; cada minuto hay
++// un resumen de lo que se calla, las ráfagas tienen su parte, al final del
++// día cabe una petición TCP y el fichero no pasa del tope.
++func TestFloodIsSampledAllDay(t *testing.T) {
++	d := t.TempDir()
++	now := time.Date(2026, 10, 16, 0, 0, 0, 0, time.UTC)
++	w, _ := Open(d, func() time.Time { return now })
++	w.Single("ddospot.json")
++	const capBytes = 20 << 20
++	w.Cap(capBytes)
++	n := 0
++	for s := 0; s < 8640; s++ { // steps of 10 s
++		for i := 0; i < 60; i++ { // 6 a second, over the 4 of the line budget
++			n++
++			src := netip.AddrFrom4([4]byte{byte(1 + n>>24), byte(n >> 16), byte(n >> 8), byte(n)})
++			o := Origin{Src: src}
++			if w.AllowFrom("ntpot.log", o) {
++				w.WriteFrom("ntpot.log", o, request(src, false, 1000, now))
++			}
++		}
++		for i := 0; i < 5; i++ {
++			if w.Allow("targets.log") {
++				w.Write("targets.log", map[string]any{"event": "attack_start", "target_ip": "192.0.2.1", "req_pkt": strings.Repeat("B", 300)})
++			}
++		}
++		if s%6 == 5 {
++			w.Notice(3)
++		}
++		now = now.Add(10 * time.Second)
++	}
++	now = now.Add(-time.Second)
++	tcp := netip.MustParseAddr("10.0.0.9")
++	if !w.AllowFrom("dnspot.log", Origin{Src: tcp, Verified: true}) {
++		t.Fatal("no room for a request over TCP at the end of the day")
++	}
++	w.WriteFrom("dnspot.log", Origin{Src: tcp, Verified: true}, request(tcp, true, 300, now))
++	w.Close()
++	path := filepath.Join(d, "ddospot.json")
++	fi, _ := os.Stat(path)
++	if fi.Size() > capBytes {
++		t.Fatalf("%d bytes over the cap", fi.Size())
++	}
++	ev := readLines(t, path)
++	var hours [24]int
++	notices, targets := 0, 0
++	for _, e := range ev {
++		switch {
++		case e["event"] == "request" && e["proto"] == "udp":
++			tm, err := time.Parse("2006-01-02 15:04:05.000000", e["time"].(string))
++			if err != nil {
++				t.Fatal(err)
++			}
++			hours[tm.Hour()]++
++		case e["event"] == DroppedEvent:
++			notices++
++			if e["untracked"] != float64(3) {
++				t.Fatalf("%v", e)
++			}
++		case e["event"] == "attack_start":
++			targets++
++		}
++	}
++	for h, c := range hours {
++		if c == 0 {
++			t.Fatalf("no UDP line in hour %d: %v", h, hours)
++		}
++	}
++	if notices != 1440 || targets == 0 || ev[len(ev)-1]["proto"] != "tcp" {
++		t.Fatalf("notices %d, targets %d, last %v", notices, targets, ev[len(ev)-1])
++	}
++	t.Logf("UDP lines per hour %v, %d bytes", hours, fi.Size())
++}
++
++// Un solo origen, por mucho que insista, no pasa del 2 % del día en cada
++// clase de línea: los demás siguen apuntándose y el resumen dice quién se
++// queda fuera y por qué. Un equipo IPv6 cuenta por su /64.
++func TestOneSourceCannotTakeTheDay(t *testing.T) {
++	d := t.TempDir()
++	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
++	w, _ := Open(d, func() time.Time { return now })
++	w.Single("ddospot.json")
++	w.Cap(1 << 20) // 20971 bytes a source and kind
++	loud, other := netip.MustParseAddr("192.0.2.66"), netip.MustParseAddr("192.0.2.67")
++	write := func(src netip.Addr, tcp bool) bool {
++		now = now.Add(time.Second)
++		o := Origin{Src: src, Verified: tcp}
++		if !w.AllowFrom("dnspot.log", o) {
++			return false
++		}
++		before := w.bytes
++		w.WriteFrom("dnspot.log", o, request(src, tcp, 1000, now))
++		return w.bytes > before
++	}
++	n := 0
++	for i := 0; i < 100; i++ {
++		if write(loud, true) {
++			n++
++		}
++	}
++	if n < 19 || n > 21 {
++		t.Fatalf("one source wrote %d lines of 1000 bytes over TCP", n)
++	}
++	if !write(other, true) || !write(loud, false) {
++		t.Fatal("another source, or the same one over UDP, left out")
++	}
++	for _, a := range []string{"2001:db8::1", "2001:db8::2", "2001:db8::ffff:3"} {
++		for i := 0; i < 10; i++ {
++			write(netip.MustParseAddr(a), true)
++		}
++	}
++	if write(netip.MustParseAddr("2001:db8::4"), true) || !write(netip.MustParseAddr("2001:db8:0:1::4"), true) {
++		t.Fatal("IPv6 sources not counted by their /64")
++	}
++	w.Notice(0)
++	w.Close()
++	ev := readLines(t, filepath.Join(d, "ddospot.json"))
++	last := ev[len(ev)-1]
++	if last["event"] != DroppedEvent || last["limits"] != "cupo diario del origen" ||
++		!strings.HasPrefix(last["top_sources"].(string), "192.0.2.66 (") || !strings.Contains(last["top_sources"].(string), "2001:db8:: (") {
++		t.Fatalf("%v", last)
++	}
++}
++
++// La parte de un día de las peticiones UDP acaba con una línea log_full de
++// esa clase, pero las peticiones TCP siguen; el día siguiente empieza de
++// cero, rotado, y el fichero nunca pasa del tope.
++func TestSingleFileCapPerDay(t *testing.T) {
++	d := t.TempDir()
++	now := time.Date(2026, 10, 16, 23, 59, 0, 0, time.UTC)
++	w, _ := Open(d, func() time.Time { return now })
++	w.Single("ddospot.json")
++	w.Cap(100000) // 60000 for UDP, all but 32 bytes come by 23:59
++	for i := 0; i < 100; i++ {
++		now = now.Add(time.Second / 2)
++		if w.Allow("ntpot.log") {
++			w.Write("ntpot.log", map[string]any{"x": strings.Repeat("a", 990)})
++		}
++	}
++	if w.Allow("ntpot.log") {
++		t.Fatal("Allow with the share of UDP spent")
++	}
++	tcp := Origin{Src: netip.MustParseAddr("10.0.0.5"), Verified: true}
++	if !w.AllowFrom("dnspot.log", tcp) {
++		t.Fatal("TCP left out with the share of UDP spent")
++	}
++	w.WriteFrom("dnspot.log", tcp, map[string]any{"tcp": 1})
++	path := filepath.Join(d, "ddospot.json")
++	ev := readLines(t, path)
++	full := count(ev, func(e map[string]any) bool {
++		return e["event"] == FullEvent && e["kind"] == "peticiones UDP" && e["max_bytes"] == float64(100000) && e["kind_bytes"] == float64(60000)
++	})
++	if full != 1 || ev[len(ev)-1]["tcp"] != float64(1) || len(ev) < 55 {
++		t.Fatalf("%d lines, log_full %d", len(ev), full)
++	}
++	if fi, _ := os.Stat(path); fi.Size() > 100000 {
++		t.Fatalf("%d bytes", fi.Size())
++	}
++	now = time.Date(2026, 10, 17, 0, 0, 1, 0, time.UTC)
++	if !w.Allow("ntpot.log") {
++		t.Fatal("Allow on the next day")
++	}
++	w.Write("ntpot.log", map[string]any{"n": 1})
++	w.Close()
++	if b, _ := os.ReadFile(path); strings.TrimSpace(string(b)) != `{"n":1}` {
++		t.Fatalf("next day: %q", b)
++	}
++	if old := readLines(t, path+".2026-10-16"); len(old) != len(ev) {
++		t.Fatalf("rotated %d lines", len(old))
++	}
++}
++
++// earlierRun leaves in dir the single file of an earlier run of the same
++// day, of size bytes (sparse: the writer only looks at its size and date).
++func earlierRun(t *testing.T, dir string, size int64, at time.Time) string {
++	t.Helper()
++	p := filepath.Join(dir, "ddospot.json")
++	f, err := os.Create(p)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if err := f.Truncate(size); err != nil {
++		t.Fatal(err)
++	}
++	f.Close()
++	if err := os.Chtimes(p, at, at); err != nil {
++		t.Fatal(err)
++	}
++	return p
++}
++
++// Tras un reinicio el mismo día, lo que escribió la ejecución anterior
++// cuenta una sola vez: entero en el tope y en la parte de las líneas, y en
++// las partes que llegan a lo largo del día (UDP y ráfagas) solo lo que ya
++// podían haber gastado. Al final del día eso es toda la de UDP: las UDP se
++// callan, y se dice en el resumen, mientras las TCP y las ráfagas siguen.
++func TestSingleFileCapCountsEarlierRun(t *testing.T) {
++	d := t.TempDir()
++	now := time.Date(2026, 10, 16, 23, 59, 59, 0, time.UTC)
++	earlierRun(t, d, 70000, now.Add(-time.Hour))
++	w, _ := Open(d, func() time.Time { return now })
++	w.Single("ddospot.json")
++	w.Cap(100000)
++	w.Write("dnspot.log", map[string]any{"udp": 1})
++	if w.bytes != 70000 || w.used[unverified] != 59999 || w.used[targetKind] != 70000-59999 {
++		t.Fatalf("bytes %d, udp %d, ráfagas %d", w.bytes, w.used[unverified], w.used[targetKind])
++	}
++	tcp := Origin{Src: netip.MustParseAddr("10.0.0.5"), Verified: true}
++	w.WriteFrom("dnspot.log", tcp, map[string]any{"tcp": 1})
++	w.Write("targets.log", map[string]any{"event": "attack_start"})
++	w.Notice(0)
++	w.Close()
++	b, _ := os.ReadFile(filepath.Join(d, "ddospot.json"))
++	lines := strings.Split(strings.TrimSpace(string(b[70000:])), "\n")
++	if len(lines) != 3 || lines[0] != `{"tcp":1}` || lines[1] != `{"event":"attack_start"}` ||
++		!strings.Contains(lines[2], `"dropped_udp":1`) || !strings.Contains(lines[2], `"limits":"reparto del día"`) {
++		t.Fatalf("%q", lines)
++	}
++}
++
++// Hallazgo: al reiniciar el mismo día, todo lo ya escrito (también las
++// líneas TCP y los avisos) se cobraba a la parte UDP, que llega a lo largo
++// del día, y con una inundación pasaban horas sin una línea UDP (a las
++// 15:00, hasta las 18:25). Ahora a UDP solo se le cobra lo que podía haber
++// gastado a esa hora, y su parte crece cada segundo: con la inundación
++// siguiendo, hay líneas UDP en los primeros segundos y en cada diez
++// minutos, las TCP siguen, y la mañana no se cuenta dos veces.
++func TestRestartSameDayKeepsUDPUnderFlood(t *testing.T) {
++	const capBytes = 50 << 20
++	for _, tc := range []struct {
++		name string
++		at   time.Time
++		size func(w *Writer, now time.Time) int64
++	}{
++		// Inundación UDP desde medianoche, gastando su parte al ritmo
++		// del día, más 3,2 MB de TCP y 172 KB de avisos.
++		{"15:00 tras inundación UDP y TCP", time.Date(2026, 10, 16, 15, 0, 0, 0, time.UTC),
++			func(w *Writer, now time.Time) int64 { return w.limitOf(unverified, now) + 3198089 + 172325 }},
++		// Una mañana de TCP sin inundación: más que las partes de UDP y
++		// ráfagas juntas a esa hora.
++		{"06:00 tras una mañana de TCP", time.Date(2026, 10, 16, 6, 0, 0, 0, time.UTC),
++			func(*Writer, time.Time) int64 { return 30 << 20 }},
++	} {
++		t.Run(tc.name, func(t *testing.T) {
++			d := t.TempDir()
++			now := tc.at
++			w, _ := Open(d, func() time.Time { return now })
++			w.Single("ddospot.json")
++			w.Cap(capBytes)
++			size := tc.size(w, now)
++			earlierRun(t, d, size, now.Add(-time.Minute))
++			var firstUDP time.Time
++			var windows [6]int // UDP lines in each ten minutes of the hour
++			tcpLines, n := 0, 0
++			for s := 0; s < 3600; s++ {
++				for i := 0; i < 4; i++ { // new forged sources, 4 a second
++					n++
++					src := netip.AddrFrom4([4]byte{byte(1 + n>>24), byte(n >> 16), byte(n >> 8), byte(n)})
++					o := Origin{Src: src}
++					if w.AllowFrom("ntpot.log", o) {
++						before := w.used[unverified]
++						w.WriteFrom("ntpot.log", o, request(src, false, 400, now))
++						if w.used[unverified] > before {
++							windows[s/600]++
++							if firstUDP.IsZero() {
++								firstUDP = now
++							}
++						}
++					}
++				}
++				if s%10 == 0 {
++					src := netip.AddrFrom4([4]byte{10, 0, byte(s >> 8), byte(s)})
++					o := Origin{Src: src, Verified: true}
++					before := w.used[verified]
++					if w.AllowFrom("dnspot.log", o) {
++						w.WriteFrom("dnspot.log", o, request(src, true, 600, now))
++					}
++					if w.used[verified] > before {
++						tcpLines++
++					}
++				}
++				if s == 0 {
++					// The earlier bytes count once: whole in the cap, and in
++					// the paced shares no more than they had come by now.
++					if w.bytes < size || w.used[unverified] > w.limitOf(unverified, now) ||
++						w.used[targetKind] > w.limitOf(targetKind, now) || w.used[unverified]+w.used[targetKind] > size {
++						t.Fatalf("bytes %d de %d, udp %d (hasta %d), ráfagas %d (hasta %d)", w.bytes, size,
++							w.used[unverified], w.limitOf(unverified, now), w.used[targetKind], w.limitOf(targetKind, now))
++					}
++				}
++				if s%60 == 59 {
++					w.Notice(0)
++				}
++				now = now.Add(time.Second)
++			}
++			w.Close()
++			if firstUDP.IsZero() || firstUDP.Sub(tc.at) > 5*time.Second {
++				t.Fatalf("primera línea UDP a las %v tras reiniciar a las %v", firstUDP.Format("15:04:05"), tc.at.Format("15:04:05"))
++			}
++			for i, c := range windows {
++				if c == 0 {
++					t.Fatalf("sin líneas UDP entre el minuto %d y el %d: %v", i*10, i*10+10, windows)
++				}
++			}
++			if tcpLines != 360 {
++				t.Fatalf("%d de 360 peticiones TCP", tcpLines)
++			}
++			if fi, _ := os.Stat(filepath.Join(d, "ddospot.json")); fi.Size() > capBytes {
++				t.Fatalf("%d bytes, más que el tope", fi.Size())
++			}
++			t.Logf("primera UDP %v, UDP cada diez minutos %v", firstUDP.Format("15:04:05"), windows)
++		})
++	}
++}
++
++// Sin nada callado no hay resumen; con tablas llenas en el limitador, sí.
++func TestNoticeOnlyWhenSomethingIsLeftOut(t *testing.T) {
++	d := t.TempDir()
++	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
++	w, _ := Open(d, func() time.Time { return now })
++	w.Notice(5) // five files: no notices
++	w.Single("ddospot.json")
++	w.Cap(50 << 20)
++	w.Write("ssdpot.log", map[string]any{"a": 1})
++	w.Notice(0)
++	w.Notice(7)
++	w.Notice(0)
++	w.Close()
++	w.Notice(9)
++	ev := readLines(t, filepath.Join(d, "ddospot.json"))
++	if len(ev) != 2 || ev[1]["event"] != DroppedEvent || ev[1]["untracked"] != float64(7) || ev[1]["dropped"] != float64(0) ||
++		ev[1]["time"] != "2026-10-16 12:00:00.000000" {
++		t.Fatalf("%v", ev)
++	}
++	if _, err := os.Stat(filepath.Join(d, "ssdpot.log")); err == nil {
++		t.Fatal("five-file notice")
++	}
++}
+diff --git a/internal/limit/limit.go b/internal/limit/limit.go
+index 81a62c6..dab3f1f 100644
+--- a/internal/limit/limit.go
++++ b/internal/limit/limit.go
+@@ -33,6 +33,33 @@ type Config struct {
+ 	GlobalPPS, GlobalBPS float64
+ 	MaxSources, MaxNets  int
+ 	MaxTCPSources        int
++	// LogBlocked (Sugardaddy): sources of a blocked network are still
++	// classified and reported, as scanners and as targets. Their answers do
++	// not change: a blocked network gets none.
++	LogBlocked bool
++	// LogRequests (Sugardaddy): every packet of a source within its budget
++	// goes to the observer as a request, if it is a Requester.
++	LogRequests bool
++	// PerSourcePrivate and PerNetPrivate (Sugardaddy), when not 0, are the
++	// budgets of private sources (10/8, 172.16/12, 192.168/16, fc00::/7):
++	// on an internal network the hosts share one /24, and one port scan
++	// would otherwise silence the pots for all of them.
++	PerSourcePrivate, PerNetPrivate int
++}
++
++// budgets returns the source and network budgets of addr.
++func (l *Limiter) budgets(addr netip.Addr) (perSource, perNet uint64) {
++	if l.cfg.PerSourcePrivate > 0 && addr.IsPrivate() {
++		return uint64(l.cfg.PerSourcePrivate), uint64(l.cfg.PerNetPrivate)
++	}
++	return uint64(l.cfg.PerSource), uint64(l.cfg.PerNet)
++}
++
++// Requester is an Observer that also takes every request of a source
++// within its budget (Config.LogRequests): the Source has the packet as its
++// Sample, its port, and the number of the packet in Packets.
++type Requester interface {
++	Request(Source)
+ }
+ 
+ // Defaults returns the standard budgets with the given classification hold.
+@@ -130,6 +157,20 @@ type Limiter struct {
+ 	netQ    *list.List // *netEntry, oldest Last first
+ 	pkts    *bucket.Bucket
+ 	byts    *bucket.Bucket
++	// untracked counts the packets of new sources that found a table full
++	// (Sugardaddy): they get no answer and no line.
++	untracked uint64
++}
++
++// Untracked returns the packets of new sources that got neither an answer
++// nor a line because a table was full since the last call, and resets the
++// count (Sugardaddy), so that the log can say what it could not hold.
++func (l *Limiter) Untracked() uint64 {
++	l.mu.Lock()
++	defer l.mu.Unlock()
++	n := l.untracked
++	l.untracked = 0
++	return n
+ }
+ 
+ // New returns a Limiter reading time from now and reporting to obs. The
+@@ -193,7 +234,8 @@ func (l *Limiter) Over(p Proto, src netip.AddrPort, tcp bool) bool {
+ 	if e == nil && len(table) >= capacity {
+ 		return true
+ 	}
+-	if e != nil && e.Packets >= uint64(l.cfg.PerSource) {
++	perSource, perNet := l.budgets(addr)
++	if e != nil && e.Packets >= perSource {
+ 		return true
+ 	}
+ 	if tcp {
+@@ -203,7 +245,7 @@ func (l *Limiter) Over(p Proto, src netip.AddrPort, tcp bool) bool {
+ 	if n == nil {
+ 		return len(l.nets) >= l.cfg.MaxNets
+ 	}
+-	return n.blocked || n.Packets >= uint64(l.cfg.PerNet)
++	return n.blocked || n.Packets >= perNet
+ }
+ 
+ // liveNet returns the current net entry of a UDP source (e may be nil for
+@@ -239,12 +281,14 @@ func (l *Limiter) Admit(p Proto, src netip.AddrPort, s Sample, datagrams, bytes
+ 		table, capacity := l.table(tcp)
+ 		e := table[key]
+ 		if e == nil && len(table) >= capacity {
++			l.untracked++
+ 			return false
+ 		}
+ 		var n *netEntry
+ 		if !tcp {
+ 			if n = l.liveNet(e, addr); n == nil {
+ 				if len(l.nets) >= l.cfg.MaxNets {
++					l.untracked++
+ 					return false
+ 				}
+ 				n = &netEntry{Net: Net{Prefix: netOf(addr), First: now}}
+@@ -271,15 +315,27 @@ func (l *Limiter) Admit(p Proto, src netip.AddrPort, s Sample, datagrams, bytes
+ 		}
+ 		e.Last = now
+ 		e.Packets++
+-		overSource := e.Packets > uint64(l.cfg.PerSource)
++		perSource, perNet := l.budgets(addr)
++		overSource := e.Packets > perSource
++		request := func() {
++			if r, ok := l.obs.(Requester); ok && l.cfg.LogRequests && !overSource {
++				snap := e.Source
++				snap.Port, snap.Sample = src.Port(), cloneSample(s)
++				calls = append(calls, func() { r.Request(snap) })
++			}
++		}
+ 		if tcp {
++			request()
+ 			return !overSource
+ 		}
+ 		n.Last = now
+ 		n.Packets++
+ 		l.netQ.MoveToBack(n.elem)
++		if !n.blocked || l.cfg.LogBlocked {
++			request()
++		}
+ 
+-		if n.blocked {
++		if n.blocked && !l.cfg.LogBlocked {
+ 			return false
+ 		}
+ 		if overSource && e.class != target {
+@@ -292,7 +348,10 @@ func (l *Limiter) Admit(p Proto, src netip.AddrPort, s Sample, datagrams, bytes
+ 			snap := e.Source
+ 			calls = append(calls, func() { l.obs.TargetStart(snap) })
+ 		}
+-		if n.Packets > uint64(l.cfg.PerNet) {
++		if n.blocked {
++			return false
++		}
++		if n.Packets > perNet {
+ 			n.blocked = true
+ 			snap := n.Net
+ 			calls = append(calls, func() { l.obs.NetStart(snap) })
+@@ -325,7 +384,7 @@ func (l *Limiter) Tick() {
+ 		l.pendQ.Remove(f)
+ 		e.pend = nil
+ 		e.class = scanner
+-		if e.net == nil || !e.net.blocked {
++		if e.net == nil || !e.net.blocked || l.cfg.LogBlocked {
+ 			snap := e.Source
+ 			calls = append(calls, func() { l.obs.Scanner(snap) })
+ 		}
+@@ -376,7 +435,7 @@ func (l *Limiter) Flush() {
+ 		switch {
+ 		case e.announced:
+ 			calls = append(calls, func() { l.obs.TargetEnd(snap) })
+-		case e.class == pending && (e.net == nil || !e.net.blocked):
++		case e.class == pending && (e.net == nil || !e.net.blocked || l.cfg.LogBlocked):
+ 			calls = append(calls, func() { l.obs.Scanner(snap) })
+ 		}
+ 	}
+diff --git a/internal/limit/sugardaddy_test.go b/internal/limit/sugardaddy_test.go
+new file mode 100644
+index 0000000..650abd6
+--- /dev/null
++++ b/internal/limit/sugardaddy_test.go
+@@ -0,0 +1,123 @@
++package limit
++
++import (
++	"net/netip"
++	"testing"
++	"time"
++)
++
++// With LogBlocked a noisy source of a blocked network is still a target,
++// and a quiet one still a scanner; neither gets an answer.
++func TestLogBlocked(t *testing.T) {
++	c := &clock{t: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
++	r := &rec{}
++	cfg := Defaults(10 * time.Second)
++	cfg.LogBlocked = true
++	l := New(cfg, func() time.Time { return c.t }, r)
++	for i := 0; i < 21; i++ { // one source blocks its /24
++		l.Admit(DNS, ap("10.20.0.5:4000"), Sample{}, 1, 50)
++	}
++	if len(r.nstart) != 1 || len(r.tstart) != 1 {
++		t.Fatalf("net %d target %d", len(r.nstart), len(r.tstart))
++	}
++	if l.Admit(NTP, ap("10.20.0.7:4000"), Sample{}, 1, 48) {
++		t.Fatal("answered in a blocked network")
++	}
++	for i := 0; i < 6; i++ {
++		l.Admit(SSDP, ap("10.20.0.8:4000"), Sample{}, 1, 300)
++	}
++	c.t = c.t.Add(11 * time.Second)
++	l.Tick()
++	got := map[netip.Addr]bool{}
++	for _, s := range r.scanner {
++		got[s.Addr] = true
++	}
++	if !got[netip.MustParseAddr("10.20.0.7")] || len(r.tstart) != 2 || r.tstart[1].Addr != netip.MustParseAddr("10.20.0.8") {
++		t.Fatalf("scanners %v targets %v", r.scanner, r.tstart)
++	}
++}
++
++type reqRec struct {
++	rec
++	reqs []Source
++}
++
++func (r *reqRec) Request(s Source) { r.reqs = append(r.reqs, s) }
++
++// With LogRequests every packet within the budget of its source is a
++// request, with its own sample and port; the packets beyond it are not.
++func TestLogRequests(t *testing.T) {
++	c := &clock{t: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
++	r := &reqRec{}
++	cfg := Defaults(10 * time.Second)
++	cfg.LogRequests = true
++	l := New(cfg, func() time.Time { return c.t }, r)
++	for i := 0; i < 7; i++ {
++		l.Admit(DNS, netip.AddrPortFrom(netip.MustParseAddr("10.20.0.5"), uint16(4000+i)),
++			Sample{Transport: "udp", Req: []byte{byte(i)}, Fields: map[string]any{"dns_name": i}}, 1, 50)
++	}
++	for i := 0; i < 7; i++ {
++		l.Admit(DNS, ap("10.30.0.5:5000"), Sample{Transport: "tcp", Req: []byte{9}}, 1, 50)
++	}
++	if len(r.reqs) != 10 || len(r.tstart) != 1 {
++		t.Fatalf("requests %d targets %d", len(r.reqs), len(r.tstart))
++	}
++	q := r.reqs[4]
++	if q.Packets != 5 || q.Port != 4004 || q.Sample.Fields["dns_name"] != 4 || q.Sample.Req[0] != 4 {
++		t.Fatalf("%+v", q)
++	}
++	if r.reqs[9].Sample.Transport != "tcp" || r.reqs[9].Packets != 5 {
++		t.Fatalf("%+v", r.reqs[9])
++	}
++}
++
++// Private sources get the private budgets; public ones keep theirs.
++func TestPrivateBudgets(t *testing.T) {
++	c := &clock{t: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
++	r := &rec{}
++	cfg := Defaults(10 * time.Second)
++	cfg.PerSourcePrivate, cfg.PerNetPrivate = 20, 200
++	l := New(cfg, func() time.Time { return c.t }, r)
++	answered := func(src string, n int) (k int) {
++		for i := 0; i < n; i++ {
++			if l.Admit(NTP, ap(src), Sample{}, 1, 48) {
++				k++
++			}
++		}
++		return k
++	}
++	if k := answered("10.20.0.5:4000", 30); k != 20 || len(r.tstart) != 1 {
++		t.Fatalf("private: %d answers, %d targets", k, len(r.tstart))
++	}
++	if l.Over(NTP, ap("10.20.0.6:4000"), false) || !l.Over(NTP, ap("10.20.0.5:4000"), false) {
++		t.Fatal("Over does not follow the private budgets")
++	}
++	c.t = c.t.Add(2 * time.Second) // the global budget fills again
++	if k := answered("198.51.100.5:4000", 10); k != 5 || len(r.tstart) != 2 {
++		t.Fatalf("public: %d answers, %d targets", k, len(r.tstart))
++	}
++	if len(r.nstart) != 0 {
++		t.Fatalf("network blocked: %v", r.nstart)
++	}
++}
++
++// Con la tabla de orígenes llena, los nuevos ni se contestan ni se apuntan:
++// el limitador lo cuenta para que el registro lo diga en su resumen.
++func TestUntrackedCountsFullTables(t *testing.T) {
++	cfg := Defaults(10 * time.Second)
++	cfg.MaxSources, cfg.MaxNets, cfg.MaxTCPSources = 2, 100, 1
++	l := New(cfg, time.Now, &rec{})
++	s := Sample{Transport: "udp", Req: []byte{1}}
++	for i := 0; i < 5; i++ {
++		l.Admit(NTP, netip.AddrPortFrom(netip.AddrFrom4([4]byte{192, 0, 2, byte(i)}), 123), s, 1, 48)
++	}
++	tcp := Sample{Transport: "tcp", Req: []byte{1}}
++	l.Admit(DNS, netip.MustParseAddrPort("192.0.2.9:4000"), tcp, 0, 0)
++	l.Admit(DNS, netip.MustParseAddrPort("192.0.2.10:4000"), tcp, 0, 0)
++	if n := l.Untracked(); n != 4 {
++		t.Fatalf("untracked %d, want 4", n)
++	}
++	if n := l.Untracked(); n != 0 {
++		t.Fatalf("not reset: %d", n)
++	}
++}
+diff --git a/internal/ntp/ntp.go b/internal/ntp/ntp.go
+index b55a725..40e9f44 100644
+--- a/internal/ntp/ntp.go
++++ b/internal/ntp/ntp.go
+@@ -12,6 +12,7 @@ import (
+ 	"sync"
+ 	"time"
+ 
++	"github.com/telekom-security/ddospot/internal/amp"
+ 	"github.com/telekom-security/ddospot/internal/limit"
+ 	"github.com/telekom-security/ddospot/internal/persona"
+ 	"github.com/telekom-security/ddospot/internal/udp"
+@@ -134,6 +135,9 @@ func modeName(req []byte) string {
+ type Server struct {
+ 	conn *net.UDPConn
+ 	lim  *limit.Limiter
++	// Guard (Sugardaddy) keeps answers larger than their requests from
++	// public sources; nil answers everyone. Set it before Serve.
++	Guard *amp.Guard
+ 
+ 	mu    sync.Mutex // guards rng, steps and h
+ 	rng   *rand.Rand
+@@ -181,6 +185,13 @@ func (s *Server) handle(req []byte, src netip.AddrPort) {
+ 	for _, d := range resp {
+ 		sum += len(d)
+ 	}
++	if !s.Guard.Allow(src.Addr(), len(req), sum) {
++		// Sugardaddy: READVAR and monlist to a public source, counted
++		// with no answer.
++		sample := limit.Sample{Transport: "udp", Req: req, Fields: map[string]any{"mode": mode, "amp_guard": amp.Dropped}}
++		s.lim.Admit(limit.NTP, src, sample, 0, 0)
++		return
++	}
+ 	sample := limit.Sample{Transport: "udp", Req: req, RespSize: sum, Fields: map[string]any{"mode": mode}}
+ 	if !s.lim.Admit(limit.NTP, src, sample, len(resp), sum) {
+ 		return
+diff --git a/internal/ntp/sugardaddy_test.go b/internal/ntp/sugardaddy_test.go
+new file mode 100644
+index 0000000..ec6babe
+--- /dev/null
++++ b/internal/ntp/sugardaddy_test.go
+@@ -0,0 +1,39 @@
++package ntp
++
++import (
++	"net/netip"
++	"testing"
++
++	"github.com/telekom-security/ddospot/internal/amp"
++	"github.com/telekom-security/ddospot/internal/testutil"
++)
++
++var monlist48 = append([]byte{0x17, 0x00, 0x03, 0x2a}, make([]byte, 44)...)
++
++// From a public source (here loopback, made a proxy) mode 3 is answered,
++// 48 bytes for 48; monlist and READVAR, larger than their requests, are
++// counted with no answer. Loopback as it is gets them.
++func TestGuardNTP(t *testing.T) {
++	srv, cli := testutil.UDPPair(t)
++	lim, obs := testutil.RequestLimiter()
++	s := New(srv, lim, per("centos7"))
++	s.Guard = amp.New(false, nil, netip.MustParseAddr("127.0.0.1"))
++	go s.Serve()
++	readvar := []byte{0x16, 0x02, 0x00, 0x01, 0, 0, 0, 0, 0, 0, 0, 0}
++	if !answered(t, cli, client(4)) || answered(t, cli, monlist48) || answered(t, cli, readvar) {
++		t.Fatal("public source")
++	}
++	r := obs.Requests()
++	if len(r) != 3 || r[0].Sample.Fields["amp_guard"] != nil || r[1].Sample.Fields["amp_guard"] != amp.Dropped ||
++		r[1].Sample.Fields["mode"] != "MONLIST" || r[1].Sample.RespSize != 0 || r[2].Sample.Fields["mode"] != "CONTROL" {
++		t.Fatalf("%+v", r)
++	}
++
++	srv2, cli2 := testutil.UDPPair(t)
++	s2 := New(srv2, lim, per("centos7"))
++	s2.Guard = amp.New(false, nil)
++	go s2.Serve()
++	if !answered(t, cli2, monlist48) || !answered(t, cli2, readvar) {
++		t.Fatal("private source")
++	}
++}
+diff --git a/internal/persona/persona.go b/internal/persona/persona.go
+index 31059e5..51d2ad1 100644
+--- a/internal/persona/persona.go
++++ b/internal/persona/persona.go
+@@ -92,11 +92,28 @@ func Roll(r *rand.Rand) Persona { return RollAt(r, time.Now()) }
+ 
+ // RollAt is Roll with the boot time counted back from now: the same seed
+ // and the same now give the same persona.
+-func RollAt(r *rand.Rand, now time.Time) Persona {
++func RollAt(r *rand.Rand, now time.Time) Persona { return RollFixed(r, now, "", "", netip.Addr{}) }
++
++// RollFixed is RollAt with the profile, the host name and the LAN address
++// chosen by the caller (Sugardaddy); an empty value is rolled as in RollAt.
++// The random numbers are drawn in the same order either way, so the other
++// details stay those of the same seed.
++func RollFixed(r *rand.Rand, now time.Time, id, hostname string, lan netip.Addr) Persona {
+ 	cat := Catalog()
+ 	p := Persona{Profile: cat[r.Intn(len(cat))]}
++	for _, c := range cat {
++		if c.ID == id {
++			p.Profile = c
++		}
++	}
+ 	p.Hostname = hostnames[r.Intn(len(hostnames))]
++	if hostname != "" {
++		p.Hostname = hostname
++	}
+ 	p.LAN = rollLAN(r)
++	if lan.Is4() {
++		p.LAN = lan
++	}
+ 
+ 	upstream := serversOfStratum(p.NTP.Stratum - 1)
+ 	p.RefID = upstream[r.Intn(len(upstream))]
+diff --git a/internal/ssdp/ssdp.go b/internal/ssdp/ssdp.go
+index e5416b4..fba0cd0 100644
+--- a/internal/ssdp/ssdp.go
++++ b/internal/ssdp/ssdp.go
+@@ -13,6 +13,7 @@ import (
+ 	"sync"
+ 	"time"
+ 
++	"github.com/telekom-security/ddospot/internal/amp"
+ 	"github.com/telekom-security/ddospot/internal/limit"
+ 	"github.com/telekom-security/ddospot/internal/persona"
+ 	"github.com/telekom-security/ddospot/internal/udp"
+@@ -326,6 +327,9 @@ type Server struct {
+ 	conn *net.UDPConn
+ 	lim  *limit.Limiter
+ 	p    *persona.Persona
++	// Guard (Sugardaddy) keeps answers larger than their requests from
++	// public sources; nil answers everyone. Set it before Serve.
++	Guard *amp.Guard
+ 
+ 	mu     sync.Mutex // guards rng, timers and closed
+ 	rng    *rand.Rand
+@@ -392,6 +396,12 @@ func (s *Server) handle(req []byte, src netip.AddrPort) {
+ 	for _, d := range resp {
+ 		sum += len(d)
+ 	}
++	if !s.Guard.Allow(src.Addr(), len(req), sum) {
++		// Sugardaddy: an M-SEARCH of a public source, counted with no answer.
++		f := map[string]any{"st": cutField(r.ST), "mx": cutField(r.MXRaw), "amp_guard": amp.Dropped}
++		s.lim.Admit(limit.SSDP, src, limit.Sample{Transport: "udp", Req: req, Fields: f}, 0, 0)
++		return
++	}
+ 	sample := limit.Sample{Transport: "udp", Req: req, RespSize: sum, Fields: map[string]any{"st": cutField(r.ST), "mx": cutField(r.MXRaw)}}
+ 	if !s.lim.Admit(limit.SSDP, src, sample, len(resp), sum) {
+ 		return
+diff --git a/internal/ssdp/sugardaddy_test.go b/internal/ssdp/sugardaddy_test.go
+new file mode 100644
+index 0000000..746d4bf
+--- /dev/null
++++ b/internal/ssdp/sugardaddy_test.go
+@@ -0,0 +1,32 @@
++package ssdp
++
++import (
++	"net/netip"
++	"testing"
++	"time"
++
++	"github.com/telekom-security/ddospot/internal/amp"
++	"github.com/telekom-security/ddospot/internal/testutil"
++)
++
++// An M-SEARCH of a public source (loopback made a proxy) is counted with no
++// answer; one of a private source (loopback as it is) is answered.
++func TestGuardSSDP(t *testing.T) {
++	for _, c := range []struct {
++		proxies []netip.Addr
++		want    bool
++	}{{[]netip.Addr{netip.MustParseAddr("127.0.0.1")}, false}, {nil, true}} {
++		srv, cli := testutil.UDPPair(t)
++		lim, obs := testutil.RequestLimiter()
++		s := New(srv, lim, per("centos7"))
++		s.Guard = amp.New(false, nil, c.proxies...)
++		go s.Serve()
++		cli.Write(msearch("ssdp:all", "1"))
++		got := testutil.ReadTimeout(cli, 3*time.Second) > 0
++		s.Close()
++		r := obs.Requests()
++		if got != c.want || len(r) != 1 || (r[0].Sample.Fields["amp_guard"] == amp.Dropped) == c.want || r[0].Sample.Fields["st"] != "ssdp:all" {
++			t.Fatalf("proxies %v: answered %v, %+v", c.proxies, got, r)
++		}
++	}
++}
+diff --git a/internal/testutil/sugardaddy.go b/internal/testutil/sugardaddy.go
+new file mode 100644
+index 0000000..7de0a11
+--- /dev/null
++++ b/internal/testutil/sugardaddy.go
+@@ -0,0 +1,38 @@
++package testutil
++
++import (
++	"sync"
++	"time"
++
++	"github.com/telekom-security/ddospot/internal/limit"
++)
++
++// ReqObs is a limit.Observer and limit.Requester that keeps every request
++// (Sugardaddy). It is safe for concurrent use.
++type ReqObs struct {
++	NopObs
++	mu   sync.Mutex
++	reqs []limit.Source
++}
++
++func (r *ReqObs) Request(s limit.Source) {
++	r.mu.Lock()
++	defer r.mu.Unlock()
++	r.reqs = append(r.reqs, s)
++}
++
++// Requests returns the requests kept so far.
++func (r *ReqObs) Requests() []limit.Source {
++	r.mu.Lock()
++	defer r.mu.Unlock()
++	return append([]limit.Source(nil), r.reqs...)
++}
++
++// RequestLimiter returns a limiter with the standard budgets that reports
++// every request to the returned ReqObs.
++func RequestLimiter() (*limit.Limiter, *ReqObs) {
++	obs := &ReqObs{}
++	cfg := limit.Defaults(time.Minute)
++	cfg.LogRequests = true
++	return limit.New(cfg, time.Now, obs), obs
++}

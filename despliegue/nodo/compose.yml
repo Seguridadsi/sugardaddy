@@ -1,0 +1,193 @@
+# Nodo de Sugardaddy en casa del cliente. Lo arranca instalar.sh:
+#   docker compose --env-file .env --env-file versiones.env up -d
+#
+# versiones.env (qué imagen lleva cada servicio) lo reescribe el actualizador
+# tras cada versión instalada; .env (secretos y ajustes) lo genera instalar.sh.
+name: sugardaddy
+
+x-endurecido: &endurecido
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  restart: unless-stopped
+  # Registros de Docker con tope: por defecto crecen sin fin en la máquina del cliente.
+  logging:
+    driver: json-file
+    options: { max-size: 10m, max-file: '3' }
+
+services:
+  postgres:
+    <<: *endurecido
+    image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+    # Postgres necesita algunas capacidades para cambiar al usuario postgres al arrancar.
+    cap_drop: []
+    environment:
+      POSTGRES_USER: sugardaddy
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?falta en .env}
+      POSTGRES_DB: consola
+    volumes:
+      - datos-postgres:/var/lib/postgresql/data
+    tmpfs: [/tmp, /var/run/postgresql]
+    networks: [interna]
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U sugardaddy -d consola']
+      interval: 5s
+      retries: 20
+
+  consola:
+    <<: *endurecido
+    image: ${CONSOLA_IMAGEN:?falta en versiones.env}
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment:
+      DATABASE_URL: postgres://sugardaddy:${POSTGRES_PASSWORD}@postgres:5432/consola
+      ORIGIN: ${CONSOLA_URL:?falta en .env}
+      # La IP del navegador es la que pone Caddy, el único que llega a la
+      # consola, al final de X-Forwarded-For («Probar» la propone).
+      ADDRESS_HEADER: X-Forwarded-For
+      XFF_DEPTH: '1'
+      NODO_ID: ${NODO_ID:?falta en .env}
+      NODO_NOMBRE: ${NODO_NOMBRE:?falta en .env}
+      SENSOR_LOCAL_TOKEN: ${SENSOR_LOCAL_TOKEN}
+      ACTUALIZADOR_TOKEN: ${ACTUALIZADOR_TOKEN}
+      PUBLICACION_CLAVE_PUBLICA: ${PUBLICACION_CLAVE_PUBLICA}
+      # Cifra los secretos que el cliente pone en su consola (avisos y SIEM).
+      # La generan instalar.sh y, en un nodo de antes, el actualizador
+      # (entorno.json); vacía, la consola no guarda secretos.
+      CLAVE_SECRETOS: ${CLAVE_SECRETOS:-}
+      ENTRA_TENANT_ID: ${ENTRA_TENANT_ID:-}
+      ENTRA_CLIENT_ID: ${ENTRA_CLIENT_ID:-}
+      ENTRA_CLIENT_SECRET: ${ENTRA_CLIENT_SECRET:-}
+      ENTRA_GRUPO_CLIENTE: ${ENTRA_GRUPO_CLIENTE:-}
+      ENTRA_GRUPO_SOPORTE: ${ENTRA_GRUPO_SOPORTE:-}
+      PANEL_HTTP_PERMITIDO: ${PANEL_HTTP_PERMITIDO:-}
+      # Alta automática en el panel la primera vez (la deja el instalador).
+      PANEL_URL: ${PANEL_URL:-}
+      PANEL_ALTA_CODIGO: ${PANEL_ALTA_CODIGO:-}
+      # Para las líneas de instalación de sensores en otras máquinas: estos
+      # tienen que confiar en el HTTPS de la consola.
+      TLS_MODO: ${TLS_MODO:-interno}
+      CA_RAIZ: /ca/ca-raiz.crt
+    volumes:
+      # La raíz (pública) de la CA del nodo, que copia ahí el instalador o el
+      # auxiliar: la carpeta de Caddy solo la lee root y nunca entra aquí.
+      - ./ca-raiz.crt:/ca/ca-raiz.crt:ro
+    tmpfs: [/tmp]
+    # Sin puertos propios: se entra por https, a través de Caddy.
+    # Puede salir a internet: es la que habla con el panel central y con las
+    # herramientas del cliente (su SIEM, su correo…).
+    networks: [interna, nodo]
+    labels:
+      sugardaddy.servicio: consola
+      sugardaddy.salud: http://consola:3000/api/salud
+    # Lo que espera compose (up --wait) al aplicar una versión: que responda de verdad.
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://localhost:3000/api/salud').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
+        ]
+      interval: 5s
+      timeout: 4s
+      retries: 30
+      start_period: 20s
+
+  https:
+    <<: *endurecido
+    image: caddy:2-alpine@sha256:d8542f48d34a9cf4e4c11a478865229840e87e4c96ea3f439101f31a5d35f75f
+    depends_on: [consola]
+    # Escuchar en el 443 necesita esta capacidad, y ninguna más.
+    cap_add: [NET_BIND_SERVICE]
+    environment:
+      CONSOLA_DOMINIO: ${CONSOLA_DOMINIO:?falta en .env}
+      TLS_MODO: ${TLS_MODO:-interno}
+    ports:
+      - '${CONSOLA_ESCUCHA:-0.0.0.0}:${CONSOLA_PUERTO:-443}:443'
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./certs:/certs:ro
+      - datos-caddy:/data
+    tmpfs: [/config]
+    networks: [nodo]
+
+  sensor:
+    <<: *endurecido
+    image: ${SENSOR_IMAGEN:?falta en versiones.env}
+    depends_on: [consola]
+    # Para liberar lo ya leído de los registros de las trampas, que escribe el
+    # usuario de cada honeypot y no el del sensor; si no, el tope de disco de
+    # cada trampa no funciona. Con el socket de Docker ya equivale a root.
+    cap_add: [DAC_OVERRIDE]
+    command:
+      - -consola=http://consola:3000
+      - -datos=${DATOS:?falta en .env}/sensor
+      - -escucha=${TRAMPAS_ESCUCHA:-0.0.0.0}
+      - -desplazar=${TRAMPAS_DESPLAZAR:-0}
+      - -salud=:9100
+    environment:
+      SUGARDADDY_TOKEN: ${SENSOR_LOCAL_TOKEN}
+      # Con su propia imagen comprueba que las trampas no se ven entre sí.
+      SENSOR_IMAGEN: ${SENSOR_IMAGEN}
+      # Las imágenes de las trampas propias están en el registro privado (solo lectura).
+      REGISTRO: ${REGISTRO:-ghcr.io}
+      REGISTRO_USUARIO: ${REGISTRO_USUARIO:-}
+      REGISTRO_TOKEN: ${REGISTRO_TOKEN:-}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Misma ruta dentro y fuera: el sensor monta en las trampas carpetas
+      # que el motor de Docker tiene que encontrar en el anfitrión.
+      - ${DATOS}/sensor:${DATOS}/sensor
+    networks: [nodo]
+    labels:
+      sugardaddy.servicio: sensor
+      sugardaddy.salud: http://sensor:9100/salud
+    healthcheck:
+      test: ['CMD', '/app', 'salud', 'http://localhost:9100/salud']
+      interval: 5s
+      timeout: 4s
+      retries: 30
+      start_period: 30s
+
+  actualizador:
+    <<: *endurecido
+    # En versiones.env: las versiones firmadas también cambian el actualizador.
+    image: ${ACTUALIZADOR_IMAGEN:?falta en versiones.env}
+    depends_on: [consola]
+    command:
+      - -consola=http://consola:3000
+      - -versiones=/nodo/versiones.env
+      - -salud=:9101
+    environment:
+      ACTUALIZADOR_TOKEN: ${ACTUALIZADOR_TOKEN}
+      # La carpeta del nodo vista desde el anfitrión: la necesita el auxiliar
+      # que aplica la configuración, que la monta en la misma ruta.
+      NODO_DIR: ${NODO_DIR}
+      PUBLICACION_CLAVE_PUBLICA: ${PUBLICACION_CLAVE_PUBLICA}
+      # Para descargar las versiones nuevas de un registro privado (solo lectura).
+      REGISTRO: ${REGISTRO:-ghcr.io}
+      REGISTRO_USUARIO: ${REGISTRO_USUARIO:-}
+      REGISTRO_TOKEN: ${REGISTRO_TOKEN:-}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${NODO_DIR:?falta en .env}:/nodo
+    networks: [nodo]
+    labels:
+      sugardaddy.servicio: actualizador
+    healthcheck:
+      test: ['CMD', '/app', 'salud', 'http://localhost:9101/salud']
+      interval: 5s
+      timeout: 4s
+      retries: 12
+
+networks:
+  # Postgres solo es visible para la consola, y esta red no sale a internet.
+  interna:
+    internal: true
+  nodo: {}
+
+volumes:
+  datos-postgres: {}
+  # La CA interna del nodo: si se pierde, hay que volver a repartir su raíz.
+  datos-caddy: {}

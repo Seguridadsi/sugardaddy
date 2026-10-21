@@ -1,0 +1,49 @@
+# Construye las imágenes de las 9 trampas gratis desde su fuente, las publica en
+# el registro de contenedores de GitHub (ghcr.io/<org>) y fija en los manifiestos
+# el digest real de ghcr. Usa el GITHUB_TOKEN propio del repositorio: no hace
+# falta ningún token ni secreto aparte. Se lanza a mano (workflow_dispatch) para
+# no entrar en bucle con el commit de los digests.
+name: Publicar imágenes de las trampas
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  publicar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Entrar en ghcr.io
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Construir, publicar y fijar los digests
+        run: |
+          set -euo pipefail
+          org=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          for t in cowrie redis login-web dns-ntp impresora retencion-ssh retencion-web smb rdp; do
+            etq=$(tr -d '[:space:]' < "modulos/trampas/$t/imagen/etiqueta")
+            repo="ghcr.io/$org/sugardaddy-trampa-$t"
+            echo "::group::$t -> $repo:$etq"
+            tmp=$(mktemp -d)
+            "modulos/trampas/$t/imagen/preparar.sh" "$tmp/fuente"
+            df="$tmp/fuente/Dockerfile"; [ -f "$df" ] || df="$tmp/fuente/docker/Dockerfile"
+            docker build --platform linux/amd64 -t "$repo:$etq" -f "$df" "$tmp/fuente"
+            docker push "$repo:$etq"
+            digest=$(docker inspect --format='{{index .RepoDigests 0}}' "$repo:$etq" | sed 's/^[^@]*@//')
+            perl -pi -e "s{(imagen:\s*\Q$repo:$etq\E)\@sha256:[0-9a-f]{64}}{\${1}\@$digest}" "modulos/trampas/$t/trampa.yaml"
+            rm -rf "$tmp"
+            echo "::endgroup::"
+          done
+
+      - name: Confirmar los digests reales en los manifiestos
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add modulos/trampas/*/trampa.yaml
+          git commit -m "Fijar el digest real de ghcr de las imágenes de las trampas gratis" || echo "sin cambios que confirmar"
+          git push

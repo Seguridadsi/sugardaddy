@@ -1,0 +1,1 @@
+ALTER TABLE "sesiones" ADD COLUMN "soporte" boolean DEFAULT false NOT NULL;

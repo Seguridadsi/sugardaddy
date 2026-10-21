@@ -1,0 +1,186 @@
+# Prueba automática del módulo: herramientas/probar-trampa.sh retencion-web
+# 1) Un escáner de juguete (curl con el User-Agent de Nuclei) pide cinco rutas
+#    con secretos una tras otra y tienen que salir sus eventos. Las tres
+#    primeras peticiones de una IP se sueltan enseguida (la gracia de go-pot);
+#    la cuarta ya tarda unos 2 s y la quinta unos 4 s. Una cabecera
+#    X-Forwarded-For no tiene que cambiar el origen.
+# 2) Lo que no es un GET se contesta como un servidor web normal (405 con
+#    Allow, 400), no con el «200 {}» de go-pot, y queda apuntado; lo que no se
+#    puede leer (basura), sin método ni ruta inventados. robots.txt no es el
+#    de siempre, pero sigue prohibiendo todo a los rastreadores educados.
+# 3) El hallazgo alto: decenas de conexiones con un cuerpo de 4 MiB a medias
+#    llenaban la memoria, el contenedor moría (OOM) y, al reiniciarse, soltaba
+#    a los retenidos. Ahora se cortan con 413 nada más leer la cabecera: un
+#    retenido durante el ataque acaba entero y la trampa se acuerda de la IP
+#    (si se hubiera reiniciado, su siguiente petición volvería a ser de gracia).
+#    Después, 70 conexiones calladas desde la misma IP: entran 64 (su tope) y
+#    las otras 6 se cierran sin recibir nada (ni el texto de fasthttp). Las 64
+#    tampoco se quedan para siempre: a los 15 s sin decir nada se cierran, y
+#    su IP vuelve a tener sitio.
+# 4) Una ráfaga de 16.000 peticiones desde una IP gasta su parte del registro
+#    de hoy: lo que pasa no llena el registro, sale en un resumen por minuto.
+parametros:
+  puerto: 28068
+arranque: 5
+ataques:
+  - imagen: atacante
+    orden:
+      - sh
+      - -c
+      - |
+        T=http://127.0.0.1:${puerto}
+        for i in $(seq 1 20); do [ "$(curl -s -m 2 -o /dev/null -w '%{http_code}' $T/robots.txt)" = 200 ] && break; sleep 1; done
+        UA='Mozilla/5.0 (compatible; Nuclei - Open-source project (github.com/projectdiscovery/nuclei))'
+        n=0
+        for p in /.env /.git/config /backup.sql /.aws/credentials /terraform.tfvars; do
+          n=$((n+1))
+          r=$(curl -s -m 15 -A "$UA" -H 'X-Forwarded-For: 203.0.113.9' -o /tmp/cuerpo -w '%{http_code} %{time_total}' "$T$p")
+          echo "$p -> $r ($(wc -c < /tmp/cuerpo) bytes)"
+          set -- $r
+          [ "$1" = 200 ] || { echo "esperaba 200 en $p"; exit 1; }
+          [ -s /tmp/cuerpo ] || { echo "$p no devuelve nada"; exit 1; }
+          if [ $n -ge 4 ]; then
+            awk -v t="$2" 'BEGIN { exit !(t >= 1.5) }' || { echo "$p se suelta en $2 s: no retiene"; exit 1; }
+          fi
+        done
+  - imagen: atacante
+    orden:
+      - sh
+      - -c
+      - |
+        T=http://127.0.0.1:${puerto}
+        curl -s -i -m 5 -X POST -d 'cmd=id' "$T/.env" > /tmp/r
+        head -1 /tmp/r | grep -q ' 405 ' || { echo "un POST tiene que dar 405:"; cat /tmp/r; exit 1; }
+        grep -qi '^Allow: GET, HEAD' /tmp/r || { echo "405 sin Allow"; exit 1; }
+        ! grep -q '{}' /tmp/r || { echo "sigue contestando {}"; exit 1; }
+        printf 'GARBAGE\r\n\r\n' | nc -w 3 127.0.0.1 ${puerto} | head -1 | grep -q ' 400 ' || { echo "una petición mal formada tiene que dar 400"; exit 1; }
+        curl -s -m 5 "$T/robots.txt" > /tmp/robots
+        head -2 /tmp/robots | tr '\n' '|' | grep -qx 'User-agent: \*|Disallow: /|' || { echo "robots.txt sin Disallow: / bajo User-agent: *:"; cat /tmp/robots; exit 1; }
+        [ "$(cat /tmp/robots)" != "$(printf 'User-agent: *\nDisallow: /')" ] || { echo "robots.txt sigue siendo el de go-pot, igual en toda la flota"; exit 1; }
+        echo "405, 400 y robots.txt propio"
+  - imagen: atacante
+    orden:
+      - python3
+      - -c
+      - |
+        import socket, threading, time
+        P = ${puerto}
+        def pedir(ruta):
+            ini = time.time()
+            s = socket.create_connection(("127.0.0.1", P), timeout=40)
+            s.sendall(b"GET " + ruta + b" HTTP/1.1\r\nHost: srv\r\nConnection: close\r\n\r\n")
+            datos = b""
+            while True:
+                d = s.recv(65536)
+                if not d: break
+                datos += d
+            return datos[:12], time.time() - ini
+        victima = {}
+        def retenida():
+            victima["r"] = pedir(b"/.ssh/id_rsa")  # sexta petición de la IP: unos 6 s
+        h = threading.Thread(target=retenida); h.start()
+        time.sleep(0.5)
+        cortadas = [0]
+        def cuerpo():
+            try:
+                s = socket.create_connection(("127.0.0.1", P), timeout=10)
+                s.sendall(b"POST /subida HTTP/1.1\r\nHost: srv\r\nContent-Length: 4194303\r\n\r\n")
+                for _ in range(64):
+                    s.sendall(b"A" * 65536)
+            except OSError:
+                cortadas[0] += 1
+        hs = [threading.Thread(target=cuerpo) for _ in range(120)]
+        [x.start() for x in hs]; [x.join() for x in hs]
+        h.join()
+        codigo, t = victima["r"]
+        print("cuerpos cortados:", cortadas[0], "de 120; retenida:", codigo, "%.1f s" % t)
+        assert cortadas[0] >= 100, "los cuerpos grandes no se cortan"
+        assert codigo.startswith(b"HTTP/1.1 200") and t >= 5, "la retenida no ha acabado entera: la trampa se ha caído"
+        codigo, t = pedir(b"/wp-config.php.bak")
+        print("siguiente petición:", codigo, "%.1f s" % t)
+        assert t >= 1.5, "la trampa ha olvidado la IP: se ha reiniciado"
+        socks = [socket.create_connection(("127.0.0.1", P), timeout=5) for _ in range(70)]
+        time.sleep(1.5)
+        cerradas, dentro = 0, []
+        for s in socks:
+            s.setblocking(False)
+            try:
+                d = s.recv(64)
+                assert d == b"", "una conexión de más ha recibido algo: %r" % d
+                cerradas += 1
+            except BlockingIOError:
+                dentro.append(s)
+        print("conexiones calladas cerradas:", cerradas, "de 70")
+        assert cerradas == 6, "esperaba 6 cerradas (tope de 64 por IP)"
+        time.sleep(15)
+        caducadas = 0
+        for s in dentro:
+            s.setblocking(True); s.settimeout(5)
+            d = s.recv(64)
+            assert d == b"", "una callada ha recibido algo: %r" % d
+            caducadas += 1
+        for s in socks: s.close()
+        print("calladas que caducan a los 15 s:", caducadas, "de", len(dentro))
+        assert caducadas == 64
+        codigo, t = pedir(b"/robots.txt")
+        assert codigo.startswith(b"HTTP/1.1 200"), "la IP no vuelve a tener sitio: %r" % codigo
+  - imagen: atacante
+    orden:
+      - python3
+      - -c
+      - |
+        import socket, threading
+        P = ${puerto}
+        peticion = b"POST /cgi-bin/luci HTTP/1.1\r\nHost: srv\r\nUser-Agent: Mirai\r\nContent-Length: 0\r\n\r\n"
+        total = [0]
+        def rafaga():
+            s = socket.create_connection(("127.0.0.1", P), timeout=30)
+            s.sendall(peticion * 2000)
+            datos, n = b"", 0
+            while n < 2000:
+                d = s.recv(1 << 16)
+                if not d: break
+                datos += d
+                n = datos.count(b" 405 ")
+            total[0] += n
+        hs = [threading.Thread(target=rafaga) for _ in range(8)]
+        [h.start() for h in hs]; [h.join() for h in hs]
+        print("respuestas:", total[0])
+        assert total[0] == 16000
+espera:
+  # Cada petición: su inicio (lectura) con la ruta y la herramienta, desde la IP del socket.
+  - {
+      accion: lectura,
+      severidad: media,
+      conexion: true,
+      detalle: { phase: start, method: GET, path: /.env, user_agent: Nuclei }
+    }
+  # Y su fin con los mismos datos (sin Immutable salían los de otra petición).
+  - {
+      accion: otra,
+      severidad: baja,
+      detalle: { phase: end, path: /.git/config, user_agent: Nuclei }
+    }
+  - { accion: lectura, detalle: { phase: start, path: /.aws/credentials } }
+  - { accion: otra, severidad: baja, detalle: { phase: end, path: /terraform.tfvars } }
+  # Lo que no llega al tarpit también se apunta, con el código que se le da.
+  - {
+      accion: otra,
+      severidad: media,
+      detalle: { phase: error, method: POST, path: /.env, status: '405' }
+    }
+  - { accion: otra, detalle: { phase: error, method: POST, path: /subida, status: '413' } }
+  # La basura (GARBAGE), sin método ni ruta: no se inventa un «GET /».
+  - { accion: otra, detalle: { phase: error, status: '400', peticion: ilegible } }
+  # La retenida durante el ataque se suelta entera.
+  - { accion: otra, severidad: baja, detalle: { phase: end, path: /.ssh/id_rsa } }
+  # Las conexiones de más, en un resumen a nombre de su IP.
+  - { accion: conexion, severidad: media, detalle: { phase: rechazos, por_tope_global: '0' } }
+  # La ráfaga: su IP gasta su parte del registro y lo demás sale resumido.
+  - {
+      accion: otra,
+      severidad: alta,
+      detalle: { phase: callados, por_tope_dia: '0', ips_distintas: '1' }
+    }
+# Los resúmenes salen una vez por minuto.
+tiempo: 75

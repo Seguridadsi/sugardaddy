@@ -1,0 +1,807 @@
+diff --git a/protocols/tcp/smb.go b/protocols/tcp/smb.go
+index 9b856ae..8ee9bc6 100644
+--- a/protocols/tcp/smb.go
++++ b/protocols/tcp/smb.go
+@@ -9,24 +9,100 @@ import (
+ 	"io"
+ 	"log/slog"
+ 	"net"
+-	"path/filepath"
++	"sync"
++	"time"
+ 
+ 	"github.com/mushorg/glutton/connection"
+-	"github.com/mushorg/glutton/producer"
+ 	"github.com/mushorg/glutton/protocols/helpers"
++	ntlmpkg "github.com/mushorg/glutton/protocols/helpers/ntlm"
+ 	"github.com/mushorg/glutton/protocols/interfaces"
+ 	"github.com/mushorg/glutton/protocols/recall"
+ 	"github.com/mushorg/glutton/protocols/tcp/smb"
+ )
+ 
+ const (
+-	maxSMBMessage    = 256 * 1024
++	// Sugardaddy: el marco máximo baja de 256 KiB a 64 KiB. Un SMB real no manda
++	// marcos mayores en esta negociación, y así unos pocos marcos de basura por
++	// IP no disparan la memoria (hallazgo de OOM con 2 conexiones).
++	maxSMBMessage    = 64 * 1024
+ 	maxSMBMessages   = 128
+ 	maxSMBClaimedLen = 16 * 1024 * 1024
+-	maxSMBTxBuffer   = 4 * 1024 * 1024
++	// maxStoredPayload: solo se guarda un prefijo del marco en el evento (para
++	// depurar); el contenido no se usa para nada más (parseo y huella trabajan
++	// sobre el buffer de la iteración). Antes se guardaba el marco entero
++	// (256 KiB × 128 por conexión), que al cerrar se serializaba a JSON y tumbaba
++	// la trampa por OOM.
++	maxStoredPayload = 512
+ )
+ 
+-var smbStore = helpers.Store
++// Sugardaddy: los búferes por conexión que más memoria consumen son variables,
++// para acotarlos por instancia (sd_shim.go los lee del entorno) y que la trampa
++// vaya holgada con 64-128 MB aunque haya muchos atacantes a la vez. Como el
++// contenido subido/inyectado NO se guarda (solo huella y tamaño), basta con
++// capturar un prefijo: el tamaño refleja lo capturado, no lo que el atacante
++// afirme.
++var (
++	maxSMBTxBuffer   uint32 = 1024 * 1024
++	maxSMBFileBuffer        = 1024 * 1024
++	// Presupuesto de bytes leídos por conexión: superado, se corta. Acota la
++	// memoria y el trabajo por conexión aunque el atacante mande muchos marcos.
++	maxSMBConnBytes = 4 * 1024 * 1024
++	// Tope de fuerzas brutas XOR de DoublePulsar por minuto (global). Cada una
++	// cuesta ~137 ms de CPU; sin tope, unas pocas IP agotaban el 0,5 CPU durante
++	// minutos. La protección principal es que cada conexión la intenta UNA sola
++	// vez (dpBruteDone); este tope global es el segundo cinturón: 30/min son
++	// ~4 s de CPU por minuto, holgado bajo el 0,5 CPU.
++	maxDPBrutePorMin = 30
++)
++
++// capPayload copia como mucho maxStoredPayload bytes del marco para guardarlos
++// en el evento, sin retener el buffer completo.
++func capPayload(b []byte) []byte {
++	if len(b) > maxStoredPayload {
++		b = b[:maxStoredPayload]
++	}
++	return append([]byte(nil), b...)
++}
++
++// recortarRecall acota la longitud de lo que se guarda en el almacén recall
++// (rutas y comandos del atacante), para que no retenga cadenas enormes por IP.
++func recortarRecall(s string) string {
++	if len(s) > 256 {
++		return s[:256]
++	}
++	return s
++}
++
++// dpBrute controla la fuerza bruta XOR de DoublePulsar: como mucho
++// maxDPBrutePorMin por minuto en toda la trampa.
++var dpBrute struct {
++	mu     sync.Mutex
++	minute int64
++	n      int
++}
++
++func dpBrutePermitido() bool {
++	dpBrute.mu.Lock()
++	defer dpBrute.mu.Unlock()
++	m := time.Now().Unix() / 60
++	if m != dpBrute.minute {
++		dpBrute.minute = m
++		dpBrute.n = 0
++	}
++	if dpBrute.n >= maxDPBrutePorMin {
++		return false
++	}
++	dpBrute.n++
++	return true
++}
++
++// smbStore: en Sugardaddy NO se guarda en disco lo que sube o inyecta el
++// atacante (upstream lo volcaba en payloads/smb/). Solo se calcula su huella
++// SHA-256; el tamaño lo apunta el llamante. Así la trampa nunca acumula sin
++// límite lo que mande el atacante (decisión de diseño: huella y tamaño).
++var smbStore = func(data []byte, _ string) (string, error) {
++	return helpers.SHA256Hex(data), nil
++}
+ 
+ type parsedSMB struct {
+ 	Direction      string        `json:"direction,omitempty"`
+@@ -52,9 +128,12 @@ type parsedSMB struct {
+ 	Opnum          *uint16       `json:"opnum,omitempty"`
+ 	TotalDataCount uint32        `json:"total_data_count,omitempty"`
+ 	PayloadHash    string        `json:"payload_hash,omitempty"`
+-	Shellcode      []string      `json:"shellcode,omitempty"`    // shellcode heuristics that matched the captured payload
+-	XORKey         string        `json:"xor_key,omitempty"`      // recovered DoublePulsar XOR key (hex)
+-	DecodedHash    string        `json:"decoded_hash,omitempty"` // content hash of the de-obfuscated payload
++	PayloadSize    int           `json:"payload_size,omitempty"`     // Sugardaddy: tamaño de lo subido/inyectado (bytes); el contenido no se guarda
++	NTLMVersion    string        `json:"ntlm_version,omitempty"`     // Sugardaddy: NTLMv1/NTLMv2/anonymous del Type 3 con seguridad extendida
++	ServerChal     string        `json:"server_challenge,omitempty"` // Sugardaddy: reto del servidor (hex), para reconstruir el NetNTLMv2 capturado
++	Shellcode      []string      `json:"shellcode,omitempty"`        // shellcode heuristics that matched the captured payload
++	XORKey         string        `json:"xor_key,omitempty"`          // recovered DoublePulsar XOR key (hex)
++	DecodedHash    string        `json:"decoded_hash,omitempty"`     // content hash of the de-obfuscated payload
+ 	Payload        []byte        `json:"payload,omitempty"`
+ 	Truncated      bool          `json:"truncated,omitempty"`
+ 	Variant        string        `json:"variant,omitempty"` // DoublePulsar reply variant, on emulated replies only
+@@ -106,6 +185,13 @@ type smbServer struct {
+ 	txOpcode   byte     // opcode of the open DoublePulsar transaction
+ 	txParamKey uint32   // key the operator embedded in the exec parameters
+ 	txParamSet bool
++
++	// Sugardaddy: la fuerza bruta XOR de DoublePulsar se intenta como mucho una
++	// vez por conexión (ver dpBrutePermitido para el tope global por minuto).
++	dpBruteDone bool
++	// connBytes: bytes leídos en esta conexión, para cortarla al superar el
++	// presupuesto.
++	connBytes int
+ }
+ 
+ // begin picks the response variant once per connection: a source returning
+@@ -141,8 +227,8 @@ func (ss *smbServer) note() {
+ 			if e.Direction != "read" {
+ 				continue
+ 			}
+-			sum.AddCommand(e.Command)
+-			sum.AddPath(e.Path)
++			sum.AddCommand(recortarRecall(e.Command))
++			sum.AddPath(recortarRecall(e.Path))
+ 		}
+ 		for _, op := range ss.dpOps {
+ 			sum.AddCommand(op)
+@@ -186,8 +272,6 @@ type smbHandle struct {
+ 	ifaceVer  string
+ }
+ 
+-var maxSMBFileBuffer = 8 * 1024 * 1024
+-
+ func (ss *smbServer) ensureChallenge() {
+ 	if !ss.challengeSet {
+ 		_, _ = smbReadRand(ss.challenge[:])
+@@ -255,7 +339,7 @@ func (ss *smbServer) writePDU(command string, header smb.SMBHeader, data []byte)
+ 		Command:   command,
+ 		Status:    smb.StatusName(header),
+ 		NTStatus:  smb.NTStatus(header),
+-		Payload:   framed,
++		Payload:   capPayload(framed),
+ 	})
+ 	return nil
+ }
+@@ -292,8 +376,8 @@ func (ss *smbServer) flushTx(logger interfaces.Logger) {
+ 		return
+ 	}
+ 	hash := helpers.SHA256Hex(buf)
+-	if _, err := smbStore(buf, filepath.Join("payloads", "smb")); err != nil {
+-		logger.Error("Failed to store SMB transaction payload", slog.String("protocol", "smb"), producer.ErrAttr(err))
++	if _, err := smbStore(buf, ""); err != nil {
++		logger.Error("Failed to store SMB transaction payload", slog.String("protocol", "smb"), slog.Any("error", err))
+ 		return
+ 	}
+ 	if ss.txEvent < 0 || ss.txEvent >= len(ss.events) {
+@@ -301,6 +385,10 @@ func (ss *smbServer) flushTx(logger interfaces.Logger) {
+ 	}
+ 	ev := &ss.events[ss.txEvent]
+ 	ev.PayloadHash = hash
++	// Sugardaddy: apuntar también el tamaño capturado (antes solo lo ponía
++	// closeHandle para subidas de fichero; los exploits salían con huella y sin
++	// tamaño). Es lo reensamblado, no lo que el atacante afirme.
++	ev.PayloadSize = len(buf)
+ 	if res := helpers.DetectShellcode(buf); len(res.Indicators) > 0 {
+ 		ev.Shellcode = res.Indicators
+ 	}
+@@ -327,7 +415,11 @@ func (ss *smbServer) flushTx(logger interfaces.Logger) {
+ 				key, plain, ok = paramKey, smb.XORApply(buf, paramKey), true
+ 			}
+ 		}
+-		if !ok {
++		if !ok && !ss.dpBruteDone && dpBrutePermitido() {
++			// Fuerza bruta XOR (65 536 semillas, ~137 ms): una sola vez por
++			// conexión y dentro del tope global por minuto. Si no, se deja con
++			// huella y tamaño, sin descifrar.
++			ss.dpBruteDone = true
+ 			key, plain, ok = recoverDoublePulsarXOR(buf)
+ 		}
+ 	}
+@@ -335,8 +427,8 @@ func (ss *smbServer) flushTx(logger interfaces.Logger) {
+ 		return
+ 	}
+ 	ev.XORKey = fmt.Sprintf("%08x", key)
+-	if dh, err := smbStore(plain, filepath.Join("payloads", "smb")); err != nil {
+-		logger.Error("Failed to store decoded DoublePulsar payload", slog.String("protocol", "smb"), producer.ErrAttr(err))
++	if dh, err := smbStore(plain, ""); err != nil {
++		logger.Error("Failed to store decoded DoublePulsar payload", slog.String("protocol", "smb"), slog.Any("error", err))
+ 	} else {
+ 		ev.DecodedHash = dh
+ 	}
+@@ -421,7 +513,7 @@ func (ss *smbServer) writeNBSS(data []byte) error {
+ 	ss.events = append(ss.events, parsedSMB{
+ 		Direction: "write",
+ 		Command:   smb.NBSSTypeName(data[0]),
+-		Payload:   data,
++		Payload:   capPayload(data),
+ 	})
+ 	return nil
+ }
+@@ -432,7 +524,7 @@ func (ss *smbServer) handleNBSS(frame smbFrame) error {
+ 	ev := parsedSMB{
+ 		Direction: "read",
+ 		Command:   smb.NBSSTypeName(frame.payload[0]),
+-		Payload:   frame.payload,
++		Payload:   capPayload(frame.payload),
+ 		Truncated: frame.truncated,
+ 	}
+ 	if frame.payload[0] != smb.NBSSSessionRequest {
+@@ -502,8 +594,8 @@ func (ss *smbServer) feedPipe(hn *smbHandle, data []byte, readIdx int, logger in
+ 			ss.events[readIdx].Interface = hn.iface
+ 			ss.events[readIdx].InterfaceVer = hn.ifaceVer
+ 			if len(stub) > 0 {
+-				if hash, err := smbStore(stub, filepath.Join("payloads", "smb")); err != nil {
+-					logger.Error("Failed to store DCERPC stub", slog.String("protocol", "smb"), producer.ErrAttr(err))
++				if hash, err := smbStore(stub, ""); err != nil {
++					logger.Error("Failed to store DCERPC stub", slog.String("protocol", "smb"), slog.Any("error", err))
+ 				} else {
+ 					ss.events[readIdx].PayloadHash = hash
+ 				}
+@@ -536,19 +628,21 @@ func (ss *smbServer) closeHandle(fid uint16, logger interfaces.Logger) {
+ 	if hn.isPipe || len(hn.fileBuf) == 0 {
+ 		return
+ 	}
+-	hash, err := smbStore(hn.fileBuf, filepath.Join("payloads", "smb"))
++	hash, err := smbStore(hn.fileBuf, "")
+ 	if err != nil {
+-		logger.Error("Failed to store SMB upload", slog.String("protocol", "smb"), producer.ErrAttr(err))
++		logger.Error("Failed to store SMB upload", slog.String("protocol", "smb"), slog.Any("error", err))
+ 		return
+ 	}
+ 	if hn.createEvt >= 0 && hn.createEvt < len(ss.events) {
+ 		ss.events[hn.createEvt].PayloadHash = hash
++		ss.events[hn.createEvt].PayloadSize = len(hn.fileBuf)
+ 	}
+ }
+ 
+ // smbTargetName is the NTLM/SPNEGO target name advertised in challenges; it
+-// matches the NetBIOS server name used elsewhere.
+-const smbTargetName = "SERVER"
++// matches the NetBIOS server name used elsewhere. Sugardaddy: es variable para
++// poder ajustarlo por instancia (ver sd_shim.go).
++var smbTargetName = "SERVER"
+ 
+ // sessionSetup answers an SMB1 Session Setup AndX. Extended-security requests
+ // (WordCount 12) drive the NTLMSSP challenge/accept exchange and record the
+@@ -572,7 +666,7 @@ func (ss *smbServer) sessionSetup(header smb.SMBHeader, body []byte, readIdx int
+ 		blob := smb.SPNEGOChallenge(smb.BuildChallenge(ss.challenge, smbTargetName))
+ 		return smb.MakeSessionSetupESecResponse(header, ss.sessionUID(header), blob, true)
+ 	case 3:
+-		ss.recordNTLMIdentity(smb.ParseAuthenticate(ntlm), readIdx)
++		ss.recordNTLMIdentity(ntlm, readIdx)
+ 		return smb.MakeSessionSetupESecResponse(header, ss.sessionUID(header), smb.SPNEGOAccept(), false)
+ 	default:
+ 		return smb.MakeSessionSetupESecResponse(header, ss.sessionUID(header), smb.SPNEGOAccept(), false)
+@@ -580,16 +674,29 @@ func (ss *smbServer) sessionSetup(header smb.SMBHeader, body []byte, readIdx int
+ }
+ 
+ // recordNTLMIdentity sets the NTLMSSP Type 3 identity fields on a read frame.
+-// The NTLM responses stay in the raw payload.
+-func (ss *smbServer) recordNTLMIdentity(id smb.NTLMIdentity, readIdx int) {
++//
++// Sugardaddy: además de usuario/dominio/equipo, se apunta la versión del Type 3
++// (NTLMv1/NTLMv2/anonymous), la respuesta NT en hexadecimal (el "hash" NetNTLMv2
++// que llega) y el reto del servidor que emitimos, para que el analista pueda
++// identificar el material de autenticación capturado. El contenido se recorta
++// en el productor; la trampa nunca lo usa ni valida.
++func (ss *smbServer) recordNTLMIdentity(raw []byte, readIdx int) {
+ 	if readIdx < 0 || readIdx >= len(ss.events) {
+ 		return
+ 	}
+-	if id.User != "" {
+-		ss.events[readIdx].Account = id.User
++	a := ntlmpkg.ParseAuthenticate(raw)
++	if a.User != "" {
++		ss.events[readIdx].Account = a.User
++	}
++	ss.events[readIdx].Domain = a.Domain
++	ss.events[readIdx].Workstation = a.Workstation
++	ss.events[readIdx].NTLMVersion = a.Version
++	if len(a.NtChallengeResponse) > 0 {
++		ss.events[readIdx].NTLMResponse = fmt.Sprintf("%x", a.NtChallengeResponse)
++		if ss.challengeSet {
++			ss.events[readIdx].ServerChal = fmt.Sprintf("%x", ss.challenge[:])
++		}
+ 	}
+-	ss.events[readIdx].Domain = id.Domain
+-	ss.events[readIdx].Workstation = id.Workstation
+ }
+ 
+ // HandleSMB takes a net.Conn and does basic SMB communication
+@@ -608,27 +715,34 @@ func HandleSMB(ctx context.Context, conn net.Conn, md connection.Metadata, logge
+ 		server.flushTx(logger)
+ 		server.note()
+ 		if err := h.ProduceTCP("smb", conn, md, helpers.FirstOrEmpty[parsedSMB](server.events).Payload, server.events); err != nil {
+-			logger.Error("Failed to produce message", slog.String("protocol", "smb"), producer.ErrAttr(err))
++			logger.Error("Failed to produce message", slog.String("protocol", "smb"), slog.Any("error", err))
+ 		}
+ 
+ 		if err := conn.Close(); err != nil {
+-			logger.Debug("Failed to close SMB connection", producer.ErrAttr(err), slog.String("protocol", "smb"))
++			logger.Debug("Failed to close SMB connection", slog.Any("error", err), slog.String("protocol", "smb"))
+ 		}
+ 	}()
+ 
+ 	i := 0
+ 	for ; i < maxSMBMessages; i++ {
+ 		if err := h.UpdateConnectionTimeout(ctx, conn); err != nil {
+-			logger.Debug("Failed to set connection timeout", slog.String("protocol", "smb"), producer.ErrAttr(err))
++			logger.Debug("Failed to set connection timeout", slog.String("protocol", "smb"), slog.Any("error", err))
+ 			endReason = connection.EndTimeout
+ 			return nil
+ 		}
+ 		frame, err := server.read()
+ 		if err != nil {
+-			logger.Debug("Failed to read data", slog.String("protocol", "smb"), producer.ErrAttr(err))
++			logger.Debug("Failed to read data", slog.String("protocol", "smb"), slog.Any("error", err))
+ 			endReason = connection.EndReasonFromRead(err)
+ 			break
+ 		}
++		// Presupuesto de bytes por conexión: superado, se corta (acota memoria y
++		// CPU aunque el atacante mande muchos marcos pequeños).
++		server.connBytes += len(frame.payload)
++		if server.connBytes > maxSMBConnBytes {
++			endReason = connection.EndMaxFrames
++			break
++		}
+ 		pdu := smbPDU(frame)
+ 
+ 		switch {
+@@ -651,13 +765,13 @@ func HandleSMB(ctx context.Context, conn net.Conn, md connection.Metadata, logge
+ 			server.events = append(server.events, parsedSMB{
+ 				Direction: "read",
+ 				Command:   "SMB3_TRANSFORM",
+-				Payload:   frame.payload,
++				Payload:   capPayload(frame.payload),
+ 				Truncated: frame.truncated,
+ 			})
+ 		default:
+ 			server.events = append(server.events, parsedSMB{
+ 				Direction: "read",
+-				Payload:   frame.payload,
++				Payload:   capPayload(frame.payload),
+ 				Truncated: frame.truncated,
+ 			})
+ 		}
+@@ -674,10 +788,10 @@ func (ss *smbServer) handleSMB1(frame smbFrame, pdu []byte, logger interfaces.Lo
+ 	if err := smb.ParseHeader(smbBuf, &header); err != nil {
+ 		ss.events = append(ss.events, parsedSMB{
+ 			Direction: "read",
+-			Payload:   frame.payload,
++			Payload:   capPayload(frame.payload),
+ 			Truncated: frame.truncated,
+ 		})
+-		logger.Debug("Failed to parse SMB header", slog.String("protocol", "smb"), producer.ErrAttr(err))
++		logger.Debug("Failed to parse SMB header", slog.String("protocol", "smb"), slog.Any("error", err))
+ 		return nil
+ 	}
+ 
+@@ -701,6 +815,9 @@ func (ss *smbServer) handleSMB1(frame smbFrame, pdu []byte, logger interfaces.Lo
+ 		}
+ 	case smb.CmdNtTransact:
+ 		totalDataCount = smb.NtTransactTotalDataCount(smbBuf.Bytes())
++	case smb.CmdTransaction:
++		// PeekNamedPipe (y afines) sobre IPC$: la sonda de MS17-010.
++		setup = smb.TransactionSetupName(smbBuf.Bytes())
+ 	}
+ 	ss.events = append(ss.events, parsedSMB{
+ 		Direction:      "read",
+@@ -715,7 +832,7 @@ func (ss *smbServer) handleSMB1(frame smbFrame, pdu []byte, logger interfaces.Lo
+ 		NativeOS:       id.NativeOS,
+ 		NativeLanMan:   id.NativeLanMan,
+ 		TotalDataCount: totalDataCount,
+-		Payload:        frame.payload,
++		Payload:        capPayload(frame.payload),
+ 		Truncated:      frame.truncated,
+ 	})
+ 	logger.Debug("SMB Header", slog.Any("header", header), slog.String("protocol", "smb"))
+@@ -738,9 +855,18 @@ func (ss *smbServer) handleSMB1(frame smbFrame, pdu []byte, logger interfaces.Lo
+ 		responseHeader, resp, err = ss.sessionSetup(header, body, readIdx)
+ 	case smb.CmdTreeConnectAndX:
+ 		share := smb.TreeConnectShare(header, body)
+-		if smb.IsProbeShare(share) {
++		switch {
++		case smb.IsProbeShare(share):
++			// Sonda de escáner (nmap-share-test): siempre STATUS_BAD_NETWORK_NAME.
+ 			responseHeader, resp, err = smb.MakeBadNetworkNameResponse(header)
+-		} else {
++		case smb.SharesConfigured() && smb.IsAdminShare(share):
++			// C$, ADMIN$…: existen pero el acceso se niega.
++			responseHeader, resp, err = smb.MakeAccessDeniedResponse(header)
++		case smb.SharesConfigured() && !smb.IsConfiguredShare(share):
++			// Recurso que no está entre los ofrecidos: como un Windows real,
++			// STATUS_BAD_NETWORK_NAME.
++			responseHeader, resp, err = smb.MakeBadNetworkNameResponse(header)
++		default:
+ 			tid := ss.nextTID()
+ 			ss.tidIsIPC[tid] = smb.IsIPCShare(share)
+ 			responseHeader, resp, err = smb.MakeTreeConnectAndXResponse(header, tid, share)
+@@ -872,15 +998,23 @@ func (ss *smbServer) handleSMB2(frame smbFrame, pdu []byte) error {
+ 	if name == "" {
+ 		name = "SMB2"
+ 	}
++	// En un TREE_CONNECT SMB2, apuntar a qué recurso se conecta (el mapeador lo
++	// convierte en smb.tree.connect). Antes no se extraía la ruta y un cliente
++	// SMB2 nunca dejaba constancia del recurso.
++	path := ""
++	if cmd, _ := smb.SMB2Command(pdu); cmd == smb.SMB2CmdTreeConnect {
++		path = smb.SMB2TreeConnectPath(pdu)
++	}
+ 	ss.events = append(ss.events, parsedSMB{
+ 		Direction: "read",
+ 		Command:   name,
+-		Payload:   frame.payload,
++		Path:      path,
++		Payload:   capPayload(frame.payload),
+ 		Truncated: frame.truncated,
+ 	})
+ 	// Record the identity from an SMB2 NTLMSSP AUTHENTICATE (no secrets).
+ 	if ntlm, found := smb.FindNTLMSSP(pdu); found && smb.NTLMMessageType(ntlm) == 3 {
+-		ss.recordNTLMIdentity(smb.ParseAuthenticate(ntlm), len(ss.events)-1)
++		ss.recordNTLMIdentity(ntlm, len(ss.events)-1)
+ 	}
+ 	if !ok {
+ 		return nil
+diff --git a/protocols/tcp/smb/ntlm.go b/protocols/tcp/smb/ntlm.go
+index 49c9659..18d8bd7 100644
+--- a/protocols/tcp/smb/ntlm.go
++++ b/protocols/tcp/smb/ntlm.go
+@@ -20,9 +20,24 @@ func NTLMMessageType(msg []byte) uint32 { return ntlm.MessageType(msg) }
+ func ParseAuthenticate(msg []byte) NTLMIdentity { return ntlm.ParseIdentity(msg) }
+ 
+ // BuildChallenge builds an NTLMSSP Type 2 CHALLENGE for the given server
+-// challenge, advertising targetName as both the server name and NetBIOS domain.
++// challenge.
++//
++// Sugardaddy: se construye con TargetInfo "rica" al estilo de un Windows real
++// (NbDomainName, NbComputerName, DnsDomainName, DnsComputerName y Timestamp),
++// como ya hace el manejador RDP de glutton. El reto mínimo de antes solo traía
++// NbDomainName, y las herramientas basadas en impacket (nxc/crackmapexec,
++// psexec, secretsdump, DumpNTLMInfo) fallan en computeResponseNTLMv2 porque
++// esperan NTLMSSP_AV_HOSTNAME: se rompían antes de mandar el Type 3 y no se
++// capturaban sus credenciales. Con los pares AV completos completan la
++// autenticación y queda su NetNTLMv2.
+ func BuildChallenge(serverChallenge [8]byte, targetName string) []byte {
+-	return ntlm.BuildSMBChallenge(serverChallenge, targetName)
++	return ntlm.BuildChallenge(ntlm.ChallengeOptions{
++		ServerChallenge: serverChallenge[:],
++		TargetName:      targetName,
++		Domain:          primaryDomain,
++		Computer:        serverName,
++		RichTargetInfo:  true,
++	})
+ }
+ 
+ // SPNEGONegTokenInit builds the server's initial SPNEGO blob (sent in the
+diff --git a/protocols/tcp/smb/smb.go b/protocols/tcp/smb/smb.go
+index 0db6ac5..361550f 100644
+--- a/protocols/tcp/smb/smb.go
++++ b/protocols/tcp/smb/smb.go
+@@ -30,11 +30,9 @@ const (
+ 	capExtendedSecurity    = 0x80000000
+ 	// Windows Server 2008 (NT 6.0) — an OS that actually speaks SMB 2.0.2,
+ 	// consistent with the SMB2 dialect the honeypot negotiates.
+-	nativeOS      = "Windows Server 2008 Standard 6002 Service Pack 2"
+-	nativeLanMan  = "Windows Server 2008 Standard 6.0"
+-	primaryDomain = "WORKGROUP"
+-	serverName    = "SERVER"
+-	ntLMDialect   = "NT LM 0.12"
++	nativeOS     = "Windows Server 2008 Standard 6002 Service Pack 2"
++	nativeLanMan = "Windows Server 2008 Standard 6.0"
++	ntLMDialect  = "NT LM 0.12"
+ 	// TRANS2 subcommands (MS-CIFS 2.2.6).
+ 	trans2FindFirst2   = 0x0001
+ 	trans2SessionSetup = 0x000e
+@@ -53,6 +51,118 @@ const (
+ 	statusMoreProcessing = 0xc0000016
+ )
+ 
++// Sugardaddy: el nombre de servidor y el dominio/grupo de trabajo que anuncia
++// la trampa se pueden ajustar por instancia (SetIdentity), para que cuadren con
++// la persona elegida en el manifiesto en vez de ir fijos.
++var (
++	serverName    = "SERVER"
++	primaryDomain = "WORKGROUP"
++)
++
++// SetIdentity cambia el nombre de servidor NetBIOS y el dominio/grupo de trabajo
++// que anuncia la trampa. Valores vacíos no cambian nada.
++func SetIdentity(server, domain string) {
++	if server != "" {
++		serverName = server
++	}
++	if domain != "" {
++		primaryDomain = domain
++	}
++}
++
++// Sugardaddy: recursos compartidos creíbles que ofrece la trampa (del
++// manifiesto, SD_GLUTTON_RECURSOS). La conexión a uno de ellos (o a IPC$) se
++// acepta y queda en el registro; a cualquier otro se responde
++// STATUS_BAD_NETWORK_NAME, y a los recursos administrativos (C$, ADMIN$…)
++// STATUS_ACCESS_DENIED, como un Windows real. Antes se aceptaba cualquier
++// recurso y el parámetro "recursos" no hacía nada.
++var configuredShares []string
++
++// SetShares fija los recursos ofrecidos. Valores vacíos se ignoran.
++func SetShares(list []string) {
++	configuredShares = configuredShares[:0]
++	for _, s := range list {
++		if s != "" {
++			configuredShares = append(configuredShares, s)
++		}
++	}
++}
++
++// SharesConfigured indica si hay recursos configurados. Si no (p. ej. en las
++// pruebas de upstream, que no llaman a SetShares), la trampa acepta cualquier
++// recurso como antes; solo cuando el manifiesto los fija se restringe.
++func SharesConfigured() bool { return len(configuredShares) > 0 }
++
++// IsConfiguredShare indica si el recurso está entre los ofrecidos (o es IPC$,
++// que siempre se acepta para la enumeración DCERPC). Comparación sin distinguir
++// mayúsculas.
++func IsConfiguredShare(share string) bool {
++	if IsIPCShare(share) {
++		return true
++	}
++	for _, s := range configuredShares {
++		if strings.EqualFold(s, share) {
++			return true
++		}
++	}
++	return false
++}
++
++// IsAdminShare indica si el recurso es administrativo (ADMIN$ o una letra de
++// unidad oculta como C$), que un Windows real deja ver pero niega el acceso.
++func IsAdminShare(share string) bool {
++	if strings.EqualFold(share, "ADMIN$") {
++		return true
++	}
++	if len(share) == 2 && share[1] == '$' &&
++		((share[0] >= 'A' && share[0] <= 'Z') || (share[0] >= 'a' && share[0] <= 'z')) {
++		return true
++	}
++	return false
++}
++
++// TransactionSetupName devuelve el nombre del subcomando de un
++// SMB_COM_TRANSACTION (primer Setup word), para detectar la sonda PeekNamedPipe
++// de MS17-010. body va posicionado tras la cabecera SMB de 32 bytes. La
++// disposición de palabras es la misma que la de TRANSACTION2 (ver Trans2Setup).
++func TransactionSetupName(body []byte) string {
++	// WordCount(1) + 26 bytes de palabras fijas, luego SetupCount(1) +
++	// Reserved3(1) + Setup words.
++	const setupCountOff = 1 + 26
++	if len(body) < 1 || body[0] < 14 || len(body) < setupCountOff+1 {
++		return ""
++	}
++	if int(body[setupCountOff]) < 1 {
++		return ""
++	}
++	setupOff := setupCountOff + 2
++	if len(body) < setupOff+2 {
++		return ""
++	}
++	switch binary.LittleEndian.Uint16(body[setupOff:]) {
++	case 0x0023:
++		return "TRANS_PEEK_NMPIPE"
++	case 0x0026:
++		return "TRANS_TRANSACT_NMPIPE"
++	case 0x0011:
++		return "TRANS_RAW_WRITE_NMPIPE"
++	}
++	return ""
++}
++
++// MakeAccessDeniedResponse builds the STATUS_ACCESS_DENIED error reply Windows
++// sends for a Tree Connect to an administrative share without rights.
++func MakeAccessDeniedResponse(header SMBHeader) (SMBHeader, []byte, error) {
++	h := replyHeader(header)
++	h.Command = cmdTreeConnect
++	binary.LittleEndian.PutUint32(h.Status[:], 0xc0000022) // STATUS_ACCESS_DENIED
++	hb, err := headerBytes(h)
++	if err != nil {
++		return h, nil, err
++	}
++	return h, append(hb, 0x00, 0x00, 0x00), nil
++}
++
+ // Trans2FindFirst2 is the TRANS2_FIND_FIRST2 subcommand (0x0001).
+ const Trans2FindFirst2 = trans2FindFirst2
+ 
+diff --git a/protocols/tcp/smb/smb2.go b/protocols/tcp/smb/smb2.go
+index 91f04fe..ce5f44c 100644
+--- a/protocols/tcp/smb/smb2.go
++++ b/protocols/tcp/smb/smb2.go
+@@ -3,6 +3,7 @@ package smb
+ import (
+ 	"crypto/rand"
+ 	"encoding/binary"
++	"time"
+ )
+ 
+ const (
+@@ -17,12 +18,30 @@ const (
+ 	smb2Dialect202            = 0x0202
+ 	// STATUS_MORE_PROCESSING_REQUIRED, sent with the NTLM challenge.
+ 	smb2StatusMoreProcessing = 0xc0000016
++	// Estados que la trampa devuelve a comandos SMB2 que no emula, para que el
++	// cliente siga su curso en vez de colgarse 20 s esperando respuesta.
++	smb2StatusAccessDenied = 0xc0000022
++	smb2StatusNotSupported = 0xc00000bb
++	// filetimeEpochDiff: intervalos de 100 ns entre 1601-01-01 y 1970-01-01.
++	filetimeEpochDiff = 116444736000000000
+ )
+ 
+ // smb2ServerGUID is the ServerGuid in SMB2 Negotiate replies. A Windows server
+ // keeps one GUID for its lifetime, so it is generated once per process.
+ var smb2ServerGUID = newServerGUID()
+ 
++// smb2ServerStart es el "arranque" verosímil del servidor (ServerStartTime del
++// NEGOTIATE): el inicio del proceso, fijo mientras la trampa vive. Sin esto,
++// SystemTime/ServerStartTime iban a cero y nmap -sC daba smb2-time 1601-01-01 y
++// un clock-skew de ~-51 839 días, que delata la trampa.
++var smb2ServerStart = time.Now()
++
++// toFiletime convierte un instante a FILETIME de Windows (intervalos de 100 ns
++// desde 1601-01-01).
++func toFiletime(t time.Time) uint64 {
++	return uint64(t.UnixNano()/100 + filetimeEpochDiff)
++}
++
+ // newServerGUID returns a random (version 4) GUID in its wire byte order.
+ func newServerGUID() [16]byte {
+ 	var g [16]byte
+@@ -51,7 +70,16 @@ func smb2ReplyHeader(req []byte) []byte {
+ 	}
+ 	binary.LittleEndian.PutUint16(h[4:6], smb2HeaderSize)
+ 	binary.LittleEndian.PutUint32(h[8:12], 0) // NT status success
+-	binary.LittleEndian.PutUint16(h[14:16], 1)
++	// Conceder al menos tantos créditos como pidió el cliente (Windows y
++	// smbclient se quejan de "Insufficient credits" y dejan la lista vacía si se
++	// conceden menos). CreditRequest/Response está en [14:16].
++	credits := uint16(1)
++	if len(req) >= smb2HeaderSize {
++		if c := binary.LittleEndian.Uint16(req[14:16]); c > credits {
++			credits = c
++		}
++	}
++	binary.LittleEndian.PutUint16(h[14:16], credits)
+ 	flags := binary.LittleEndian.Uint32(h[16:20]) | smb2FlagServerToRedir
+ 	binary.LittleEndian.PutUint32(h[16:20], flags)
+ 	binary.LittleEndian.PutUint32(h[20:24], 0)
+@@ -70,6 +98,10 @@ func makeSMB2NegotiateResponse(req []byte) []byte {
+ 	binary.LittleEndian.PutUint32(body[28:32], 65536)
+ 	binary.LittleEndian.PutUint32(body[32:36], 65536)
+ 	binary.LittleEndian.PutUint32(body[36:40], 65536)
++	// SystemTime (ahora) y ServerStartTime (arranque del proceso): un servidor
++	// real los rellena. A cero, nmap -sC daba 1601-01-01 y un clock-skew absurdo.
++	binary.LittleEndian.PutUint64(body[40:48], toFiletime(time.Now().UTC()))
++	binary.LittleEndian.PutUint64(body[48:56], toFiletime(smb2ServerStart.UTC()))
+ 	// SecurityBufferOffset / SecurityBufferLength point at an SPNEGO blob that
+ 	// advertises NTLMSSP so the client proceeds to authenticate.
+ 	blob := SPNEGONegTokenInit()
+@@ -122,10 +154,70 @@ func makeSMB2TreeConnectResponse(req []byte) []byte {
+ 	return append(h, body...)
+ }
+ 
+-// MakeSMB2Reply builds a stub SMB2 Negotiate, Session Setup, or Tree Connect
+-// success PDU. challenge is the NTLM server challenge used in Session Setup. ok
+-// is false when the request is too short or the command has no stub (the frame
+-// should still be stored).
++// Comandos SMB2 adicionales (MS-SMB2 2.2) a los que la trampa contesta para no
++// quedarse muda tras el tree connect (CREATE, IOCTL, QUERY_INFO, ECHO, LOGOFF…).
++const (
++	smb2CmdCreate      = 0x0005
++	smb2CmdClose       = 0x0006
++	smb2CmdFlush       = 0x0007
++	smb2CmdRead        = 0x0008
++	smb2CmdWrite       = 0x0009
++	smb2CmdLock        = 0x000a
++	smb2CmdIoctl       = 0x000b
++	smb2CmdCancel      = 0x000c
++	smb2CmdEcho        = 0x000d
++	smb2CmdQueryDir    = 0x000e
++	smb2CmdChangeNote  = 0x000f
++	smb2CmdQueryInfo   = 0x0010
++	smb2CmdSetInfo     = 0x0011
++	smb2CmdOplockBreak = 0x0012
++)
++
++// SMB2TreeConnectPath extrae el nombre del recurso de una petición SMB2
++// TREE_CONNECT (PathOffset/PathLength en UTF-16, relativos al inicio de la
++// cabecera SMB2). Devuelve "" si no cuadra. Así la trampa apunta a qué recurso
++// se conecta un cliente SMB2 (smbclient moderno, Windows), no solo SMB1.
++func SMB2TreeConnectPath(pdu []byte) string {
++	if len(pdu) < smb2HeaderSize+8 {
++		return ""
++	}
++	body := pdu[smb2HeaderSize:]
++	off := int(binary.LittleEndian.Uint16(body[4:6]))
++	ln := int(binary.LittleEndian.Uint16(body[6:8]))
++	if ln == 0 || ln%2 != 0 || off < smb2HeaderSize || off+ln > len(pdu) {
++		return ""
++	}
++	s, _ := decodeUnicodeStringN(pdu[off:off+ln], ln/2)
++	return shareFromPath(s)
++}
++
++// smb2ErrorResponse builds an SMB2 ERROR Response (status + 9-byte body) so the
++// client gets a definite answer instead of timing out.
++func smb2ErrorResponse(req []byte, cmd uint16, status uint32) []byte {
++	h := smb2ReplyHeader(req)
++	binary.LittleEndian.PutUint16(h[12:14], cmd)
++	binary.LittleEndian.PutUint32(h[8:12], status)
++	body := make([]byte, 9) // StructureSize=9, ErrorContextCount/Reserved/ByteCount, 1 byte ErrorData
++	binary.LittleEndian.PutUint16(body[0:2], 9)
++	return append(h, body...)
++}
++
++// smb2SimpleSuccess builds a minimal SMB2 success reply (StructureSize only) for
++// commands like ECHO, LOGOFF and TREE_DISCONNECT (response body StructureSize 4).
++func smb2SimpleSuccess(req []byte, cmd uint16) []byte {
++	h := smb2ReplyHeader(req)
++	binary.LittleEndian.PutUint16(h[12:14], cmd)
++	body := make([]byte, 4) // StructureSize=4, Reserved=0
++	binary.LittleEndian.PutUint16(body[0:2], 4)
++	return append(h, body...)
++}
++
++// MakeSMB2Reply builds an SMB2 reply PDU. Negotiate, Session Setup and Tree
++// Connect get success stubs; ECHO/LOGOFF/TREE_DISCONNECT get a plain success;
++// CREATE gets STATUS_ACCESS_DENIED and the rest STATUS_NOT_SUPPORTED, so the
++// client never hangs. challenge is the NTLM server challenge used in Session
++// Setup. ok is false only when the request is too short or for commands that
++// have no response (CANCEL, OPLOCK_BREAK); the frame should still be stored.
+ func MakeSMB2Reply(req []byte, challenge [8]byte) (name string, pdu []byte, ok bool) {
+ 	cmd, parsed := SMB2Command(req)
+ 	if !parsed {
+@@ -140,7 +232,13 @@ func MakeSMB2Reply(req []byte, challenge [8]byte) (name string, pdu []byte, ok b
+ 		return name, p, true
+ 	case SMB2CmdTreeConnect:
+ 		return name, makeSMB2TreeConnectResponse(req), true
++	case SMB2CmdLogoff, SMB2CmdTreeDisconnect, smb2CmdEcho:
++		return name, smb2SimpleSuccess(req, cmd), true
++	case smb2CmdCancel, smb2CmdOplockBreak:
++		return name, nil, false // sin respuesta, como un servidor real
++	case smb2CmdCreate:
++		return name, smb2ErrorResponse(req, cmd, smb2StatusAccessDenied), true
+ 	default:
+-		return name, nil, false
++		return name, smb2ErrorResponse(req, cmd, smb2StatusNotSupported), true
+ 	}
+ }
+diff --git a/protocols/tcp/smb_test.go b/protocols/tcp/smb_test.go
+index 9caad62..2de7534 100644
+--- a/protocols/tcp/smb_test.go
++++ b/protocols/tcp/smb_test.go
+@@ -556,7 +556,10 @@ func TestHandleSMBCapturesLargeNtTransact(t *testing.T) {
+ 		if f.Direction == "read" && f.Header.Command == smb.CmdNtTransact {
+ 			require.Equal(t, "SMB_COM_NT_TRANSACT", f.Command)
+ 			require.False(t, f.Truncated)
+-			require.Equal(t, 4+body, len(f.Payload))
++			// Sugardaddy: el marco se procesa entero, pero en el evento solo se
++			// guarda un prefijo (maxStoredPayload) para no retener megas por
++			// conexión; el contenido no se usa más allá de su huella/tamaño.
++			require.LessOrEqual(t, len(f.Payload), maxStoredPayload)
+ 			sawRead = true
+ 		}
+ 		if f.Direction == "write" && f.Header.Command == smb.CmdNtTransact {
+@@ -583,7 +586,9 @@ func TestHandleSMBTruncatesOversizedMessage(t *testing.T) {
+ 	for _, f := range frames {
+ 		if f.Direction == "read" && f.Header.Command == smb.CmdNtTransact {
+ 			require.True(t, f.Truncated)
+-			require.Equal(t, 4+maxSMBMessage, len(f.Payload))
++			// Sugardaddy: Truncated marca que el marco superó maxSMBMessage; el
++			// evento solo guarda un prefijo (maxStoredPayload).
++			require.LessOrEqual(t, len(f.Payload), maxStoredPayload)
+ 			sawTrunc = true
+ 		}
+ 	}

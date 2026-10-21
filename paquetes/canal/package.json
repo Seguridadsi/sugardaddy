@@ -1,0 +1,16 @@
+{
+	"name": "@sugardaddy/canal",
+	"private": true,
+	"version": "0.0.1",
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts"
+	},
+	"scripts": {
+		"test": "vitest --run"
+	},
+	"devDependencies": {
+		"@types/node": "^22",
+		"vitest": "^4.1.8"
+	}
+}

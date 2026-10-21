@@ -1,0 +1,95 @@
+# Prueba automática del módulo: herramientas/probar-trampa.sh login-web
+# Se despliega en un puerto no estándar (30080, no chocar con nada) fingiendo
+# el portal «Intranet Corporativa» con la credencial cebo admin / Admin-2026, y
+# se ataca desde la imagen 'atacante' con lo que hace un atacante de verdad:
+# la descarga del formulario y un POST con credenciales equivocadas (fuerza
+# bruta), el POST con la credencial cebo (el acceso aceptado, que tiene que
+# enseñar el contenido falso del portal), un POST con inyección SQL típica y
+# Path Traversal en la contraseña y en la ruta, y un barrido nmap -sV con su
+# http-title que debe salir como sondeo (baja), no como alertas altas. Nada se
+# ejecuta: el portal solo contesta páginas y apunta credenciales.
+parametros:
+  puertoWeb: 30080
+  plantilla: 'intranet'
+  usuarioCebo: 'admin'
+  contrasenaCebo: 'Admin-2026'
+arranque: 3
+ataques:
+  # Descarga del formulario y credenciales equivocadas: lo primero que hace
+  # quien fuerza un portal. Puede fallar: curl decide su propio código de
+  # salida si el portal tarda en arrancar.
+  - imagen: atacante
+    puedeFallar: true
+    orden:
+      - sh
+      - -c
+      - |
+        curl -sS -m 10 -o /dev/null http://127.0.0.1:${puertoWeb}/login
+        curl -sS -m 10 -o /dev/null -d 'usuario=empleado01&password=equivocada-123' http://127.0.0.1:${puertoWeb}/login
+  # La credencial cebo: el portal la ACEPTA y enseña su contenido falso. Este
+  # ataque no puede fallar: un portal que no responde con la credencial cebo y
+  # su contenido es una trampa rota.
+  - imagen: atacante
+    puedeFallar: false
+    orden:
+      - sh
+      - -c
+      - |
+        curl -sf -m 10 -d 'usuario=${usuarioCebo}&password=${contrasenaCebo}' http://127.0.0.1:${puertoWeb}/login | grep -q Bienvenido
+  # Inyección SQL típica contra el campo usuario y Path Traversal en la
+  # contraseña y en la ruta: se detectan y salen como web.comando (alta).
+  # Puede fallar por lo mismo que el primero.
+  - imagen: atacante
+    puedeFallar: true
+    orden:
+      - sh
+      - -c
+      - |
+        curl -sS -m 10 -o /dev/null -d "usuario=admin'--&password=x" http://127.0.0.1:${puertoWeb}/login
+        curl -sS -m 10 -o /dev/null -d 'usuario=admin&password=../../../etc/passwd' http://127.0.0.1:${puertoWeb}/login
+        curl -sS -m 10 --path-as-is -o /dev/null http://127.0.0.1:${puertoWeb}/../../etc/passwd
+  # Barrido de versiones y el NSE http-title: las sondas tienen que salir como
+  # web.sondeo (baja). Puede fallar: nmap decide su propio código de salida.
+  - imagen: atacante
+    puedeFallar: true
+    orden:
+      - sh
+      - -c
+      - |
+        nmap -sV -p ${puertoWeb} 127.0.0.1 || true
+        nmap -p ${puertoWeb} --script http-title 127.0.0.1 || true
+        exit 0
+espera:
+  # Hubo conexión TCP completa: el origen no está falseado.
+  - { accion: conexion, conexion: true, detalle: { eventid: web.session.connect } }
+  # Las credenciales equivocadas quedan apuntadas ENTERAS, con su User-Agent
+  # (media: credencial probada).
+  - {
+      accion: autenticacion,
+      severidad: media,
+      detalle:
+        {
+          eventid: web.login,
+          usuario: empleado01,
+          password: equivocada-123,
+          resultado: rechazada,
+          agente: curl
+        }
+    }
+  # La credencial cebo: acceso aceptado (alta) con el usuario y la contraseña
+  # con los que entró.
+  - {
+      accion: autenticacion,
+      severidad: alta,
+      detalle:
+        { eventid: web.login.cebo, usuario: admin, password: Admin-2026, resultado: aceptada }
+    }
+  # La inyección SQL del campo usuario, y el Path Traversal de la contraseña y
+  # de la ruta: web.comando (alta) con su motivo.
+  - { accion: comando, severidad: alta, detalle: { eventid: web.comando, grave: 'inyección SQL' } }
+  - { accion: comando, severidad: alta, detalle: { eventid: web.comando, grave: 'Path Traversal' } }
+  # El barrido nmap -sV y las peticiones a rutas que no existen: sondeo, baja.
+  - { accion: conexion, severidad: baja, detalle: { eventid: web.sondeo, ruta: / } }
+  # El cierre de conexión, con su duración.
+  - { accion: otra, severidad: baja, detalle: { eventid: web.session.closed } }
+tiempo: 15
