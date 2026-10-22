@@ -38,7 +38,10 @@ jobs:
             docker build --platform linux/amd64 -t "$repo:$etq" -f "$df" "$tmp/fuente"
             docker push "$repo:$etq"
             digest=$(docker inspect --format='{{index .RepoDigests 0}}' "$repo:$etq" | sed 's/^[^@]*@//')
-            perl -pi -e "s{(imagen:\s*\Q$repo:$etq\E)\@sha256:[0-9a-f]{64}}{\${1}\@$digest}" "modulos/trampas/$t/trampa.yaml"
+            # También en los ejemplos del contrato que usan la misma imagen
+            # (smb.v2.yaml): sus pruebas comparan la vía contenedor con el manifiesto.
+            perl -pi -e "s{(imagen:\s*\Q$repo:$etq\E)\@sha256:[0-9a-f]{64}}{\${1}\@$digest}" \
+              "modulos/trampas/$t/trampa.yaml" paquetes/contrato/src/ejemplos/*.v2.yaml
             rm -rf "$tmp"
             echo "::endgroup::"
           done
@@ -47,6 +50,6 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add modulos/trampas/*/trampa.yaml
+          git add modulos/trampas/*/trampa.yaml paquetes/contrato/src/ejemplos/*.v2.yaml
           git commit -m "Fijar el digest real de ghcr de las imágenes de las trampas gratis" || echo "sin cambios que confirmar"
           git push

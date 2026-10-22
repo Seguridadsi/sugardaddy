@@ -7,8 +7,7 @@
  * El tipo de cada trampa se decide aquí, por el id de su módulo, y no en su
  * manifiesto: un módulo es solo datos del servicio que imita, y cómo se pinta
  * en las pantallas es cosa de la aplicación. Un módulo nuevo que no esté en
- * este mapa no tiene tipo y lleva la abeja, hasta que se le asigne uno (lo
- * avisa pictogramas.spec.ts).
+ * este mapa no tiene tipo y lleva la abeja, hasta que se le asigne uno.
  *
  * Solo se importa desde el servidor. El mapa nombra cada módulo, y alguno
  * (cowrie) dice de qué honeypot sale: no debe viajar en el JavaScript que se

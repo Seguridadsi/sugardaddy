@@ -7,9 +7,6 @@
 		"./app.css": "./app.css",
 		"./pictogramas": "./pictogramas.ts"
 	},
-	"scripts": {
-		"test": "vitest --run"
-	},
 	"devDependencies": {
 		"@types/node": "^22",
 		"vitest": "^4.1.8"
