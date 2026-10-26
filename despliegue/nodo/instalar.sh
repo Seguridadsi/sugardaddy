@@ -194,6 +194,10 @@ PASO="arrancar el nodo"
 [[ -L ca-raiz.crt ]] && rm -f ca-raiz.crt
 [[ -e ca-raiz.crt ]] || : > ca-raiz.crt
 docker compose --env-file .env --env-file versiones.env up -d --wait
+# El Caddyfile es un bind-mount y Caddy no recarga su contenido solo (admin off):
+# `up` no recrea Caddy si solo cambió el CONTENIDO del fichero (p. ej. un arreglo
+# o la dirección). Se fuerza su recreación para que lo relea, sin tocar el resto.
+docker compose --env-file .env --env-file versiones.env up -d --no-deps --force-recreate https
 if [[ "$TLS_MODO" == interno ]]; then
 	# La raíz de la CA del nodo, para instalarla en los equipos que entren a la
 	# consola. Lo que sale de Caddy no se copia tal cual: se saca a una carpeta
