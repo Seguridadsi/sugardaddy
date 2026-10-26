@@ -23,15 +23,27 @@ PLAT=linux/amd64
 command -v docker >/dev/null || { echo "Hace falta Docker."; exit 1; }
 cd "$RAIZ"
 
+# Comprueba el sha256 de un fichero contra un valor (Linux: sha256sum; si no, shasum).
+verificar_sha() { # <sha> <fichero>
+	if command -v sha256sum >/dev/null 2>&1; then
+		echo "$1  $2" | sha256sum -c - >/dev/null 2>&1
+	else
+		echo "$1  $2" | shasum -a 256 -c - >/dev/null 2>&1
+	fi
+}
+
 echo "==> docker-compose que embebe el actualizador"
-CV="$(awk '{print $3}' "$RAIZ/herramientas/compose.sha256")"
+# Versión y huella de docker-compose. Espejo de herramientas/compose.sha256, que
+# NO viaja a la edición community; si se sube la versión, cámbialas también aquí.
+COMPOSE_VER="v5.5.0"
+COMPOSE_SHA="c57ab918abd5b05ca7e7d0f275875dd1330a695074f309dc9eab1b49efafcd4b"
+COMPOSE_BIN="$RAIZ/sensor/dist/docker-compose-linux-amd64"
 mkdir -p "$RAIZ/sensor/dist"
-if ! ( cd "$RAIZ/sensor/dist" && shasum -a 256 -c <(awk '{print $1"  "$2}' "$RAIZ/herramientas/compose.sha256") >/dev/null 2>&1 ); then
-	curl -fsSL -o "$RAIZ/sensor/dist/docker-compose-linux-amd64" \
-		"https://github.com/docker/compose/releases/download/$CV/docker-compose-linux-x86_64"
-	( cd "$RAIZ/sensor/dist" && shasum -a 256 -c <(awk '{print $1"  "$2}' "$RAIZ/herramientas/compose.sha256") >/dev/null ) \
-		|| { echo "La huella de docker-compose no cuadra."; exit 1; }
-	chmod +x "$RAIZ/sensor/dist/docker-compose-linux-amd64"
+if ! verificar_sha "$COMPOSE_SHA" "$COMPOSE_BIN"; then
+	curl -fsSL -o "$COMPOSE_BIN" \
+		"https://github.com/docker/compose/releases/download/$COMPOSE_VER/docker-compose-linux-x86_64"
+	verificar_sha "$COMPOSE_SHA" "$COMPOSE_BIN" || { echo "La huella de docker-compose no cuadra."; exit 1; }
+	chmod +x "$COMPOSE_BIN"
 fi
 
 echo "==> Imagen de la consola (base + el catálogo de trampas dentro)"
