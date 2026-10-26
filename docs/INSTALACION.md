@@ -121,7 +121,7 @@ Cuando termine, te dice la URL de la consola y que ya está en marcha.
   registro. Para verla:
 
   ```bash
-  sudo docker logs "$(docker ps -qf name=consola)" 2>&1 | grep -A3 "PRIMER ADMINISTRADOR"
+  sudo sh -c 'docker logs "$(docker ps -qf name=consola)" 2>&1 | grep -A3 "PRIMER ADMINISTRADOR"'
   ```
 
   Apúntala (no se vuelve a mostrar) y cámbiala en el primer acceso.
@@ -155,6 +155,24 @@ ssh -p <puerto> root@<ip-del-nodo>
 Prueba una contraseña cualquiera. Luego, en la consola, en **Eventos**, tiene
 que aparecer la línea: la IP desde la que atacaste, la trampa, y qué hiciste. Si
 sale, Sugardaddy funciona de punta a punta.
+
+## Reinstalar o empezar de cero
+
+Volver a lanzar el instalador sobre un nodo ya instalado lo **actualiza** y
+conserva sus secretos y sus datos (`/opt/sugardaddy/.env`). Un build local
+(`construir-imagenes-local.sh`) se instala aunque el nodo tenga una versión más
+nueva: no hace falta nada especial.
+
+Si quieres **empezar de cero** (borra el nodo, sus contenedores y TODOS sus
+datos, sin vuelta atrás):
+
+```bash
+cd /opt/sugardaddy && sudo docker compose -p sugardaddy down -v
+sudo docker ps -aq --filter name=sd-local- | xargs -r sudo docker rm -f
+sudo rm -rf /opt/sugardaddy
+```
+
+Después instala de nuevo como en el paso 4.
 
 ## Qué incluye y qué no
 
