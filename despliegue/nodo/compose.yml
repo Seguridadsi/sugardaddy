@@ -60,6 +60,11 @@ services:
       ENTRA_CLIENT_SECRET: ${ENTRA_CLIENT_SECRET:-}
       ENTRA_GRUPO_CLIENTE: ${ENTRA_GRUPO_CLIENTE:-}
       ENTRA_GRUPO_SOPORTE: ${ENTRA_GRUPO_SOPORTE:-}
+      # Login local: entrar con usuario y contraseña del propio nodo, como
+      # alternativa (o complemento) a Entra. En la edición community va activo;
+      # en un nodo federado se deja vacío. Ver docs/diseno/auth-login.md.
+      LOGIN_LOCAL: ${LOGIN_LOCAL:-}
+      EDICION: ${EDICION:-}
       PANEL_HTTP_PERMITIDO: ${PANEL_HTTP_PERMITIDO:-}
       # Alta automática en el panel la primera vez (la deja el instalador).
       PANEL_URL: ${PANEL_URL:-}

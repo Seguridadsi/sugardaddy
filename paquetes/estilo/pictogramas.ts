@@ -7,7 +7,8 @@
  * El tipo de cada trampa se decide aquí, por el id de su módulo, y no en su
  * manifiesto: un módulo es solo datos del servicio que imita, y cómo se pinta
  * en las pantallas es cosa de la aplicación. Un módulo nuevo que no esté en
- * este mapa no tiene tipo y lleva la abeja, hasta que se le asigne uno.
+ * este mapa no tiene tipo y lleva la abeja, hasta que se le asigne uno (lo
+ * avisa pictogramas.spec.ts).
  *
  * Solo se importa desde el servidor. El mapa nombra cada módulo, y alguno
  * (cowrie) dice de qué honeypot sale: no debe viajar en el JavaScript que se
@@ -32,7 +33,8 @@ export const TIPOS_DE_SERVICIO = [
 	'sanidad',
 	'ia',
 	'codigo',
-	'retencion'
+	'retencion',
+	'nube'
 ] as const;
 
 export type TipoDeServicio = (typeof TIPOS_DE_SERVICIO)[number];
@@ -100,7 +102,13 @@ const TIPO_DE_TRAMPA: Record<string, TipoDeServicio> = {
 	'receptor-balizas': 'ficheros',
 	/* Retención: las que hacen perder el tiempo al intruso */
 	'retencion-ssh': 'retencion',
-	'retencion-web': 'retencion'
+	'retencion-web': 'retencion',
+	/* Las honeycosas de nube de la tanda de conectores (H28–H31: aws-clave-cebo,
+	 * azure-spn-cebo, login-clonado, app-saml), ya en modulos/nube/. */
+	'aws-clave-cebo': 'nube',
+	'azure-spn-cebo': 'nube',
+	'login-clonado': 'nube',
+	'app-saml': 'nube'
 };
 
 /* El tipo de servicio de un módulo, o null si no tiene (y lleva la abeja). */

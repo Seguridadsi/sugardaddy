@@ -31,6 +31,47 @@
 	<button class="boton">Guardar</button>
 </form>
 
+<form class="panel bloque" method="POST" action="?/conservacion" use:enhance>
+	<h2>Cuánto se guardan los eventos</h2>
+	<p class="ayuda">
+		Los eventos y la cuarentena de más de este plazo se borran solos, cada hora, y no se pueden
+		recuperar. De estos datos sois responsables vosotros: poned el plazo que diga vuestra política
+		de privacidad. Entre {data.conservacion.minimo} y {data.conservacion.maximo} días; 365 es un año.
+		La auditoría de la consola se guarda un año, o este plazo si es más largo.
+	</p>
+	{#if data.ahora < Date.parse(data.conservacion.aPartirDe)}
+		<p class="ayuda">
+			Los borrados empiezan el
+			<b>{new Date(data.conservacion.aPartirDe).toLocaleDateString('es-ES')}</b>: hasta entonces no
+			se borra nada, para que tengáis tiempo de cambiar el plazo.
+		</p>
+	{/if}
+	<div class="plazo">
+		<input
+			id="dias"
+			name="dias"
+			type="number"
+			inputmode="numeric"
+			min={data.conservacion.minimo}
+			max={data.conservacion.maximo}
+			value={form?.dias ?? data.conservacion.dias}
+		/>
+		<label for="dias">días</label>
+	</div>
+	<button class="boton">Guardar</button>
+</form>
+
+{#if data.loginLocal}
+	<section class="panel bloque">
+		<h2>Usuarios locales</h2>
+		<p class="ayuda">
+			Este nodo admite entrar con usuario y contraseña del propio nodo. Desde aquí das de alta a
+			quién entra, le asignas su rol, le restableces la contraseña o lo retiras.
+		</p>
+		<a class="boton" href="/usuarios">Gestionar usuarios</a>
+	</section>
+{/if}
+
 <section class="panel bloque">
 	<h2>Llaves de emergencia</h2>
 	<p class="ayuda">
@@ -268,6 +309,17 @@
 
 	.bloque form .boton {
 		margin-top: 16px;
+	}
+
+	.plazo {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		margin: 12px 0;
+	}
+
+	.plazo input {
+		width: 8em;
 	}
 
 	.llaves {

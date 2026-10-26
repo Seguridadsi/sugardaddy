@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { asset } from '$app/paths';
+	import { enhance } from '$app/forms';
 
-	let { data } = $props();
+	let { data, form } = $props();
 </script>
 
 <svelte:head>
@@ -29,18 +30,44 @@
 	</h1>
 	<p class="sub">Consola del nodo</p>
 
-	{#if data.error}
+	{#if form?.error}
+		<p class="error" role="alert">{form.error}</p>
+	{:else if data.error}
 		<p class="error" role="alert">{data.error}</p>
 	{:else if data.salida}
 		<p class="ok" role="status">Has salido.</p>
 	{/if}
 
+	{#if data.local}
+		<form method="POST" action="?/local" use:enhance>
+			<input type="hidden" name="volverA" value={data.volverA} />
+			<label class="campo">
+				<span>Usuario</span>
+				<input
+					name="usuario"
+					autocomplete="username"
+					autocapitalize="off"
+					spellcheck="false"
+					required
+					value={form?.usuario ?? ''}
+				/>
+			</label>
+			<label class="campo">
+				<span>Contraseña</span>
+				<input name="clave" type="password" autocomplete="current-password" required />
+			</label>
+			<button class="boton principal">Entrar</button>
+			<p class="pista">Tras varios intentos fallidos la cuenta se bloquea unos minutos.</p>
+		</form>
+	{/if}
+
 	{#if data.configurado}
+		{#if data.local}<p class="o">o</p>{/if}
 		<a class="boton principal" href="/auth/login?volverA={encodeURIComponent(data.volverA)}">
 			Entrar con Microsoft
 		</a>
-	{:else}
-		<p class="error">Esta consola no tiene configurado Entra ID.</p>
+	{:else if !data.local}
+		<p class="error">Esta consola no tiene configurada ninguna forma de entrar.</p>
 	{/if}
 	<a class="emergencia" href="/emergencia">Entrada de emergencia con llave</a>
 </div>
@@ -104,5 +131,47 @@
 	.boton {
 		display: block;
 		padding: 10px;
+	}
+
+	.campo {
+		display: block;
+		text-align: left;
+		margin-bottom: 14px;
+	}
+
+	.campo span {
+		display: block;
+		font-size: 12.5px;
+		color: var(--ink-3);
+		margin-bottom: 5px;
+	}
+
+	.campo input {
+		width: 100%;
+		padding: 9px 11px;
+		border-radius: var(--r-sm);
+		border: 1px solid var(--line);
+		background: var(--surface);
+		color: var(--ink);
+		font-size: 14px;
+	}
+
+	.campo input:focus {
+		outline: 2px solid var(--accent);
+		outline-offset: 0;
+		border-color: transparent;
+	}
+
+	.o {
+		margin: 16px 0;
+		font-size: 12.5px;
+		color: var(--ink-3);
+	}
+
+	.pista {
+		margin: 10px 0 0;
+		font-size: 11.5px;
+		color: var(--ink-3);
+		text-align: left;
 	}
 </style>

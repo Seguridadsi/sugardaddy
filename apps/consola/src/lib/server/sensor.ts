@@ -638,15 +638,16 @@ async function guardarEntrega(
 				else if (deQuien.get(e.trampa.id) !== sensor) motivo = 'la trampa es de otro sensor';
 			}
 
+			/*
+			 * Las balizas (cebos de fichero y el píxel §5.3) son una pieza de
+			 * pago, ausente en la edición community: aquí no hay receptor ni
+			 * tokens, así que un evento es de prueba solo por «Probar».
+			 */
+			const deLaPrueba = e && !motivo ? pruebasDe(e, recibidoAhora, abiertas) : [];
+			const prueba = deLaPrueba.length > 0;
+
 			if (e && !motivo) {
 				const evento = e;
-				/*
-				 * De prueba: comprueba la trampa, pero no da alerta ni sube su
-				 * severidad. Un evento de baliza puede serlo por su nonce (el GET de
-				 * «Probar» de la honeycosa de fichero dueña de su token).
-				 */
-				const deLaPrueba = pruebasDe(evento, recibidoAhora, abiertas);
-				const prueba = deLaPrueba.length > 0;
 				const leida = credencial(evento, viaDeTrampa.get(evento.trampa.id));
 				const c = prueba ? { ...leida, alerta: null, severidad: evento.severidad } : leida;
 				/* En su propio punto de guardado: si falla (p. ej. un id repetido), solo cae esta línea. */
@@ -720,7 +721,11 @@ async function guardarEntrega(
 						console.error('no se pudo anotar la prueba del evento', evento.id, err);
 					}
 				}
-				/* El motor de respuesta solo ve lo que no es de prueba, con la severidad que se ve. */
+				/*
+				 * El motor de respuesta y las salidas (de pago, fuera de community)
+				 * solo verían lo que no es de prueba. nuevos se construye igual,
+				 * pero recibirEventos ya no lo pasa a nadie.
+				 */
 				if (recibido && !prueba) nuevos.push({ ...evento, severidad: c.severidad });
 			}
 

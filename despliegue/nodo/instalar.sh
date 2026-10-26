@@ -128,6 +128,11 @@ ENTRA_CLIENT_ID=${ENTRA_CLIENT_ID:-}
 ENTRA_CLIENT_SECRET=${ENTRA_CLIENT_SECRET:-}
 ENTRA_GRUPO_CLIENTE=${ENTRA_GRUPO_CLIENTE:-}
 ENTRA_GRUPO_SOPORTE=${ENTRA_GRUPO_SOPORTE:-}
+# Login local (usuario y contraseña del nodo): LOGIN_LOCAL=1 para activarlo en
+# vez de, o además de, Entra. Vacío = solo Entra. Al activarlo, la consola crea
+# un primer administrador y escribe su contraseña de un solo uso en su registro
+# de arranque (docker compose logs consola). Ver docs/diseno/auth-login.md.
+LOGIN_LOCAL=${LOGIN_LOCAL:-}
 # Panel central: el nodo se da de alta solo con este código la primera vez.
 PANEL_URL=${PANEL_URL:-}
 PANEL_ALTA_CODIGO=${PANEL_ALTA_CODIGO:-}

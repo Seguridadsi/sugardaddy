@@ -68,8 +68,18 @@ export async function leer(cookies: Cookies, ahora = Date.now()) {
 	};
 }
 
-export async function cerrar(cookies: Cookies) {
+/* Devuelve el oid de la sesión cerrada (o null): quien llama decide a dónde mandar al salir. */
+export async function cerrar(cookies: Cookies): Promise<string | null> {
 	const id = cookies.get(COOKIE_SESION);
-	if (id) await db.update(s.sesiones).set({ cerrada: new Date() }).where(eq(s.sesiones.id, id));
+	let oid: string | null = null;
+	if (id) {
+		const [fila] = await db
+			.update(s.sesiones)
+			.set({ cerrada: new Date() })
+			.where(eq(s.sesiones.id, id))
+			.returning({ oid: s.sesiones.oid });
+		oid = fila?.oid ?? null;
+	}
 	cookies.delete(COOKIE_SESION, { path: '/' });
+	return oid;
 }

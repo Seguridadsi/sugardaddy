@@ -247,6 +247,13 @@ export type Honeycosa = ManifiestoTrampaV2 & { origen: 1 | 2 };
 export type FamiliaRespuesta = 'avisar' | 'enviar' | 'enriquecer' | 'contener' | 'ejecutar';
 export type RiesgoRespuesta = 'informativa' | 'contencion';
 
+/*
+ * La clase de un indicador de compromiso (IOC): lo que una respuesta sabe
+ * atacar. Alineada con la lista negra/blanca de la consola (listas.clase) y
+ * ampliada: una IP va al firewall, un dominio al antispam, un hash a Defender.
+ */
+export type ClaseIoc = 'ip' | 'red' | 'dominio' | 'url' | 'hash' | 'usuario' | 'equipo' | 'comando';
+
 export interface ManifiestoRespuesta {
 	version: 1;
 	id: Slug;
@@ -258,6 +265,12 @@ export interface ManifiestoRespuesta {
 	ejecutor: { tipo: 'integrado'; nombre: Slug } | { tipo: 'contenedor'; imagen: string };
 	entrada: Exclude<keyof Evento, 'version' | 'hashAnterior'>[];
 	salida: string[];
+	/*
+	 * Clases de IOC sobre las que actúa. Obligatorio en contener/ejecutar (el
+	 * motor crea una decisión por cada IOC del evento que encaje). Las
+	 * informativas (avisar/enviar) lo omiten: actúan sobre el evento entero.
+	 */
+	acepta?: ClaseIoc[];
 	secretos?: { id: Slug; descripcion: string }[];
 	parametros: EsquemaParametros;
 }

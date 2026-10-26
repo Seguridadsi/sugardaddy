@@ -20,8 +20,8 @@ export default defineConfig({
 				directives: {
 					'default-src': ['none'],
 					'script-src': ['self'],
-					'style-src': ['self', 'unsafe-inline', 'https://fonts.googleapis.com'],
-					'font-src': ['self', 'https://fonts.gstatic.com'],
+					'style-src': ['self', 'unsafe-inline'],
+					'font-src': ['self'],
 					'img-src': ['self', 'data:'],
 					'connect-src': ['self'],
 					/* Salir acaba en Microsoft para cerrar también allí, y form-action se aplica a toda la cadena de redirecciones. */

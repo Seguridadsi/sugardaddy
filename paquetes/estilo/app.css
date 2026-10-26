@@ -4,6 +4,20 @@
  */
 
 /*
+ * Las fuentes viajan con la consola y el panel (Fontsource, licencia OFL):
+ * cargarlas de Google mandaba la IP de cada navegador a Google, y la consola
+ * promete que nada sale de la empresa. Solo los pesos que se usan.
+ */
+@import '@fontsource/archivo/500.css';
+@import '@fontsource/archivo/600.css';
+@import '@fontsource/archivo/700.css';
+@import '@fontsource/instrument-sans/400.css';
+@import '@fontsource/instrument-sans/500.css';
+@import '@fontsource/instrument-sans/600.css';
+@import '@fontsource/ibm-plex-mono/400.css';
+@import '@fontsource/ibm-plex-mono/500.css';
+
+/*
  * La consola va en oscuro: se mira en un SOC, a menudo de noche. La paleta
  * clara sigue bajo [data-theme="light"] por si hace falta.
  */

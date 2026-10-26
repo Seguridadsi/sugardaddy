@@ -453,6 +453,26 @@ describe('renderizar', () => {
 		);
 	});
 
+	it('la URL de la baliza, para las vías de nube que la pegan (ronda conectores-tanda1, §2.5.2)', () => {
+		/* Como una de las cuatro de la tanda: los pasos pegan ${baliza_url} en el
+		 * texto y la leen del bloque como $sd.baliza_url / SD_BALIZA_URL (reglas 5
+		 * y 6), también en los pasos de la prueba. Sin baliza acuñada, el error
+		 * dice que se acuña al darle de alta. */
+		const m = credencialDatos();
+		m.vias[1].carga.pasos[0].texto = 'Pega la URL ${baliza_url} en el destino de la nube.';
+		m.vias[1].carga.pasos[0].orden = 'printf \'%s\\n\' "$SD_BALIZA_URL"';
+		m.vias[1].comprobacion.prueba.pasos[0].texto = 'Haz un GET a ${baliza_url}: sale la imagen.';
+		const h = honeycosa(m);
+		expect(errores(h, 'linux', deCredencial())).toEqual([
+			'URL de la baliza: falta la URL de la baliza de esta honeycosa (se acuña al darle de alta)'
+		]);
+		const url = 'https://nube.empresa.example/b/clave-cebo-123';
+		const p = generar(h, 'linux', deCredencial(), contexto({ baliza_url: url }));
+		expect(p.pasos[0].texto).toBe(`Pega la URL ${url} en el destino de la nube.`);
+		expect(p.pasos[0].orden).toBe('printf \'%s\\n\' "$SD_BALIZA_URL"');
+		expect(p.variables.baliza_url).toBe(url);
+	});
+
 	it('dos variables que se confundirían en el bloque se rechazan', () => {
 		/* Un parámetro destino_nombre y ${destino.nombre}: las dos serían destino_nombre. */
 		const m = credencialDatos();

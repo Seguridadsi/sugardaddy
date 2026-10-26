@@ -30,6 +30,9 @@ function abrir() {
 	return bases;
 }
 
+/* Si el nodo trae las bases de DB-IP: entonces hay que citarlas (pie de la consola). */
+export const hayGeo = () => !!(abrir().pais || abrir().asn);
+
 const cache = new Map<string, Geo | null>();
 
 export function geo(ip: string | undefined | null): Geo | null {

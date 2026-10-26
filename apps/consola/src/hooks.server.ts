@@ -4,6 +4,7 @@ import { env } from '$env/dynamic/private';
 import { configurado } from '$lib/server/auth/entra';
 import { leer } from '$lib/server/auth/sesion';
 import { altaAutomatica, latir } from '$lib/server/canal';
+import { purgar } from '$lib/server/conservacion';
 import { rellenarSiHaceFalta } from '$lib/server/credenciales';
 
 /*
@@ -24,6 +25,13 @@ export const init: ServerInit = () => {
 	void intentar(0);
 	/* Los eventos de antes de esta versión no tenían la contraseña aparte. */
 	void rellenarSiHaceFalta().catch((e) => console.error('[credenciales]', e));
+	/* Cada hora, los eventos y la auditoría que pasan de su plazo de conservación. */
+	const borrar = () => void purgar().catch((e) => console.error('[conservacion]', e));
+	const h = globalThis as { __conservacion?: ReturnType<typeof setInterval> };
+	if (h.__conservacion) clearInterval(h.__conservacion);
+	h.__conservacion = setInterval(borrar, 60 * 60_000);
+	h.__conservacion.unref?.();
+	borrar();
 };
 
 /*

@@ -1,4 +1,5 @@
 import { cabecera } from '$lib/server/consultas';
+import { hayGeo } from '$lib/server/geo';
 import { soporte } from '$lib/server/soporte';
 import { logo } from '$lib/server/canal';
 
@@ -10,6 +11,7 @@ export const load = async ({ locals }) =>
 				modoDesarrollo: locals.modoDesarrollo,
 				soporte: await soporte(),
 				logo: (await logo())?.huella.slice(0, 12) ?? null,
+				geo: hayGeo(),
 				...(await cabecera())
 			}
 		: {
@@ -17,6 +19,7 @@ export const load = async ({ locals }) =>
 				modoDesarrollo: false,
 				soporte: null,
 				logo: null,
+				geo: false,
 				cliente: null,
 				pendientes: 0
 			};

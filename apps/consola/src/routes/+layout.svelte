@@ -95,6 +95,16 @@
 
 	<main class="contenido">
 		{@render children()}
+		<!-- El país y la red de cada IP salen de las bases de DB-IP, cuya licencia pide citarlas. -->
+		{#if data.geo}
+			<footer class="pie">
+				Geolocalización de IP:
+				<a href="https://db-ip.com" rel="noopener noreferrer">DB-IP</a>, con licencia
+				<a href="https://creativecommons.org/licenses/by/4.0/deed.es" rel="noopener noreferrer"
+					>CC BY 4.0</a
+				>.
+			</footer>
+		{/if}
 	</main>
 {:else}
 	{@render children()}
@@ -175,5 +185,15 @@
 		max-width: 120px;
 		object-fit: contain;
 		margin-right: 4px;
+	}
+
+	.pie {
+		margin-top: 32px;
+		font-size: 12px;
+		color: var(--ink-3);
+	}
+
+	.pie a {
+		color: inherit;
 	}
 </style>

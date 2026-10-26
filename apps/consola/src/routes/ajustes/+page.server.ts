@@ -1,5 +1,6 @@
 import { fail } from '@sveltejs/kit';
 import { exigir } from '$lib/server/auth/permisos';
+import { loginLocalHabilitado } from '$lib/server/auth/local';
 import {
 	actualizacion,
 	configuracion,
@@ -17,12 +18,20 @@ import { db, schema as s } from '$lib/server/db';
 import { aceptar, cerrarYa, rechazar, soporte } from '$lib/server/soporte';
 import { llaves, retirarLlave } from '$lib/server/emergencia';
 import { MINIMO_PALABRA, guardarPalabras, palabras } from '$lib/server/credenciales';
+import {
+	DIAS_MAXIMO,
+	DIAS_MINIMO,
+	cambiarPlazo,
+	conservacion,
+	validarDias
+} from '$lib/server/conservacion';
 
 export const load = async ({ locals }) => {
 	exigir(locals, 'ajustes');
 	const a = await actualizacion();
 	return {
 		ahora: Date.now(),
+		loginLocal: loginLocalHabilitado(),
 		canal: await estadoCanal(),
 		version: (await cabecera()).cliente.version,
 		actualizacion: { estado: a.estado, version: a.version, detalle: a.detalle },
@@ -39,6 +48,7 @@ export const load = async ({ locals }) => {
 		soporte: await soporte(),
 		palabras: await palabras(),
 		minimoPalabra: MINIMO_PALABRA,
+		conservacion: { ...(await conservacion()), minimo: DIAS_MINIMO, maximo: DIAS_MAXIMO },
 		llaves: (await llaves()).map((l) => ({
 			...l,
 			creada: l.creada.toISOString(),
@@ -56,6 +66,18 @@ export const actions = {
 		return {
 			mensaje: `Palabras guardadas. Revisados los eventos anteriores: ${r.cambiados} cambian.`
 		};
+	},
+	conservacion: async ({ request, locals }) => {
+		const u = exigir(locals, 'ajustes');
+		const texto = String((await request.formData()).get('dias') ?? '');
+		const dias = validarDias(texto);
+		if (!dias)
+			return fail(400, {
+				error: `El plazo va en días, entre ${DIAS_MINIMO} y ${DIAS_MAXIMO}.`,
+				dias: texto
+			});
+		await cambiarPlazo(u.correo, dias);
+		return { mensaje: `Plazo de conservación: ${dias} días.` };
 	},
 	alta: async ({ request, locals }) => {
 		const u = exigir(locals, 'ajustes');

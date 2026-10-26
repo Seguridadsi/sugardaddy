@@ -38,6 +38,12 @@ export interface ContextoManual {
 	 * dirección de su destino y sus parámetros ya validados (con sus default).
 	 */
 	trampas: Record<string, { direccion?: string; parametros: Record<string, unknown> }>;
+	/*
+	 * La URL de la baliza de esta honeycosa (§2.5), para las vías de nube que
+	 * la pegan en un webhook o en un píxel: solo cuando el módulo acuña baliza
+	 * (las de fichero y las de la tanda de conectores, H28–H31).
+	 */
+	baliza_url?: string | null;
 	/* Cuándo se generan (ISO): renderizar no mira el reloj. */
 	generado: string;
 }
@@ -109,8 +115,21 @@ const ETIQUETAS = {
 	'trampa.id': 'Id de la trampa',
 	'trampa.nombre': 'Nombre de la trampa',
 	'destino.nombre': 'Nombre del destino',
-	'destino.direccion': 'Dirección del destino'
+	'destino.direccion': 'Dirección del destino',
+	baliza_url: 'URL de la baliza'
 } as const;
+
+/* Por qué puede faltar cada variable de contexto, con el texto que ve el cliente. */
+function faltaDe(nombre: keyof typeof ETIQUETAS, c: Omit<ContextoManual, 'generado'>): string {
+	switch (nombre) {
+		case 'destino.direccion':
+			return `${c.destino.nombre} no tiene dirección; ponla en Destinos`;
+		case 'baliza_url':
+			return 'falta la URL de la baliza de esta honeycosa (se acuña al darle de alta)';
+		default:
+			return `falta la variable ${nombre}`;
+	}
+}
 
 type Resuelta = { clave: string; origen: string; valor: string; etiqueta: string };
 
@@ -157,14 +176,15 @@ function resolver(
 				'trampa.id': c.trampa.id,
 				'trampa.nombre': c.trampa.nombre,
 				'destino.nombre': c.destino.nombre,
-				'destino.direccion': c.destino.direccion || undefined
+				'destino.direccion': c.destino.direccion || undefined,
+				baliza_url: c.baliza_url || undefined
 			};
 			return conValor(
 				claveDe(v.nombre),
 				`contexto:${v.nombre}`,
 				ETIQUETAS[v.nombre],
 				valores[v.nombre],
-				`${c.destino.nombre} no tiene dirección; ponla en Destinos`
+				faltaDe(v.nombre, c)
 			);
 		}
 		case 'objetivo-direccion':

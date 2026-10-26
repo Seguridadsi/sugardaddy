@@ -134,8 +134,11 @@ async function trampasParaPasos(bd: Bd, ids: string[]): Promise<ContextoManual['
 
 /*
  * Los pasos de una vía manual@1 para una trampa en un destino (renderizar,
- * §6.3), con los datos de hoy del destino (su nombre y su dirección) y de las
- * trampas a las que apunta. Se guardan tal cual en trampas.manual: los de
+ * §6.3), con los datos de hoy del destino (su nombre y su dirección), de las
+ * trampas a las que apunta y, con la tanda de conectores (§2.5.2), de su
+ * baliza (balizaUrl: la URL acuñada al darla de alta, o null si no acuña)
+ * para que las vías de nube peguen ${baliza_url} en un webhook, en una app
+ * o en una línea de CSS. Se guardan tal cual en trampas.manual: los de
  * poner y también los de quitar, para retirar luego exactamente lo que se
  * puso aunque el módulo cambie.
  */
@@ -145,7 +148,8 @@ export async function generarPasos(
 	via: Via,
 	trampa: { id: string; nombre: string },
 	d: Destino,
-	parametros: Record<string, unknown>
+	parametros: Record<string, unknown>,
+	balizaUrl: string | null = null
 ): Promise<Resultado<PasosGenerados>> {
 	const direccion = d.hechos['destino.direccion']?.valor;
 	return renderizar(h, via.id, parametros, {
@@ -156,7 +160,8 @@ export async function generarPasos(
 			...(typeof direccion === 'string' ? { direccion } : {})
 		},
 		trampas: await trampasParaPasos(bd, objetivosDe(h, parametros)),
-		generado: new Date().toISOString()
+		generado: new Date().toISOString(),
+		...(balizaUrl !== null ? { baliza_url: balizaUrl } : {})
 	});
 }
 

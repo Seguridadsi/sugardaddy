@@ -276,8 +276,10 @@ function motivosDe(e: Eleccion, via: string | undefined): Motivo[] {
  * recibe su señal. Con la fuente «trampa», el sensor de esa otra trampa (sus
  * eventos son los de ella) y senal_trampa = su id; con otra fuente
  * (registros, relé, conector: llegan con el módulo de control), el sensor del
- * destino. Unos valores que renderizar no acepta vuelven como
- * parametros.invalidos.
+ * destino. balizaUrl es la URL de su baliza —la recién acuñada al darla de
+ * alta, la guardada al regenerar (§2.5.2 de la tanda de conectores)— para
+ * que los pasos de las vías de nube peguen ${baliza_url}; null si no acuña.
+ * Unos valores que renderizar no acepta vuelven como parametros.invalidos.
  */
 async function conPasos(
 	tx: Tx,
@@ -285,7 +287,8 @@ async function conPasos(
 	via: Via,
 	d: Destino,
 	trampa: { id: string; nombre: string },
-	parametros: Record<string, unknown>
+	parametros: Record<string, unknown>,
+	balizaUrl: string | null
 ): Promise<
 	{ sensor: string; senalTrampa: string | null; manual: PasosGenerados; donde: string } | FalloAlta
 > {
@@ -316,7 +319,7 @@ async function conPasos(
 		sensor = r.sensor;
 	}
 	if (!sensor) return fallo([`Nadie recibiría su señal en ${d.nombre}.`]);
-	const r = await generarPasos(tx, h, via, trampa, d, parametros);
+	const r = await generarPasos(tx, h, via, trampa, d, parametros, balizaUrl);
 	if (!r.ok) return fallo([], [motivo('parametros.invalidos', { errores: r.errores.join('; ') })]);
 	return { sensor, senalTrampa, manual: r.valor, donde: DONDE_MANUAL };
 }
@@ -371,13 +374,14 @@ export async function darDeAlta(
 		};
 		const repetida = fallo(['Identificador: ya hay una trampa con ese nombre']);
 		if (via.ejecutor === 'manual@1') {
-			const x = await conPasos(tx, h, via, d, { id: v.id, nombre: v.nombre }, v.parametros);
-			if ('errores' in x) return x;
 			/*
-			 * El acuñado del documento cebo (honeycosas de fichero) es una pieza de
-			 * pago, ausente en la edición community: el alta a mano solo crea la
-			 * trampa.
+			 * El acuñado del documento cebo (honeycosas de fichero) y el token de
+			 * las de nube son una pieza de pago, ausente en la edición community:
+			 * el alta a mano solo genera los pasos (sin ${baliza_url} que pegar) y
+			 * crea la trampa.
 			 */
+			const x = await conPasos(tx, h, via, d, { id: v.id, nombre: v.nombre }, v.parametros, null);
+			if ('errores' in x) return x;
 			if (!(await crearTrampa(quien, { ...fila, ...x }, tx))) return repetida;
 			return 'con-pasos';
 		}
@@ -435,7 +439,9 @@ export async function regenerarPasos(
 			contexto: await contextoEn(tx, d.id, { preferida: via.id, excepto: id })
 		});
 		if (e.elegida?.via !== via.id) return fallo([], motivosDe(e, via.id));
-		const x = await conPasos(tx, h, via, d, { id, nombre: v.nombre }, v.parametros);
+		/* En community no hay balizas (pieza de pago): al regenerar los pasos no
+		 * hay URL de baliza que pegar. */
+		const x = await conPasos(tx, h, via, d, { id, nombre: v.nombre }, v.parametros, null);
 		if ('errores' in x) return x;
 		await tx
 			.update(s.trampas)

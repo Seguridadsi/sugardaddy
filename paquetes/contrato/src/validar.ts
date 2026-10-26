@@ -163,8 +163,18 @@ const ALFABETOS = {
  * las órdenes van con _ en lugar de punto ($sd.destino_direccion,
  * SD_DESTINO_DIRECCION). Además, ${<x-trampa>.direccion} y
  * ${<x-trampa>.<parametro>}, y ${nonce} solo en comprobacion.prueba.
+ *
+ * Además ${baliza_url}: la URL de la baliza de esta honeycosa (§2.5), para
+ * las de nube que la pegan en un webhook o en un píxel (H28–H31); la acuña
+ * la consola al darle de alta, así que solo la llevan esas vías.
  */
-const CONTEXTO = ['trampa.id', 'trampa.nombre', 'destino.nombre', 'destino.direccion'] as const;
+const CONTEXTO = [
+	'trampa.id',
+	'trampa.nombre',
+	'destino.nombre',
+	'destino.direccion',
+	'baliza_url'
+] as const;
 type Contexto = (typeof CONTEXTO)[number];
 const CONTEXTO_PS = CONTEXTO.map((c) => c.replace('.', '_'));
 const CONTEXTO_SH = CONTEXTO_PS.map((c) => c.toUpperCase());

@@ -77,6 +77,14 @@ cat versiones.env        # la versión aplicada
 Las versiones van **firmadas**: el nodo no aplica nada que no venga firmado con
 la clave de publicación de Sugardaddy, así que una imagen manipulada no entra.
 
+### Cuánto se guardan los eventos
+
+La consola borra sola, cada hora, los eventos de más de un plazo: por defecto, **1 año**. De esos datos eres responsable tú, así que pon el que diga vuestra política de privacidad en **Ajustes → Cuánto se guardan los eventos** (entre 30 días y 10 años).
+
+La auditoría de la consola (quién entra y qué hace) se guarda un año, o el plazo de los eventos si es más largo.
+
+Lo borrado no se puede recuperar. Si necesitas guardar algo más tiempo (por ejemplo, para una denuncia), haz antes una copia de seguridad. La primera vez, los borrados esperan 30 días, para que te dé tiempo a cambiar el plazo.
+
 ## 5. Copias de seguridad
 
 Haz copias periódicas. Desde la carpeta del nodo:

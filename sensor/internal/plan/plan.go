@@ -53,8 +53,8 @@ type Manifiesto struct {
 	ID   string `json:"id"`
 	Tipo string `json:"tipo"`
 	// SensorMinimo: la consola no manda la trampa a sensores más viejos.
-	SensorMinimo string       `json:"sensorMinimo,omitempty"`
-	Contenedor   *Contenedor  `json:"contenedor"`
+	SensorMinimo string      `json:"sensorMinimo,omitempty"`
+	Contenedor   *Contenedor `json:"contenedor"`
 	// Red es el modo de red «IP propia» (docs/diseno/red.md): la trampa no
 	// va en el puente aislado, sino con su propia IP en el segmento del
 	// cliente. nil: el modo de siempre de las 41.

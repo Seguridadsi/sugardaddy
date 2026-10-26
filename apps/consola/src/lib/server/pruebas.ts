@@ -15,7 +15,7 @@
  */
 import { randomInt } from 'node:crypto';
 import { isIP } from 'node:net';
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import {
 	EJECUTORES,
 	bloqueDeVariables,
@@ -458,13 +458,19 @@ export async function pruebaDeTrampa(
 
 /* El nonce de la prueba abierta de una trampa, para descargar su script; null si no hay. */
 export async function nonceAbierto(id: string): Promise<string | null> {
+	/* El guion de ?parte=probar solo sale con la ventana VIVA: si la prueba
+	 * ya disparó (nonce_usado marcado en su baliza), el código está gastado y
+	 * ejecutarlo sería señal real, no prueba. Las trampas sin baliza no
+	 * tienen ventana que gastar y quedan como estaban. */
 	const [p] = await db
 		.select({ nonce: s.pruebas.nonce })
 		.from(s.pruebas)
+		.leftJoin(s.balizas, eq(s.balizas.trampa, s.pruebas.trampa))
 		.where(
 			and(
 				eq(s.pruebas.trampa, id),
-				sql`${s.pruebas.hasta} >= now() - ${MARGEN_MS / 1000} * interval '1 second'`
+				sql`${s.pruebas.hasta} >= now() - ${MARGEN_MS / 1000} * interval '1 second'`,
+				isNull(s.balizas.nonceUsado)
 			)
 		)
 		.orderBy(desc(s.pruebas.desde))

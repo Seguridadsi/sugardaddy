@@ -243,7 +243,9 @@ export const eventos = pgTable(
 		index('eventos_cuando').on(t.cuando),
 		index('eventos_trampa').on(t.trampa),
 		index('eventos_contrasena').on(t.contrasena),
-		index('eventos_ip').on(t.ip)
+		index('eventos_ip').on(t.ip),
+		/* El borrado por plazo de conservación (conservacion.ts) va por «recibido». */
+		index('eventos_recibido').on(t.recibido)
 	]
 );
 
@@ -278,30 +280,43 @@ export const pruebas = pgTable(
 );
 
 /*
- * Las balizas de fichero (H22 Word, H23 Excel, H24 PDF): un token por
- * honeycosa de fichero que la ata al receptor de balizas que la enciende
- * (docs/diseno/receptor-baliza.md). Al dar de alta la honeycosa sobre un nodo
- * con receptor se acuña el documento con la URL del sensor del cliente
- * (http(s)://<dirección>:<puerto>/b/<token>) y se guarda aquí el token, su
- * URL y el fichero acuñado para descargarlo. Cuando llega un evento
- * accion:baliza con ese token, la consola lo atribuye a esta honeycosa y la
- * da por comprobada; un token que no está aquí se descarta sin tocar nada.
+ * Las balizas (H22 Word, H23 Excel, H24 PDF, y las de nube de la tanda de
+ * conectores, H28–H31): un token por honeycosa que la ata al receptor de
+ * balizas que la enciende (docs/diseno/receptor-baliza.md). Al dar de alta
+ * la honeycosa sobre un nodo con receptor se acuña el documento con la URL
+ * del sensor del cliente (http(s)://<dirección>:<puerto>/b/<token>) y se
+ * guarda aquí el token, su URL y el fichero acuñado para descargarlo; las
+ * de nube (clase «webhook», «acs» o «enlace») solo acuñan el token y su
+ * URL: el cebo es una clave, una app o una línea de CSS, no un documento.
+ * Cuando llega un evento accion:baliza con ese token, la consola lo
+ * atribuye a esta honeycosa y la da por comprobada; un token que no está
+ * aquí se descarta sin tocar nada.
  *
  * Tabla nueva y sin que nadie más la referencie: la consola anterior, a la
  * que vuelve el actualizador sin restaurar la base de datos, ni la ve, y
  * sigue dando de alta y retirando honeycosas de fichero como siempre (sin
- * baliza, que es lo que hacía). Se borra con su honeycosa (cascade).
+ * baliza, que es lo que hacía). La columna «clase» y el nullable de los
+ * campos de fichero la respetan igual: las INSERT de esa consola no la
+ * mencionan y caen en el DEFAULT «documento», y siempre traen los cuatro
+ * campos de fichero (módulo-despliegue.md, regla de compatibilidad).
+ * Se borra con su honeycosa (cascade).
  */
 export const balizas = pgTable(
 	'balizas',
 	{
 		/* El identificador aleatorio de la baliza (>= 22 caracteres base64url). */
 		token: text('token').primaryKey(),
-		/* La honeycosa de fichero dueña del token. Una honeycosa, un token. */
+		/*
+		 * La clase de baliza (§2.5 de la ronda conectores-tanda1): «documento»
+		 * lleva el cebo acuñado (H22–H24); «webhook» (H28, H29), «acs» (H31) y
+		 * «enlace» (H30, el píxel) son las de nube, que solo siembran la URL.
+		 */
+		clase: text('clase').notNull().default('documento'),
+		/* La honeycosa dueña del token. Una honeycosa, un token. */
 		trampa: text('trampa')
 			.notNull()
 			.references(() => trampas.id, { onDelete: 'cascade' }),
-		/* El destino donde se deja el documento. */
+		/* El destino donde se deja el cebo (hoy, el documento). */
 		destino: text('destino').references(() => destinos.id, { onDelete: 'set null' }),
 		/* El sensor con el receptor que recibe sus balizas (puede no ser el del destino). */
 		sensor: text('sensor')
@@ -311,13 +326,16 @@ export const balizas = pgTable(
 		receptor: text('receptor').references((): AnyPgColumn => trampas.id, {
 			onDelete: 'set null'
 		}),
-		/* La URL de baliza sembrada en el documento. */
+		/* La URL de baliza sembrada en el cebo. */
 		url: text('url').notNull(),
-		/* El documento acuñado (base64) para descargarlo, con su nombre y su tipo. */
-		fichero: text('fichero').notNull(),
-		nombre: text('nombre').notNull(),
-		tipo: text('tipo').notNull(),
-		sha256: text('sha256').notNull(),
+		/*
+		 * El documento acuñado (base64) para descargarlo, con su nombre y su
+		 * tipo: solo las de clase «documento».
+		 */
+		fichero: text('fichero'),
+		nombre: text('nombre'),
+		tipo: text('tipo'),
+		sha256: text('sha256'),
 		/* El nonce de la prueba «Probar» en curso (un solo uso), su ventana y cuándo se gastó. */
 		nonce: text('nonce'),
 		nonceHasta: timestamp('nonce_hasta', { withTimezone: true }),
@@ -332,7 +350,8 @@ export const balizas = pgTable(
  * evento puede activar más de una (dos marcas solapadas que dejó una vuelta
  * atrás) y cada una tiene que poder decir dónde se usó lo sembrado. Sin
  * clave hacia trampas: un evento es historia y sobrevive a la trampa que
- * activó. Los eventos no se borran, así que la clave hacia eventos no molesta.
+ * activó. Un evento solo se borra al pasar su plazo de conservación, y se
+ * lleva sus activaciones (conservacion.ts).
  */
 export const activaciones = pgTable(
 	'activaciones',
@@ -372,7 +391,11 @@ export const cuarentena = pgTable(
 		motivo: text('motivo').notNull(),
 		recibido: timestamp('recibido', { withTimezone: true }).notNull().defaultNow()
 	},
-	(t) => [uniqueIndex('cuarentena_hash').on(t.hash), index('cuarentena_sensor').on(t.sensor)]
+	(t) => [
+		uniqueIndex('cuarentena_hash').on(t.hash),
+		index('cuarentena_sensor').on(t.sensor),
+		index('cuarentena_recibido').on(t.recibido)
+	]
 );
 
 /*
@@ -634,13 +657,18 @@ export const ajustes = pgTable('ajustes', {
 	valor: jsonb('valor').notNull()
 });
 
-export const auditoria = pgTable('auditoria', {
-	id: bigserial('id', { mode: 'number' }).primaryKey(),
-	cuando: timestamp('cuando', { withTimezone: true }).notNull().defaultNow(),
-	quien: text('quien').notNull(),
-	accion: text('accion').notNull(),
-	detalle: jsonb('detalle').$type<Record<string, unknown>>().notNull().default({})
-});
+export const auditoria = pgTable(
+	'auditoria',
+	{
+		id: bigserial('id', { mode: 'number' }).primaryKey(),
+		cuando: timestamp('cuando', { withTimezone: true }).notNull().defaultNow(),
+		quien: text('quien').notNull(),
+		accion: text('accion').notNull(),
+		detalle: jsonb('detalle').$type<Record<string, unknown>>().notNull().default({})
+	},
+	/* Se guarda 1 año o el plazo de los eventos: el borrado de cada hora (conservacion.ts) va por fecha. */
+	(t) => [index('auditoria_cuando').on(t.cuando)]
+);
 
 /*
  * Sesiones abiertas. La cookie solo lleva el id; todo lo demás está aquí, así
@@ -672,4 +700,31 @@ export const llavesEmergencia = pgTable('llaves_emergencia', {
 	registradaPor: text('registrada_por').notNull(),
 	creada: creado(),
 	ultimoUso: timestamp('ultimo_uso', { withTimezone: true })
+});
+
+/*
+ * Usuarios locales de la consola: para los nodos que entran con usuario y
+ * contraseña del propio nodo, en vez de (o además de) Entra ID. Es el «login
+ * local» (docs/diseno/auth-login.md); la entrada de emergencia con llave FIDO2
+ * sigue estando en los dos modos.
+ *
+ * La contraseña se guarda SOLO como hash scrypt (con sal por usuario), nunca en
+ * claro ni cifrada de forma reversible. El freno a la fuerza bruta (intentos
+ * fallidos + bloqueo temporal) vive en la fila, para que aguante reinicios del
+ * nodo. La sesión que abre un usuario de aquí lleva el oid `local:<id>`.
+ */
+export const usuariosLocales = pgTable('usuarios_locales', {
+	id: text('id').primaryKey(),
+	usuario: text('usuario').notNull().unique(),
+	nombre: text('nombre').notNull(),
+	correo: text('correo').notNull(),
+	claveHash: text('clave_hash').notNull(),
+	roles: jsonb('roles').$type<string[]>().notNull(),
+	/* Al primer acceso (y tras un restablecimiento) la consola obliga a cambiarla. */
+	debeCambiar: boolean('debe_cambiar').notNull().default(false),
+	intentosFallidos: integer('intentos_fallidos').notNull().default(0),
+	bloqueadoHasta: timestamp('bloqueado_hasta', { withTimezone: true }),
+	creada: creado(),
+	ultimoAcceso: timestamp('ultimo_acceso', { withTimezone: true }),
+	creadaPor: text('creada_por').notNull()
 });

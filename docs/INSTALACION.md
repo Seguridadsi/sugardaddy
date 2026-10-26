@@ -20,9 +20,10 @@ mismo. Todo ocurre en tu máquina; **nada sale a SeguridadSI**.
   que poder llegar a las trampas, y tú quieres ver su IP de verdad.
 - **Salida a internet por HTTPS** (para descargar las imágenes y las
   actualizaciones).
-- Entrada a la consola con **Microsoft Entra ID** (la cuenta de tu empresa):
-  necesitas poder registrar una aplicación en tu tenant (te lo explicamos en el
-  paso 3).
+- Una forma de **entrar a la consola**. Eliges entre dos (paso 3):
+  **local** (usuario y contraseña del propio nodo; no necesitas Microsoft ni
+  nada en la nube) o **federado** con tu **Microsoft Entra ID** (la cuenta de tu
+  empresa, con tu MFA). Community viene con el **local activo** por defecto.
 
 > **Importante sobre la red.** No instales el nodo con Docker Desktop, WSL u
 > OrbStack si puedes evitarlo: esos esconden la IP de origen del atacante y las
@@ -38,14 +39,29 @@ git clone https://github.com/Seguridadsi/sugardaddy.git
 cd sugardaddy
 ```
 
-Las imágenes de las trampas básicas son **públicas**: el nodo las descarga solo
-al arrancar. (Si prefieres no depender de ningún registro, también puedes
-construirlas desde la fuente; ver [Construir las imágenes tú mismo](#construir-las-imágenes-tú-mismo).)
+Las imágenes del nodo (consola, sensor y actualizador) se **construyen desde la
+fuente** con un solo comando en el paso 4: no dependes de ningún registro. Las
+imágenes de las trampas básicas son públicas y el nodo las descarga al usarlas.
 
-## 3. Prepara la entrada con Microsoft Entra ID
+## 3. Elige cómo se entra a la consola
 
-La consola se entra con la cuenta de tu empresa. Registra una aplicación en tu
-tenant de Entra:
+Dos modos. La entrada de **emergencia con llave FIDO2** sigue estando en los dos,
+por si te quedas fuera.
+
+### Opción A — Login local (lo más sencillo, el de por defecto)
+
+Usuario y contraseña guardados en el propio nodo. **No tienes que hacer nada en
+Microsoft ni registrar ninguna aplicación.** Al instalar (paso 4), la consola
+crea un primer administrador y te enseña su contraseña de un solo uso; la cambias
+al entrar y desde la consola das de alta al resto (**Ajustes → Usuarios locales**).
+
+En Community está activo por defecto. En otras ediciones se enciende poniendo
+`LOGIN_LOCAL=1` en el entorno del nodo.
+
+### Opción B — Federado con tu Microsoft Entra ID
+
+La gente entra con la cuenta de Microsoft de tu empresa (con tu MFA y tus
+grupos). Registra una aplicación en tu tenant de Entra:
 
 1. En el portal de Azure → **Microsoft Entra ID → Registros de aplicaciones →
    Nuevo registro**.
@@ -55,14 +71,29 @@ tenant de Entra:
    (inquilino)**.
 5. En **Certificados y secretos → Nuevo secreto de cliente**, crea uno y copia
    su **valor** (solo se ve una vez).
+6. Controla **quién entra y con qué rol**: crea un **grupo de seguridad** (p. ej.
+   `Sugardaddy-Acceso`) con quien deba entrar, y define los **roles de
+   aplicación** (lector, operador, aprobador, admin…) asignándolos en
+   *Aplicaciones empresariales → Sugardaddy → Usuarios y grupos*. La consola no
+   deja pasar a quien no esté en el grupo y con un rol.
 
-Guarda esos tres datos (tenant, client id, secreto): te los pide el instalador.
+Guarda el tenant, el client id, el secreto y el id del grupo: te los pide el
+instalador. Puedes tener los dos modos a la vez (local + federado); la pantalla
+de entrada muestra lo que tengas configurado.
 
 ## 4. Instala el nodo
 
-Desde la carpeta del repositorio, lanza el instalador indicando la carpeta donde
-vivirá el nodo, un identificador, el nombre de tu empresa y la URL por la que
-entrarás a la consola:
+Primero, **construye las imágenes del nodo** (consola, sensor y actualizador)
+desde la fuente. Este comando las deja listas y escribe el `imagenes.env` que el
+instalador necesita (tarda un rato la primera vez):
+
+```bash
+despliegue/nodo/construir-imagenes-local.sh
+```
+
+Después, lanza el instalador desde la carpeta del repositorio, indicando la
+carpeta donde vivirá el nodo, un identificador, el nombre de tu empresa y la URL
+por la que entrarás a la consola:
 
 ```bash
 sudo despliegue/nodo/instalar.sh /opt/sugardaddy nodo-01 "Tu Empresa" consola.tuempresa.local
@@ -81,16 +112,28 @@ El instalador:
 
 Cuando termine, te dice la URL de la consola y que ya está en marcha.
 
-### La configuración de Entra
+### Tu primer acceso
 
-Deja los tres datos de Entra (tenant, client id, secreto) donde el instalador te
-indique (variables de entorno o el fichero de entorno del nodo). Sin ellos, la
-consola arranca pero no deja entrar a nadie.
+- **Login local** (por defecto en Community): en el primer arranque la consola
+  crea el administrador `admin` y escribe su **contraseña de un solo uso** en su
+  registro. Para verla:
+
+  ```bash
+  sudo docker logs "$(docker ps -qf name=consola)" 2>&1 | grep -A3 "PRIMER ADMINISTRADOR"
+  ```
+
+  Apúntala (no se vuelve a mostrar) y cámbiala en el primer acceso.
+- **Federado con Entra**: pon el tenant, el client id, el secreto y el id del
+  grupo donde el instalador te indique (variables de entorno o el fichero de
+  entorno del nodo), y relanza. Si no quieres login local a la vez, deja
+  `LOGIN_LOCAL` vacío. Sin ninguno de los dos modos, la consola arranca pero solo
+  se entra con la llave de emergencia.
 
 ## 5. Entra en la consola y siembra tu primera trampa
 
 1. Abre `https://<url-de-tu-consola>/` en el navegador (con la CA raíz instalada
-   si usaste la del nodo) y entra con tu cuenta de Entra.
+   si usaste la del nodo) y entra con tu usuario local (o con tu cuenta de Entra,
+   según el modo que hayas elegido).
 2. Ve a **Trampas** (o **Destinos** → crear trampa).
 3. Elige una trampa —por ejemplo **SSH (Cowrie)**—, el **puerto** por el que la
    verá el atacante (el que propone suele valer; evita puertos ya ocupados) y
@@ -126,10 +169,11 @@ te llegan a donde trabajas. [Habla con SeguridadSI](https://www.seguridadsi.com)
 
 ## Construir las imágenes tú mismo
 
-Si no quieres depender de ningún registro, cada trampa básica se puede construir
-desde su fuente (`modulos/trampas/<trampa>/imagen/`), que viene en el
-repositorio. Es lo que quiere decir que las imágenes son **reconstruibles**: no
-dependen de ninguna infraestructura de SeguridadSI.
+Todo es **reconstruible** desde la fuente del repositorio, sin depender de ningún
+registro ni de ninguna infraestructura de SeguridadSI. Las tres imágenes del nodo
+las construye `despliegue/nodo/construir-imagenes-local.sh` (es el paso 4). Cada
+trampa básica también se construye desde su fuente
+(`modulos/trampas/<trampa>/imagen/`), que viene en el repositorio.
 
 ## Si algo falla
 

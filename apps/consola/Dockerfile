@@ -15,7 +15,8 @@ RUN cd apps/consola && npx svelte-kit sync && npx vite build \
 
 # Geolocalización de IP: DB-IP Lite (CC BY 4.0, gratuita y redistribuible con
 # atribución), la del mes en que se construye la versión. Viaja en la imagen
-# para que el nodo no pregunte a nadie de dónde es una IP.
+# para que el nodo no pregunte a nadie de dónde es una IP. La atribución sale
+# en el pie de la consola (routes/+layout.svelte) cuando estas bases están.
 FROM node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402 AS geo
 WORKDIR /geo
 RUN set -e; for f in country asn; do \

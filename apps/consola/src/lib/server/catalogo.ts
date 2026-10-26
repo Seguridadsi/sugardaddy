@@ -44,17 +44,31 @@ function cargar<T>(familia: string, fichero: string, leer: (yaml: string) => Res
  * que una inválida.
  */
 export function honeycosas(): Honeycosa[] {
-	/* La familia ficheros (documentos cebo, H22) es nueva: un catálogo de
-	 * prueba puede traer solo trampas, así que sin la carpeta no hay ficheros. */
-	const ficheros = existsSync(join(raiz(), 'ficheros'))
-		? cargar<Honeycosa>('ficheros', 'trampa.yaml', leerHoneycosa)
-		: [];
-	const { validas, errores } = validarCatalogo([
-		...cargar<Honeycosa>('trampas', 'trampa.yaml', leerHoneycosa),
-		...ficheros
-	]);
+	/*
+	 * Las familias nuevas son optativas en un catálogo de prueba: sin la
+	 * carpeta no hay nada de esa familia. ficheros son los documentos cebo
+	 * (H22); nube, las de la tanda de conectores (H28–H31, §7.1 de la ronda).
+	 */
+	const trampas = cargar<Honeycosa>('trampas', 'trampa.yaml', leerHoneycosa);
+	const de = (familia: string) =>
+		existsSync(join(raiz(), familia))
+			? cargar<Honeycosa>(familia, 'trampa.yaml', leerHoneycosa)
+			: [];
+	const ficheros = de('ficheros');
+	const nube = de('nube');
+	const familiaDe = new Map(
+		[
+			...trampas.map((h) => ['trampas', h] as const),
+			...ficheros.map((h) => ['ficheros', h] as const),
+			...nube.map((h) => ['nube', h] as const)
+		].map(([familia, h]) => [h.id, familia])
+	);
+	const { validas, errores } = validarCatalogo([...trampas, ...ficheros, ...nube]);
 	for (const [id, e] of Object.entries(errores))
-		console.warn(`módulo trampas/${id} descartado`, { ok: false, errores: e });
+		console.warn(`módulo ${familiaDe.get(id) ?? 'trampas'}/${id} descartado`, {
+			ok: false,
+			errores: e
+		});
 	return validas;
 }
 

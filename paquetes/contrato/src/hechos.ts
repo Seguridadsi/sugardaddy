@@ -80,6 +80,13 @@ export const HECHOS: Record<string, { tipo: TipoHecho; fuentes: FuenteHecho[] }>
 	'fileserver.protocolos': { tipo: 'lista', fuentes: ['formulario'] },
 	'recolector.canales': { tipo: 'lista', fuentes: ['sensor'] },
 	'canal.rele': { tipo: 'booleano', fuentes: ['consola'] },
+	/*
+	 * Hasta dónde llega esta consola (ronda conectores-tanda1, §2.4): el
+	 * webhook de H28/H29 y el ACS de H31 nacen en Internet y necesitan que
+	 * el nodo atienda su dominio público. La consola la informa según sus
+	 * ajustes; el elector la exige en las vías de nube.
+	 */
+	'alcance.consola': { tipo: 'texto', fuentes: ['consola'] },
 	...Object.fromEntries(
 		['graph', 'azure', 'aws', 'google', 'ldap'].map((c) => [
 			`conexion.${c}.estado`,
@@ -123,7 +130,8 @@ export const NOMBRE_HECHO: Readonly<Record<string, string>> = Object.freeze({
 	'shell.posix': 'Shell',
 	'destino.direccion': 'Dirección',
 	'fileserver.protocolos': 'Protocolos',
-	'canal.rele': 'Recibe balizas (sensor con receptor)'
+	'canal.rele': 'Recibe balizas (sensor con receptor)',
+	'alcance.consola': 'Alcance de la consola (publica, privada o buzón)'
 });
 
 export const nombreHecho = (clave: string): string =>
@@ -138,7 +146,9 @@ const NOMBRE_VALOR: Readonly<Record<string, Readonly<Record<string, string>>>> =
 		rootless: 'sin root',
 		desktop: 'Docker Desktop',
 		wsl: 'WSL2'
-	}
+	},
+	/* El alcance de la consola (ronda conectores-tanda1, §2.4), como se dice al cliente. */
+	'alcance.consola': { publica: 'pública', privada: 'privada', buzon: 'de buzón' }
 };
 
 /* El valor de un hecho en texto: sí o no, una lista separada por comas. */
