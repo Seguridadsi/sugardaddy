@@ -6,6 +6,10 @@
 	# buscar certificados.
 	auto_https disable_redirects
 	skip_install_trust
+	# Al entrar por IP el navegador no manda SNI; para una IP (sobre todo pública)
+	# Caddy no sabría qué certificado presentar y abortaría el TLS (internal error).
+	# Con esto usa el de la dirección del nodo cuando no hay SNI, así se entra por IP.
+	default_sni {$CONSOLA_DOMINIO}
 }
 
 (tls-interno) {
