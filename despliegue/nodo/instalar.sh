@@ -145,6 +145,17 @@ PANEL_HTTP_PERMITIDO=${PANEL_HTTP_PERMITIDO:-}
 FIN
 	echo "Secretos generados en $DIR/.env"
 fi
+# La dirección de entrada a la consola (nombre o IP, el 4º argumento) puede
+# cambiar entre reinstalaciones —por ejemplo pasar de un nombre a la IP de la
+# máquina—: se actualiza SIEMPRE desde los argumentos, conservando los secretos
+# y el resto del .env. Caddy saca un certificado nuevo para la dirección nueva.
+fijar_env() { # clave valor
+	grep -v "^$1=" "$DIR/.env" > "$DIR/.env.tmp" || true
+	echo "$1=$2" >> "$DIR/.env.tmp"
+	chmod 600 "$DIR/.env.tmp" && mv "$DIR/.env.tmp" "$DIR/.env"
+}
+fijar_env CONSOLA_URL "$URL"
+fijar_env CONSOLA_DOMINIO "$DOMINIO"
 # Reinstalar encima: el panel entrega una contraseña de descarga nueva (la
 # anterior deja de valer), así que se actualiza aunque el .env ya existiera.
 if [[ -n "${REGISTRO_TOKEN:-}" ]]; then

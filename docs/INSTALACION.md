@@ -94,12 +94,19 @@ sudo despliegue/nodo/construir-imagenes-local.sh
 ```
 
 Después, lanza el instalador desde la carpeta del repositorio, indicando la
-carpeta donde vivirá el nodo, un identificador, el nombre de tu empresa y la URL
-por la que entrarás a la consola:
+carpeta donde vivirá el nodo, un identificador, el nombre de tu empresa y la
+**dirección por la que entrarás a la consola** (el 4º argumento).
+
+Esa dirección es la clave: entrarás por ahí. Lo más sencillo es poner **la IP de
+la máquina** (así entras por IP, sin tocar DNS ni el fichero `hosts`):
 
 ```bash
-sudo despliegue/nodo/instalar.sh /opt/sugardaddy nodo-01 "Tu Empresa" consola.tuempresa.local
+sudo despliegue/nodo/instalar.sh /opt/sugardaddy nodo-01 "Tu Empresa" 203.0.113.10
 ```
+
+Si tienes un **nombre DNS** que apunta a la máquina, úsalo en su lugar
+(`gestion.tuempresa.com`). Puedes cambiar la dirección más adelante volviendo a
+lanzar el instalador con otra (conserva tus datos).
 
 El instalador:
 
@@ -133,9 +140,11 @@ Cuando termine, te dice la URL de la consola y que ya está en marcha.
 
 ## 5. Entra en la consola y siembra tu primera trampa
 
-1. Abre `https://<url-de-tu-consola>/` en el navegador (con la CA raíz instalada
-   si usaste la del nodo) y entra con tu usuario local (o con tu cuenta de Entra,
-   según el modo que hayas elegido).
+1. Abre en el navegador la dirección que pusiste al instalar: `https://<IP>/` (o
+   `https://<tu-nombre>/`). Con la CA propia del nodo, el navegador avisa de que
+   el certificado no es de confianza: **acéptalo** para continuar (o instala
+   `/opt/sugardaddy/ca-raiz.crt` en tu equipo para que no avise). Entra con tu
+   usuario local (o con tu cuenta de Entra, según el modo que hayas elegido).
 2. Ve a **Trampas** (o **Destinos** → crear trampa).
 3. Elige una trampa —por ejemplo **SSH (Cowrie)**—, el **puerto** por el que la
    verá el atacante (el que propone suele valer; evita puertos ya ocupados) y
