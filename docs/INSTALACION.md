@@ -15,7 +15,9 @@ mismo. Todo ocurre en tu máquina; **nada sale a SeguridadSI**.
 - **Una máquina Linux** (por ejemplo Ubuntu Server 22.04 o posterior), física o
   en una máquina virtual tuya, **siempre encendida**.
 - **Docker** y **Docker Compose** instalados (`docker --version`,
-  `docker compose version`).
+  `docker compose version`). Los comandos de abajo usan `sudo`; si prefieres no
+  escribirlo cada vez, añade tu usuario al grupo docker una vez
+  (`sudo usermod -aG docker $USER`) y vuelve a entrar en la sesión.
 - **IP propia en la red de tus equipos** (no detrás de NAT): el atacante tiene
   que poder llegar a las trampas, y tú quieres ver su IP de verdad.
 - **Salida a internet por HTTPS** (para descargar las imágenes y las
@@ -88,7 +90,7 @@ desde la fuente. Este comando las deja listas y escribe el `imagenes.env` que el
 instalador necesita (tarda un rato la primera vez):
 
 ```bash
-despliegue/nodo/construir-imagenes-local.sh
+sudo despliegue/nodo/construir-imagenes-local.sh
 ```
 
 Después, lanza el instalador desde la carpeta del repositorio, indicando la
