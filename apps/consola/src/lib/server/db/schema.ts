@@ -44,7 +44,19 @@ const creado = () => timestamp('creado', { withTimezone: true }).notNull().defau
 export const sensores = pgTable('sensores', {
 	id: text('id').primaryKey(),
 	nombre: text('nombre').notNull(),
-	segmento: text('segmento').notNull(),
+	/*
+	 * Lo que escribía una consola anterior a «red» y «vlan»: ya no se lee ni se
+	 * escribe. Se queda, sin NOT NULL, para que esa consola siga funcionando si
+	 * el nodo vuelve atrás a ella tras actualizarse.
+	 */
+	segmento: text('segmento'),
+	/*
+	 * La red de su máquina (CIDR IPv4, p. ej. 10.70.0.0/24) y su VLAN, si se
+	 * saben. Las detecta el instalador (el del nodo para el sensor local, el
+	 * de su línea para uno remoto); las dos se cambian en Sensores.
+	 */
+	red: text('red'),
+	vlan: integer('vlan'),
 	/* sha256 del token del sensor. El token solo se ve una vez, al darlo de alta. */
 	claveHash: text('clave_hash').notNull(),
 	/* Hash de la última línea aceptada: la siguiente tiene que traerlo en hashAnterior. */

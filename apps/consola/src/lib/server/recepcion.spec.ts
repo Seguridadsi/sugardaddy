@@ -71,7 +71,7 @@ describe.skipIf(!hayBase)('recepción de eventos: nunca se queda parada', () => 
 	beforeAll(async () => {
 		await limpiar();
 		for (const id of [SENSOR, OTRO])
-			await db.insert(s.sensores).values({ id, nombre: id, segmento: '-', claveHash: `x-${id}` });
+			await db.insert(s.sensores).values({ id, nombre: id, claveHash: `x-${id}` });
 		const comun = { modulo: 'cowrie', tipo: 'contenedor' as const, donde: '-', parametros: {} };
 		await db.insert(s.trampas).values({ id: TRAMPA, nombre: 't1', sensor: SENSOR, ...comun });
 		await db.insert(s.trampas).values({ id: AJENA, nombre: 'ajena', sensor: OTRO, ...comun });

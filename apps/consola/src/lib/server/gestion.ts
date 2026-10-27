@@ -20,7 +20,8 @@ export async function sensores() {
 		.select({
 			id: s.sensores.id,
 			nombre: s.sensores.nombre,
-			segmento: s.sensores.segmento,
+			red: s.sensores.red,
+			vlan: s.sensores.vlan,
 			ultimoLatido: s.sensores.ultimoLatido,
 			remoto: s.sensores.remoto,
 			version: s.sensores.version,
@@ -68,7 +69,7 @@ export class DestinoNoDisponible extends Error {
  */
 export async function crearSensor(
 	quien: string,
-	v: { id: string; nombre: string; segmento: string; remoto?: boolean },
+	v: { id: string; nombre: string; red: string | null; vlan: number | null; remoto?: boolean },
 	destino?: string
 ) {
 	const token = randomBytes(32).toString('base64url');
@@ -101,6 +102,46 @@ export async function crearSensor(
 			.insert(s.auditoria)
 			.values({ quien, accion: 'sensor dado de alta', detalle: { ...v, destino: d } });
 		return token;
+	});
+}
+
+/* La red y la VLAN de un sensor, cuando se indican o cambian. false si no existe. */
+export async function cambiarRed(
+	quien: string,
+	id: string,
+	v: { red: string | null; vlan: number | null }
+) {
+	return db.transaction(async (tx) => {
+		const [f] = await tx
+			.update(s.sensores)
+			.set(v)
+			.where(eq(s.sensores.id, id))
+			.returning({ id: s.sensores.id });
+		if (!f) return false;
+		await tx
+			.insert(s.auditoria)
+			.values({ quien, accion: 'red del sensor cambiada', detalle: { id, ...v } });
+		return true;
+	});
+}
+
+/*
+ * La red y la VLAN que detectó el instalador en la máquina de un sensor: solo
+ * si aún no tiene ninguna (lo escrito en Sensores manda). false si no se guarda.
+ */
+export async function redDetectada(id: string, v: { red: string | null; vlan: number | null }) {
+	if (!v.red && !v.vlan) return false;
+	return db.transaction(async (tx) => {
+		const [f] = await tx
+			.update(s.sensores)
+			.set(v)
+			.where(and(eq(s.sensores.id, id), isNull(s.sensores.red), isNull(s.sensores.vlan)))
+			.returning({ id: s.sensores.id });
+		if (!f) return false;
+		await tx
+			.insert(s.auditoria)
+			.values({ quien: `sensor ${id}`, accion: 'red del sensor detectada', detalle: { id, ...v } });
+		return true;
 	});
 }
 

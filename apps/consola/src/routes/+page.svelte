@@ -73,7 +73,7 @@
 	</div>
 </div>
 
-<h2 class="seccion">De dónde atacan</h2>
+<h2 class="seccion">Orígenes</h2>
 <section class="panel">
 	<MapaOrigenes
 		paises={data.geo.paises}
@@ -89,7 +89,7 @@
 			<header>
 				<div>
 					<h3>{s.nombre}</h3>
-					<p class="mono">{s.segmento}</p>
+					{#if s.red}<p class="mono">{s.red}</p>{/if}
 				</div>
 				<span class="latido" class:mal={!s.vivo}>
 					{s.vivo

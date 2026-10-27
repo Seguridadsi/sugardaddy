@@ -32,7 +32,7 @@ const QUIEN = 'zz-prueba-destinos';
 /* Todo lo de esta prueba empieza por zz-dst: así se limpia sin tocar nada más. */
 const P = 'zz-dst';
 const sensor = (id: string) =>
-	crearSensor(QUIEN, { id, nombre: `Sensor ${id}`, segmento: 'pruebas' });
+	crearSensor(QUIEN, { id, nombre: `Sensor ${id}`, red: null, vlan: null });
 
 async function limpiar() {
 	const mias = like(s.trampas.id, `${P}%`);
@@ -120,7 +120,7 @@ describe.skipIf(!hayBase)('destinos con la consola de hoy', () => {
 		const n = (await destinos()).length;
 		const token = await crearSensor(
 			QUIEN,
-			{ id: `${P}-sensor-fs01`, nombre: 'Sensor de fs01', segmento: 'sede', remoto: true },
+			{ id: `${P}-sensor-fs01`, nombre: 'Sensor de fs01', red: null, vlan: null, remoto: true },
 			`${P}-fs01`
 		);
 		expect(token).not.toBeNull();
@@ -138,7 +138,7 @@ describe.skipIf(!hayBase)('destinos con la consola de hoy', () => {
 	});
 
 	it('en un destino que ya tiene sensor o está dado de baja no se instala otro, y no queda el sensor', async () => {
-		const otro = { id: `${P}-intruso`, nombre: 'Intruso', segmento: 'x', remoto: true };
+		const otro = { id: `${P}-intruso`, nombre: 'Intruso', red: null, vlan: null, remoto: true };
 		await expect(crearSensor(QUIEN, otro, `${P}-fs01`)).rejects.toBeInstanceOf(DestinoNoDisponible);
 		const baja = await crearDestino(QUIEN, { nombre: `${P}-baja`, tipo: 'maquina' });
 		await db.update(s.destinos).set({ activo: false }).where(eq(s.destinos.id, baja));

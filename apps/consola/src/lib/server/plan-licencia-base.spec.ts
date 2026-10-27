@@ -78,9 +78,7 @@ const codigos = (p: { descartados: { id: string; codigo: string }[] }, id: strin
 describe.skipIf(!hayBase)('el candado de licencia en el plan', () => {
 	beforeAll(async () => {
 		await limpiar();
-		await db
-			.insert(s.sensores)
-			.values({ id: SENSOR, nombre: SENSOR, segmento: '-', claveHash: `x-${SENSOR}` });
+		await db.insert(s.sensores).values({ id: SENSOR, nombre: SENSOR, claveHash: `x-${SENSOR}` });
 		const comun = { sensor: SENSOR, tipo: 'contenedor' as const };
 		await db.insert(s.trampas).values([
 			{

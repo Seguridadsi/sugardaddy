@@ -33,7 +33,7 @@
 	<h1>Entrada de emergencia</h1>
 	<p class="sub">
 		Con una llave FIDO2 registrada en este nodo. Funciona sin Entra y sin internet. Da rol de
-		administrador y queda en la auditoría.
+		administrador y queda en los logs.
 	</p>
 	{#if estado === 'error'}<p class="error" role="alert">{mensaje}</p>{/if}
 	<button class="boton principal" onclick={entrar} disabled={estado === 'esperando'}>

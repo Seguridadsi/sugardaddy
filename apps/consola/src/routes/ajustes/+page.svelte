@@ -48,7 +48,7 @@
 		Los eventos y la cuarentena de más de este plazo se borran solos, cada hora, y no se pueden
 		recuperar. De estos datos sois responsables vosotros: poned el plazo que diga vuestra política
 		de privacidad. Entre {data.conservacion.minimo} y {data.conservacion.maximo} días; 365 es un año.
-		La auditoría de la consola se guarda un año, o este plazo si es más largo.
+		Los logs de la consola se guardan un año, o este plazo si es más largo.
 	</p>
 	{#if data.ahora < Date.parse(data.conservacion.aPartirDe)}
 		<p class="ayuda">
@@ -75,21 +75,33 @@
 <section class="panel bloque">
 	<h2>Espacio de los eventos</h2>
 	<p class="ayuda">
-		Lo que ocupan los eventos y a qué ritmo crecen. Con el plazo de arriba no crecen sin fin: lo
-		más viejo se borra solo, así que el tamaño se estabiliza.
+		Lo que ocupan los eventos y a qué ritmo crecen. Con el plazo de arriba no crecen sin fin: lo más
+		viejo se borra solo, así que el tamaño se estabiliza.
 	</p>
 	<dl class="espacio">
-		<div><dt>Eventos guardados</dt><dd>{miles(data.espacio.eventos)}</dd></div>
+		<div>
+			<dt>Eventos guardados</dt>
+			<dd>{miles(data.espacio.eventos)}</dd>
+		</div>
 		<div>
 			<dt>Ocupan</dt>
-			<dd>{tam(data.espacio.eventosBytes)} <span class="sub">de {tam(data.espacio.baseBytes)} en total</span></dd>
+			<dd>
+				{tam(data.espacio.eventosBytes)}
+				<span class="sub">de {tam(data.espacio.baseBytes)} en total</span>
+			</dd>
 		</div>
 		<div>
 			<dt>En el último mes</dt>
-			<dd>{miles(data.espacio.eventosMes)} <span class="sub">(~{miles(Math.round(data.estimacion.ritmoDia))}/día)</span></dd>
+			<dd>
+				{miles(data.espacio.eventosMes)}
+				<span class="sub">(~{miles(Math.round(data.estimacion.ritmoDia))}/día)</span>
+			</dd>
 		</div>
 		{#if data.espacio.masViejo}
-			<div><dt>El más viejo</dt><dd>{haceCuanto(data.espacio.masViejo, data.ahora)}</dd></div>
+			<div>
+				<dt>El más viejo</dt>
+				<dd>{haceCuanto(data.espacio.masViejo, data.ahora)}</dd>
+			</div>
 		{/if}
 	</dl>
 	{#if data.estimacion.fiable && data.estimacion.bytesPorEvento > 0}
@@ -190,8 +202,8 @@
 	{:else if data.soporte.estado === 'abierto'}
 		<p class="ayuda">
 			Abierto como <b>{data.soporte.rol}</b> hasta las
-			{new Date(data.soporte.hasta ?? '').toLocaleString('es-ES')}. Todo lo que hagan queda en la
-			auditoría.
+			{new Date(data.soporte.hasta ?? '').toLocaleString('es-ES')}. Todo lo que hagan queda en los
+			logs.
 		</p>
 		<form method="POST" action="?/soporteCerrar" use:enhance>
 			<button class="boton peligro">Cerrar ya</button>

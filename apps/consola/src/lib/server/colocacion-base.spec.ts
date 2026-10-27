@@ -113,7 +113,7 @@ beforeAll(async () => {
 	await limpiar();
 	await db
 		.insert(s.sensores)
-		.values({ id: S, nombre: S, segmento: '-', claveHash: `x-${S}`, ultimoLatido: new Date() });
+		.values({ id: S, nombre: S, claveHash: `x-${S}`, ultimoLatido: new Date() });
 	await db.insert(s.destinos).values({ id: S, nombre: S, tipo: 'maquina', sensor: S });
 });
 afterAll(async () => {
@@ -164,7 +164,7 @@ const CASOS: Caso[] = [
 	},
 	{
 		codigo: 'agente.version',
-		fila: { modulo: 'dns-ntp', parametros: { direccion: '10.20.0.5' }, donde: '0.0.0.0:53' },
+		fila: { modulo: 'dns-ntp', parametros: {}, donde: '0.0.0.0:53' },
 		romper: () => {
 			pedido = { registro: true, version: '0.12.3' };
 		},

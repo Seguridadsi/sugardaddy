@@ -42,7 +42,8 @@ await db.insert(s.sensores).values(
 		return {
 			id: x.id,
 			nombre: x.nombre,
-			segmento: x.segmento,
+			red: x.red,
+			vlan: x.vlan,
 			claveHash: createHash('sha256').update(token).digest('hex'),
 			ultimoLatido: new Date(x.ultimoLatido)
 		};

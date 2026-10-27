@@ -193,6 +193,23 @@ if [[ -s "$AQUI/entorno-extra.env" ]]; then
 		grep -q "^${linea%%=*}=" "$DIR/.env" || echo "$linea" >> "$DIR/.env"
 	done < "$AQUI/entorno-extra.env"
 fi
+# La red de esta máquina (la de la interfaz por la que sale, p. ej.
+# 10.70.0.0/24) y su VLAN si esa interfaz es una 802.1Q: la consola las pone
+# al sensor local si aún no tiene. En cada instalación se vuelven a mirar; lo
+# que alguien haya escrito en Sensores no se toca. Si no se saben, vacías.
+# Mismo texto que detectarRed (apps/consola/src/lib/server/red-sh.ts).
+interfaz="$(ip -4 route show default 2>/dev/null | awk '{for (i = 1; i < NF; i++) if ($i == "dev") { print $(i + 1); exit }}' || true)"
+RED_DETECTADA="" VLAN_DETECTADA=""
+if [[ -n "$interfaz" ]]; then
+	RED_DETECTADA="$(ip -4 route show dev "$interfaz" proto kernel scope link 2>/dev/null | awk '$1 ~ /\// { print $1; exit }' || true)"
+	VLAN_DETECTADA="$(ip -d -o link show dev "$interfaz" 2>/dev/null | grep -o 'vlan protocol 802.1Q id [0-9]*' | awk '{ print $NF }' || true)"
+fi
+SENSOR_LOCAL_RED="$RED_DETECTADA" SENSOR_LOCAL_VLAN="$VLAN_DETECTADA"
+for k in SENSOR_LOCAL_RED SENSOR_LOCAL_VLAN; do
+	grep -v "^$k=" "$DIR/.env" > "$DIR/.env.tmp" || true
+	echo "$k=${!k}" >> "$DIR/.env.tmp"
+	chmod 600 "$DIR/.env.tmp" && mv "$DIR/.env.tmp" "$DIR/.env"
+done
 # Un nodo instalado antes de la 0.15 no tiene la clave de los secretos: se
 # crea ahora, una sola vez (el actualizador hace lo mismo con entorno.json).
 grep -q '^CLAVE_SECRETOS=.' "$DIR/.env" || echo "CLAVE_SECRETOS=$(openssl rand -hex 32)" >> "$DIR/.env"

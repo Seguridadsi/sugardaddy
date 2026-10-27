@@ -65,7 +65,7 @@ async function limpiar() {
 describe.skipIf(!hayBase)('la consola borra los eventos que pasan del plazo', () => {
 	beforeAll(async () => {
 		await limpiar();
-		await db.insert(s.sensores).values({ id: S, nombre: S, segmento: 'pruebas', claveHash: h(9) });
+		await db.insert(s.sensores).values({ id: S, nombre: S, claveHash: h(9) });
 		/* Entrega A: e1 → e2. Entrega B: e3 → q4 (en cuarentena). Reciente: e5. */
 		await db
 			.insert(s.eventos)

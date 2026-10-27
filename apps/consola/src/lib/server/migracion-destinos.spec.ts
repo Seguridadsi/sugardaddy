@@ -354,6 +354,23 @@ describe.skipIf(!url)('arranque: cada sensor con su destino', () => {
 		]);
 	});
 
+	it('el sensor local recibe la red que detectó el instalador, solo si aún no tiene', async () => {
+		const red = () => sql()`select red, vlan from sensores where id = 'local'`;
+		expect(await red()).toEqual([{ red: null, vlan: null }]);
+		/* Lo que no se entiende no se guarda. */
+		await prepararBase(sql(), { ...entorno, SENSOR_LOCAL_RED: 'eth0', SENSOR_LOCAL_VLAN: '9999' });
+		expect(await red()).toEqual([{ red: null, vlan: null }]);
+		await prepararBase(sql(), {
+			...entorno,
+			SENSOR_LOCAL_RED: '10.70.0.9/24',
+			SENSOR_LOCAL_VLAN: '70'
+		});
+		expect(await red()).toEqual([{ red: '10.70.0.0/24', vlan: 70 }]);
+		/* Lo que ya tiene (detectado antes o escrito en Sensores) manda. */
+		await prepararBase(sql(), { ...entorno, SENSOR_LOCAL_RED: '192.168.1.0/24' });
+		expect(await red()).toEqual([{ red: '10.70.0.0/24', vlan: 70 }]);
+	});
+
 	it('lo que dio de alta una consola anterior recibe su destino al arrancar', async () => {
 		/* Un destino descrito a mano con el id que la consola anterior da después a un sensor. */
 		await sql()`insert into destinos (id, nombre, tipo) values ('fs01', 'fs01', 'fileserver')`;

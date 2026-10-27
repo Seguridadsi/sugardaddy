@@ -13,13 +13,16 @@
 		{ href: '/trampas', texto: 'Trampas' },
 		{ href: '/listas', texto: 'Listas' },
 		{ href: '/sensores', texto: 'Sensores' },
-		{ href: '/destinos', texto: 'Destinos' },
-		{ href: '/auditoria', texto: 'Auditoría' },
+		{ href: '/logs', texto: 'Logs' },
 		{ href: '/ajustes', texto: 'Ajustes' }
 	] as const;
 
+	/* Los destinos (la ficha de cada máquina y los que no tienen sensor) cuelgan de Sensores. */
 	const actual = (href: string) =>
-		href === '/' ? page.url.pathname === '/' : page.url.pathname.startsWith(href);
+		href === '/'
+			? page.url.pathname === '/'
+			: page.url.pathname.startsWith(href) ||
+				(href === '/sensores' && page.url.pathname.startsWith('/destinos'));
 </script>
 
 {#if data.usuario && data.cliente}
@@ -38,7 +41,7 @@
 		</a>
 
 		<nav>
-			{#each enlaces.filter((e) => !['/ajustes', '/auditoria'].includes(e.href) || puede(data.usuario?.roles ?? [], 'ajustes')) as e (e.href)}
+			{#each enlaces.filter((e) => !['/ajustes', '/logs'].includes(e.href) || puede(data.usuario?.roles ?? [], 'ajustes')) as e (e.href)}
 				<a href={resolve(e.href)} aria-current={actual(e.href) ? 'page' : undefined}>
 					{e.texto}
 				</a>
@@ -61,8 +64,8 @@
 
 	{#if data.usuario.emergencia}
 		<p class="emergencia">
-			Entrada de emergencia ({data.usuario.nombre}). Dura una hora y todo lo que hagas queda en la
-			auditoría.
+			Entrada de emergencia ({data.usuario.nombre}). Dura una hora y todo lo que hagas queda en los
+			logs.
 		</p>
 	{/if}
 

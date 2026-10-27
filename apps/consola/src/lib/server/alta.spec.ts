@@ -92,7 +92,7 @@ function estado013(motor: Record<string, unknown> = {}, hechos: Record<string, u
 
 /* Un sensor 0.13.1 dado de alta como desde Sensores, en línea y con lo que cuente de su máquina. */
 async function sensorCon(id: string, capacidades: ReturnType<typeof estado013>) {
-	await crearSensor(QUIEN, { id, nombre: `Sensor ${id}`, segmento: 'pruebas' });
+	await crearSensor(QUIEN, { id, nombre: `Sensor ${id}`, red: null, vlan: null });
 	await db
 		.update(s.sensores)
 		.set({ ultimoLatido: new Date(), versionAgente: '0.13.1', registroPrivado: true })

@@ -117,7 +117,7 @@ function estado013(motor: Record<string, unknown> = {}, hechos: Record<string, u
 
 /* Un sensor dado de alta como desde Sensores, en línea y con lo que cuente de su máquina. */
 async function sensorCon(id: string, capacidades: ReturnType<typeof estado013>) {
-	await crearSensor(QUIEN, { id, nombre: `Sensor ${id}`, segmento: 'pruebas' });
+	await crearSensor(QUIEN, { id, nombre: `Sensor ${id}`, red: null, vlan: null });
 	await db.update(s.sensores).set({ ultimoLatido: new Date() }).where(eq(s.sensores.id, id));
 	await informarEstado(id, [], capacidades);
 }
@@ -291,8 +291,7 @@ describe.skipIf(!hayBase)('la página Destinos', () => {
 		const antes = await mios();
 		const r = await accion(rutaFicha, 'instalar', FS01, {
 			id: `${P}-fs01-sensor`,
-			nombre: 'Sensor de fs01',
-			segmento: '10.20.0.0/24'
+			nombre: 'Sensor de fs01'
 		});
 		expect(r).toMatchObject({ para: `${P}-fs01-sensor` });
 		expect((r as { linea: string }).linea).toMatch(
@@ -320,8 +319,7 @@ describe.skipIf(!hayBase)('la página Destinos', () => {
 	it('en un destino que ya tiene sensor no se instala otro, y no queda el sensor', async () => {
 		const r = await accion(rutaFicha, 'instalar', FS01, {
 			id: `${P}-intruso`,
-			nombre: 'Intruso',
-			segmento: 'x'
+			nombre: 'Intruso'
 		});
 		expect(r).toMatchObject({ status: 409, data: { accion: 'instalar' } });
 		expect(
@@ -332,13 +330,9 @@ describe.skipIf(!hayBase)('la página Destinos', () => {
 		).toEqual([]);
 		/* Y solo quien administra la consola da de alta sensores, como en Sensores. */
 		const fs02 = await crearDestino(QUIEN, { nombre: `${P}-fs02`, tipo: 'maquina' });
-		const o = await accion(
-			rutaFicha,
-			'instalar',
-			fs02,
-			{ id: `${P}-fs02`, nombre: 'x', segmento: 'y' },
-			['operador']
-		);
+		const o = await accion(rutaFicha, 'instalar', fs02, { id: `${P}-fs02`, nombre: 'x' }, [
+			'operador'
+		]);
 		expect(o).toMatchObject({ status: 403 });
 	});
 
@@ -452,7 +446,7 @@ describe.skipIf(!hayBase)('la página Destinos', () => {
 		});
 		expect(await accion(rutaFicha, 'baja', `${P}-fs02`)).toMatchObject({
 			status: 303,
-			location: '/destinos?baja'
+			location: '/sensores?baja'
 		});
 		expect(
 			await db

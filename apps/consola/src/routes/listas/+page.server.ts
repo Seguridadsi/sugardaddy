@@ -45,7 +45,7 @@ export const actions = {
 		if (!clase)
 			return fail(400, { error: 'Escribe una IP o una red en CIDR (mínimo /8).', valor, motivo });
 		if (!motivo)
-			return fail(400, { error: 'Explica el motivo: queda en la auditoría.', valor, motivo });
+			return fail(400, { error: 'Explica el motivo: queda en los logs.', valor, motivo });
 		const nuevo = await anadirALista(u.correo, {
 			valor,
 			clase,

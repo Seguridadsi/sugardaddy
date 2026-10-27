@@ -9,7 +9,7 @@
 	<title>Añadir destino — Sugardaddy</title>
 </svelte:head>
 
-<a class="volver" href={resolve('/destinos')}>← Destinos</a>
+<a class="volver" href={resolve('/sensores')}>← Sensores</a>
 
 <div class="cabecera">
 	<h1>Añadir destino</h1>

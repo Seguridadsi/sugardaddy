@@ -11,7 +11,8 @@ export const cliente = { nombre: 'Grupo Aldanza', nodo: 'nodo-mad01', version: '
 export type Sensor = {
 	id: string;
 	nombre: string;
-	segmento: string;
+	red: string;
+	vlan: number | null;
 	vivo: boolean;
 	ultimoLatido: string;
 };
@@ -63,22 +64,32 @@ export const sensores: Sensor[] = [
 	{
 		id: 'servidores',
 		nombre: 'Servidores',
-		segmento: '10.20.0.0/24',
+		red: '10.20.0.0/24',
+		vlan: 20,
 		vivo: true,
 		ultimoLatido: hace(0.3)
 	},
 	{
 		id: 'usuarios',
 		nombre: 'Puestos de usuario',
-		segmento: '10.30.0.0/23',
+		red: '10.30.0.0/23',
+		vlan: 30,
 		vivo: true,
 		ultimoLatido: hace(0.5)
 	},
-	{ id: 'dmz', nombre: 'DMZ', segmento: '172.16.10.0/27', vivo: true, ultimoLatido: hace(0.2) },
+	{
+		id: 'dmz',
+		nombre: 'DMZ',
+		red: '172.16.10.0/27',
+		vlan: 100,
+		vivo: true,
+		ultimoLatido: hace(0.2)
+	},
 	{
 		id: 'oficina-bcn',
 		nombre: 'Oficina Barcelona',
-		segmento: '10.60.0.0/24',
+		red: '10.60.0.0/24',
+		vlan: null,
 		vivo: false,
 		ultimoLatido: hace(190)
 	}

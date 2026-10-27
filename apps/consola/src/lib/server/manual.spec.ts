@@ -181,7 +181,7 @@ describe.skipIf(!hayBase)('la vía manual en la consola', () => {
 
 		await limpiar();
 		/* Un sensor 0.13.1 en línea, con la dirección de su máquina en Destinos. */
-		await crearSensor(QUIEN, { id: LOCAL, nombre: `Sensor ${LOCAL}`, segmento: 'pruebas' });
+		await crearSensor(QUIEN, { id: LOCAL, nombre: `Sensor ${LOCAL}`, red: null, vlan: null });
 		await db
 			.update(s.sensores)
 			.set({ ultimoLatido: new Date(), versionAgente: '0.13.1', registroPrivado: true })

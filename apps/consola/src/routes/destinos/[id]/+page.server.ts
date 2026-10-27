@@ -56,13 +56,12 @@ export const actions = {
 		const f = await request.formData();
 		const v = {
 			id: String(f.get('id') ?? '').trim(),
-			nombre: String(f.get('nombre') ?? '').trim(),
-			segmento: String(f.get('segmento') ?? '').trim()
+			nombre: String(f.get('nombre') ?? '').trim()
 		};
 		const fallo = (status: number, texto: string) =>
 			fail(status, { accion: 'instalar' as const, error: texto, ...v });
 		if (!SLUG.test(v.id)) return fallo(400, 'Identificador: minúsculas, números y guiones.');
-		if (!v.nombre || !v.segmento) return fallo(400, 'Nombre y segmento son obligatorios.');
+		if (!v.nombre) return fallo(400, 'El nombre es obligatorio.');
 		try {
 			const linea = await altaSensorRemoto(u.correo, v, params.id);
 			if (!linea) return fallo(400, 'Ya hay un sensor con ese identificador.');
@@ -77,7 +76,7 @@ export const actions = {
 	baja: async ({ params, locals }) => {
 		const u = exigir(locals, 'desplegar');
 		const r = await darDeBajaDestino(u.correo, params.id);
-		if (r === 'borrado') redirect(303, '/destinos?baja');
+		if (r === 'borrado') redirect(303, '/sensores?baja');
 		if (r === 'no-existe') error(404, 'Ese destino no existe.');
 		return fail(400, {
 			accion: 'baja' as const,

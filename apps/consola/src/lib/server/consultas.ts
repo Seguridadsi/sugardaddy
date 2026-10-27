@@ -7,6 +7,7 @@ import { EJECUTORES } from '@sugardaddy/contrato';
 import type { Evento, PasosGenerados, Severidad, TipoTrampa } from '@sugardaddy/contrato';
 import { env } from '$env/dynamic/private';
 import { avisosSensor } from '$lib/capacidades';
+import { redYVlan } from '$lib/red';
 import { db, schema as s } from './db';
 import { honeycosas, traductorDeTrampa } from './catalogo';
 import { estadosVisibles, type EstadoVisible } from './colocacion';
@@ -182,7 +183,7 @@ export async function resumen() {
 		sensores: sensores.map((x) => ({
 			id: x.id,
 			nombre: x.nombre,
-			segmento: x.segmento,
+			red: redYVlan(x.red, x.vlan),
 			vivo: vivo(x.ultimoLatido, ahora),
 			ultimoLatido: x.ultimoLatido?.toISOString() ?? null,
 			avisos: avisosSensor(x.capacidades),
@@ -513,7 +514,7 @@ export async function geoDe(eventos: Evento[]): Promise<Record<string, Geo & { t
 export const DIAS_MAPA = 30;
 
 /*
- * De dónde atacan: las IP públicas de los últimos 30 días, por país y por
+ * Orígenes: las IP públicas de los últimos 30 días, por país y por
  * organización. Las internas no salen: no tienen sitio en un mapa, y para
  * ellas está el mapa de trampas por sensor.
  */

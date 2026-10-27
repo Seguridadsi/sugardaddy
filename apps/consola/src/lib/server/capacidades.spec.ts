@@ -51,7 +51,7 @@ async function limpiar() {
 
 /* Un sensor dado de alta como desde Sensores (con su destino) y una trampa suya. */
 async function nuevoSensor(id: string) {
-	const token = await crearSensor(QUIEN, { id, nombre: `Sensor ${id}`, segmento: 'pruebas' });
+	const token = await crearSensor(QUIEN, { id, nombre: `Sensor ${id}`, red: null, vlan: null });
 	tokens.set(id, token!);
 	await db.insert(s.trampas).values({
 		id: `${id}-ssh`,

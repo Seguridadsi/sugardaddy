@@ -9,12 +9,12 @@
 </script>
 
 <svelte:head>
-	<title>Auditoría — Sugardaddy</title>
+	<title>Logs — Sugardaddy</title>
 </svelte:head>
 
 <div class="cabecera">
 	<div>
-		<h1>Auditoría</h1>
+		<h1>Logs</h1>
 	</div>
 	<form method="GET">
 		<input name="q" value={data.q} placeholder="Buscar: correo, acción, IP…" />
@@ -36,7 +36,7 @@
 	</ul>
 </section>
 <p class="nota">
-	La auditoría solo crece: nadie, tampoco SeguridadSI, puede borrar líneas desde la consola.
+	Los logs solo crecen: nadie, tampoco SeguridadSI, puede borrar líneas desde la consola.
 </p>
 
 <style>

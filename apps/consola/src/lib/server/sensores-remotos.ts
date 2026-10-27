@@ -15,6 +15,7 @@ import { db, schema as s } from './db';
 import { credencialSensorRemoto } from './canal';
 import { crearSensor, regenerarToken } from './gestion';
 import { comprobarArquitectura } from './arquitectura-sh';
+import { detectarRed } from './red-sh';
 
 const VIDA = 24 * 60 * 60_000;
 const hash = (t: string) => createHash('sha256').update(t).digest('hex');
@@ -52,11 +53,13 @@ function caRaiz(): string | null {
  */
 export async function altaSensorRemoto(
 	quien: string,
-	v: { id: string; nombre: string; segmento: string },
+	v: { id: string; nombre: string },
 	destino?: string
 ) {
 	caRaiz();
-	if (!(await crearSensor(quien, { ...v, remoto: true }, destino))) return null;
+	/* Su red y su VLAN las cuenta su instalador (detectarRed); hasta entonces, sin indicar. */
+	if (!(await crearSensor(quien, { ...v, red: null, vlan: null, remoto: true }, destino)))
+		return null;
 	return lineaSensorRemoto(quien, v.id);
 }
 
@@ -195,6 +198,12 @@ grep '^REGISTRO_TOKEN=' .env | cut -d= -f2- | docker login '${cred.descarga.regi
 echo "==> Arrancando el sensor"
 PASO="arrancar el sensor"
 docker compose --env-file .env --env-file versiones.env up -d --wait
+# Su red y su VLAN, para Sensores: con el token del sensor, que no sale en la línea de órdenes.
+PASO="contar su red"
+${detectarRed}
+if [[ -n "$RED_DETECTADA$VLAN_DETECTADA" ]]; then
+	printf 'Authorization: Bearer %s\n' "$(grep '^SUGARDADDY_TOKEN=' .env | cut -d= -f2-)" | curl -fsS ${ca ? '--cacert ca-consola.crt ' : ''}-H @- -H 'Content-Type: application/json' -d "{\"red\":\"$RED_DETECTADA\",\"vlan\":\"$VLAN_DETECTADA\"}" ${url}/api/sensor/red >/dev/null || echo "Sugardaddy: no se pudo contar su red a la consola; indícala en Sensores."
+fi
 echo "Sensor ${inst.sensor} en marcha. En un minuto aparece vivo en Sensores de la consola."
 echo "Abre en el cortafuegos de esta máquina los puertos de las trampas que despliegues en él."
 `;

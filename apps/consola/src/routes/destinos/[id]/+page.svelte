@@ -26,7 +26,7 @@
 	<title>{d.nombre} — Sugardaddy</title>
 </svelte:head>
 
-<a class="volver" href={resolve('/destinos')}>← Destinos</a>
+<a class="volver" href={resolve('/sensores')}>← Sensores</a>
 
 <div class="cabecera">
 	<p class="eyebrow">{nombreTipoDestino(d.tipo)} · <span class="mono">{d.id}</span></p>
@@ -266,15 +266,6 @@
 					name="nombre"
 					required
 					value={form?.accion === 'instalar' ? form.nombre : d.nombre}
-				/>
-				<label for="s-segmento">Segmento</label>
-				<input
-					id="s-segmento"
-					name="segmento"
-					class="mono"
-					required
-					placeholder="10.70.0.0/24"
-					value={form?.accion === 'instalar' ? form.segmento : ''}
 				/>
 				<button class="boton enviar">Dar de alta y generar la línea</button>
 			</form>

@@ -4,7 +4,8 @@
  *
  *   1. aplica las migraciones pendientes;
  *   2. en el primer arranque, deja la identidad del nodo y su sensor local
- *      con lo que le pasa el instalador por entorno (nada de datos de ejemplo);
+ *      con lo que le pasa el instalador por entorno (nada de datos de ejemplo),
+ *      y la red de su máquina al sensor local que aún no la tenga;
  *   3. da su destino a cada sensor que no lo tenga (el local en una
  *      instalación nueva, o los que dio de alta una consola anterior tras una
  *      vuelta atrás) y completa las trampas que dejó sin destino.
@@ -13,6 +14,7 @@ import { createHash, randomBytes, randomUUID, scryptSync } from 'node:crypto';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import { completarDestinos } from './destinos.mjs';
+import { leerRed, leerVlan } from './red.mjs';
 
 /**
  * @param {import('postgres').Sql} conexion
@@ -34,8 +36,17 @@ export async function prepararBase(
 	}
 	if (SENSOR_LOCAL_TOKEN) {
 		const hash = createHash('sha256').update(SENSOR_LOCAL_TOKEN).digest('hex');
-		await conexion`insert into sensores (id, nombre, segmento, clave_hash) values ('local', 'Sensor local', 'el de este nodo', ${hash}) on conflict (id) do nothing`;
+		await conexion`insert into sensores (id, nombre, clave_hash) values ('local', 'Sensor local', ${hash}) on conflict (id) do nothing`;
 	}
+	/*
+	 * La red y la VLAN de la máquina del nodo, si el instalador las supo: al
+	 * sensor local solo si aún no tiene ninguna (lo escrito en Sensores manda).
+	 */
+	const red = leerRed(entorno.SENSOR_LOCAL_RED ?? '');
+	const vlan = leerVlan(entorno.SENSOR_LOCAL_VLAN ?? '');
+	if (red || vlan)
+		await conexion`update sensores set red = ${red ?? null}, vlan = ${vlan ?? null}
+			where id = 'local' and red is null and vlan is null`;
 	return completarDestinos(conexion);
 }
 

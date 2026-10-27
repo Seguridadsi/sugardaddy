@@ -57,9 +57,7 @@ const cuerpo131 = {
 describe.skipIf(!hayBase)('estado del sensor: motor y hechos', () => {
 	beforeAll(async () => {
 		await limpiar();
-		await db
-			.insert(s.sensores)
-			.values({ id: SENSOR, nombre: SENSOR, segmento: '-', claveHash: `x-${SENSOR}` });
+		await db.insert(s.sensores).values({ id: SENSOR, nombre: SENSOR, claveHash: `x-${SENSOR}` });
 		await db.insert(s.trampas).values({
 			id: TRAMPA,
 			nombre: 't1',

@@ -1,11 +1,17 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
+	import { nombreTipoDestino } from '$lib/destinos';
 	import { haceCuanto } from '$lib/formato';
 	import { puede } from '$lib/permisos';
+	import { redYVlan } from '$lib/red';
 
 	let { data, form } = $props();
 	const admin = $derived(puede(page.data.usuario?.roles ?? [], 'ajustes'));
+	const opera = $derived(puede(page.data.usuario?.roles ?? [], 'desplegar'));
+	/* El sensor cuya red no se pudo guardar: su formulario sigue abierto. */
+	const cambiando = $derived(form && 'cambiando' in form ? form.cambiando : null);
 	/* Los avisos de todos los sensores, primero los que dejan a un sensor sin trampas. */
 	const avisos = $derived(
 		data.sensores
@@ -21,6 +27,8 @@
 <div class="cabecera">
 	<h1>Sensores</h1>
 </div>
+
+{#if data.baja}<p class="mensaje" role="status">Destino dado de baja.</p>{/if}
 
 {#if form?.linea}
 	<section class="panel token" role="status">
@@ -58,7 +66,7 @@
 		<thead>
 			<tr>
 				<th>Sensor</th>
-				<th>Segmento</th>
+				<th>Red / VLAN</th>
 				<th class="num">Trampas</th>
 				<th>Estado</th>
 				{#if admin}<th></th>{/if}
@@ -68,14 +76,50 @@
 			{#each data.sensores as x (x.id)}
 				<tr>
 					<td>
-						<b>{x.nombre}</b><small class="mono"
-							>{x.id} · {x.remoto
-								? `remoto${x.version ? ` · v${x.version}` : ''}`
-								: 'en el nodo'}</small
+						{#if data.fichas[x.id]}
+							<a class="nombre" href={resolve('/destinos/[id]', { id: data.fichas[x.id] })}
+								>{x.nombre}</a
+							>
+						{:else}
+							<b>{x.nombre}</b>
+						{/if}
+						<small class="mono"
+							>{x.id} · {x.remoto ? `remoto${x.version ? ` · v${x.version}` : ''}` : 'nodo'}</small
 						>
 						{#if x.motor}<small title="Su motor de contenedores">{x.motor}</small>{/if}
 					</td>
-					<td class="mono">{x.segmento}</td>
+					<td class="red">
+						{#if admin}
+							<details open={cambiando === x.id}>
+								<summary class:sin={!x.red && !x.vlan}
+									>{redYVlan(x.red, x.vlan) || 'sin indicar'}</summary
+								>
+								<form method="POST" action="?/red" use:enhance>
+									<input type="hidden" name="id" value={x.id} />
+									<input
+										name="red"
+										class="mono"
+										aria-label="Red en CIDR"
+										placeholder="10.70.0.0/24"
+										value={x.red ?? ''}
+									/>
+									<input
+										name="vlan"
+										class="mono"
+										aria-label="VLAN"
+										placeholder="VLAN"
+										inputmode="numeric"
+										value={x.vlan ?? ''}
+									/>
+									<button class="boton">Guardar</button>
+								</form>
+							</details>
+						{:else}
+							<span class="mono" class:sin={!x.red && !x.vlan}
+								>{redYVlan(x.red, x.vlan) || 'sin indicar'}</span
+							>
+						{/if}
+					</td>
 					<td class="num mono">{x.trampas}</td>
 					<td>
 						<span class="estado" class:mal={!x.vivo}>
@@ -137,6 +181,38 @@
 	</table>
 </section>
 
+{#if !data.community}
+	<section class="panel destinos">
+		<header>
+			<div>
+				<h2>Destinos sin sensor</h2>
+				<p class="ayuda">
+					Un servidor, un NAS o una cuenta de nube donde pones trampas a mano. Las máquinas con
+					sensor ya están arriba: su nombre lleva a su ficha.
+				</p>
+			</div>
+			{#if opera}<a class="boton" href={resolve('/destinos/nuevo')}>Añadir destino</a>{/if}
+		</header>
+		{#if data.sinSensor.length}
+			<ul>
+				{#each data.sinSensor as d (d.id)}
+					<li>
+						<div>
+							<a class="nombre" href={resolve('/destinos/[id]', { id: d.id })}>{d.nombre}</a>
+							<span class="tag">{nombreTipoDestino(d.tipo)}</span>
+							{#if !d.activo}<span class="tag">dado de baja</span>{/if}
+							<small>{d.plataforma ?? 'Sin datos de su sistema'}</small>
+						</div>
+						<span class="mono">{d.trampas} {d.trampas === 1 ? 'trampa' : 'trampas'}</span>
+					</li>
+				{/each}
+			</ul>
+		{:else}
+			<p class="vacio">Aún no hay ninguno.</p>
+		{/if}
+	</section>
+{/if}
+
 {#if data.cuarentena.length}
 	<section class="panel cuarentena">
 		<h2>Cuarentena</h2>
@@ -162,10 +238,12 @@
 
 {#if admin}
 	<form class="panel alta" method="POST" action="?/crear" use:enhance>
-		<h2>Instalar un sensor en otra máquina</h2>
+		<h2>Instalar un sensor remoto</h2>
 		<p class="ayuda">
-			En otra VLAN, otra sede o la nube: un Ubuntu con salida al 443 de esta consola. Al darlo de
-			alta te damos la línea que lo instala.
+			En otra VLAN, otra sede o la nube. Al darlo de alta te damos una línea que pegas tú en esa
+			máquina, un Linux amd64 (en Ubuntu y Debian instala Docker si falta): la consola no entra en
+			ella ni pide sus claves. Solo necesita salir al 443 de esta consola. Su red y su VLAN las
+			detecta al instalarse.
 		</p>
 		<div class="campos">
 			<div>
@@ -187,17 +265,6 @@
 					required
 					placeholder="Planta de Sevilla"
 					value={form?.nombre ?? ''}
-				/>
-			</div>
-			<div>
-				<label for="segmento">Segmento</label>
-				<input
-					id="segmento"
-					name="segmento"
-					class="mono"
-					required
-					placeholder="10.70.0.0/24"
-					value={form?.segmento ?? ''}
 				/>
 			</div>
 		</div>
@@ -310,6 +377,31 @@
 		text-align: right;
 	}
 
+	.red summary {
+		cursor: pointer;
+		font-family: var(--font-mono);
+		width: max-content;
+	}
+
+	.sin {
+		color: var(--ink-3);
+		font-family: inherit;
+	}
+
+	.red form {
+		display: flex;
+		gap: 6px;
+		margin-top: 6px;
+	}
+
+	.red input {
+		width: 130px;
+	}
+
+	.red input[name='vlan'] {
+		width: 70px;
+	}
+
 	.estado {
 		font-size: 12.5px;
 		font-weight: 600;
@@ -333,7 +425,7 @@
 
 	.campos {
 		display: grid;
-		grid-template-columns: repeat(3, minmax(0, 1fr));
+		grid-template-columns: repeat(2, minmax(0, 1fr));
 		gap: 12px;
 	}
 
@@ -412,6 +504,78 @@
 	.cuarentena {
 		padding: 16px 18px;
 		margin-top: 16px;
+	}
+
+	.nombre {
+		font-weight: 600;
+		color: var(--ink);
+		text-decoration: none;
+		overflow-wrap: anywhere;
+	}
+
+	.nombre:hover {
+		color: var(--accent);
+	}
+
+	.destinos {
+		padding: 16px 18px 6px;
+		margin: 0 0 16px;
+	}
+
+	.destinos header {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: flex-start;
+		justify-content: space-between;
+		gap: 8px 16px;
+	}
+
+	.destinos h2 {
+		font-size: 15px;
+		font-weight: 600;
+	}
+
+	.destinos .ayuda {
+		margin: 4px 0 8px;
+		font-size: 13px;
+		color: var(--ink-3);
+	}
+
+	.destinos ul {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+	}
+
+	.destinos li {
+		display: flex;
+		justify-content: space-between;
+		align-items: baseline;
+		gap: 12px;
+		padding: 10px 0;
+		border-top: 1px solid var(--line);
+		font-size: 13.5px;
+	}
+
+	.destinos li div {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: baseline;
+		gap: 4px 10px;
+		min-width: 0;
+	}
+
+	.destinos li small {
+		flex-basis: 100%;
+		font-size: 12px;
+		color: var(--ink-3);
+	}
+
+	.destinos .vacio {
+		padding: 10px 0 12px;
+		margin: 0;
+		font-size: 13px;
+		color: var(--ink-3);
 	}
 
 	.cuarentena h2 {

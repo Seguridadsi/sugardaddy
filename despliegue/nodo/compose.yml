@@ -54,6 +54,10 @@ services:
       NODO_ID: ${NODO_ID:?falta en .env}
       NODO_NOMBRE: ${NODO_NOMBRE:?falta en .env}
       SENSOR_LOCAL_TOKEN: ${SENSOR_LOCAL_TOKEN}
+      # La red y la VLAN de esta máquina, para el sensor local en Sensores (las
+      # detecta instalar.sh; vacías, se indican a mano en la consola).
+      SENSOR_LOCAL_RED: ${SENSOR_LOCAL_RED:-}
+      SENSOR_LOCAL_VLAN: ${SENSOR_LOCAL_VLAN:-}
       ACTUALIZADOR_TOKEN: ${ACTUALIZADOR_TOKEN}
       PUBLICACION_CLAVE_PUBLICA: ${PUBLICACION_CLAVE_PUBLICA}
       # Cifra los secretos que el cliente pone en su consola (avisos y SIEM).

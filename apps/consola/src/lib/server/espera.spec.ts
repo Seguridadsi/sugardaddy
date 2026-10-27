@@ -42,9 +42,7 @@ const donde = async () =>
 describe.skipIf(!hayBase)('trampa en espera, con la base de verdad', () => {
 	beforeAll(async () => {
 		await limpiar();
-		await db
-			.insert(s.sensores)
-			.values({ id: SENSOR, nombre: SENSOR, segmento: '-', claveHash: `x-${SENSOR}` });
+		await db.insert(s.sensores).values({ id: SENSOR, nombre: SENSOR, claveHash: `x-${SENSOR}` });
 		await db.insert(s.trampas).values({
 			id: TRAMPA,
 			nombre: 'srv-backup01',

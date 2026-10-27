@@ -56,9 +56,7 @@ const trampa = async (id: string) =>
 describe.skipIf(!hayBase)('el plan con la base de datos', () => {
 	beforeAll(async () => {
 		await limpiar();
-		await db
-			.insert(s.sensores)
-			.values({ id: SENSOR, nombre: SENSOR, segmento: '-', claveHash: `x-${SENSOR}` });
+		await db.insert(s.sensores).values({ id: SENSOR, nombre: SENSOR, claveHash: `x-${SENSOR}` });
 		const comun = { sensor: SENSOR, tipo: 'contenedor' as const, parametros: {} };
 		await db.insert(s.trampas).values([
 			{ ...comun, id: `${P}-ssh`, nombre: 'ssh', modulo: 'cowrie', donde: '0.0.0.0:2222' },
@@ -144,7 +142,6 @@ describe.skipIf(!hayBase)('el alta guarda la vía con que se pone', () => {
 		await db.insert(s.sensores).values({
 			id: SENSOR,
 			nombre: SENSOR,
-			segmento: '-',
 			claveHash: `x-${SENSOR}`,
 			ultimoLatido: new Date()
 		});

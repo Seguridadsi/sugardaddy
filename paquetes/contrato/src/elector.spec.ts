@@ -83,8 +83,8 @@ const smbYaml = leer('paquetes/contrato/src/ejemplos/smb.v2.yaml');
 const cowrie = conImagen(deYaml(cowrieYaml), PUBLICADA);
 const dnsNtp = conImagen(deYaml(leer('modulos/trampas/dns-ntp/trampa.yaml')), PUBLICADA);
 const smb = conImagen(deYaml(smbYaml), PUBLICADA);
-/* dns-ntp exige la IP de la máquina, que no tiene default. */
-const DNS = { direccion: '10.20.0.5' };
+/* Los parámetros de dns-ntp: ya no pide la IP de la máquina, todos tienen valor por defecto. */
+const DNS = {};
 const credencial = deYaml(leer('paquetes/contrato/src/ejemplos/credencial-ssh.v2.yaml'));
 
 const smbObjeto = () => parse(smbYaml) as ManifiestoTrampaV2;
