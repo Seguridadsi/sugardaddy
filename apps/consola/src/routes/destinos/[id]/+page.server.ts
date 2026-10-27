@@ -1,5 +1,6 @@
 import { error, fail, redirect } from '@sveltejs/kit';
 import { entreComillas } from '$lib/formato';
+import { SIN_IDENTIFICADOR, identificador } from '$lib/identificador';
 import { exigir } from '$lib/server/auth/permisos';
 import {
 	darDeBajaDestino,
@@ -17,8 +18,6 @@ export const load = async ({ params, url }) => {
 	if (!destino) error(404, 'Ese destino no existe.');
 	return { ahora: Date.now(), creado: url.searchParams.has('creado'), destino };
 };
-
-const SLUG = /^[a-z0-9][a-z0-9-]{0,62}$/;
 
 export const actions = {
 	/* El formulario corto, salvo lo que ya dice su sensor (§5.3). */
@@ -54,13 +53,11 @@ export const actions = {
 	instalar: async ({ params, request, locals }) => {
 		const u = exigir(locals, 'ajustes');
 		const f = await request.formData();
-		const v = {
-			id: String(f.get('id') ?? '').trim(),
-			nombre: String(f.get('nombre') ?? '').trim()
-		};
+		const nombre = String(f.get('nombre') ?? '').trim();
+		const v = { id: identificador(String(f.get('id') ?? ''), nombre), nombre };
 		const fallo = (status: number, texto: string) =>
 			fail(status, { accion: 'instalar' as const, error: texto, ...v });
-		if (!SLUG.test(v.id)) return fallo(400, 'Identificador: minúsculas, números y guiones.');
+		if (!v.id) return fallo(400, SIN_IDENTIFICADOR);
 		if (!v.nombre) return fallo(400, 'El nombre es obligatorio.');
 		try {
 			const linea = await altaSensorRemoto(u.correo, v, params.id);

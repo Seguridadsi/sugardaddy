@@ -1,4 +1,5 @@
 import { fail } from '@sveltejs/kit';
+import { SIN_IDENTIFICADOR, identificador } from '$lib/identificador';
 import { exigir } from '$lib/server/auth/permisos';
 import { redDelFormulario } from '$lib/red';
 import { cambiarRed, retirarSensor, sensores, ultimaCuarentena } from '$lib/server/gestion';
@@ -21,18 +22,13 @@ export const load = async ({ url }) => {
 	};
 };
 
-const SLUG = /^[a-z0-9][a-z0-9-]{0,62}$/;
-
 export const actions = {
 	crear: async ({ request, locals }) => {
 		const u = exigir(locals, 'ajustes');
 		const f = await request.formData();
-		const v = {
-			id: String(f.get('id') ?? '').trim(),
-			nombre: String(f.get('nombre') ?? '').trim()
-		};
-		if (!SLUG.test(v.id))
-			return fail(400, { error: 'Identificador: minúsculas, números y guiones.', ...v });
+		const nombre = String(f.get('nombre') ?? '').trim();
+		const v = { id: identificador(String(f.get('id') ?? ''), nombre), nombre };
+		if (!v.id) return fail(400, { error: SIN_IDENTIFICADOR, ...v });
 		if (!v.nombre) return fail(400, { error: 'El nombre es obligatorio.', ...v });
 		try {
 			const linea = await altaSensorRemoto(u.correo, v);

@@ -122,14 +122,11 @@
 					{/each}
 
 					<label for="id">Identificador</label>
-					<input
-						id="id"
-						name="id"
-						required
-						class="mono"
-						value={form?.id ?? ''}
-						placeholder="ssh-fs02"
-					/>
+					<input id="id" name="id" class="mono" value={form?.id ?? ''} placeholder="ssh-fs02" />
+					<p class="ayuda">
+						Escríbelo como quieras: se guarda en minúsculas y con guiones («Trampa DNS» →
+						trampa-dns). Vacío, sale del nombre visible.
+					</p>
 
 					<label for="nombre">Nombre visible</label>
 					<input

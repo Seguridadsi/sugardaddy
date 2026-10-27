@@ -14,13 +14,14 @@ export const LARGO_ID = 63;
 export const CANDIDATOS = 1000;
 
 /**
- * Un nombre escrito por el cliente, como base de un id: «FS01 (Nóminas)» →
- * «fs01-nominas». Sin nada aprovechable, «destino».
+ * Un texto escrito por el cliente, como id (de un destino, un sensor o una
+ * trampa): «FS01 (Nóminas)» → «fs01-nominas». Vacío si no hay nada
+ * aprovechable.
  *
- * @param {string} nombre
+ * @param {string} texto
  */
-export function slugDestino(nombre) {
-	const slug = nombre
+export function slug(texto) {
+	return texto
 		.normalize('NFD')
 		.replace(/\p{M}/gu, '')
 		.toLowerCase()
@@ -28,7 +29,16 @@ export function slugDestino(nombre) {
 		.replace(/^-+/, '')
 		.slice(0, LARGO_ID)
 		.replace(/-+$/, '');
-	return slug || 'destino';
+}
+
+/**
+ * La base del id de un destino: su nombre como slug o, sin nada
+ * aprovechable, «destino».
+ *
+ * @param {string} nombre
+ */
+export function slugDestino(nombre) {
+	return slug(nombre) || 'destino';
 }
 
 /**

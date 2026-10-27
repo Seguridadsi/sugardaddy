@@ -257,7 +257,6 @@
 					id="s-id"
 					name="id"
 					class="mono"
-					required
 					value={form?.accion === 'instalar' ? form.id : d.id}
 				/>
 				<label for="s-nombre">Nombre</label>

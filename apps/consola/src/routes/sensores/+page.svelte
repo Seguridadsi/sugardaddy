@@ -243,19 +243,13 @@
 			En otra VLAN, otra sede o la nube. Al darlo de alta te damos una línea que pegas tú en esa
 			máquina, un Linux amd64 (en Ubuntu y Debian instala Docker si falta): la consola no entra en
 			ella ni pide sus claves. Solo necesita salir al 443 de esta consola. Su red y su VLAN las
-			detecta al instalarse.
+			detecta al instalarse. El identificador, escríbelo como quieras: se guarda en minúsculas y con
+			guiones; vacío, sale del nombre.
 		</p>
 		<div class="campos">
 			<div>
 				<label for="id">Identificador</label>
-				<input
-					id="id"
-					name="id"
-					class="mono"
-					required
-					placeholder="planta-sevilla"
-					value={form?.id ?? ''}
-				/>
+				<input id="id" name="id" class="mono" placeholder="planta-sevilla" value={form?.id ?? ''} />
 			</div>
 			<div>
 				<label for="nombre">Nombre</label>

@@ -1,5 +1,6 @@
 import { error, fail, redirect } from '@sveltejs/kit';
 import { tipoEvento, validarParametros } from '@sugardaddy/contrato';
+import { SIN_IDENTIFICADOR, identificador } from '$lib/identificador';
 import { darDeAlta, dondePoner, formaEn } from '$lib/server/alta';
 import { exigir } from '$lib/server/auth/permisos';
 import { trampasAutorizadas } from '$lib/server/catalogo';
@@ -45,8 +46,8 @@ export const actions = {
 		const u = exigir(locals, 'desplegar');
 		const h = await modulo(params.modulo);
 		const form = await request.formData();
-		const id = String(form.get('id') ?? '').trim();
 		const nombre = String(form.get('nombre') ?? '').trim();
+		const id = identificador(String(form.get('id') ?? ''), nombre);
 		const destino = String(form.get('destino') ?? '');
 		const via = String(form.get('via') ?? '') || undefined;
 
@@ -55,8 +56,7 @@ export const actions = {
 			if (k.startsWith('p.')) valores[k.slice(2)] = String(v).replace(/\r\n/g, '\n');
 
 		const errores: string[] = [];
-		if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(id))
-			errores.push('Identificador: minúsculas, números y guiones');
+		if (!id) errores.push(SIN_IDENTIFICADOR);
 		else if (await existeTrampa(id))
 			errores.push('Identificador: ya hay una trampa con ese nombre');
 		if (!nombre) errores.push('Nombre visible: obligatorio');
