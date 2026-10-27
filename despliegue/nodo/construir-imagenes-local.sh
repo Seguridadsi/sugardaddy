@@ -6,8 +6,8 @@
 # de una versión publicada. Una instalación de verdad usa las imágenes firmadas
 # de una versión (ver README / docs).
 #
-#   despliegue/nodo/construir-imagenes-local.sh            # versión 9.9.9-local
-#   despliegue/nodo/construir-imagenes-local.sh 0.16.0-mio # otra etiqueta
+#   despliegue/nodo/construir-imagenes-local.sh            # versión 9.9.9
+#   despliegue/nodo/construir-imagenes-local.sh 0.16.0     # otra etiqueta (semver X.Y.Z)
 #
 # Después:
 #   sudo LOGIN_LOCAL=1 despliegue/nodo/instalar.sh /opt/sugardaddy nodo-01 "Mi empresa" consola.miempresa.local
@@ -17,11 +17,13 @@
 set -euo pipefail
 AQUI="$(cd "$(dirname "$0")" && pwd)"
 RAIZ="$(cd "$AQUI/../.." && pwd)"
-# Versión por defecto ALTA: un build local es siempre el código más reciente, así
-# que debe satisfacer cualquier requisito de versión (p. ej. trampas que piden un
-# sensor >= 0.13). El sufijo -local lo marca como build manual (el instalador no
-# aplica el guard anti-retroceso a un -local).
-V="${1:-9.9.9-local}"
+# Versión por defecto ALTA y en SEMVER LIMPIO (X.Y.Z, sin sufijo): un build local
+# es siempre el código más reciente, así que con 9.9.9 satisface cualquier requisito
+# de versión (p. ej. trampas que piden sensor >= 0.13) y el instalador lo trata como
+# una actualización (9.9.9 es más que cualquier versión real). OJO: tiene que ser
+# semver limpio; la comparación de versiones (compararVersiones) rechaza sufijos como
+# -local y las trampas se quedarían bloqueadas.
+V="${1:-9.9.9}"
 PLAT=linux/amd64
 
 command -v docker >/dev/null || { echo "Hace falta Docker."; exit 1; }

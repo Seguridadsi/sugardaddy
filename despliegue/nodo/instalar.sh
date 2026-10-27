@@ -85,11 +85,7 @@ fi
 # atrás: si el nodo ya tiene una versión más nueva, no se toca.
 PASO="preparar la carpeta"
 nueva="$(grep '^SUGARDADDY_VERSION=' "$AQUI/imagenes.env" | cut -d= -f2- || true)"
-# El guard anti-retroceso protege contra un rollback automático a una versión
-# firmada vieja; NO aplica a un build LOCAL (etiqueta *-local), que es una acción
-# manual y deliberada del operador: ese se instala siempre, aunque el nodo tenga
-# una versión «más nueva» (construir-imagenes-local.sh, docs).
-if [[ -f "$DIR/versiones.env" && "$nueva" != *-local ]]; then
+if [[ -f "$DIR/versiones.env" ]]; then
 	actual="$(grep '^SUGARDADDY_VERSION=' "$DIR/versiones.env" | cut -d= -f2- || true)"
 	if [[ -n "$actual" && -n "$nueva" && "$actual" != "$nueva" && "$(printf '%s\n' "$actual" "$nueva" | sort -V | tail -1)" == "$actual" ]]; then
 		echo "Este nodo ya tiene la versión $actual, más nueva que la de este instalador ($nueva). Pide una línea nueva a SeguridadSI."
