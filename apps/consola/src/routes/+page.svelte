@@ -4,15 +4,13 @@
 	import ListaEventos from '$lib/components/ListaEventos.svelte';
 	import MapaOrigenes from '$lib/components/MapaOrigenes.svelte';
 	import { textoGeo } from '$lib/formato';
-	import { haceCuanto, nombreTipo } from '$lib/formato';
+	import { estaPuesta, haceCuanto, nombreTipo } from '$lib/formato';
 	import { AVISO_IP_MOTOR } from '$lib/capacidades';
 
 	let { data } = $props();
 
 	/* Las que ahora no reciben nada se ven apagadas; una degradada sigue a la vista. */
 	const APAGADAS = ['parada', 'por-colocar', 'sin-contacto', 'retirando'];
-	/* Dónde escucha solo tiene sentido si está puesta. */
-	const PUESTAS = ['comprobada', 'colocada'];
 </script>
 
 <svelte:head>
@@ -121,8 +119,8 @@
 								<EstadoTrampa estado={x.estado} />
 								<!-- Una trampa a mano: la recibe este sensor, pero está en su destino. -->
 								{#if x.aMano}{' · '}a mano en {x.destino ??
-										'su destino'}{:else if PUESTAS.includes(x.estado.estado)}{' · '}<span
-										class="mono">{x.donde}</span
+										'su destino'}{:else if estaPuesta(x.estado.estado)}{' · '}<span class="mono"
+										>{x.donde}</span
 									>{/if}
 							</small>
 						</span>

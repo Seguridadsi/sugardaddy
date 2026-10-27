@@ -438,6 +438,43 @@ export async function guardarActualizacionDisponible(version: string | null) {
 }
 
 /*
+ * Opt-in de auto-actualización (solo nodos sin gestión). La persona puede
+ * activarla en el primer arranque, en Ajustes, o cuando el banner de versión
+ * nueva se la vuelve a ofrecer: siempre disponible. A cambio deja su correo
+ * (dato personal: se guarda con la fecha del consentimiento). `decidido` marca
+ * que ya se le preguntó, para no insistir con el aviso de primer arranque.
+ */
+export type AutoActualizar = {
+	decidido: boolean;
+	activo: boolean;
+	correo: string | null;
+	consentimiento: string | null;
+};
+
+export const autoActualizar = () =>
+	ajuste<AutoActualizar>('auto-actualizar', {
+		decidido: false,
+		activo: false,
+		correo: null,
+		consentimiento: null
+	});
+
+export async function guardarAutoActualizar(quien: string, valor: AutoActualizar) {
+	await db.transaction(async (tx) => {
+		await tx
+			.insert(s.ajustes)
+			.values({ clave: 'auto-actualizar', valor })
+			.onConflictDoUpdate({ target: s.ajustes.clave, set: { valor } });
+		/* En la auditoría NO se guarda el correo, solo si se dio. */
+		await tx.insert(s.auditoria).values({
+			quien,
+			accion: valor.activo ? 'auto-actualización activada' : 'auto-actualización desactivada',
+			detalle: { correo: valor.correo ? 'dado' : 'no' }
+		});
+	});
+}
+
+/*
  * Un evento y la visita entera a la que pertenece: todo lo que hizo el mismo
  * atacante en la misma conexión, en orden. Qué campo agrupa la visita y cómo
  * se llaman las cosas lo dice el manifiesto del módulo, no la consola: el

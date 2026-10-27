@@ -15,8 +15,10 @@ import {
 import { eq } from 'drizzle-orm';
 import {
 	auditar,
+	autoActualizar,
 	buscarActualizaciones,
 	cabecera,
+	guardarAutoActualizar,
 	guardarBuscarActualizaciones
 } from '$lib/server/consultas';
 import { gestionado } from '$lib/server/actualizaciones';
@@ -46,6 +48,7 @@ export const load = async ({ locals }) => {
 		loginLocal: loginLocalHabilitado(),
 		gestionado: gestionado(),
 		buscarActualizaciones: await buscarActualizaciones(),
+		autoActualizar: await autoActualizar(),
 		espacio: esp,
 		estimacion: estimacion(esp, cons.dias),
 		canal: await estadoCanal(),
@@ -78,6 +81,27 @@ export const actions = {
 		const u = exigir(locals, 'ajustes');
 		await guardarBuscarActualizaciones(u.correo, (await request.formData()).get('buscar') === 'on');
 		return { mensaje: 'Guardado.' };
+	},
+	autoActualizar: async ({ request, locals }) => {
+		const u = exigir(locals, 'ajustes');
+		const form = await request.formData();
+		const activar = form.get('activar') === 'on';
+		const correo = String(form.get('correo') ?? '').trim();
+		if (activar) {
+			if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(correo))
+				return fail(400, { error: 'Pon un correo válido para activar la auto-actualización.' });
+			if (form.get('consentimiento') !== 'on')
+				return fail(400, { error: 'Marca el consentimiento para activar la auto-actualización.' });
+		}
+		await guardarAutoActualizar(u.correo, {
+			decidido: true,
+			activo: activar,
+			correo: activar ? correo : ((await autoActualizar()).correo ?? null),
+			consentimiento: activar ? new Date().toISOString() : null
+		});
+		return {
+			mensaje: activar ? 'Auto-actualización activada.' : 'Auto-actualización desactivada.'
+		};
 	},
 	palabras: async ({ request, locals }) => {
 		const u = exigir(locals, 'ajustes');

@@ -3,6 +3,7 @@
 	import { asset, resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import { puede } from '$lib/permisos';
+	import { enhance } from '$app/forms';
 
 	let { data, children } = $props();
 
@@ -96,13 +97,30 @@
 		</p>
 	{/if}
 
+	{#if !data.gestionado && !data.autoActualizar.decidido && puede(data.usuario.roles, 'ajustes')}
+		<div class="actualizacion oferta">
+			<span>
+				¿Quieres que tu nodo se actualice solo cuando saquemos una versión nueva, a cambio de tu
+				correo? <a href="/ajustes">Activar</a>
+			</span>
+			<form method="POST" action="/ajustes?/autoActualizar" use:enhance>
+				<button type="submit">Ahora no</button>
+			</form>
+		</div>
+	{/if}
+
 	{#if data.actualizacion?.version}
 		<p class="actualizacion">
-			Hay una versión nueva ({data.actualizacion.version}).
-			<a
-				href="https://github.com/Seguridadsi/sugardaddy/blob/main/docs/INSTALACION.md#actualizar"
-				rel="noopener noreferrer">Cómo actualizar</a
-			>
+			{#if data.autoActualizar.activo}
+				Hay una versión nueva ({data.actualizacion.version}); tu nodo se pondrá al día solo.
+			{:else}
+				Hay una versión nueva ({data.actualizacion.version}).
+				<a
+					href="https://github.com/Seguridadsi/sugardaddy/blob/main/docs/INSTALACION.md#actualizar"
+					rel="noopener noreferrer">Cómo actualizar</a
+				>
+				o <a href="/ajustes">actívala sola</a>.
+			{/if}
 		</p>
 	{/if}
 
@@ -191,6 +209,30 @@
 		color: inherit;
 		margin-left: 6px;
 		font-weight: 700;
+	}
+
+	.actualizacion.oferta {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 12px;
+	}
+
+	.actualizacion.oferta form {
+		margin: 0;
+	}
+
+	.actualizacion.oferta button {
+		background: none;
+		border: 1px solid currentColor;
+		border-radius: var(--r-sm);
+		color: inherit;
+		font: inherit;
+		font-size: 12px;
+		font-weight: 600;
+		padding: 3px 10px;
+		cursor: pointer;
+		white-space: nowrap;
 	}
 
 	.nodo {

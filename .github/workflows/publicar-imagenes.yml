@@ -1,9 +1,10 @@
-# Construye las imágenes de las 9 trampas gratis desde su fuente, las publica en
-# el registro de contenedores de GitHub (ghcr.io/<org>) y fija en los manifiestos
-# el digest real de ghcr. Usa el GITHUB_TOKEN propio del repositorio: no hace
-# falta ningún token ni secreto aparte. Se lanza a mano (workflow_dispatch) para
-# no entrar en bucle con el commit de los digests.
-name: Publicar imágenes de las trampas
+# Construye desde su fuente y publica en el registro de contenedores de GitHub
+# (ghcr.io/<org>): las 9 trampas gratis (y fija su digest real en los manifiestos)
+# y las 3 imágenes del nodo (consola, sensor, actualizador), etiquetadas con la
+# versión de despliegue/nodo/VERSION. Usa el GITHUB_TOKEN propio del repositorio:
+# no hace falta ningún token ni secreto aparte. Se lanza a mano (workflow_dispatch)
+# para no entrar en bucle con el commit de los digests.
+name: Publicar imágenes (trampas y nodo)
 
 on:
   workflow_dispatch: {}
@@ -50,3 +51,25 @@ jobs:
           git add modulos/trampas/*/trampa.yaml
           git commit -m "Fijar el digest real de ghcr de las imágenes de las trampas gratis" || echo "sin cambios que confirmar"
           git push
+
+  nodo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Entrar en ghcr.io
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Construir y publicar las imágenes del nodo en ghcr
+        run: |
+          set -euo pipefail
+          org=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          V=$(tr -d '[:space:]' < despliegue/nodo/VERSION)
+          # Reutiliza el mismo molde que el build local: consola (con el catálogo
+          # encima), sensor y actualizador (con docker-compose embebido).
+          despliegue/nodo/construir-imagenes-local.sh "$V"
+          for svc in consola sensor actualizador; do
+            docker tag "sugardaddy-$svc:$V" "ghcr.io/$org/sugardaddy-$svc:$V"
+            docker push "ghcr.io/$org/sugardaddy-$svc:$V"
+            docker inspect --format="$svc -> {{index .RepoDigests 0}}" "ghcr.io/$org/sugardaddy-$svc:$V"
+          done

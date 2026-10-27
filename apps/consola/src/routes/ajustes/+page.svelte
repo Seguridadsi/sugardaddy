@@ -232,6 +232,42 @@
 			<button class="boton" type="submit">Guardar</button>
 		</form>
 	</section>
+
+	<section class="panel bloque">
+		<h2>Auto-actualización</h2>
+		{#if data.autoActualizar.activo}
+			<p>
+				Activada: cuando salga una versión nueva, tu nodo se pondrá al día solo. Avisos y soporte al
+				correo <strong>{data.autoActualizar.correo}</strong>.
+			</p>
+			<form method="POST" action="?/autoActualizar" use:enhance>
+				<button class="boton" type="submit">Desactivar</button>
+			</form>
+		{:else}
+			<p>
+				Que tu nodo se actualice solo cuando saquemos una versión nueva, sin reconstruir a mano. A
+				cambio nos dejas un correo, para avisarte y darte soporte.
+			</p>
+			<form method="POST" action="?/autoActualizar" use:enhance>
+				<input type="hidden" name="activar" value="on" />
+				<label>
+					Correo
+					<input
+						type="email"
+						name="correo"
+						required
+						value={data.autoActualizar.correo ?? ''}
+						placeholder="tu@empresa.com"
+					/>
+				</label>
+				<label>
+					<input type="checkbox" name="consentimiento" required />
+					Acepto que SeguridadSI use mi correo para avisarme de versiones y darme soporte.
+				</label>
+				<button class="boton principal" type="submit">Activar</button>
+			</form>
+		{/if}
+	</section>
 {/if}
 
 <section class="panel bloque">

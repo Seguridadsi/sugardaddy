@@ -4,7 +4,7 @@
 	import { page } from '$app/state';
 	import EstadoTrampa from '$lib/components/EstadoTrampa.svelte';
 	import LogoTrampa from '$lib/components/LogoTrampa.svelte';
-	import { nombreTipo } from '$lib/formato';
+	import { estaPuesta, nombreTipo } from '$lib/formato';
 	import { puede } from '$lib/permisos';
 
 	let { data, form } = $props();
@@ -85,7 +85,8 @@
 					{#if s.aMano}
 						<td class="donde">en {s.destinoNombre ?? 'su destino'}</td>
 					{:else}
-						<td class="mono donde">{s.donde}</td>
+						<!-- Dónde escucha, si ya está puesta; mientras su sensor la pone, lo dice su estado. -->
+						<td class="mono donde">{estaPuesta(s.estado.estado) ? s.donde : '—'}</td>
 					{/if}
 					<td class="num mono" class:caliente={s.eventos > 0}>{s.eventos}</td>
 					<!-- Lo que ve el cliente (§8.2): activa solo si está comprobada. -->

@@ -53,6 +53,13 @@ export function noSeCambiaPor(dependientes: string[], ajustes: string[]) {
 }
 
 /* «Pasos para Windows» → «pasos para Windows»: el nombre de una forma en mitad de una frase. */
+/*
+ * Una trampa puesta (colocada o comprobada): solo entonces su «donde» dice
+ * dónde escucha. Antes es lo que cuenta su sensor mientras la pone
+ * («error: descargando la imagen nueva»), que ya explica su estado.
+ */
+export const estaPuesta = (estado: string) => estado === 'comprobada' || estado === 'colocada';
+
 export const enFrase = (t: string) => t.charAt(0).toLocaleLowerCase('es') + t.slice(1);
 
 export const horaCorta = (iso: string) => hora.format(new Date(iso));
