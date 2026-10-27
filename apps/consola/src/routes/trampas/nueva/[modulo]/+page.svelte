@@ -145,7 +145,6 @@
 						esquema={m.parametros}
 						valores={form?.valores}
 						objetivos={f.objetivos}
-						sugerencias={f.sugerencias}
 					/>
 
 					{#if f.pasos}

@@ -56,8 +56,6 @@ const SIN_ROOT = `${P}-sinroot`;
 const OCUPADO = `${P}-ocupado`;
 const CALLADO = `${P}-callado`;
 const WIN = `${P}-win`;
-/* Un sensor que informa de las IPs de su máquina, para el pre-relleno (x-sugerencias). */
-const DIRS = `${P}-dirs`;
 /* El módulo de la trampa SSH a la que apunta la credencial: una copia de cowrie (ver arriba). */
 const SSH = `${P}-ssh-modulo`;
 const OBJETIVO = `${P}-ssh-objetivo`;
@@ -188,10 +186,6 @@ describe.skipIf(!hayBase)('el alta con destino y elector', () => {
 			estado013({}, { 'puertos.ocupados': { valor: ['udp/53', 'tcp/8080'] } })
 		);
 		await sensorCon(CALLADO, estado013());
-		await sensorCon(
-			DIRS,
-			estado013({}, { 'red.direcciones': { valor: ['10.20.0.9', '10.20.0.10'] } })
-		);
 		await db
 			.update(s.sensores)
 			.set({ ultimoLatido: new Date(Date.now() - 3_600_000) })
@@ -339,20 +333,6 @@ describe.skipIf(!hayBase)('el alta con destino y elector', () => {
 		expect(await trampa(`${P}-ssh-callado`)).toBeUndefined();
 	});
 
-	it('dns-ntp ofrece las IPs del sensor del destino como sugerencia (x-sugerencias)', async () => {
-		const p = await pagina('dns-ntp', { destino: DIRS });
-		/* El módulo pide pre-rellenar 'direccion' con las direcciones del destino. */
-		expect(
-			(p.modulo.parametros.properties.direccion as { 'x-sugerencias'?: string })['x-sugerencias']
-		).toBe('direcciones');
-		/* Y el formulario trae esas IPs, en orden; la primera la pondrá el campo. */
-		expect(p.forma!.sugerencias).toEqual({ direcciones: ['10.20.0.9', '10.20.0.10'] });
-		/* Un destino cuyo sensor no informa de direcciones no sugiere ninguna. */
-		expect((await pagina('dns-ntp', { destino: LOCAL })).forma!.sugerencias).toEqual({
-			direcciones: []
-		});
-	});
-
 	it('dns-ntp con el 53 en un destino con udp/53 ocupado falla con puertos.ocupado', async () => {
 		/* En el paso «¿dónde?» vale, con el aviso: con otro puerto valdría. */
 		expect(await enDonde('dns-ntp', OCUPADO)).toMatchObject({
@@ -363,7 +343,6 @@ describe.skipIf(!hayBase)('el alta con destino y elector', () => {
 			nombre: 'ns2',
 			destino: OCUPADO,
 			via: 'contenedor',
-			'p.direccion': '10.20.0.53',
 			'p.puertoDns': '53'
 		};
 		const r = await alta('dns-ntp', campos);
@@ -375,7 +354,7 @@ describe.skipIf(!hayBase)('el alta con destino y elector', () => {
 		/* Lo escrito vuelve al formulario. */
 		expect((r as { data: unknown }).data).toMatchObject({
 			id: `${P}-dns`,
-			valores: { direccion: '10.20.0.53' }
+			valores: { puertoDns: '53' }
 		});
 		expect(await trampa(`${P}-dns`)).toBeUndefined();
 		/* Con otro puerto, sí. */

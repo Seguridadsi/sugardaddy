@@ -13,7 +13,6 @@
 parametros:
   nombreEquipo: ns-prueba
   sistema: centos7
-  direccion: 192.0.2.53
   dns: 'yes'
   puertoDns: 35353
   ntp: 'yes'

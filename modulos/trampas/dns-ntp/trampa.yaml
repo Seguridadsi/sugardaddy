@@ -121,8 +121,6 @@ contenedor:
     # la IP: la semilla de la instancia se guarda junto a su registro.
     DDOSPOT_SEED: ${nombreEquipo}
     DDOSPOT_SEED_FILE: persona.semilla
-    # La IP que anuncia en LOCATION de SSDP y en monlist: la de la máquina.
-    DDOSPOT_LAN_IP: ${direccion}
     # El recolector aprieta antes del límite del contenedor.
     GOMEMLIMIT: 100MiB
   # No hay volúmenes escribibles: lo único que escribe es su registro, aquí.
@@ -141,7 +139,6 @@ parametros:
     [
       nombreEquipo,
       sistema,
-      direccion,
       dns,
       puertoDns,
       ntp,
@@ -170,16 +167,6 @@ parametros:
         debian11: Debian 11 (dnsmasq 2.85, ntpd 4.2.8, MiniUPnPd)
         ubuntu2004: Ubuntu 20.04 (dnsmasq 2.90, ntpd 4.2.8, MiniDLNA)
       default: centos7
-    direccion:
-      type: string
-      title: IP de la máquina
-      description: >-
-        La IP del sensor en tu red. La anuncia en las respuestas UPnP y NTP; con otra, el
-        atacante vería que no cuadra.
-      pattern: '^((25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\.){3}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])$'
-      # El formulario propone las IPs del sensor del destino (la primera ya va
-      # puesta); así el cliente no teclea la dirección de su propia máquina.
-      x-sugerencias: direcciones
     dns:
       type: string
       title: DNS

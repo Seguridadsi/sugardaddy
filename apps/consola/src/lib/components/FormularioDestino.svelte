@@ -52,6 +52,26 @@
 	/* El sistema que cuenta: el que dice el sensor o el elegido aquí. */
 	const sistema = $derived(fijo('so') ? (soSensor ?? '') : so);
 	const marcados = $derived(new Set(Array.isArray(valores.protocolos) ? valores.protocolos : []));
+	/* Los detalles finos van en un desplegable: lo único que de verdad se
+	 * pregunta es qué sistema es (§5.2). Se abre si ya hay algo que enseñar
+	 * (un dato escrito, algo marcado o algo que dice el sensor) o al editar
+	 * una ficha, donde se viene a afinar; al añadir uno nuevo, cerrado. */
+	const DETALLES = ['edicion', 'version', 'powershell', 'posix', 'direccion', 'nota'] as const;
+	const hayDetalle = $derived(
+		DETALLES.some((k) => texto(k) || bloqueados.includes(k)) ||
+			marcados.size > 0 ||
+			bloqueados.includes('protocolos')
+	);
+	/* Qué detalles tocan según el tipo y el sistema: si ninguno, no hay desplegable. */
+	const detallesVisibles = $derived(
+		pide('edicion') ||
+			(pide('version') && !!sistema) ||
+			(pide('powershell') && sistema === 'windows') ||
+			(pide('posix') && !!sistema && sistema !== 'windows') ||
+			pide('direccion') ||
+			pide('protocolos') ||
+			pide('nota')
+	);
 </script>
 
 <div class="campos">
@@ -79,7 +99,7 @@
 	{/if}
 
 	{#if pide('so')}
-		<div>
+		<div class="ancho">
 			<label for="d-so">
 				Sistema operativo
 				{#if tipo !== 'maquina' && tipo !== 'fileserver'}<small>opcional</small>{/if}
@@ -104,119 +124,127 @@
 			{/if}
 		</div>
 	{/if}
-
-	{#if pide('edicion')}
-		<div>
-			<label for="d-edicion">Edición <small>opcional</small></label>
-			<select
-				id="d-edicion"
-				name="edicion"
-				value={edicion}
-				onchange={(e) => (edicion = e.currentTarget.value)}
-			>
-				<option value="">Sin decir</option>
-				{#each EDICIONES as x (x.valor)}
-					<option value={x.valor}>{x.texto}</option>
-				{/each}
-			</select>
-		</div>
-	{/if}
-
-	{#if pide('version') && sistema}
-		<div>
-			<label for="d-version">Versión <small>opcional</small></label>
-			{#if sistema === 'windows'}
-				<select id="d-version" name="version" value={texto('version')}>
-					<option value="">Sin decir</option>
-					{#each versionesWindows(tipo, edicion) as x (x.valor)}
-						<option value={x.valor}>{x.texto}</option>
-					{/each}
-				</select>
-			{:else}
-				<input
-					id="d-version"
-					name="version"
-					class="mono"
-					inputmode="decimal"
-					value={texto('version')}
-					placeholder="22.04"
-				/>
-			{/if}
-		</div>
-	{/if}
-
-	{#if pide('powershell') && sistema === 'windows'}
-		<div>
-			<label for="d-powershell">PowerShell <small>opcional</small></label>
-			<select id="d-powershell" name="powershell" value={texto('powershell')}>
-				<option value="">Sin decir</option>
-				{#each POWERSHELL as x (x.valor)}
-					<option value={x.valor}>{x.texto}</option>
-				{/each}
-			</select>
-		</div>
-	{/if}
-
-	{#if pide('posix') && sistema && sistema !== 'windows'}
-		<div>
-			<label for="d-posix">Shell <small>opcional</small></label>
-			<select id="d-posix" name="posix" value={texto('posix')}>
-				<option value="">Sin decir</option>
-				{#each POSIX as x (x.valor)}
-					<option value={x.valor}>{x.texto}</option>
-				{/each}
-			</select>
-		</div>
-	{/if}
-
-	{#if pide('direccion')}
-		<div class="ancho">
-			<label for="d-direccion">Dirección <small>opcional</small></label>
-			<input
-				id="d-direccion"
-				name="direccion"
-				class="mono"
-				autocomplete="off"
-				list={direcciones.length ? 'd-direcciones' : undefined}
-				value={texto('direccion')}
-				placeholder="10.20.0.7 o fs01.empresa.local"
-			/>
-			{#if direcciones.length}
-				<datalist id="d-direcciones">
-					{#each direcciones as x (x)}<option value={x}></option>{/each}
-				</datalist>
-			{/if}
-			<p class="ayuda">
-				La IP o el nombre con que tus equipos llegan a esta máquina. La usan los pasos manuales y
-				las pruebas.
-			</p>
-		</div>
-	{/if}
-
-	{#if pide('protocolos')}
-		<fieldset class="ancho">
-			<legend>Qué comparte <small>opcional</small></legend>
-			{#each PROTOCOLOS as x (x.valor)}
-				<label class="marca">
-					<input
-						type="checkbox"
-						name="protocolos"
-						value={x.valor}
-						checked={marcados.has(x.valor)}
-					/>
-					{x.texto}
-				</label>
-			{/each}
-		</fieldset>
-	{/if}
-
-	{#if pide('nota')}
-		<div class="ancho">
-			<label for="d-nota">Descripción <small>opcional</small></label>
-			<textarea id="d-nota" name="nota" rows="3" maxlength="500" value={texto('nota')}></textarea>
-		</div>
-	{/if}
 </div>
+
+{#if detallesVisibles}
+	<details class="mas" open={!elegirTipo || hayDetalle}>
+		<summary>Más detalles <small>opcional</small></summary>
+		<div class="campos">
+			{#if pide('edicion')}
+				<div>
+					<label for="d-edicion">Edición</label>
+					<select
+						id="d-edicion"
+						name="edicion"
+						value={edicion}
+						onchange={(e) => (edicion = e.currentTarget.value)}
+					>
+						<option value="">Sin decir</option>
+						{#each EDICIONES as x (x.valor)}
+							<option value={x.valor}>{x.texto}</option>
+						{/each}
+					</select>
+				</div>
+			{/if}
+
+			{#if pide('version') && sistema}
+				<div>
+					<label for="d-version">Versión</label>
+					{#if sistema === 'windows'}
+						<select id="d-version" name="version" value={texto('version')}>
+							<option value="">Sin decir</option>
+							{#each versionesWindows(tipo, edicion) as x (x.valor)}
+								<option value={x.valor}>{x.texto}</option>
+							{/each}
+						</select>
+					{:else}
+						<input
+							id="d-version"
+							name="version"
+							class="mono"
+							inputmode="decimal"
+							value={texto('version')}
+							placeholder="22.04"
+						/>
+					{/if}
+				</div>
+			{/if}
+
+			{#if pide('powershell') && sistema === 'windows'}
+				<div>
+					<label for="d-powershell">PowerShell</label>
+					<select id="d-powershell" name="powershell" value={texto('powershell')}>
+						<option value="">Sin decir</option>
+						{#each POWERSHELL as x (x.valor)}
+							<option value={x.valor}>{x.texto}</option>
+						{/each}
+					</select>
+				</div>
+			{/if}
+
+			{#if pide('posix') && sistema && sistema !== 'windows'}
+				<div>
+					<label for="d-posix">Shell</label>
+					<select id="d-posix" name="posix" value={texto('posix')}>
+						<option value="">Sin decir</option>
+						{#each POSIX as x (x.valor)}
+							<option value={x.valor}>{x.texto}</option>
+						{/each}
+					</select>
+				</div>
+			{/if}
+
+			{#if pide('direccion')}
+				<div class="ancho">
+					<label for="d-direccion">Dirección</label>
+					<input
+						id="d-direccion"
+						name="direccion"
+						class="mono"
+						autocomplete="off"
+						list={direcciones.length ? 'd-direcciones' : undefined}
+						value={texto('direccion')}
+						placeholder="10.20.0.7 o fs01.empresa.local"
+					/>
+					{#if direcciones.length}
+						<datalist id="d-direcciones">
+							{#each direcciones as x (x)}<option value={x}></option>{/each}
+						</datalist>
+					{/if}
+					<p class="ayuda">
+						La IP o el nombre con que tus equipos llegan a esta máquina. La usan los pasos manuales y
+						las pruebas.
+					</p>
+				</div>
+			{/if}
+
+			{#if pide('protocolos')}
+				<fieldset class="ancho">
+					<legend>Qué comparte</legend>
+					{#each PROTOCOLOS as x (x.valor)}
+						<label class="marca">
+							<input
+								type="checkbox"
+								name="protocolos"
+								value={x.valor}
+								checked={marcados.has(x.valor)}
+							/>
+							{x.texto}
+						</label>
+					{/each}
+				</fieldset>
+			{/if}
+
+			{#if pide('nota')}
+				<div class="ancho">
+					<label for="d-nota">Descripción</label>
+					<textarea id="d-nota" name="nota" rows="3" maxlength="500" value={texto('nota')}
+					></textarea>
+				</div>
+			{/if}
+		</div>
+	</details>
+{/if}
 
 <style>
 	/* Dos columnas donde caben (Añadir destino) y una en la ficha o en un móvil. */
@@ -230,8 +258,26 @@
 		grid-column: 1 / -1;
 	}
 
+	/* El desplegable de detalles: un resumen discreto y, abierto, los campos
+	 * en la misma rejilla de dos columnas. */
+	.mas {
+		margin-top: 14px;
+	}
+
+	.mas > summary {
+		cursor: pointer;
+		font-size: 13px;
+		font-weight: 600;
+		color: var(--ink-2);
+		padding: 6px 0;
+	}
+
+	.mas[open] > summary {
+		margin-bottom: 8px;
+	}
+
 	label small,
-	legend small,
+	summary small,
 	.fijo small {
 		font-weight: 400;
 		color: var(--ink-3);
