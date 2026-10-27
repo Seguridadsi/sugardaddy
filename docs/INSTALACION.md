@@ -165,6 +165,21 @@ Prueba una contraseña cualquiera. Luego, en la consola, en **Eventos**, tiene
 que aparecer la línea: la IP desde la que atacaste, la trampa, y qué hiciste. Si
 sale, Sugardaddy funciona de punta a punta.
 
+## Actualizar
+
+Las versiones nuevas salen en GitHub. En esta edición **no se instalan solas**:
+te pones al día tú, desde tu clon del repositorio.
+
+```bash
+git pull
+sudo despliegue/nodo/construir-imagenes-local.sh
+sudo despliegue/nodo/instalar.sh /opt/sugardaddy <id> "<tu empresa>" <dirección>
+```
+
+Reinstalar **conserva tus secretos y tus datos**; solo cambia las imágenes por
+las de la versión nueva. La versión solo va hacia delante: el instalador no deja
+poner una anterior.
+
 ## Reinstalar o empezar de cero
 
 Volver a lanzar el instalador sobre un nodo ya instalado lo **actualiza** y
