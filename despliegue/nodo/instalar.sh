@@ -85,9 +85,13 @@ fi
 # atrás: si el nodo ya tiene una versión más nueva, no se toca.
 PASO="preparar la carpeta"
 nueva="$(grep '^SUGARDADDY_VERSION=' "$AQUI/imagenes.env" | cut -d= -f2- || true)"
+# Guard anti-retroceso: solo frena entre versiones SEMVER LIMPIAS (X.Y.Z). Si la
+# instalada es un build de desarrollo (p. ej. 9.9.9-local) no cuenta como «más
+# nueva» y no debe bloquear una (re)instalación: esas no pasan por el panel.
+semver='^[0-9]+\.[0-9]+\.[0-9]+$'
 if [[ -f "$DIR/versiones.env" ]]; then
 	actual="$(grep '^SUGARDADDY_VERSION=' "$DIR/versiones.env" | cut -d= -f2- || true)"
-	if [[ -n "$actual" && -n "$nueva" && "$actual" != "$nueva" && "$(printf '%s\n' "$actual" "$nueva" | sort -V | tail -1)" == "$actual" ]]; then
+	if [[ "$actual" =~ $semver && "$nueva" =~ $semver && "$actual" != "$nueva" && "$(printf '%s\n' "$actual" "$nueva" | sort -V | tail -1)" == "$actual" ]]; then
 		echo "Este nodo ya tiene la versión $actual, más nueva que la de este instalador ($nueva). Pide una línea nueva a SeguridadSI."
 		exit 1
 	fi
