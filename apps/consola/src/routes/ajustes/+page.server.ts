@@ -13,7 +13,7 @@ import {
 	urlPanelValida
 } from '$lib/server/canal';
 import { eq } from 'drizzle-orm';
-import { cabecera } from '$lib/server/consultas';
+import { auditar, cabecera } from '$lib/server/consultas';
 import { db, schema as s } from '$lib/server/db';
 import { aceptar, cerrarYa, rechazar, soporte } from '$lib/server/soporte';
 import { llaves, retirarLlave } from '$lib/server/emergencia';
@@ -21,17 +21,25 @@ import { MINIMO_PALABRA, guardarPalabras, palabras } from '$lib/server/credencia
 import {
 	DIAS_MAXIMO,
 	DIAS_MINIMO,
+	borrarAntesDe,
 	cambiarPlazo,
 	conservacion,
 	validarDias
 } from '$lib/server/conservacion';
+import { estadoEspacio, estimacion } from '$lib/server/espacio';
+
+const DIA_MS = 86_400_000;
 
 export const load = async ({ locals }) => {
 	exigir(locals, 'ajustes');
 	const a = await actualizacion();
+	const cons = await conservacion();
+	const esp = await estadoEspacio();
 	return {
 		ahora: Date.now(),
 		loginLocal: loginLocalHabilitado(),
+		espacio: esp,
+		estimacion: estimacion(esp, cons.dias),
 		canal: await estadoCanal(),
 		version: (await cabecera()).cliente.version,
 		actualizacion: { estado: a.estado, version: a.version, detalle: a.detalle },
@@ -48,7 +56,7 @@ export const load = async ({ locals }) => {
 		soporte: await soporte(),
 		palabras: await palabras(),
 		minimoPalabra: MINIMO_PALABRA,
-		conservacion: { ...(await conservacion()), minimo: DIAS_MINIMO, maximo: DIAS_MAXIMO },
+		conservacion: { ...cons, minimo: DIAS_MINIMO, maximo: DIAS_MAXIMO },
 		llaves: (await llaves()).map((l) => ({
 			...l,
 			creada: l.creada.toISOString(),
@@ -78,6 +86,28 @@ export const actions = {
 			});
 		await cambiarPlazo(u.correo, dias);
 		return { mensaje: `Plazo de conservación: ${dias} días.` };
+	},
+	/* Aplicar el plazo YA (sin esperar al borrado de cada hora): borra ahora los
+	 * eventos más viejos que el plazo. Es manual y deliberado, así que no respeta
+	 * el margen de gracia; queda en la auditoría con quién lo pidió. */
+	purgarEventos: async ({ locals }) => {
+		const u = exigir(locals, 'ajustes');
+		const c = await conservacion();
+		const limite = new Date(Date.now() - c.dias * DIA_MS);
+		const r = await borrarAntesDe(limite);
+		await auditar(u.correo, 'purga manual de eventos', {
+			antesDe: limite.toISOString(),
+			dias: c.dias,
+			eventos: r.eventos,
+			cuarentena: r.cuarentena,
+			cadena: r.cadena
+		});
+		return {
+			mensaje:
+				r.eventos || r.cuarentena
+					? `Purgados ${r.eventos} eventos y ${r.cuarentena} de cuarentena de más de ${c.dias} días.`
+					: `No había eventos de más de ${c.dias} días que borrar.`
+		};
 	},
 	alta: async ({ request, locals }) => {
 		const u = exigir(locals, 'ajustes');

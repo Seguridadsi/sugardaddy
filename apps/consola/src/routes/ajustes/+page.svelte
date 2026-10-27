@@ -4,6 +4,17 @@
 
 	let { data, form } = $props();
 	const c = $derived(data.canal);
+
+	/* Tamaños en unidades legibles (base 1000, como los discos). */
+	const tam = (n: number) =>
+		n >= 1e9
+			? (n / 1e9).toFixed(1) + ' GB'
+			: n >= 1e6
+				? (n / 1e6).toFixed(0) + ' MB'
+				: n >= 1e3
+					? (n / 1e3).toFixed(0) + ' KB'
+					: n + ' B';
+	const miles = (n: number) => n.toLocaleString('es-ES');
 </script>
 
 <svelte:head>
@@ -60,6 +71,55 @@
 	</div>
 	<button class="boton">Guardar</button>
 </form>
+
+<section class="panel bloque">
+	<h2>Espacio de los eventos</h2>
+	<p class="ayuda">
+		Lo que ocupan los eventos y a qué ritmo crecen. Con el plazo de arriba no crecen sin fin: lo
+		más viejo se borra solo, así que el tamaño se estabiliza.
+	</p>
+	<dl class="espacio">
+		<div><dt>Eventos guardados</dt><dd>{miles(data.espacio.eventos)}</dd></div>
+		<div>
+			<dt>Ocupan</dt>
+			<dd>{tam(data.espacio.eventosBytes)} <span class="sub">de {tam(data.espacio.baseBytes)} en total</span></dd>
+		</div>
+		<div>
+			<dt>En el último mes</dt>
+			<dd>{miles(data.espacio.eventosMes)} <span class="sub">(~{miles(Math.round(data.estimacion.ritmoDia))}/día)</span></dd>
+		</div>
+		{#if data.espacio.masViejo}
+			<div><dt>El más viejo</dt><dd>{haceCuanto(data.espacio.masViejo, data.ahora)}</dd></div>
+		{/if}
+	</dl>
+	{#if data.estimacion.fiable && data.estimacion.bytesPorEvento > 0}
+		<p class="ayuda">
+			A este ritmo, con el plazo de <b>{data.conservacion.dias} días</b> la base se estabiliza en
+			torno a <b>{tam(data.estimacion.bytesEnPlazo)}</b> (~{miles(data.estimacion.eventosEnPlazo)}
+			eventos). No sigue creciendo.
+		</p>
+	{:else}
+		<p class="ayuda">Aún hay pocos eventos para estimar el tamaño con el plazo.</p>
+	{/if}
+	<form
+		method="POST"
+		action="?/purgarEventos"
+		use:enhance
+		onsubmit={(e) => {
+			if (
+				!confirm(
+					`¿Borrar ahora los eventos de más de ${data.conservacion.dias} días? No se pueden recuperar.`
+				)
+			)
+				e.preventDefault();
+		}}
+	>
+		<button class="boton">Purgar ahora</button>
+	</form>
+	<p class="ayuda">
+		«Purgar ahora» aplica el plazo al momento, sin esperar al borrado automático de cada hora.
+	</p>
+</section>
 
 {#if data.loginLocal}
 	<section class="panel bloque">
@@ -309,6 +369,46 @@
 
 	.bloque form .boton {
 		margin-top: 16px;
+	}
+
+	.espacio {
+		margin: 4px 0 6px;
+		/* Una fila por dato. Explícito porque los dl heredan 2 columnas del estilo global. */
+		display: grid;
+		grid-template-columns: 1fr;
+		gap: 0;
+	}
+
+	.espacio div {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: 16px;
+		font-size: 14px;
+		padding: 8px 0;
+		border-bottom: 1px solid var(--line);
+	}
+
+	.espacio dt {
+		color: var(--ink-3);
+		margin: 0;
+		white-space: nowrap;
+	}
+
+	.espacio dd {
+		margin: 0;
+		font-weight: 600;
+		text-align: right;
+	}
+
+	.espacio dd .sub {
+		white-space: nowrap;
+	}
+
+	.sub {
+		color: var(--ink-3);
+		font-weight: 400;
+		font-size: 12.5px;
 	}
 
 	.plazo {
