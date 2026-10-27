@@ -6,8 +6,8 @@
 # de una versión publicada. Una instalación de verdad usa las imágenes firmadas
 # de una versión (ver README / docs).
 #
-#   despliegue/nodo/construir-imagenes-local.sh            # versión 0.0.0-local
-#   despliegue/nodo/construir-imagenes-local.sh 0.0.0-mio  # otra etiqueta
+#   despliegue/nodo/construir-imagenes-local.sh            # versión 9.9.9-local
+#   despliegue/nodo/construir-imagenes-local.sh 0.16.0-mio # otra etiqueta
 #
 # Después:
 #   sudo LOGIN_LOCAL=1 despliegue/nodo/instalar.sh /opt/sugardaddy nodo-01 "Mi empresa" consola.miempresa.local
@@ -17,7 +17,11 @@
 set -euo pipefail
 AQUI="$(cd "$(dirname "$0")" && pwd)"
 RAIZ="$(cd "$AQUI/../.." && pwd)"
-V="${1:-0.0.0-local}"
+# Versión por defecto ALTA: un build local es siempre el código más reciente, así
+# que debe satisfacer cualquier requisito de versión (p. ej. trampas que piden un
+# sensor >= 0.13). El sufijo -local lo marca como build manual (el instalador no
+# aplica el guard anti-retroceso a un -local).
+V="${1:-9.9.9-local}"
 PLAT=linux/amd64
 
 command -v docker >/dev/null || { echo "Hace falta Docker."; exit 1; }
