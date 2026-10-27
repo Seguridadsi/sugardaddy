@@ -168,9 +168,17 @@ sale, Sugardaddy funciona de punta a punta.
 ## Reinstalar o empezar de cero
 
 Volver a lanzar el instalador sobre un nodo ya instalado lo **actualiza** y
-conserva sus secretos y sus datos (`/opt/sugardaddy/.env`). Un build local
-(`construir-imagenes-local.sh`) se instala aunque el nodo tenga una versión más
-nueva: no hace falta nada especial.
+conserva sus secretos y sus datos (`/opt/sugardaddy/.env`). Reinstalar el mismo
+build, o uno más nuevo, funciona sin más; el instalador solo frena si intentas
+poner una versión **más vieja** sobre una más nueva.
+
+Si instalaste una versión anterior de la edición y el instalador se queja de que
+el nodo «ya tiene una versión más nueva», borra una vez el registro de versión
+del nodo y vuelve a instalar (no toca tus datos):
+
+```bash
+sudo rm /opt/sugardaddy/versiones.env
+```
 
 Si quieres **empezar de cero** (borra el nodo, sus contenedores y TODOS sus
 datos, sin vuelta atrás):

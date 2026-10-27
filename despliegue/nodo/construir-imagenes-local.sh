@@ -6,8 +6,8 @@
 # de una versión publicada. Una instalación de verdad usa las imágenes firmadas
 # de una versión (ver README / docs).
 #
-#   despliegue/nodo/construir-imagenes-local.sh            # versión 9.9.9
-#   despliegue/nodo/construir-imagenes-local.sh 0.16.0     # otra etiqueta (semver X.Y.Z)
+#   despliegue/nodo/construir-imagenes-local.sh            # la versión de despliegue/nodo/VERSION
+#   despliegue/nodo/construir-imagenes-local.sh 0.16.0     # fuerza otra (semver X.Y.Z)
 #
 # Después:
 #   sudo LOGIN_LOCAL=1 despliegue/nodo/instalar.sh /opt/sugardaddy nodo-01 "Mi empresa" consola.miempresa.local
@@ -17,13 +17,12 @@
 set -euo pipefail
 AQUI="$(cd "$(dirname "$0")" && pwd)"
 RAIZ="$(cd "$AQUI/../.." && pwd)"
-# Versión por defecto ALTA y en SEMVER LIMPIO (X.Y.Z, sin sufijo): un build local
-# es siempre el código más reciente, así que con 9.9.9 satisface cualquier requisito
-# de versión (p. ej. trampas que piden sensor >= 0.13) y el instalador lo trata como
-# una actualización (9.9.9 es más que cualquier versión real). OJO: tiene que ser
-# semver limpio; la comparación de versiones (compararVersiones) rechaza sufijos como
-# -local y las trampas se quedarían bloqueadas.
-V="${1:-9.9.9}"
+# La versión del nodo sale de despliegue/nodo/VERSION: una sola fuente, así un
+# build local se marca con la versión real en curso y no con un número inventado.
+# Tiene que ser semver limpio X.Y.Z sin sufijo: el guardia del instalador y
+# compararVersiones los rechazan. El primer argumento la fuerza para un caso puntual.
+V="${1:-$(tr -d '[:space:]' < "$AQUI/VERSION")}"
+[[ "$V" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Versión no válida: $V (debe ser X.Y.Z; mira despliegue/nodo/VERSION)"; exit 1; }
 PLAT=linux/amd64
 
 command -v docker >/dev/null || { echo "Hace falta Docker."; exit 1; }
