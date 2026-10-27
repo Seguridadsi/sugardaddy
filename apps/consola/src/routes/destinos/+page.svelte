@@ -21,7 +21,7 @@
 			un NAS o una cuenta de nube sin sensor los describes tú.
 		</p>
 	</div>
-	{#if opera}
+	{#if opera && !data.community}
 		<a class="boton principal" href={resolve('/destinos/nuevo')}>Añadir destino</a>
 	{/if}
 </div>

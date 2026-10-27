@@ -2,11 +2,19 @@ import { fail, redirect } from '@sveltejs/kit';
 import { TIPOS_DESTINO } from '$lib/destinos';
 import { exigir } from '$lib/server/auth/permisos';
 import { crearDestino, leerFormulario, valoresDeFormulario } from '$lib/server/destinos';
+import { esCommunity } from '$lib/server/edicion';
+
+/* En community no hay señuelos manuales: añadir un destino a mano está oculto. */
+export const load = ({ locals }) => {
+	exigir(locals, 'desplegar');
+	if (esCommunity()) redirect(303, '/destinos');
+};
 
 export const actions = {
 	/* Un destino sin sensor, descrito con el formulario corto (§5.2). */
 	default: async ({ request, locals }) => {
 		const u = exigir(locals, 'desplegar');
+		if (esCommunity()) redirect(303, '/destinos');
 		const f = await request.formData();
 		const tipo = TIPOS_DESTINO.find((t) => t.valor === f.get('tipo'))?.valor;
 		const r = leerFormulario(f, tipo ?? '');
