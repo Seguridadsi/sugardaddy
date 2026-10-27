@@ -76,7 +76,7 @@ grupos). Registra una aplicación en tu tenant de Entra:
 6. Controla **quién entra y con qué rol**: crea un **grupo de seguridad** (p. ej.
    `Sugardaddy-Acceso`) con quien deba entrar, y define los **roles de
    aplicación** (lector, operador, aprobador, admin…) asignándolos en
-   *Aplicaciones empresariales → Sugardaddy → Usuarios y grupos*. La consola no
+   _Aplicaciones empresariales → Sugardaddy → Usuarios y grupos_. La consola no
    deja pasar a quien no esté en el grupo y con un rol.
 
 Guarda el tenant, el client id, el secreto y el id del grupo: te los pide el
@@ -132,6 +132,7 @@ Cuando termine, te dice la URL de la consola y que ya está en marcha.
   ```
 
   Apúntala (no se vuelve a mostrar) y cámbiala en el primer acceso.
+
 - **Federado con Entra**: pon el tenant, el client id, el secreto y el id del
   grupo donde el instalador te indique (variables de entorno o el fichero de
   entorno del nodo), y relanza. Si no quieres login local a la vez, deja

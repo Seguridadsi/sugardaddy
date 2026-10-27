@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/kinomakino/sugardaddy/sensor/internal/plan"
@@ -114,5 +115,55 @@ func TestPuertosEntornoYFicherosDelFormulario(t *testing.T) {
 	cfg2, _, _ := config(Opciones{Datos: datos, Escucha: "0.0.0.0", Desplazar: 2200}, "servidores", "", s)
 	if huella(cfg2) == antes {
 		t.Fatal("cambiar las contraseñas tiene que rehacer el contenedor")
+	}
+}
+
+// En un Ubuntu de serie el resolvedor del sistema tiene 127.0.0.53:53: un DNS
+// en 0.0.0.0:53 no arrancaría («address already in use»). Con EnLaRed, ese
+// puerto se publica en la IP de red de la máquina; los demás, como siempre.
+func TestPuertoLocalSePublicaEnLaIPDeRed(t *testing.T) {
+	var c plan.Contenedor
+	if err := json.Unmarshal([]byte(`{
+		"imagen": "x@sha256:1", "registros": "/log",
+		"puertos": [
+			{"interno": 1053, "expuesto": 53, "protocolo": "udp"},
+			{"interno": 1123, "expuesto": 123, "protocolo": "udp"}
+		]
+	}`), &c); err != nil {
+		t.Fatal(err)
+	}
+	s := plan.TrampaPlan{
+		ID:         "dns",
+		Manifiesto: plan.Manifiesto{Contenedor: &c, Aislamiento: &plan.Aislamiento{CPU: 0.25, MemoriaMb: 128}},
+	}
+	enLaRed := func(proto string, puerto int) []string {
+		if proto == "udp" && puerto == 53 {
+			return []string{"10.0.0.4", "192.168.1.4"}
+		}
+		return nil
+	}
+	o := Opciones{Datos: t.TempDir(), Escucha: "0.0.0.0", EnLaRed: enLaRed}
+	cfg, donde, err := config(o, "local", "", s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if quiero := []string{"10.0.0.4:53", "192.168.1.4:53", "0.0.0.0:123"}; !reflect.DeepEqual(donde, quiero) {
+		t.Fatalf("donde: %v, quiero %v", donde, quiero)
+	}
+	enlaces := cfg["HostConfig"].(map[string]any)["PortBindings"].(map[string]any)["1053/udp"].([]map[string]string)
+	if len(enlaces) != 2 || enlaces[0]["HostIp"] != "10.0.0.4" || enlaces[1]["HostIp"] != "192.168.1.4" {
+		t.Fatalf("enlaces del 53: %v", enlaces)
+	}
+	// Cambiar dónde se publica rehace el contenedor.
+	o.EnLaRed = nil
+	cfg2, _, _ := config(o, "local", "", s)
+	if huella(cfg2) == huella(cfg) {
+		t.Fatal("publicar en otra dirección tiene que rehacer el contenedor")
+	}
+	// Con una Escucha concreta (no 0.0.0.0) manda la Escucha.
+	o.Escucha, o.EnLaRed = "10.9.9.9", enLaRed
+	_, donde, _ = config(o, "local", "", s)
+	if donde[0] != "10.9.9.9:53" {
+		t.Fatalf("con Escucha fija: %v", donde)
 	}
 }

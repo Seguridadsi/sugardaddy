@@ -1,8 +1,9 @@
 import { error, fail, redirect } from '@sveltejs/kit';
-import { tipoEvento, validarParametros } from '@sugardaddy/contrato';
+import { motivo, tipoEvento, validarParametros } from '@sugardaddy/contrato';
 import { SIN_IDENTIFICADOR, identificador } from '$lib/identificador';
 import { darDeAlta, dondePoner, formaEn } from '$lib/server/alta';
 import { exigir } from '$lib/server/auth/permisos';
+import { coberturaLicencia } from '$lib/server/candado';
 import { trampasAutorizadas } from '$lib/server/catalogo';
 import { existeTrampa } from '$lib/server/consultas';
 
@@ -17,6 +18,9 @@ import { existeTrampa } from '$lib/server/consultas';
 async function modulo(id: string) {
 	const h = (await trampasAutorizadas()).find((x) => x.id === id);
 	if (!h) error(404, 'Ese módulo no está en el catálogo o no está autorizado para este cliente');
+	/* Una de pago que la licencia no cubre se quedaría en espera: ni se pone. */
+	const licencia = (await coberturaLicencia())(h.id);
+	if (licencia !== 'cubierta') error(403, motivo(licencia).texto);
 	if (!h.vias.length) error(404, 'Esta honeycosa aún no tiene ninguna forma de ponerse.');
 	return h;
 }

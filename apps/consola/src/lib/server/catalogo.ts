@@ -12,6 +12,7 @@ import type {
 	Traductor,
 	Via
 } from '@sugardaddy/contrato';
+import { coberturaLicencia, type Cobertura } from './candado';
 import { db, schema } from './db';
 
 /*
@@ -198,12 +199,27 @@ export async function autorizados(): Promise<string[]> {
 }
 
 /*
- * El catálogo entero, para enseñarlo: cada trampa con su ficha y si entra en
- * la suscripción del cliente. Desplegar solo se puede con las que entran.
+ * El catálogo entero, para enseñarlo: cada trampa con su ficha, si entra en la
+ * suscripción del cliente y, si es de pago, si su licencia la cubre
+ * (candado.ts). Solo se despliega lo disponible, que cumple las dos: una de
+ * pago sin licencia se quedaría en espera.
  */
 export async function catalogoConSuscripcion() {
 	const permitidos = new Set(await autorizados());
-	return honeycosas().map((h) => ({ ...h, incluida: permitidos.has(h.id) }));
+	const cubre = await coberturaLicencia();
+	return honeycosas().map((h) => {
+		const incluida = permitidos.has(h.id);
+		const licencia = cubre(h.id);
+		return { ...h, incluida, licencia, disponible: incluida && licencia === 'cubierta' };
+	});
+}
+
+/* Por qué una trampa del catálogo no se puede desplegar, en pocas palabras; null si se puede. */
+export function porQueNo(m: { incluida: boolean; licencia: Cobertura }) {
+	if (!m.incluida) return 'No incluida en tu suscripción';
+	if (m.licencia === 'licencia.caducada') return 'De pago: tu licencia ha caducado';
+	if (m.licencia === 'licencia.sin') return 'De pago: no está en tu licencia';
+	return null;
 }
 
 export async function trampasAutorizadas() {

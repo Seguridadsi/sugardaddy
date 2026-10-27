@@ -2,8 +2,9 @@
  * El candado de licencia en el plan (capa 4, docs/diseno/licencias-de-pago.md):
  * una trampa de PAGO solo entra en el plan si hay una licencia válida que la
  * incluya; sin ella o caducada, sale descartada con licencia.sin / licencia.caducada.
- * Las trampas GRATIS no se tocan. Contra una base de datos de verdad, como
- * plan-base.spec.ts: DATABASE_URL de .env; si no hay, se salta.
+ * Las trampas GRATIS no se tocan. El catálogo usa el mismo candado: una de pago
+ * que la licencia no cubre no se ofrece para desplegar. Contra una base de datos
+ * de verdad, como plan-base.spec.ts: DATABASE_URL de .env; si no hay, se salta.
  */
 import { readFileSync } from 'node:fs';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -34,6 +35,8 @@ vi.mock('./catalogo', async (original) => {
 
 const { db, schema: s } = hayBase ? await import('./db') : ({} as never);
 const { plan } = hayBase ? await import('./sensor') : ({} as never);
+const { coberturaLicencia } = hayBase ? await import('./candado') : ({} as never);
+const { porQueNo } = hayBase ? await import('./catalogo') : ({} as never);
 const { eq, like } = await import('drizzle-orm');
 
 const P = 'zz-pl';
@@ -142,5 +145,45 @@ describe.skipIf(!hayBase)('el candado de licencia en el plan', () => {
 		delete process.env.PUBLICACION_CLAVE_PUBLICA;
 		const p = await plan(SENSOR, true, '0.13.1');
 		expect(codigos(p, `${P}-mysql`)).not.toContain('licencia.sin');
+	});
+});
+
+describe.skipIf(!hayBase)('el mismo candado en el catálogo', () => {
+	beforeEach(() => {
+		process.env.PUBLICACION_CLAVE_PUBLICA = kino.publica;
+	});
+	afterAll(async () => {
+		if (hayBase) await guardarLic(null);
+	});
+
+	it('una de pago sin licencia no se ofrece; con una licencia que la incluye, sí', async () => {
+		await guardarLic(null);
+		let cubre = await coberturaLicencia();
+		expect(cubre('mysql')).toBe('licencia.sin');
+		expect(cubre('cowrie')).toBe('cubierta');
+		expect(porQueNo({ incluida: true, licencia: cubre('mysql') })).toBe(
+			'De pago: no está en tu licencia'
+		);
+
+		await guardarLic(licencia());
+		cubre = await coberturaLicencia();
+		expect(cubre('mysql')).toBe('cubierta');
+		expect(cubre('postgresql')).toBe('licencia.sin');
+		expect(porQueNo({ incluida: true, licencia: cubre('mysql') })).toBeNull();
+	});
+
+	it('con la licencia caducada, ninguna de pago', async () => {
+		await guardarLic(licencia({ caduca: '2020-01-01T00:00:00.000Z' }));
+		const cubre = await coberturaLicencia();
+		expect(cubre('mysql')).toBe('licencia.caducada');
+		expect(porQueNo({ incluida: true, licencia: cubre('mysql') })).toBe(
+			'De pago: tu licencia ha caducado'
+		);
+	});
+
+	it('fuera de la suscripción no se ofrece aunque la licencia la cubra', () => {
+		expect(porQueNo({ incluida: false, licencia: 'cubierta' })).toBe(
+			'No incluida en tu suscripción'
+		);
 	});
 });

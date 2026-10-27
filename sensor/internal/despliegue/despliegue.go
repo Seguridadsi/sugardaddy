@@ -63,6 +63,11 @@ type Opciones struct {
 	// registros pasaban de su cuota), con el aviso para el cliente: no se
 	// arrancan ni se rehacen hasta que salen de aquí.
 	Paradas map[string]string
+	// EnLaRed da, para un puerto del anfitrión que se publicaría en 0.0.0.0,
+	// las direcciones de red de la máquina donde publicarlo en su lugar porque
+	// algo local ya lo tiene (motor.Anfitrion.PublicarEn); nil o sin función:
+	// en Escucha, como siempre.
+	EnLaRed func(proto string, puerto int) []string
 	// RedPropia es el modo «IP propia» de este sensor (desde la 0.16.0;
 	// docs/diseno/red.md): la interfaz física y el rango propio elegidos por
 	// quien instala el sensor, o el puente de banco con su IP fija. nil: el
@@ -166,8 +171,18 @@ func config(o Opciones, sensor, licenciaRuta string, s plan.TrampaPlan) (map[str
 				return nil, nil, err
 			}
 			expuestos[clave] = map[string]any{}
-			publicados[clave] = []map[string]string{{"HostIp": o.Escucha, "HostPort": fmt.Sprint(anfitrion)}}
-			donde = append(donde, fmt.Sprintf("%s:%d", o.Escucha, anfitrion))
+			ips := []string{o.Escucha}
+			if o.Escucha == "0.0.0.0" && o.EnLaRed != nil {
+				if en := o.EnLaRed(p.Protocolo, anfitrion); len(en) > 0 {
+					ips = en
+				}
+			}
+			var enlaces []map[string]string
+			for _, ip := range ips {
+				enlaces = append(enlaces, map[string]string{"HostIp": ip, "HostPort": fmt.Sprint(anfitrion)})
+				donde = append(donde, fmt.Sprintf("%s:%d", ip, anfitrion))
+			}
+			publicados[clave] = enlaces
 		}
 	}
 
@@ -851,4 +866,23 @@ func escribirFichero(ruta, texto string) error {
 	}
 	// El honeypot corre con su propio usuario: tiene que poder leerlo.
 	return os.Chmod(ruta, 0o644)
+}
+
+// PuertosPropios da los puertos que publican en el anfitrión las trampas de
+// este sensor («tcp/2222»…): la sonda de puertos los ve ocupados, pero son
+// suyos.
+func PuertosPropios(ctx context.Context, d *docker.Cliente, sensor string) (map[string]bool, error) {
+	existentes, err := d.ListarConEtiqueta(ctx, etiquetaSensor+"="+sensor)
+	if err != nil {
+		return nil, err
+	}
+	r := map[string]bool{}
+	for _, c := range existentes {
+		for _, p := range c.Ports {
+			if p.PublicPort > 0 {
+				r[fmt.Sprintf("%s/%d", p.Type, p.PublicPort)] = true
+			}
+		}
+	}
+	return r, nil
 }

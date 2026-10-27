@@ -650,6 +650,15 @@ type Contenedor struct {
 	Names  []string          `json:"Names"`
 	State  string            `json:"State"`
 	Labels map[string]string `json:"Labels"`
+	Ports  []PuertoPublicado `json:"Ports"`
+}
+
+// PuertoPublicado es un puerto del contenedor publicado en el anfitrión
+// (PublicPort 0: expuesto, sin publicar).
+type PuertoPublicado struct {
+	IP         string `json:"IP"`
+	PublicPort int    `json:"PublicPort"`
+	Type       string `json:"Type"`
 }
 
 func (c *Cliente) ListarConEtiqueta(ctx context.Context, etiqueta string) ([]Contenedor, error) {

@@ -97,6 +97,11 @@ func main() {
 		fmt.Println(motor.LeerPuertaEnlace(f))
 		os.Exit(0)
 	}
+	// La sonda de los puertos y las direcciones de la máquina, en la red del
+	// anfitrión (ver motor.SondaAnfitrion).
+	if len(os.Args) == 2 && os.Args[1] == "puertos-anfitrion" {
+		os.Exit(puertosAnfitrion())
+	}
 	// Healthcheck de compose: la imagen no tiene shell ni curl.
 	if len(os.Args) == 3 && os.Args[1] == "salud" {
 		c := &http.Client{Timeout: 3 * time.Second}
@@ -264,6 +269,13 @@ type sensor struct {
 		de              string
 		cuando, intento time.Time
 	}
+	// Lo último que ha medido la sonda de puertos de la máquina (ver
+	// sondearAnfitrion), con los puertos que publican sus trampas.
+	anfitrion struct {
+		a       *motor.Anfitrion
+		propios map[string]bool
+		intento time.Time
+	}
 	// Fallo general del motor en el último despliegue: lo mira el punto de salud.
 	falloMotor atomic.Pointer[docker.ErrMotor]
 }
@@ -337,11 +349,15 @@ func (s *sensor) actualizarPlan(ctx context.Context) {
 	// Hay plan: el sensor habla con su consola aunque desplegar tarde.
 	s.ultimoPlan.Store(time.Now().Unix())
 	s.olvidarParadasRetiradas(p)
+	// Un puerto que la máquina ya tiene en una dirección local (el resolvedor
+	// de Ubuntu en 127.0.0.53:53) se publica en su IP de red, no en 0.0.0.0.
+	s.opc.EnLaRed = s.anfitrion.a.PublicarEn
 	estados, err := despliegue.Aplicar(ctx, s.docker, s.opc, p)
 	if err != nil {
 		slog.Error("despliegue", "err", err)
 	}
 	s.describirMotor(ctx, p.Sensor, err)
+	s.sondearAnfitrion(ctx, p.Sensor, estados)
 	if estados == nil {
 		// Nunca null: la consola lo rechazaría y no sabría nada del sensor.
 		estados = []despliegue.Estado{}
@@ -439,6 +455,12 @@ func (s *sensor) hechos() map[string]any {
 	}
 	if s.sondeo.clone3 != nil {
 		h["motor.clone3"] = s.sondeo.clone3
+	}
+	if a := s.anfitrion.a; a != nil {
+		h["puertos.ocupados"] = map[string]any{"valor": a.Ocupados(s.anfitrion.propios)}
+		if len(a.Direcciones) > 0 {
+			h["red.direcciones"] = map[string]any{"valor": a.Direcciones}
+		}
 	}
 	if s.opc.RedPropia != nil && s.opc.RedPropia.Puente == "" {
 		if c := red.Capa2(red.Opciones{Interfaz: s.opc.RedPropia.Interfaz, Rango: s.opc.RedPropia.Rango.String()}); c != nil {

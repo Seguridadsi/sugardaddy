@@ -559,7 +559,7 @@ async function guardarAutorizados(modulos: string[]) {
  * La licencia de pago, tal como viene en el estado firmado. Se guarda opaca (no
  * es secreta: es un permiso firmado); quien la comprueba de verdad es cada
  * trampa de pago al arrancar. La consola la pasa al sensor en el plan y, además,
- * la coteja en el plan como defensa en profundidad (ver plan() en sensor.ts).
+ * la coteja en el plan como defensa en profundidad (ver candado.ts).
  * Nula o ausente: el nodo es de edición gratis y se borra la que quedara.
  */
 async function guardarLicencia(licencia: LicenciaFirmada | null | undefined) {
@@ -572,12 +572,6 @@ async function guardarLicencia(licencia: LicenciaFirmada | null | undefined) {
 		.insert(s.ajustes)
 		.values({ clave: 'licencia', valor: licencia })
 		.onConflictDoUpdate({ target: s.ajustes.clave, set: { valor: licencia } });
-}
-
-/* La licencia de pago guardada, o null si el nodo no tiene (edición gratis). */
-export async function licenciaGuardada(): Promise<LicenciaFirmada | null> {
-	const [f] = await db.select().from(s.ajustes).where(eq(s.ajustes.clave, 'licencia'));
-	return (f?.valor as LicenciaFirmada | undefined) ?? null;
 }
 
 /*

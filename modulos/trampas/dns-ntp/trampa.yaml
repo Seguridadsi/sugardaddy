@@ -136,17 +136,7 @@ aislamiento:
 parametros:
   type: object
   required:
-    [
-      nombreEquipo,
-      sistema,
-      dns,
-      puertoDns,
-      ntp,
-      puertoNtp,
-      ssdp,
-      puertoSsdp,
-      respuestasInternet
-    ]
+    [nombreEquipo, sistema, dns, puertoDns, ntp, puertoNtp, ssdp, puertoSsdp, respuestasInternet]
   properties:
     nombreEquipo:
       type: string

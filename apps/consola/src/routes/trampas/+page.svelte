@@ -9,6 +9,20 @@
 
 	let { data, form } = $props();
 	const opera = $derived(puede(page.data.usuario?.roles ?? [], 'desplegar'));
+
+	/* El catálogo: todas o solo las disponibles, y lo que se escriba en el buscador. */
+	let soloDisponibles = $state(false);
+	let buscar = $state('');
+	const llano = (t: string) => t.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+	const disponibles = $derived(data.catalogo.filter((m) => m.disponible).length);
+	const visibles = $derived.by(() => {
+		const q = llano(buscar.trim());
+		return data.catalogo.filter(
+			(m) =>
+				(!soloDisponibles || m.disponible) &&
+				(!q || llano(`${m.nombre} ${m.id} ${nombreTipo[m.tipo]} ${m.resumen}`).includes(q))
+		);
+	});
 </script>
 
 <svelte:head>
@@ -109,15 +123,32 @@
 
 <h2 class="seccion">Catálogo</h2>
 
+<div class="filtros">
+	<div class="pestanas" role="group" aria-label="Qué trampas ver">
+		<button type="button" aria-pressed={!soloDisponibles} onclick={() => (soloDisponibles = false)}>
+			Todas <span class="mono">{data.catalogo.length}</span>
+		</button>
+		<button type="button" aria-pressed={soloDisponibles} onclick={() => (soloDisponibles = true)}>
+			Disponibles <span class="mono">{disponibles}</span>
+		</button>
+	</div>
+	<input
+		type="search"
+		bind:value={buscar}
+		placeholder="Buscar una trampa: nombre, tipo o qué detecta"
+		aria-label="Buscar en el catálogo"
+	/>
+</div>
+
 <div class="catalogo">
-	{#each data.catalogo as m (m.id)}
-		<article class="panel modulo" class:fuera={!m.incluida}>
+	{#each visibles as m (m.id)}
+		<article class="panel modulo" class:fuera={!m.disponible}>
 			<header>
 				<span class="tag on">{nombreTipo[m.tipo]}</span>
-				{#if m.incluida}
-					<span class="incluida">En tu suscripción</span>
+				{#if m.disponible}
+					<span class="incluida">Disponible</span>
 				{:else}
-					<span class="no-incluida">No incluida en tu suscripción</span>
+					<span class="no-incluida">{m.porQueNo}</span>
 				{/if}
 			</header>
 			<div class="titulo">
@@ -128,13 +159,19 @@
 			<div class="acciones-modulo">
 				<a class="boton" href={resolve('/trampas/catalogo/[modulo]', { modulo: m.id })}>Ver ficha</a
 				>
-				{#if m.incluida && m.desplegable && opera}
+				{#if m.disponible && m.desplegable && opera}
 					<a class="boton principal" href={resolve('/trampas/nueva/[modulo]', { modulo: m.id })}
 						>Desplegar</a
 					>
 				{/if}
 			</div>
 		</article>
+	{:else}
+		<p class="vacio">
+			{buscar.trim()
+				? `Ninguna trampa encaja con «${buscar.trim()}».`
+				: 'Aún no tienes ninguna trampa disponible.'}
+		</p>
 	{/each}
 </div>
 
@@ -236,6 +273,51 @@
 		font-size: 18px;
 		font-weight: 600;
 		margin: 32px 0 4px;
+	}
+
+	.filtros {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 10px 16px;
+		margin: 12px 0 16px;
+	}
+
+	.pestanas {
+		display: flex;
+		gap: 4px;
+	}
+
+	.pestanas button {
+		padding: 7px 14px;
+		border: 0;
+		border-radius: 99px;
+		background: none;
+		font: inherit;
+		font-size: 13.5px;
+		font-weight: 600;
+		color: var(--ink-2);
+		cursor: pointer;
+	}
+
+	.pestanas button span {
+		color: var(--ink-3);
+		margin-left: 4px;
+	}
+
+	.pestanas button[aria-pressed='true'] {
+		background: var(--accent-soft);
+		color: var(--accent);
+	}
+
+	.filtros input {
+		flex: 1 1 260px;
+		max-width: 420px;
+	}
+
+	.vacio {
+		grid-column: 1 / -1;
+		color: var(--ink-3);
 	}
 
 	.catalogo {

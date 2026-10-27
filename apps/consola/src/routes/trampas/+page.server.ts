@@ -2,7 +2,7 @@ import { fail } from '@sveltejs/kit';
 import { tipoEvento } from '@sugardaddy/contrato';
 import { tipoDeServicio } from '@sugardaddy/estilo/pictogramas';
 import { exigir } from '$lib/server/auth/permisos';
-import { catalogoConSuscripcion, desplegable } from '$lib/server/catalogo';
+import { catalogoConSuscripcion, desplegable, porQueNo } from '$lib/server/catalogo';
 import { cambiarTrampa, retirarTrampa } from '$lib/server/gestion';
 import { trampasConEventos } from '$lib/server/consultas';
 import { noSeParaPor, recibeSenalDe } from '$lib/formato';
@@ -13,6 +13,9 @@ import { noSeParaPor, recibeSenalDe } from '$lib/formato';
  * logotipo del honeypot en que se basa, el pictograma de su tipo o la abeja.
  * Una desplegada de un módulo que ya no está en el catálogo va sin
  * procedencia, con el pictograma de su tipo si lo tiene.
+ *
+ * El catálogo va con las disponibles delante (en la suscripción y, si son de
+ * pago, en la licencia) y, dentro de cada grupo, por nombre.
  */
 export const load = async ({ url }) => {
 	const catalogo = await catalogoConSuscripcion();
@@ -26,17 +29,23 @@ export const load = async ({ url }) => {
 			procedencia: procedencias.get(t.modulo) ?? null,
 			pictograma: tipoDeServicio(t.modulo)
 		})),
-		catalogo: catalogo.map((m) => ({
-			id: m.id,
-			nombre: m.nombre,
-			tipo: tipoEvento(m),
-			incluida: m.incluida,
-			/* Tiene alguna vía que esta consola sabe poner (en un sensor o a mano). */
-			desplegable: desplegable(m),
-			resumen: m.ficha?.detecta ?? m.descripcion,
-			procedencia: m.procedencia ?? null,
-			pictograma: tipoDeServicio(m.id)
-		}))
+		catalogo: catalogo
+			.toSorted(
+				(a, b) =>
+					Number(b.disponible) - Number(a.disponible) || a.nombre.localeCompare(b.nombre, 'es')
+			)
+			.map((m) => ({
+				id: m.id,
+				nombre: m.nombre,
+				tipo: tipoEvento(m),
+				disponible: m.disponible,
+				porQueNo: porQueNo(m),
+				/* Tiene alguna vía que esta consola sabe poner (en un sensor o a mano). */
+				desplegable: desplegable(m),
+				resumen: m.ficha?.detecta ?? m.descripcion,
+				procedencia: m.procedencia ?? null,
+				pictograma: tipoDeServicio(m.id)
+			}))
 	};
 };
 

@@ -2,11 +2,17 @@ import { error } from '@sveltejs/kit';
 import { puertosPublicados, tipoEvento, validarParametros } from '@sugardaddy/contrato';
 import type { CargaContenedor } from '@sugardaddy/contrato';
 import { tipoDeServicio } from '@sugardaddy/estilo/pictogramas';
-import { catalogoConSuscripcion, desplegable, fichaDe, viaContenedor } from '$lib/server/catalogo';
+import {
+	catalogoConSuscripcion,
+	desplegable,
+	fichaDe,
+	porQueNo,
+	viaContenedor
+} from '$lib/server/catalogo';
 
 /*
- * La ficha de una trampa del catálogo, esté o no en la suscripción del
- * cliente. Lo que se ejecuta (imagen, puertos, aislamiento) es lo de su vía
+ * La ficha de una trampa del catálogo, esté o no disponible para el cliente
+ * (en su suscripción y, si es de pago, en su licencia). Lo que se ejecuta (imagen, puertos, aislamiento) es lo de su vía
  * contenedor@1. Se despliega desde aquí si tiene alguna vía que esta consola
  * sabe poner: en un sensor o con pasos a mano (paso 11).
  */
@@ -22,7 +28,8 @@ export const load = async ({ params }) => {
 			descripcion: m.descripcion,
 			tipo: tipoEvento(m),
 			version: m.versionModulo,
-			incluida: m.incluida,
+			disponible: m.disponible,
+			porQueNo: porQueNo(m),
 			desplegable: desplegable(m),
 			ficha: fichaDe(m) ?? null,
 			procedencia: m.procedencia ?? null,

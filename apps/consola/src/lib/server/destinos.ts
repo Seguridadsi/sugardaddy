@@ -31,6 +31,7 @@ import type {
 } from '@sugardaddy/contrato';
 import { avisosSensor } from '$lib/capacidades';
 import { hechosNodo } from './balizas';
+import { coberturaLicencia } from './candado';
 import {
 	EDICIONES,
 	POSIX,
@@ -417,8 +418,11 @@ export async function trampasDelCliente(
  */
 export async function queCabeEn(destino: Destino) {
 	const permitidos = new Set(await autorizados());
+	const cubre = await coberturaLicencia();
 	const catalogo = new Map(honeycosas().map((h) => [h.id, h]));
-	const elegibles = [...catalogo.values()].filter((h) => permitidos.has(h.id));
+	const elegibles = [...catalogo.values()].filter(
+		(h) => permitidos.has(h.id) && cubre(h.id) === 'cubierta'
+	);
 	if (!elegibles.length) return [];
 	const contexto: ContextoElector = {
 		autorizado: true,

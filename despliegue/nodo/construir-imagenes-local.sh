@@ -17,10 +17,11 @@
 set -euo pipefail
 AQUI="$(cd "$(dirname "$0")" && pwd)"
 RAIZ="$(cd "$AQUI/../.." && pwd)"
-# La versión del nodo sale de despliegue/nodo/VERSION: una sola fuente, así un
-# build local se marca con la versión real en curso y no con un número inventado.
-# Tiene que ser semver limpio X.Y.Z sin sufijo: el guardia del instalador y
-# compararVersiones los rechazan. El primer argumento la fuerza para un caso puntual.
+# La versión del nodo sale de despliegue/nodo/VERSION: la MISMA fuente que usa la
+# publicación de verdad (herramientas/publicar-version.sh), así un build local se
+# marca con la versión real en curso y no con un número inventado. Tiene que ser
+# semver limpio X.Y.Z sin sufijo: el guardia del instalador y compararVersiones los
+# rechazan. El primer argumento la fuerza para un caso puntual.
 V="${1:-$(tr -d '[:space:]' < "$AQUI/VERSION")}"
 [[ "$V" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Versión no válida: $V (debe ser X.Y.Z; mira despliegue/nodo/VERSION)"; exit 1; }
 PLAT=linux/amd64

@@ -6,13 +6,7 @@
 import { createHash } from 'node:crypto';
 import { error } from '@sveltejs/kit';
 import { and, eq, inArray, sql } from 'drizzle-orm';
-import {
-	compararVersiones,
-	licenciaPermite,
-	verificarLicencia,
-	type Licencia
-} from '@sugardaddy/canal';
-import { env } from '$env/dynamic/private';
+import { compararVersiones } from '@sugardaddy/canal';
 import {
 	CODIGO,
 	hashEvento,
@@ -31,8 +25,8 @@ import type {
 	MotorSensor
 } from '@sugardaddy/contrato';
 import { EN_ESPERA, enEspera } from '../espera';
-import { licenciaGuardada } from './canal';
-import { autorizados, esDePago, honeycosas } from './catalogo';
+import { coberturaLicencia, licenciaGuardada } from './candado';
+import { autorizados, honeycosas } from './catalogo';
 import { comprobarConEvento, trasDescarte, trasEstado, type FilaColocacion } from './colocacion';
 import { db, schema as s } from './db';
 import { preparar } from './credenciales';
@@ -127,25 +121,9 @@ function manifiestoPara(m: ManifiestoTrampa, registroPrivado: boolean): Manifies
 export async function plan(sensor: string, registroPrivado: boolean, versionSensor?: string) {
 	const catalogo = new Map(honeycosas().map((h) => [h.id, h]));
 	const permitidos = new Set(await autorizados());
-	/*
-	 * El candado de licencia en la consola (capa 4, defensa en profundidad): la
-	 * de verdad está dentro del binario cerrado de cada trampa de pago, pero aquí
-	 * no se mete en el plan una trampa de pago sin una licencia válida que la
-	 * incluya. Se verifica con la clave de PUBLICACIÓN (la del binario), no con la
-	 * del panel, para que valga aunque el panel mienta sobre los módulos. Las
-	 * trampas gratis (MODULOS_GRATIS) no pasan por aquí.
-	 */
+	/* El candado de licencia (candado.ts): una de pago sin licencia no entra en el plan. */
+	const cubre = await coberturaLicencia();
 	const lic = await licenciaGuardada();
-	/* Sin clave de publicación no se puede cotejar: la licencia la juzga solo la trampa. */
-	const clavePub = env.PUBLICACION_CLAVE_PUBLICA;
-	const cotejaLicencia = !!clavePub;
-	let licVerificada: Licencia | null = null;
-	let licCaducada = false;
-	if (lic && clavePub) {
-		const v = verificarLicencia(clavePub, lic);
-		if (v.ok) licVerificada = v.licencia;
-		else if (v.motivo === 'licencia caducada') licCaducada = true;
-	}
 	const filas = await db
 		.select()
 		.from(s.trampas)
@@ -195,15 +173,10 @@ export async function plan(sensor: string, registroPrivado: boolean, versionSens
 		 * no incluye → licencia.sin; con licencia caducada → licencia.caducada. Si
 		 * no hay clave para cotejar, no se descarta aquí (la trampa lo hará sola).
 		 */
-		if (cotejaLicencia && esDePago(h.id)) {
-			if (!licVerificada) {
-				descartar(f.id, licCaducada ? 'licencia.caducada' : 'licencia.sin');
-				continue;
-			}
-			if (!licenciaPermite(licVerificada, h.id)) {
-				descartar(f.id, 'licencia.sin');
-				continue;
-			}
+		const cobertura = cubre(h.id);
+		if (cobertura !== 'cubierta') {
+			descartar(f.id, cobertura);
+			continue;
 		}
 		const m = proyectarParaSensor(h, via.id);
 		/* Una imagen con el digest en ceros aún no se ha publicado: no se descarga. */
@@ -233,7 +206,7 @@ export async function plan(sensor: string, registroPrivado: boolean, versionSens
 	}
 	await anotarEspera(sensor, filas, trampas, descartados);
 	/*
-	 * La licencia de pago (la misma que se cotejó arriba), para que el sensor la
+	 * La licencia de pago (la que coteja el candado), para que el sensor la
 	 * monte en las trampas. Se manda solo si la hay (un nodo de edición gratis no
 	 * la tiene y el campo se omite). No es secreta: es un permiso firmado.
 	 * senuelos: lo mismo con el nombre que entienden los sensores anteriores a la 0.8.0.

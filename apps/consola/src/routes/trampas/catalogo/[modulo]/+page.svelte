@@ -28,10 +28,10 @@
 		</div>
 	</div>
 	<p class="desc">{m.descripcion}</p>
-	{#if m.incluida}
-		<p class="estado incluida">En tu suscripción</p>
+	{#if m.disponible}
+		<p class="estado incluida">Disponible</p>
 	{:else}
-		<p class="estado no-incluida">No incluida en tu suscripción</p>
+		<p class="estado no-incluida">{m.porQueNo}</p>
 	{/if}
 </div>
 
@@ -56,7 +56,7 @@
 				{#if m.ficha.instalacion.automatica}
 					<h3>Automática</h3>
 					<p>Desde esta consola: eliges el sensor y sus ajustes, y el sensor la despliega solo.</p>
-					{#if m.incluida && opera && m.desplegable}
+					{#if m.disponible && opera && m.desplegable}
 						<a class="boton principal" href={resolve('/trampas/nueva/[modulo]', { modulo: m.id })}
 							>Desplegar</a
 						>
@@ -68,7 +68,7 @@
 					<ol>
 						{#each m.ficha.instalacion.manual as paso, i (i)}<li>{paso}</li>{/each}
 					</ol>
-					{#if !m.ficha.instalacion.automatica && m.incluida && opera && m.desplegable}
+					{#if !m.ficha.instalacion.automatica && m.disponible && opera && m.desplegable}
 						<p>
 							Desde esta consola: eliges dónde, y la consola te prepara los pasos con tus datos, en
 							un script y en un documento para el control de cambios.
@@ -78,17 +78,17 @@
 						>
 					{/if}
 				{/if}
-				{#if !m.incluida}
+				{#if !m.disponible}
 					<p class="nota">
-						No está en tu suscripción: puedes ver cómo funciona, pero no desplegarla. Habla con
-						SeguridadSI si te interesa.
+						{m.porQueNo}: puedes ver cómo funciona, pero no desplegarla. Habla con SeguridadSI si te
+						interesa.
 					</p>
 				{/if}
 			</section>
 		{:else}
 			<section class="panel bloque">
 				<p>{m.descripcion}</p>
-				{#if m.incluida && opera && m.desplegable}
+				{#if m.disponible && opera && m.desplegable}
 					<a class="boton principal" href={resolve('/trampas/nueva/[modulo]', { modulo: m.id })}
 						>Desplegar</a
 					>

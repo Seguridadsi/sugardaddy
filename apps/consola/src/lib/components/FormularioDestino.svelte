@@ -212,8 +212,8 @@
 						</datalist>
 					{/if}
 					<p class="ayuda">
-						La IP o el nombre con que tus equipos llegan a esta máquina. La usan los pasos manuales y
-						las pruebas.
+						La IP o el nombre con que tus equipos llegan a esta máquina. La usan los pasos manuales
+						y las pruebas.
 					</p>
 				</div>
 			{/if}

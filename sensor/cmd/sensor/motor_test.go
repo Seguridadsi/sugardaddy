@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -114,10 +115,52 @@ func (c *consolaDePrueba) ultimo(t *testing.T) (trampas []despliegue.Estado, m m
 		t.Fatal("el sensor no ha informado")
 	}
 	b := c.informes[len(c.informes)-1]
-	if json.Unmarshal(b["trampas"], &trampas) != nil || json.Unmarshal(b["motor"], &m) != nil || json.Unmarshal(b["hechos"], &hechos) != nil {
+	var crudos map[string]json.RawMessage
+	if json.Unmarshal(b["trampas"], &trampas) != nil || json.Unmarshal(b["motor"], &m) != nil || json.Unmarshal(b["hechos"], &crudos) != nil {
 		t.Fatalf("informe ilegible: %v", b)
 	}
+	// Los de sí o no; los de lista (puertos.ocupados…), con listaDe.
+	hechos = map[string]motor.Hecho{}
+	for k, v := range crudos {
+		var h motor.Hecho
+		if json.Unmarshal(v, &h) == nil {
+			hechos[k] = h
+		}
+	}
 	return
+}
+
+// listaDe da el valor de un hecho de lista del último informe; nil si no está.
+func (c *consolaDePrueba) listaDe(t *testing.T, clave string) []string {
+	t.Helper()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var hechos map[string]json.RawMessage
+	if err := json.Unmarshal(c.informes[len(c.informes)-1]["hechos"], &hechos); err != nil {
+		t.Fatalf("hechos ilegibles: %v", err)
+	}
+	crudo, ok := hechos[clave]
+	if !ok {
+		return nil
+	}
+	var h struct {
+		Valor []string `json:"valor"`
+	}
+	if err := json.Unmarshal(crudo, &h); err != nil {
+		t.Fatalf("%s no es una lista: %v", clave, err)
+	}
+	return h.Valor
+}
+
+// creadasCon cuenta las sondas creadas con esta orden.
+func creadasCon(s *motorfalso.Sondas, orden string) int {
+	n := 0
+	for _, c := range s.Creadas {
+		if fmt.Sprint(c["Cmd"]) == fmt.Sprint([]any{orden}) {
+			n++
+		}
+	}
+	return n
 }
 
 // motorDePrueba: un Docker 27 vacío que deja crear redes y contenedores.
@@ -260,11 +303,15 @@ func TestSalidaDeLaSondaDeClone3(t *testing.T) {
 func TestInformaDeClone3(t *testing.T) {
 	var veces int
 	sondas := &motorfalso.Sondas{Salida: func(orden []string) (int, string) {
-		if strings.Join(orden, " ") != "probar-clone3" {
-			t.Errorf("orden de la sonda: %v", orden)
+		switch strings.Join(orden, " ") {
+		case "probar-clone3":
+			veces++
+			return motor.SalidaClone3Bloqueado, "clone3: operation not permitted\n"
+		case "puertos-anfitrion":
+			return 0, `{"direcciones":[],"escuchas":[]}`
 		}
-		veces++
-		return motor.SalidaClone3Bloqueado, "clone3: operation not permitted\n"
+		t.Errorf("orden de la sonda: %v", orden)
+		return 1, ""
 	}}
 	s, c := sensorDePrueba(t, motorDePruebaCon(t, sondas, ""))
 	s.opc.ImagenSonda = "r/sensor@sha256:1"
@@ -278,8 +325,40 @@ func TestInformaDeClone3(t *testing.T) {
 		t.Fatalf("el hecho se sigue informando: %+v", hechos)
 	}
 	// Cada sonda contesta dos veces (al esperarla y al leer su salida): una sola.
-	if len(sondas.Creadas) != 1 || veces != 2 {
-		t.Fatalf("sondas: %d creadas, %d llamadas", len(sondas.Creadas), veces)
+	if creadasCon(sondas, "probar-clone3") != 1 || veces != 2 {
+		t.Fatalf("sondas: %d creadas, %d llamadas", creadasCon(sondas, "probar-clone3"), veces)
+	}
+}
+
+// Una sonda en la red del anfitrión mide sus puertos y direcciones: la
+// consola recibe puertos.ocupados (sin lo que solo está en una dirección
+// local, como el resolvedor de Ubuntu en 127.0.0.53:53) y red.direcciones, y
+// el 53 se publicará en la IP de red de la máquina.
+func TestInformaDePuertosYDirecciones(t *testing.T) {
+	sondas := &motorfalso.Sondas{Salida: func(orden []string) (int, string) {
+		if strings.Join(orden, " ") == "puertos-anfitrion" {
+			return 0, `{"direcciones":["10.0.0.4"],"escuchas":[` +
+				`{"proto":"udp","puerto":53,"ip":"127.0.0.53"},{"proto":"tcp","puerto":53,"ip":"127.0.0.53"},` +
+				`{"proto":"tcp","puerto":22,"ip":"0.0.0.0"},{"proto":"tcp","puerto":22,"ip":"::"}]}`
+		}
+		return motor.SalidaClone3Disponible, ""
+	}}
+	s, c := sensorDePrueba(t, motorDePruebaCon(t, sondas, ""))
+	s.opc.ImagenSonda = "r/sensor@sha256:1"
+	s.actualizarPlan(context.Background())
+	if got := c.listaDe(t, "puertos.ocupados"); strings.Join(got, ",") != "tcp/22" {
+		t.Fatalf("puertos.ocupados: %v", got)
+	}
+	if got := c.listaDe(t, "red.direcciones"); strings.Join(got, ",") != "10.0.0.4" {
+		t.Fatalf("red.direcciones: %v", got)
+	}
+	if got := s.anfitrion.a.PublicarEn("udp", 53); strings.Join(got, ",") != "10.0.0.4" {
+		t.Fatalf("el 53 va a la IP de red: %v", got)
+	}
+	// No se vuelve a medir en cada plan.
+	s.actualizarPlan(context.Background())
+	if n := creadasCon(sondas, "puertos-anfitrion"); n != 1 {
+		t.Fatalf("sondas de puertos: %d", n)
 	}
 }
 
@@ -323,8 +402,9 @@ func TestWSLMarcaLaIPDeWindows(t *testing.T) {
 	// La puerta de enlace sigue ahí cuando el motor se vuelve a describir.
 	s.motorCuando = time.Time{}
 	s.actualizarPlan(context.Background())
-	if _, m, _ := c.ultimo(t); m.PuertaEnlace != "172.29.128.1" || len(sondas.Creadas) != 2 {
-		t.Fatalf("bloque motor %+v, %d sondas", m, len(sondas.Creadas))
+	sondasMotor := creadasCon(sondas, "probar-clone3") + creadasCon(sondas, "puerta-enlace")
+	if _, m, _ := c.ultimo(t); m.PuertaEnlace != "172.29.128.1" || sondasMotor != 2 {
+		t.Fatalf("bloque motor %+v, %d sondas", m, sondasMotor)
 	}
 }
 
