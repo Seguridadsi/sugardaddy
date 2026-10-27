@@ -177,6 +177,9 @@ parametros:
         La IP del sensor en tu red. La anuncia en las respuestas UPnP y NTP; con otra, el
         atacante vería que no cuadra.
       pattern: '^((25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\.){3}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])$'
+      # El formulario propone las IPs del sensor del destino (la primera ya va
+      # puesta); así el cliente no teclea la dirección de su propia máquina.
+      x-sugerencias: direcciones
     dns:
       type: string
       title: DNS

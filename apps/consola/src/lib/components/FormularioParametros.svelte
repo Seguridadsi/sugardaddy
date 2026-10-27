@@ -21,6 +21,9 @@
 		'x-multilinea'?: boolean;
 		/* Elegir una trampa del cliente de esos módulos (§2.5). */
 		'x-trampa'?: { modulos?: string[] };
+		/* Ofrecer unas sugerencias que da el servidor (p. ej. 'direcciones': las IPs
+		 * del sensor). Se pre-rellena la primera y el resto salen en una lista. */
+		'x-sugerencias'?: string;
 	};
 	/* Una trampa a la que puede apuntar un parámetro x-trampa; con motivo, no se puede elegir. */
 	type Objetivo = { id: string; nombre: string; destino: string; motivo: string | null };
@@ -28,17 +31,28 @@
 	let {
 		esquema,
 		valores = {},
-		objetivos = {}
+		objetivos = {},
+		sugerencias = {}
 	}: {
 		esquema: EsquemaParametros;
 		valores?: Record<string, unknown>;
 		/* Las opciones de cada parámetro x-trampa, que calcula el servidor. */
 		objetivos?: Record<string, Objetivo[]>;
+		/* Sugerencias por clave de x-sugerencias (p. ej. 'direcciones' → IPs del sensor). */
+		sugerencias?: Record<string, string[]>;
 	} = $props();
 
 	const campos = $derived(Object.entries(esquema.properties) as [string, Campo][]);
 	const obligatorio = (k: string) => esquema.required?.includes(k) ?? false;
-	const valor = (k: string, c: Campo) => String(valores[k] ?? c.default ?? '');
+	const sugerenciasDe = (c: Campo) =>
+		c['x-sugerencias'] ? (sugerencias[c['x-sugerencias']] ?? []) : [];
+	/* Valor del campo: lo tecleado, el default del esquema o —si no hay nada— la
+	 * primera sugerencia (p. ej. la IP del sensor), para no hacerlo teclear. */
+	const valor = (k: string, c: Campo) => {
+		if (valores[k] !== undefined) return String(valores[k]);
+		if (c.default !== undefined && c.default !== null) return String(c.default);
+		return sugerenciasDe(c)[0] ?? '';
+	};
 	/* Sin nada elegido, la única que vale ya va elegida. */
 	function objetivoDe(k: string) {
 		if (valores[k] !== undefined) return String(valores[k]);
@@ -112,8 +126,14 @@
 				pattern={c.pattern?.replace(/^\^|\$$/g, '')}
 				value={valor(clave, c)}
 				required={obligatorio(clave)}
+				list={sugerenciasDe(c).length ? `sug-${clave}` : undefined}
 				class="mono"
 			/>
+			{#if sugerenciasDe(c).length}
+				<datalist id="sug-{clave}">
+					{#each sugerenciasDe(c) as s (s)}<option value={s}></option>{/each}
+				</datalist>
+			{/if}
 		{/if}
 		{#if c.description}<p class="ayuda">{c.description}</p>{/if}
 	</div>

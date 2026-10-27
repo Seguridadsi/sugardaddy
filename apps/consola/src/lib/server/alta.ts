@@ -244,13 +244,17 @@ export async function formaEn(h: Honeycosa, destino: string, preferida?: string)
 		if (m.contenedor) delete m.contenedor.imagenPublica;
 		manifiesto = m;
 	}
+	/* Sugerencias que el formulario ofrece por 'x-sugerencias': las IPs del
+	 * sensor del destino, para no hacer teclear al cliente la IP de la máquina. */
+	const direcciones = d.hechos['red.direcciones']?.valor;
 	return {
 		destino: resumenDestino(f, d),
 		eleccion,
 		bloqueo: via ? bloqueoDeAlta(via.ejecutor, d) : null,
 		manifiesto,
 		pasos: via?.ejecutor === 'manual@1' ? pasosDeVia(h, via) : null,
-		objetivos: opcionesDeObjetivo(h, contexto.trampas)
+		objetivos: opcionesDeObjetivo(h, contexto.trampas),
+		sugerencias: { direcciones: Array.isArray(direcciones) ? direcciones : [] }
 	};
 }
 
