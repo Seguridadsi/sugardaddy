@@ -137,6 +137,10 @@ ENTRA_GRUPO_SOPORTE=${ENTRA_GRUPO_SOPORTE:-}
 # un primer administrador y escribe su contraseña de un solo uso en su registro
 # de arranque (docker compose logs consola). Ver docs/diseno/auth-login.md.
 LOGIN_LOCAL=${LOGIN_LOCAL:-}
+# Entrar por CUALQUIER IP o nombre (ENTRAR_CUALQUIER_IP=1): Caddy escucha en :443
+# para cualquier host y la consola saca el origen de las cabeceras. Vacío = solo la
+# dirección dada al instalar (más seguro en nodos con IP pública).
+ENTRAR_CUALQUIER_IP=${ENTRAR_CUALQUIER_IP:-}
 # Panel central: el nodo se da de alta solo con este código la primera vez.
 PANEL_URL=${PANEL_URL:-}
 PANEL_ALTA_CODIGO=${PANEL_ALTA_CODIGO:-}
@@ -156,6 +160,22 @@ fijar_env() { # clave valor
 }
 fijar_env CONSOLA_URL "$URL"
 fijar_env CONSOLA_DOMINIO "$DOMINIO"
+# Modo de entrada. Fijo (por defecto): la consola se ancla al nombre/IP dado.
+# «Cualquier IP/nombre» (ENTRAR_CUALQUIER_IP=1): Caddy escucha en :443 para
+# cualquier host y la consola saca el origen de las cabeceras, así entras por la
+# IP o el nombre que sea sin reinstalar. A cambio, en un nodo con IP pública Caddy
+# puede emitir certificados a demanda a quien se los pida (riesgo menor; docs).
+if [[ "${ENTRAR_CUALQUIER_IP:-}" == 1 ]]; then
+	cp "$AQUI/Caddyfile.cualquiera" "$DIR/Caddyfile"
+	fijar_env ORIGIN ""
+	fijar_env PROTOCOL_HEADER "x-forwarded-proto"
+	fijar_env HOST_HEADER "x-forwarded-host"
+else
+	cp "$AQUI/Caddyfile" "$DIR/Caddyfile"
+	fijar_env ORIGIN "$URL"
+	fijar_env PROTOCOL_HEADER ""
+	fijar_env HOST_HEADER ""
+fi
 # Reinstalar encima: el panel entrega una contraseña de descarga nueva (la
 # anterior deja de valer), así que se actualiza aunque el .env ya existiera.
 if [[ -n "${REGISTRO_TOKEN:-}" ]]; then

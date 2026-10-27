@@ -19,4 +19,12 @@ await prepararBase(conexion, process.env);
 await conexion.end();
 console.log('[arranque] base de datos al día');
 
+/*
+ * Modo «cualquier IP/nombre»: el instalador deja ORIGIN vacío y pone
+ * PROTOCOL_HEADER/HOST_HEADER para que el servidor saque el origen de las
+ * cabeceras de Caddy. adapter-node no admite ORIGIN='' (lo da por URL inválida),
+ * así que un ORIGIN vacío se quita aquí para que lo trate como no definido.
+ */
+if (process.env.ORIGIN === '') delete process.env.ORIGIN;
+
 await import('../build/index.js');

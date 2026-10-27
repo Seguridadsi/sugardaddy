@@ -41,7 +41,12 @@ services:
       postgres: { condition: service_healthy }
     environment:
       DATABASE_URL: postgres://sugardaddy:${POSTGRES_PASSWORD}@postgres:5432/consola
-      ORIGIN: ${CONSOLA_URL:?falta en .env}
+      # Modo FIJO: ORIGIN es la URL del nodo. Modo «cualquier IP/nombre»: ORIGIN
+      # vacío y el origen se saca de las cabeceras que pone Caddy (así vale por
+      # cualquier host). Lo decide instalar.sh. Por defecto (nodo de antes), la URL.
+      ORIGIN: ${ORIGIN-${CONSOLA_URL}}
+      PROTOCOL_HEADER: ${PROTOCOL_HEADER:-}
+      HOST_HEADER: ${HOST_HEADER:-}
       # La IP del navegador es la que pone Caddy, el único que llega a la
       # consola, al final de X-Forwarded-For («Probar» la propone).
       ADDRESS_HEADER: X-Forwarded-For

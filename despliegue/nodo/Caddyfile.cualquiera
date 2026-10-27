@@ -1,0 +1,37 @@
+# Entrada HTTPS de la consola en modo «CUALQUIER IP o nombre» (ENTRAR_CUALQUIER_IP=1):
+# Caddy escucha en :443 para cualquier host. Con on_demand emite el certificado del
+# nombre que te pidan (SNI) y, sin SNI (al entrar por IP), usa el de default_sni. La
+# consola saca el origen de las cabeceras (compose: PROTOCOL_HEADER/HOST_HEADER). El
+# instalar.sh copia este fichero como Caddyfile cuando el modo es «cualquiera».
+#
+# A cambio, en un nodo con IP pública Caddy puede emitir certificados a demanda a
+# quien se los pida (riesgo menor; por eso NO es el modo por defecto).
+{
+	admin off
+	auto_https disable_redirects
+	skip_install_trust
+	# Sin SNI (entrar por IP), el certificado de la dirección del nodo.
+	default_sni {$CONSOLA_DOMINIO}
+}
+
+(tls-interno) {
+	# CA propia del nodo + on_demand: emite el certificado del host con que te
+	# conectes (sin él, en :443 un SNI nuevo rompería el TLS).
+	tls internal {
+		on_demand
+	}
+}
+
+(tls-ficheros) {
+	tls /certs/certificado.pem /certs/clave.pem
+}
+
+:443 {
+	import tls-{$TLS_MODO}
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+	}
+	reverse_proxy consola:3000
+}
