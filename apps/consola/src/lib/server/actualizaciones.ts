@@ -1,0 +1,37 @@
+/*
+ * Aviso de versión nueva para nodos SIN gestión (build local / edición gratis):
+ * no reciben actualizaciones firmadas del panel, así que la consola mira de vez
+ * en cuando el fichero de versión del repositorio público y, si hay una mayor,
+ * lo deja apuntado para enseñar un aviso. Best-effort: si no hay red, no pasa
+ * nada. Un nodo gestionado (con clave de publicación) se actualiza por el panel
+ * y esto no corre. No instala nada: solo avisa; actualizar lo decide la persona.
+ */
+import { env } from '$env/dynamic/private';
+import { compararVersiones } from '@sugardaddy/canal';
+import { buscarActualizaciones, cabecera, guardarActualizacionDisponible } from './consultas';
+
+const URL_VERSION =
+	env.ACTUALIZACIONES_URL ??
+	'https://raw.githubusercontent.com/Seguridadsi/sugardaddy/main/despliegue/nodo/VERSION';
+
+const SEMVER = /^\d+\.\d+\.\d+$/;
+
+/* ¿Este nodo se actualiza desde el panel? Entonces el aviso de GitHub no aplica. */
+export const gestionado = () => !!env.PUBLICACION_CLAVE_PUBLICA;
+
+export async function comprobarActualizacion() {
+	if (gestionado() || env.BUSCAR_ACTUALIZACIONES === '0' || !(await buscarActualizaciones())) {
+		await guardarActualizacionDisponible(null);
+		return;
+	}
+	try {
+		const res = await fetch(URL_VERSION, { signal: AbortSignal.timeout(10_000) });
+		if (!res.ok) return;
+		const remota = (await res.text()).trim();
+		const actual = (await cabecera()).cliente.version;
+		if (!SEMVER.test(remota) || !SEMVER.test(actual)) return;
+		await guardarActualizacionDisponible(compararVersiones(remota, actual) > 0 ? remota : null);
+	} catch {
+		/* Sin red o GitHub caído: se deja como estaba, sin romper nada. */
+	}
+}

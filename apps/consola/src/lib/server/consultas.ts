@@ -408,6 +408,36 @@ export async function guardarComparticion(quien: string, valor: Comparticion) {
 }
 
 /*
+ * Aviso de versión nueva (solo nodos sin gestión; lo mueve lib/server/actualizaciones).
+ * El interruptor lo ve la persona en Ajustes; por defecto, activado.
+ */
+export const buscarActualizaciones = () => ajuste<boolean>('buscar-actualizaciones', true);
+
+export async function guardarBuscarActualizaciones(quien: string, activo: boolean) {
+	await db.transaction(async (tx) => {
+		await tx
+			.insert(s.ajustes)
+			.values({ clave: 'buscar-actualizaciones', valor: activo })
+			.onConflictDoUpdate({ target: s.ajustes.clave, set: { valor: activo } });
+		await tx
+			.insert(s.auditoria)
+			.values({ quien, accion: 'aviso de versiones', detalle: { activo } });
+	});
+}
+
+/* La versión nueva vista en el repo público, o { version: null } si no hay o no aplica. */
+export const actualizacionDisponible = () =>
+	ajuste<{ version: string | null }>('actualizacion-disponible', { version: null });
+
+export async function guardarActualizacionDisponible(version: string | null) {
+	const valor = { version };
+	await db
+		.insert(s.ajustes)
+		.values({ clave: 'actualizacion-disponible', valor })
+		.onConflictDoUpdate({ target: s.ajustes.clave, set: { valor } });
+}
+
+/*
  * Un evento y la visita entera a la que pertenece: todo lo que hizo el mismo
  * atacante en la misma conexión, en orden. Qué campo agrupa la visita y cómo
  * se llaman las cosas lo dice el manifiesto del módulo, no la consola: el

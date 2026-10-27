@@ -96,6 +96,16 @@
 		</p>
 	{/if}
 
+	{#if data.actualizacion?.version}
+		<p class="actualizacion">
+			Hay una versión nueva ({data.actualizacion.version}).
+			<a
+				href="https://github.com/Seguridadsi/sugardaddy/blob/main/docs/INSTALACION.md#actualizar"
+				rel="noopener noreferrer">Cómo actualizar</a
+			>
+		</p>
+	{/if}
+
 	<main class="contenido">
 		{@render children()}
 		<!-- El país y la red de cada IP salen de las bases de DB-IP, cuya licencia pide citarlas. -->
@@ -166,6 +176,21 @@
 		font-weight: 600;
 		background: color-mix(in oklab, var(--warn) 16%, var(--surface));
 		color: var(--warn);
+	}
+
+	.actualizacion {
+		margin: 0;
+		padding: 7px 20px;
+		font-size: 12.5px;
+		font-weight: 600;
+		background: color-mix(in oklab, var(--ok) 16%, var(--surface));
+		color: var(--ok);
+	}
+
+	.actualizacion a {
+		color: inherit;
+		margin-left: 6px;
+		font-weight: 700;
 	}
 
 	.nodo {

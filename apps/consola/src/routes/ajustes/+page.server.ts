@@ -13,7 +13,13 @@ import {
 	urlPanelValida
 } from '$lib/server/canal';
 import { eq } from 'drizzle-orm';
-import { auditar, cabecera } from '$lib/server/consultas';
+import {
+	auditar,
+	buscarActualizaciones,
+	cabecera,
+	guardarBuscarActualizaciones
+} from '$lib/server/consultas';
+import { gestionado } from '$lib/server/actualizaciones';
 import { db, schema as s } from '$lib/server/db';
 import { aceptar, cerrarYa, rechazar, soporte } from '$lib/server/soporte';
 import { llaves, retirarLlave } from '$lib/server/emergencia';
@@ -38,6 +44,8 @@ export const load = async ({ locals }) => {
 	return {
 		ahora: Date.now(),
 		loginLocal: loginLocalHabilitado(),
+		gestionado: gestionado(),
+		buscarActualizaciones: await buscarActualizaciones(),
 		espacio: esp,
 		estimacion: estimacion(esp, cons.dias),
 		canal: await estadoCanal(),
@@ -66,6 +74,11 @@ export const load = async ({ locals }) => {
 };
 
 export const actions = {
+	buscarActualizaciones: async ({ request, locals }) => {
+		const u = exigir(locals, 'ajustes');
+		await guardarBuscarActualizaciones(u.correo, (await request.formData()).get('buscar') === 'on');
+		return { mensaje: 'Guardado.' };
+	},
 	palabras: async ({ request, locals }) => {
 		const u = exigir(locals, 'ajustes');
 		const texto = String((await request.formData()).get('palabras') ?? '');

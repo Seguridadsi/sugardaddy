@@ -216,6 +216,24 @@
 	{/if}
 </section>
 
+{#if data.gestionado === false}
+	<section class="panel bloque">
+		<h2>Avisos de versión nueva</h2>
+		<p>
+			Este nodo se construye desde el código y no recibe actualizaciones firmadas. Con esto
+			activado, la consola mira de vez en cuando si hay una versión más nueva publicada y te avisa.
+			No instala nada: tú decides cuándo actualizar.
+		</p>
+		<form method="POST" action="?/buscarActualizaciones" use:enhance>
+			<label>
+				<input type="checkbox" name="buscar" checked={data.buscarActualizaciones} />
+				Avisarme de versiones nuevas
+			</label>
+			<button class="boton" type="submit">Guardar</button>
+		</form>
+	</section>
+{/if}
+
 <section class="panel bloque">
 	<h2>Panel central de SeguridadSI</h2>
 

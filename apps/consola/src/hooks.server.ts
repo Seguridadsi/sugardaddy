@@ -6,6 +6,7 @@ import { leer } from '$lib/server/auth/sesion';
 import { altaAutomatica, latir } from '$lib/server/canal';
 import { purgar } from '$lib/server/conservacion';
 import { rellenarSiHaceFalta } from '$lib/server/credenciales';
+import { comprobarActualizacion } from '$lib/server/actualizaciones';
 
 /*
  * El latido hacia el panel central sale del servidor de la consola, no del
@@ -32,6 +33,14 @@ export const init: ServerInit = () => {
 	h.__conservacion = setInterval(borrar, 60 * 60_000);
 	h.__conservacion.unref?.();
 	borrar();
+	/* Aviso de versión nueva (solo nodos sin gestión): mira el repo público cada tanto. */
+	const comprobar = () =>
+		void comprobarActualizacion().catch((e) => console.error('[actualizaciones]', e));
+	const a = globalThis as { __actualizaciones?: ReturnType<typeof setInterval> };
+	if (a.__actualizaciones) clearInterval(a.__actualizaciones);
+	a.__actualizaciones = setInterval(comprobar, 6 * 60 * 60_000);
+	a.__actualizaciones.unref?.();
+	setTimeout(comprobar, 20_000);
 };
 
 /*
