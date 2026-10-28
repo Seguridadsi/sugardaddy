@@ -44,7 +44,7 @@ contenedor:
   # Imagen propia, construida con imagen/preparar.sh (código propio en Go, base
   # scratch, usuario no root). La construye y deja aquí su digest
   # herramientas/publicar-trampa.sh impresora; el banco de pruebas usa la local.
-  imagen: ghcr.io/seguridadsi/sugardaddy-trampa-impresora:0.1.0@sha256:5429092fd68c7f480634681c7253609f4f46e61acdd2acdcac6649141d86c87e
+  imagen: ghcr.io/seguridadsi/sugardaddy-trampa-impresora:0.1.0@sha256:67fec47aacd59c2b2881e8c05337df0dff8d01d73803fd642e31738f604358f7
   puertos:
     - { interno: 9100, expuesto: '${puertoRaw}', protocolo: tcp }
     - { interno: 1631, expuesto: '${puertoIpp}', protocolo: tcp, si: ipp }
