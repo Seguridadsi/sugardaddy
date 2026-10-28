@@ -15,7 +15,7 @@ export const load = async ({ locals }) =>
 				geo: hayGeo(),
 				actualizacion: await actualizacionDisponible(),
 				autoActualizar: await autoActualizar(),
-				gestionado: gestionado(),
+				gestionado: await gestionado(),
 				...(await cabecera())
 			}
 		: {

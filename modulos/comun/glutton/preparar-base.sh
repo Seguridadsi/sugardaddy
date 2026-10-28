@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 #
-# Base COMÚN de glutton para las trampas de Sugardaddy (SMB, MSSQL, y más
-# adelante RDP). Descarga glutton (github.com/mushorg/glutton, MIT) FIJADO por commit
+# Base COMÚN de glutton para las trampas de Sugardaddy (SMB y RDP). Descarga glutton (github.com/mushorg/glutton, MIT) FIJADO por commit
 # y comprobado por sha256 del tarball, lo recorta a lo que usa el protocolo
 # pedido, le aplica sugardaddy.patch y le añade nuestro código (sd/ y
 # cmd/sdtrampa), de modo que el resultado es un módulo Go que se compila a UN
@@ -20,11 +19,11 @@
 #
 #   modulos/comun/glutton/preparar-base.sh <carpeta nueva> <protocolo>
 #
-# <protocolo>: smb, mssql, rdp, vnc. Cada protocolo recorta el árbol a SUS
+# <protocolo>: smb, rdp. Cada protocolo recorta el árbol a SUS
 # ficheros, aplica SU parche (sugardaddy-<proto>.patch), copia SU shim y SOLO
 # su mapeador (sd/mapa_<proto>.go); así un protocolo no arrastra las
-# dependencias ni el código de otro (p. ej. MSSQL no trae rdp/viper, SMB no trae
-# el manejador MSSQL y ningún binario compila el mapeador de otra trampa).
+# dependencias ni el código de otro (así ningún binario compila el mapeador ni
+# las dependencias de otra trampa).
 set -euo pipefail
 
 COMMIT=4dfac5b9a9bb7101a7564991a25ecca2dbbce400
@@ -37,7 +36,7 @@ AQUI="$(cd "$(dirname "$0")" && pwd)"
 [[ ! -e "$DEST" ]] || { echo "$DEST ya existe"; exit 1; }
 
 case "$PROTO" in
-smb|mssql|rdp|vnc) ;;
+smb|rdp) ;;
 *) echo "Protocolo desconocido: $PROTO"; exit 1 ;;
 esac
 
@@ -80,28 +79,12 @@ rm -f connection/connection_test.go
     for d in */; do case "$d" in smb/) ;; *) rm -rf "$d";; esac; done
     for f in *.go; do case "$f" in smb.go|smb_test.go|smb_doublepulsar_test.go) ;; *) rm -f "$f";; esac; done
     ;;
-  mssql)
-    # Solo el manejador MSSQL y su subpaquete mssql/. Se quita el test de
-    # upstream (mssql_test.go), atado a rdp.Identity() y a mustDecodeHex de
-    # rdp_test.go: sus pruebas van adaptadas al parche en sd_mssql_test.go,
-    # junto con las propias de Sugardaddy (topes por sesión, NTLM, versión).
-    for d in */; do case "$d" in mssql/) ;; *) rm -rf "$d";; esac; done
-    for f in *.go; do case "$f" in mssql.go) ;; *) rm -f "$f";; esac; done
-    ;;
   rdp)
     # Solo el manejador RDP y su subpaquete rdp/ (X.224, TLS, CredSSP/NLA,
     # NTLM). Se conserva su test de upstream (rdp_test.go): el parche lo adapta
     # a la configuración por entorno de Sugardaddy (sd_config.go) en vez de viper.
     for d in */; do case "$d" in rdp/) ;; *) rm -rf "$d";; esac; done
     for f in *.go; do case "$f" in rdp.go|rdp_test.go) ;; *) rm -f "$f";; esac; done
-    ;;
-  vnc)
-    # Solo el manejador RFB/VNC y su subpaquete rfb/ (RFB 3.3/3.7/3.8, reto VNC,
-    # escritorio estático). Se conserva su test de upstream (rfb_test.go): el
-    # parche solo le quita el productor hpfeeds, así que sus pruebas siguen
-    # valiendo contra el arnés común (sd_harness_test.go).
-    for d in */; do case "$d" in rfb/) ;; *) rm -rf "$d";; esac; done
-    for f in *.go; do case "$f" in rfb.go|rfb_test.go) ;; *) rm -f "$f";; esac; done
     ;;
   esac
 )
@@ -112,9 +95,7 @@ rm -f connection/connection_test.go
 # Cada protocolo tiene su parche, que toca solo SUS ficheros (ya recortados).
 case "$PROTO" in
 smb)   PARCHE="$AQUI/sugardaddy.patch" ;;
-mssql) PARCHE="$AQUI/sugardaddy-mssql.patch" ;;
 rdp)   PARCHE="$AQUI/sugardaddy-rdp.patch" ;;
-vnc)   PARCHE="$AQUI/sugardaddy-vnc.patch" ;;
 esac
 git apply --whitespace=nowarn "$PARCHE" 2>/dev/null \
 	|| patch -p1 < "$PARCHE"
@@ -126,23 +107,10 @@ smb)
 	! grep -q 'mushorg/glutton/producer' protocols/tcp/smb.go || { echo "El parche no quitó la dependencia hpfeeds (producer)"; exit 1; }
 	grep -q 'func SetIdentity' protocols/tcp/smb/smb.go || { echo "El parche no dejó la identidad ajustable"; exit 1; }
 	;;
-mssql)
-	! grep -q 'mushorg/glutton/producer' protocols/tcp/mssql.go || { echo "El parche no quitó la dependencia hpfeeds (producer) de MSSQL"; exit 1; }
-	! grep -q 'tcp/rdp' protocols/tcp/mssql.go || { echo "El parche no quitó la dependencia rdp (viper) de MSSQL"; exit 1; }
-	grep -q 'func mssqlIdentity' protocols/tcp/mssql.go || { echo "El parche no dejó la identidad MSSQL ajustable"; exit 1; }
-	grep -q 'maxMSSQLMessageLen = 8 \* 1024' protocols/tcp/mssql.go || { echo "El parche no bajó el tope de mensaje MSSQL"; exit 1; }
-	grep -q 'if len(msg.Raw)+n > maxLen' protocols/tcp/mssql/tds.go || { echo "El parche no adelantó el tope de ReadMessage"; exit 1; }
-	;;
 rdp)
 	! grep -q 'mushorg/glutton/producer' protocols/tcp/rdp.go || { echo "El parche no quitó la dependencia hpfeeds (producer) de RDP"; exit 1; }
 	! grep -q 'spf13/viper' protocols/tcp/rdp/*.go || { echo "El parche no quitó la dependencia viper de RDP"; exit 1; }
 	grep -q 'rdp.CertificadoSD' protocols/tcp/rdp.go || { echo "El parche no dejó el certificado por instancia (CertificadoSD) en RDP"; exit 1; }
-	;;
-vnc)
-	! grep -q 'mushorg/glutton/producer' protocols/tcp/rfb.go || { echo "El parche no quitó la dependencia hpfeeds (producer) de VNC"; exit 1; }
-	grep -q 'slog.Any("error", err)' protocols/tcp/rfb.go || { echo "El parche no sustituyó producer.ErrAttr por slog.Any en VNC"; exit 1; }
-	grep -q 'if !rfbAuthCheck(challenge, data)' protocols/tcp/rfb.go || { echo "El parche no dejó que VNC rechace las contraseñas que no son la sembrada"; exit 1; }
-	grep -q 'if !rfbIsOffered(chosen)' protocols/tcp/rfb.go || { echo "El parche no dejó que VNC rechace un tipo de seguridad no ofrecido"; exit 1; }
 	;;
 esac
 
@@ -161,23 +129,12 @@ smb)
 	# presupuesto de bytes y robustez ante longitudes enormes/marcos malformados.
 	cp "$AQUI/base/protocols/tcp/sd_smb_test.go" protocols/tcp/sd_smb_test.go
 	;;
-mssql)
-	# Pruebas del manejador (las de upstream adaptadas y las propias) y del
-	# subpaquete TDS parcheado (topes, longitudes, sysname).
-	cp "$AQUI/base/protocols/tcp/sd_mssql_test.go" protocols/tcp/sd_mssql_test.go
-	cp "$AQUI/base/protocols/tcp/mssql/sd_tds_test.go" protocols/tcp/mssql/sd_tds_test.go
-	;;
 rdp)
 	# Configuración por entorno (sustituta de viper) y certificado por instancia.
 	cp "$AQUI/base/protocols/tcp/rdp/sd_config.go" protocols/tcp/rdp/sd_config.go
 	cp "$AQUI/base/protocols/tcp/rdp/sd_config_test.go" protocols/tcp/rdp/sd_config_test.go
 	# Prueba propia del tope de memoria por marco del manejador RDP.
 	cp "$AQUI/base/protocols/tcp/sd_rdp_test.go" protocols/tcp/sd_rdp_test.go
-	;;
-vnc)
-	# Pruebas propias del manejador RFB parcheado: solo la contraseña sembrada
-	# abre el escritorio, None se puede dejar de ofrecer, datos cortos o raros.
-	cp "$AQUI/base/protocols/tcp/sd_rfb_test.go" protocols/tcp/sd_rfb_test.go
 	;;
 esac
 mkdir -p sd cmd/sdtrampa

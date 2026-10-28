@@ -28,7 +28,7 @@ import {
 } from '@sugardaddy/canal';
 import { cuentaActivas } from './colocacion';
 import { db, schema as s } from './db';
-import { auditar, cabecera, comparticion } from './consultas';
+import { auditar, autoActualizar, cabecera, comparticion } from './consultas';
 import {
 	aplicarLista,
 	indicadoresPendientes,
@@ -54,6 +54,13 @@ type Canal = {
 async function leer(): Promise<Canal | null> {
 	const [f] = await db.select().from(s.ajustes).where(eq(s.ajustes.clave, 'canal'));
 	return (f?.valor as Canal) ?? null;
+}
+
+/* ¿Este nodo lo gestiona un panel? = está dado de alta (existe Canal). Un nodo
+ * community NO tiene Canal, aunque tenga la clave pública para verificar. No es
+ * lo mismo que «tiene PUBLICACION_CLAVE_PUBLICA». */
+export async function gestionadoPorPanel() {
+	return (await leer()) !== null;
 }
 
 async function guardar(c: Canal) {
@@ -201,6 +208,53 @@ async function considerar(estado: EstadoDeseado, nodo: string) {
 		detalle: null
 	});
 	await auditar(`nodo ${nodo}`, 'versión pendiente de instalar', { version: v.release.version });
+}
+
+/*
+ * Auto-actualización de la edición community (nodos SIN panel): si la persona la
+ * activó en Ajustes, la consola baja el ultima-community.json FIRMADO del repo
+ * público, lo verifica con la clave pública fijada en el nodo —la MISMA
+ * verificación que el camino de pago— y, si es una versión mayor, lo deja
+ * pendiente. El actualizador lo aplica igual que una release del panel.
+ * Best-effort: sin panel-no aplica, sin clave, sin opt-in, sin red o sin
+ * novedad, no hace nada.
+ */
+const URL_RELEASE_COMMUNITY =
+	env.ACTUALIZACIONES_RELEASE_URL ??
+	'https://raw.githubusercontent.com/Seguridadsi/sugardaddy/main/ultima-community.json';
+
+export async function considerarCommunity() {
+	if (await gestionadoPorPanel()) return;
+	const clave = env.PUBLICACION_CLAVE_PUBLICA;
+	if (!clave) return;
+	if (!(await autoActualizar()).activo) return;
+	let firmada: ReleaseFirmada;
+	try {
+		const res = await fetch(URL_RELEASE_COMMUNITY, { signal: AbortSignal.timeout(10_000) });
+		if (!res.ok) return;
+		firmada = (await res.json()) as ReleaseFirmada;
+	} catch {
+		return;
+	}
+	if (!firmada?.release || !firmada?.firma) return;
+	const v = verificarRelease(clave, firmada);
+	if (!v.ok) {
+		await auditar('auto-actualización', 'release community rechazada', { motivo: v.motivo });
+		return;
+	}
+	const actual = (await cabecera()).cliente.version;
+	if (compararVersiones(v.release.version, actual) <= 0) return;
+	const previa = await actualizacion();
+	if (previa.version === v.release.version && previa.estado !== 'al-dia') return;
+	await guardarActualizacion({
+		estado: 'pendiente',
+		version: v.release.version,
+		release: firmada,
+		detalle: null
+	});
+	await auditar('auto-actualización', 'versión community pendiente', {
+		version: v.release.version
+	});
 }
 
 /* ---------- configuración firmada del nodo (desde la 0.12) ---------- */

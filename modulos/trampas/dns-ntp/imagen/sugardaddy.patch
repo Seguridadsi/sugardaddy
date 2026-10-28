@@ -806,7 +806,7 @@ new file mode 100644
 index 0000000..7ac18e9
 --- /dev/null
 +++ b/internal/app/manifiesto_test.go
-@@ -0,0 +1,244 @@
+@@ -0,0 +1,240 @@
 +package app
 +
 +// Sugardaddy: the console checks the parameters of the trap with the
@@ -830,7 +830,6 @@ index 0000000..7ac18e9
 +// environment, with the variables they go to.
 +var manifestParams = map[string][]string{
 +	"nombreEquipo":  {"DDOSPOT_HOSTNAME", "DDOSPOT_SEED"},
-+	"direccion":     {"DDOSPOT_LAN_IP"},
 +	"redesInternas": {"DDOSPOT_INTERNAL_NETS"},
 +}
 +
@@ -939,7 +938,6 @@ index 0000000..7ac18e9
 +				q := []string{"10", "20", "0", "53"}
 +				q[i] = o
 +				a := strings.Join(q, ".")
-+				checkManifestValue(t, pats, "direccion", a)
 +				checkManifestValue(t, pats, "redesInternas", a+"/16")
 +				checkManifestValue(t, pats, "redesInternas", "10.0.0.0/8, "+a+"/24")
 +			}
@@ -953,7 +951,6 @@ index 0000000..7ac18e9
 +	// Las que encontró la revisión: el patrón las rechaza.
 +	for param, vs := range map[string][]string{
 +		"redesInternas": {"10.01.0.0/16", "00.0.0.0/8", "01.2.3.0/24", "10.0.0.0/8, 192.168.01.0/24", "192.168.001.0/24"},
-+		"direccion":     {"10.01.0.5", "010.20.0.5", "10.20.0.05"},
 +	} {
 +		for _, v := range vs {
 +			if pats[param].MatchString(v) {
@@ -968,7 +965,6 @@ index 0000000..7ac18e9
 +	}
 +	for param, vs := range map[string][]string{
 +		"redesInternas": {"", "10.20.0.0/16, 192.168.1.0/24", "10.0.0.0/8,172.16.0.0/12", "0.0.0.0/8", "255.255.255.255/32", strings.Join(nets, ", ")},
-+		"direccion":     {"192.0.2.53", "0.0.0.0", "100.64.0.1", "255.255.255.255"},
 +		"nombreEquipo":  {"ns2", "ntp01", strings.Repeat("a", 63)},
 +	} {
 +		for _, v := range vs {

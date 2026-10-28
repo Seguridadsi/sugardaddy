@@ -46,7 +46,7 @@ export const load = async ({ locals }) => {
 	return {
 		ahora: Date.now(),
 		loginLocal: loginLocalHabilitado(),
-		gestionado: gestionado(),
+		gestionado: await gestionado(),
 		buscarActualizaciones: await buscarActualizaciones(),
 		autoActualizar: await autoActualizar(),
 		espacio: esp,
@@ -84,6 +84,10 @@ export const actions = {
 	},
 	autoActualizar: async ({ request, locals }) => {
 		const u = exigir(locals, 'ajustes');
+		if (await gestionado())
+			return fail(400, {
+				error: 'Este nodo lo gestiona un panel; la auto-actualización se controla desde ahí.'
+			});
 		const form = await request.formData();
 		const activar = form.get('activar') === 'on';
 		const correo = String(form.get('correo') ?? '').trim();
@@ -96,7 +100,7 @@ export const actions = {
 		await guardarAutoActualizar(u.correo, {
 			decidido: true,
 			activo: activar,
-			correo: activar ? correo : ((await autoActualizar()).correo ?? null),
+			correo: activar ? correo : null,
 			consentimiento: activar ? new Date().toISOString() : null
 		});
 		return {
