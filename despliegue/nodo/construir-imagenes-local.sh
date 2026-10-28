@@ -75,12 +75,22 @@ docker build --platform "$PLAT" --build-arg "VERSION=$V" \
 	-t "sugardaddy-actualizador:$V" -f "$RAIZ/sensor/Dockerfile.actualizador" "$RAIZ/sensor"
 
 echo "==> imagenes.env (etiquetas locales; sin registro, sin firma)"
+# Clave PÚBLICA de verificación de releases. En un build local/privado no hay
+# fichero al lado y queda VACÍA (el nodo no auto-actualiza por community; mismo
+# comportamiento de siempre). En la edición community, construir-community.sh deja
+# aquí un fichero PUBLICACION_CLAVE_PUBLICA con la clave pública de SeguridadSI, y
+# entonces se embebe: así el nodo community opted-in verifica y aplica la release
+# firmada (ultima-community.json).
+CLAVE_PUB=""
+if [[ -f "$AQUI/PUBLICACION_CLAVE_PUBLICA" ]]; then
+	CLAVE_PUB="$(tr -d '[:space:]' < "$AQUI/PUBLICACION_CLAVE_PUBLICA")"
+fi
 cat > "$AQUI/imagenes.env" <<ENV
 SUGARDADDY_VERSION=$V
 CONSOLA_IMAGEN=sugardaddy-consola:$V
 SENSOR_IMAGEN=sugardaddy-sensor:$V
 ACTUALIZADOR_IMAGEN=sugardaddy-actualizador:$V
-PUBLICACION_CLAVE_PUBLICA=
+PUBLICACION_CLAVE_PUBLICA=$CLAVE_PUB
 ENV
 
 echo
