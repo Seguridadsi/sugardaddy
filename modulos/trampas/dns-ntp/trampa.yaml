@@ -57,8 +57,8 @@ contenedor:
   # herramientas/publicar-trampa.sh dns-ntp (antes hay que añadir
   # 'sugardaddy-trampa-dns-ntp' a imagenesDelNodo en infra/central.bicep y
   # desplegar el panel); el banco de pruebas usa la que construye en local.
-  imagen: ghcr.io/seguridadsi/sugardaddy-trampa-dns-ntp:2.0.1-sd4@sha256:0df486f80f78ef096062bb601ec77052111b9cf9be6b08eecbf0d101564f072d
-  imagenPublica: ghcr.io/seguridadsi/sugardaddy-trampa-dns-ntp:2.0.1-sd4@sha256:0df486f80f78ef096062bb601ec77052111b9cf9be6b08eecbf0d101564f072d
+  imagen: ghcr.io/seguridadsi/sugardaddy-trampa-dns-ntp:2.0.1-sd4@sha256:69fd9f29bf64b254a98ce00a2d49a08f83032ad43acdac657e8158f5a430d7b8
+  imagenPublica: ghcr.io/seguridadsi/sugardaddy-trampa-dns-ntp:2.0.1-sd4@sha256:69fd9f29bf64b254a98ce00a2d49a08f83032ad43acdac657e8158f5a430d7b8
   # Dentro del contenedor escucha en 1053, 1123 y 11900 (corre sin root ni
   # capacidades, y por debajo de 1024 no podría abrirlos en Linux anteriores
   # a 4.11 ni en Podman); el atacante llega por los puertos elegidos (53,

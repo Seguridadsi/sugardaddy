@@ -35,8 +35,8 @@ contenedor:
   # Imagen propia, construida con imagen/preparar.sh (código propio en Go, base
   # scratch, usuario no root). La construye y deja aquí su digest
   # herramientas/publicar-trampa.sh redis; el banco de pruebas usa la local.
-  imagen: ghcr.io/seguridadsi/sugardaddy-trampa-redis:7.2.4-sd4@sha256:b4e1a351d503a1774c25352856d719112d2ee8d725fff1b208f64fd93f442900
-  imagenPublica: ghcr.io/seguridadsi/sugardaddy-trampa-redis:7.2.4-sd4@sha256:b4e1a351d503a1774c25352856d719112d2ee8d725fff1b208f64fd93f442900
+  imagen: ghcr.io/seguridadsi/sugardaddy-trampa-redis:7.2.4-sd4@sha256:c72fd17856bab8daf9d41c58041fd0a2e785e886eab0098d3a3b53b5dfdd3b20
+  imagenPublica: ghcr.io/seguridadsi/sugardaddy-trampa-redis:7.2.4-sd4@sha256:c72fd17856bab8daf9d41c58041fd0a2e785e886eab0098d3a3b53b5dfdd3b20
   puertos:
     - { interno: 6379, expuesto: '${puertoRedis}', protocolo: tcp }
   entorno:
