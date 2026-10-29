@@ -237,8 +237,8 @@
 		<h2>Auto-actualización</h2>
 		{#if data.autoActualizar.activo}
 			<p>
-				Activada: cuando salga una versión nueva, tu nodo se pondrá al día solo. Avisos y soporte al
-				correo <strong>{data.autoActualizar.correo}</strong>.
+				Activada: cuando salga una versión nueva, tu nodo se pondrá al día solo. Avisos, soporte y
+				novedades al correo <strong>{data.autoActualizar.correo}</strong>.
 			</p>
 			<form method="POST" action="?/autoActualizar" use:enhance>
 				<button class="boton" type="submit">Desactivar</button>
@@ -246,7 +246,8 @@
 		{:else}
 			<p>
 				Que tu nodo se actualice solo cuando saquemos una versión nueva, sin reconstruir a mano. A
-				cambio nos dejas un correo, para avisarte y darte soporte.
+				cambio das tu correo a SeguridadSI, que te avisará de versiones, te dará soporte y te
+				contará novedades del producto.
 			</p>
 			<form method="POST" action="?/autoActualizar" use:enhance>
 				<input type="hidden" name="activar" value="on" />
@@ -262,13 +263,52 @@
 				</label>
 				<label>
 					<input type="checkbox" name="consentimiento" required />
-					Acepto que SeguridadSI use mi correo para avisarme de versiones y darme soporte.
+					Acepto que mi correo, con el nombre y la versión de mi nodo, se envíe a SeguridadSI y que me
+					escriba para avisarme de versiones, darme soporte y contarme novedades del producto.
 				</label>
 				<button class="boton principal" type="submit">Activar</button>
 			</form>
 		{/if}
 	</section>
 {/if}
+
+<section class="panel bloque">
+	<h2>Webhook de eventos</h2>
+	<p>
+		Dispara cada evento nuevo, tal cual (JSON), a una URL tuya, para que lo lleves a NATS, a tu SIEM
+		o a lo que uses. Es básico y <em>best-effort</em>: la fiabilidad la pones tú. (Los avisos
+		gestionados y fiables —correo, Teams, Sentinel…— son del plan de pago.)
+	</p>
+	<form method="POST" action="?/webhook" use:enhance>
+		<label for="wh-url">URL</label>
+		<input
+			id="wh-url"
+			name="url"
+			class="mono"
+			value={data.webhook.url ?? ''}
+			placeholder="https://mi-endpoint.example/eventos"
+		/>
+		<label for="wh-secreto">
+			Secreto para firmar (opcional){#if data.webhook.secreto}
+				— <em>hay uno puesto; déjalo vacío para no cambiarlo</em>{/if}
+		</label>
+		<input
+			id="wh-secreto"
+			name="secreto"
+			class="mono"
+			type="password"
+			autocomplete="off"
+			placeholder={data.webhook.secreto
+				? '(sin cambios)'
+				: 'firma HMAC-SHA256 en la cabecera X-Sugardaddy-Firma'}
+		/>
+		<label>
+			<input type="checkbox" name="activo" checked={data.webhook.activo} />
+			Activo
+		</label>
+		<button class="boton principal" type="submit">Guardar</button>
+	</form>
+</section>
 
 <section class="panel bloque">
 	<h2>Panel central de SeguridadSI</h2>

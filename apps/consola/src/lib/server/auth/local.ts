@@ -209,6 +209,58 @@ export async function cambiarClave(
 	return { ok: true, identidad: identidadDe(u) };
 }
 
+/* ---------- autogestión (el propio usuario, login local) ---------- */
+
+/*
+ * El usuario cambia su PROPIA contraseña: pide la actual y la comprueba antes de
+ * tocar nada (al revés que cambiarClave, que es para el cambio forzado tras un
+ * restablecimiento y NO pide la actual). No toca roles ni bloqueo.
+ */
+export async function cambiarClavePropia(
+	quien: string,
+	id: string,
+	actual: string,
+	nueva: string
+): Promise<{ ok: true } | { ok: false; error: string }> {
+	if (nueva.length < MIN_CLAVE)
+		return { ok: false, error: `La contraseña necesita al menos ${MIN_CLAVE} caracteres.` };
+	if (nueva === actual)
+		return { ok: false, error: 'La contraseña nueva tiene que ser distinta de la actual.' };
+	const [u] = await db
+		.select({ claveHash: s.usuariosLocales.claveHash })
+		.from(s.usuariosLocales)
+		.where(eq(s.usuariosLocales.id, id));
+	if (!u) return { ok: false, error: 'El usuario ya no existe.' };
+	if (!comprobarClave(actual, u.claveHash))
+		return { ok: false, error: 'La contraseña actual no es correcta.' };
+	await db
+		.update(s.usuariosLocales)
+		.set({ claveHash: hashClave(nueva), debeCambiar: false })
+		.where(eq(s.usuariosLocales.id, id));
+	/* En la auditoría no va la contraseña, claro: solo que la cambió él mismo. */
+	await auditar(quien, 'contraseña propia cambiada');
+	return { ok: true };
+}
+
+/* El usuario cambia su propio nombre mostrado (no el de usuario de la entrada). */
+export async function cambiarNombrePropio(
+	quien: string,
+	id: string,
+	nombre: string
+): Promise<{ ok: true; nombre: string } | { ok: false; error: string }> {
+	const limpio = nombre.trim();
+	if (!limpio) return { ok: false, error: 'El nombre no puede estar vacío.' };
+	if (limpio.length > 80) return { ok: false, error: 'El nombre es demasiado largo (máximo 80).' };
+	const [u] = await db
+		.update(s.usuariosLocales)
+		.set({ nombre: limpio })
+		.where(eq(s.usuariosLocales.id, id))
+		.returning({ id: s.usuariosLocales.id });
+	if (!u) return { ok: false, error: 'El usuario ya no existe.' };
+	await auditar(quien, 'nombre propio cambiado');
+	return { ok: true, nombre: limpio };
+}
+
 /* ---------- gestión (desde la consola, solo admin) ---------- */
 
 export const listar = () =>

@@ -7,6 +7,7 @@ import { altaAutomatica, considerarCommunity, latir } from '$lib/server/canal';
 import { purgar } from '$lib/server/conservacion';
 import { rellenarSiHaceFalta } from '$lib/server/credenciales';
 import { comprobarActualizacion } from '$lib/server/actualizaciones';
+import { enviarWebhookPendientes } from '$lib/server/webhook';
 
 /*
  * El latido hacia el panel central sale del servidor de la consola, no del
@@ -44,6 +45,14 @@ export const init: ServerInit = () => {
 	a.__actualizaciones = setInterval(comprobar, 6 * 60 * 60_000);
 	a.__actualizaciones.unref?.();
 	setTimeout(comprobar, 20_000);
+	/* Webhook de eventos: cada medio minuto, dispara los nuevos a la URL del
+	 * cliente si está activo (best-effort; la fiabilidad la pone él). */
+	const enviarWebhook = () =>
+		void enviarWebhookPendientes().catch((e) => console.error('[webhook]', e));
+	const w = globalThis as { __webhook?: ReturnType<typeof setInterval> };
+	if (w.__webhook) clearInterval(w.__webhook);
+	w.__webhook = setInterval(enviarWebhook, 30_000);
+	w.__webhook.unref?.();
 };
 
 /*
@@ -79,6 +88,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 			nombre: s.nombre,
 			correo: s.correo,
 			roles: s.roles,
+			oid: s.oid,
 			soporte: s.soporte,
 			emergencia: s.emergencia
 		};

@@ -58,6 +58,7 @@ contenedor:
   # 'sugardaddy-trampa-dns-ntp' a imagenesDelNodo en infra/central.bicep y
   # desplegar el panel); el banco de pruebas usa la que construye en local.
   imagen: ghcr.io/seguridadsi/sugardaddy-trampa-dns-ntp:2.0.1-sd4@sha256:0df486f80f78ef096062bb601ec77052111b9cf9be6b08eecbf0d101564f072d
+  imagenPublica: ghcr.io/seguridadsi/sugardaddy-trampa-dns-ntp:2.0.1-sd4@sha256:0df486f80f78ef096062bb601ec77052111b9cf9be6b08eecbf0d101564f072d
   # Dentro del contenedor escucha en 1053, 1123 y 11900 (corre sin root ni
   # capacidades, y por debajo de 1024 no podría abrirlos en Linux anteriores
   # a 4.11 ni en Podman); el atacante llega por los puertos elegidos (53,

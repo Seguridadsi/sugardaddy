@@ -62,10 +62,23 @@ export async function leer(cookies: Cookies, ahora = Date.now()) {
 		nombre: fila.nombre,
 		correo: fila.correo,
 		roles: fila.roles,
+		oid: fila.oid,
 		sesion: fila.id,
 		soporte: fila.soporte,
 		emergencia
 	};
+}
+
+/*
+ * Cambia el nombre mostrado en las sesiones ABIERTAS de un oid. Lo usa la
+ * autogestión: así la barra enseña el nombre nuevo en la siguiente petición sin
+ * tener que volver a entrar (no toca la identidad, solo lo que se pinta).
+ */
+export async function renombrarSesiones(oid: string, nombre: string) {
+	await db
+		.update(s.sesiones)
+		.set({ nombre })
+		.where(and(eq(s.sesiones.oid, oid), isNull(s.sesiones.cerrada)));
 }
 
 /* Devuelve el oid de la sesión cerrada (o null): quien llama decide a dónde mandar al salir. */

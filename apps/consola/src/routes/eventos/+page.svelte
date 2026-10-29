@@ -2,6 +2,16 @@
 	import ListaEventos from '$lib/components/ListaEventos.svelte';
 
 	let { data } = $props();
+
+	/* Descarga de los eventos filtrados, con el mismo filtro que se está viendo. */
+	const csvHref = $derived.by(() => {
+		const p = new URLSearchParams();
+		if (data.filtro.desde && data.filtro.desde !== 'baja') p.set('desde', data.filtro.desde);
+		if (data.filtro.trampa) p.set('trampa', data.filtro.trampa);
+		if (data.filtro.origen) p.set('origen', data.filtro.origen);
+		const q = p.toString();
+		return '/eventos/csv' + (q ? `?${q}` : '');
+	});
 </script>
 
 <svelte:head>
@@ -12,7 +22,10 @@
 	<div>
 		<h1>Eventos</h1>
 	</div>
-	<p class="cuenta"><b class="mono">{data.eventos.length}</b> de {data.total}</p>
+	<div class="acciones">
+		<p class="cuenta"><b class="mono">{data.eventos.length}</b> de {data.total}</p>
+		<a class="csv" href={csvHref} data-sveltekit-reload>Exportar CSV</a>
+	</div>
 </div>
 
 <form class="panel filtros" method="GET">
@@ -62,6 +75,28 @@
 		justify-content: space-between;
 		gap: 16px;
 		margin-bottom: 18px;
+	}
+
+	.acciones {
+		display: flex;
+		align-items: center;
+		gap: 14px;
+	}
+
+	.csv {
+		border: 1px solid var(--line);
+		border-radius: var(--r-sm);
+		padding: 6px 13px;
+		font-size: 13px;
+		font-weight: 600;
+		color: var(--ink-2);
+		text-decoration: none;
+		white-space: nowrap;
+	}
+
+	.csv:hover {
+		background: var(--surface-2);
+		color: var(--ink);
 	}
 
 	h1 {

@@ -51,6 +51,7 @@ contenedor:
   # sugardaddy-rdp.patch. Los ceros los cambia por el digest de verdad
   # herramientas/publicar-trampa.sh rdp; el banco de pruebas usa la local.
   imagen: ghcr.io/seguridadsi/sugardaddy-trampa-rdp:1.0.1-sd1@sha256:d63c6e9af75b1a2d83c4bdce69427b650f737e903883dc727b0fd39dcc2aeaec
+  imagenPublica: ghcr.io/seguridadsi/sugardaddy-trampa-rdp:1.0.1-sd1@sha256:d63c6e9af75b1a2d83c4bdce69427b650f737e903883dc727b0fd39dcc2aeaec
   puertos:
     - { interno: 3389, expuesto: '${puertoRdp}', protocolo: tcp }
   entorno:

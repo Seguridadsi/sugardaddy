@@ -31,6 +31,7 @@ contenedor:
   # tope en lo que apunta del atacante (ver COWRIE_OUTPUT_JSONLOG_MAX_BYTES_DAY).
   # La construye y deja aquí su digest herramientas/publicar-trampa.sh cowrie.
   imagen: ghcr.io/seguridadsi/sugardaddy-trampa-cowrie:3.1.2-sd3@sha256:7b432ada205874570063f5570bc4cb0b9953e5d62ca9386d7ec330fdcfd29196
+  imagenPublica: ghcr.io/seguridadsi/sugardaddy-trampa-cowrie:3.1.2-sd3@sha256:7b432ada205874570063f5570bc4cb0b9953e5d62ca9386d7ec330fdcfd29196
   # Sin imagen pública: la de Docker Hub (cowrie/cowrie) lleva JA4+ con
   # licencia FoxIO 1.1 y no tiene el tope de cowrie.json. A un sensor sin
   # credencial del registro (anterior a la 0.12.1, o sin relevo) la consola

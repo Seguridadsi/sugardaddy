@@ -60,6 +60,7 @@ contenedor:
   # scratch, usuario no root). La construye y deja aquí su digest
   # herramientas/publicar-trampa.sh login-web; el banco de pruebas usa la local.
   imagen: ghcr.io/seguridadsi/sugardaddy-trampa-login-web:0.1.0@sha256:c048ebff4b5920b45b5c870460c77542afde6326ee1b9c148b5fd53d3842ea9a
+  imagenPublica: ghcr.io/seguridadsi/sugardaddy-trampa-login-web:0.1.0@sha256:c048ebff4b5920b45b5c870460c77542afde6326ee1b9c148b5fd53d3842ea9a
   puertos:
     - { interno: 8080, expuesto: '${puertoWeb}', protocolo: tcp }
   entorno:

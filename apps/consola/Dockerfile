@@ -39,7 +39,7 @@ COPY --from=construccion /src/node_modules /app/node_modules
 COPY --from=construccion /src/apps/consola/build ./build
 COPY --from=construccion /src/apps/consola/package.json ./
 COPY apps/consola/drizzle ./drizzle
-COPY apps/consola/scripts/arrancar.mjs apps/consola/scripts/preparar-base.mjs apps/consola/scripts/destinos.mjs apps/consola/scripts/emergencia.mjs apps/consola/scripts/red.mjs ./scripts/
+COPY apps/consola/scripts/arrancar.mjs apps/consola/scripts/preparar-base.mjs apps/consola/scripts/destinos.mjs apps/consola/scripts/emergencia.mjs apps/consola/scripts/clave.mjs apps/consola/scripts/red.mjs ./scripts/
 COPY modulos /app/modulos
 COPY --from=geo /geo /app/geo
 # Sin root y sin nada que escribir: el contenedor puede ir en solo lectura.

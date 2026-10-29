@@ -60,6 +60,7 @@ const TIPO_DE_TRAMPA: Record<string, TipoDeServicio> = {
 	/* Terminal y equipos de red */
 	cowrie: 'terminal',
 	'telnet-red': 'terminal',
+	'router-upnp': 'terminal',
 	snmp: 'terminal',
 	/* Web y portales */
 	'login-web': 'web',
@@ -85,6 +86,11 @@ const TIPO_DE_TRAMPA: Record<string, TipoDeServicio> = {
 	'broker-iot': 'iot',
 	adb: 'iot',
 	scada: 'industria',
+	clima: 'industria',
+	'plc-s7': 'industria',
+	telecontrol: 'industria',
+	'pasarela-ot': 'industria',
+	'plc-ab': 'industria',
 	/* Sanidad */
 	pacs: 'sanidad',
 	hl7: 'sanidad',

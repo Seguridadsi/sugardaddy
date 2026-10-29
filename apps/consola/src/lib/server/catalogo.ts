@@ -14,6 +14,8 @@ import type {
 } from '@sugardaddy/contrato';
 import { coberturaLicencia, type Cobertura } from './candado';
 import { db, schema } from './db';
+import { esCommunity } from './edicion';
+import { MODULOS_GRATIS, esDePago } from './modulos-gratis';
 
 /*
  * El catálogo son los manifiestos de modulos/, validados contra el contrato.
@@ -185,17 +187,20 @@ export const catalogoRespuestas = () =>
  * publicar una trampa de pago sin candado). Se reexporta para no cambiar a quien
  * ya lo importa desde aquí (p. ej. sensor.ts).
  */
-export { MODULOS_GRATIS, esDePago } from './modulos-gratis';
+export { MODULOS_GRATIS, esDePago };
 
 /*
  * Módulos que este cliente tiene autorizados. Llegan firmados del panel en
- * cada latido; sin panel, o antes del primer latido, ninguno.
+ * cada latido; sin panel, o antes del primer latido, ninguno —salvo en la
+ * edición community, que no tiene panel y autoriza las trampas gratis, lo
+ * único que se puede desplegar sin licencia.
  */
 export const MODULOS_DE_SERIE: string[] = [];
 
 export async function autorizados(): Promise<string[]> {
 	const [f] = await db.select().from(schema.ajustes).where(eq(schema.ajustes.clave, 'modulos'));
-	return (f?.valor as string[] | undefined) ?? MODULOS_DE_SERIE;
+	if (f?.valor) return f.valor as string[];
+	return esCommunity() ? [...MODULOS_GRATIS] : MODULOS_DE_SERIE;
 }
 
 /*

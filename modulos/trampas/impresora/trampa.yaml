@@ -45,6 +45,7 @@ contenedor:
   # scratch, usuario no root). La construye y deja aquí su digest
   # herramientas/publicar-trampa.sh impresora; el banco de pruebas usa la local.
   imagen: ghcr.io/seguridadsi/sugardaddy-trampa-impresora:0.1.0@sha256:67fec47aacd59c2b2881e8c05337df0dff8d01d73803fd642e31738f604358f7
+  imagenPublica: ghcr.io/seguridadsi/sugardaddy-trampa-impresora:0.1.0@sha256:67fec47aacd59c2b2881e8c05337df0dff8d01d73803fd642e31738f604358f7
   puertos:
     - { interno: 9100, expuesto: '${puertoRaw}', protocolo: tcp }
     - { interno: 1631, expuesto: '${puertoIpp}', protocolo: tcp, si: ipp }

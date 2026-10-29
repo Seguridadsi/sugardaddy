@@ -12,7 +12,9 @@
 		{ href: '/eventos', texto: 'Eventos' },
 		{ href: '/contrasenas', texto: 'Contraseñas' },
 		{ href: '/trampas', texto: 'Trampas' },
+		{ href: '/respuestas', texto: 'Respuesta' },
 		{ href: '/listas', texto: 'Listas' },
+		{ href: '/avisos', texto: 'Avisos y SIEM' },
 		{ href: '/sensores', texto: 'Sensores' },
 		{ href: '/logs', texto: 'Logs' },
 		{ href: '/ajustes', texto: 'Ajustes' }
@@ -42,7 +44,7 @@
 		</a>
 
 		<nav>
-			{#each enlaces.filter((e) => !['/ajustes', '/logs'].includes(e.href) || puede(data.usuario?.roles ?? [], 'ajustes')) as e (e.href)}
+			{#each enlaces.filter((e) => !['/avisos', '/ajustes', '/logs'].includes(e.href) || puede(data.usuario?.roles ?? [], 'ajustes')) as e (e.href)}
 				<a href={resolve(e.href)} aria-current={actual(e.href) ? 'page' : undefined}>
 					{e.texto}
 				</a>
@@ -57,7 +59,11 @@
 			{data.cliente.nombre} · <span class="mono">{data.cliente.nodo}</span>
 		</span>
 
-		<span class="quien" title={data.usuario.roles.join(', ')}>{data.usuario.nombre}</span>
+		{#if data.usuario.oid?.startsWith('local:')}
+			<a class="quien" href={resolve('/mi-cuenta')} title="Mi cuenta">{data.usuario.nombre}</a>
+		{:else}
+			<span class="quien" title={data.usuario.roles.join(', ')}>{data.usuario.nombre}</span>
+		{/if}
 		<form method="POST" action="/auth/logout">
 			<button class="salir">Salir</button>
 		</form>
@@ -149,6 +155,12 @@
 	.quien {
 		font-size: 13px;
 		color: var(--ink-2);
+		text-decoration: none;
+	}
+
+	a.quien:hover {
+		color: var(--ink);
+		text-decoration: underline;
 	}
 
 	.salir {

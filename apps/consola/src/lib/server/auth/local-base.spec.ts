@@ -166,4 +166,34 @@ describe.skipIf(!hayBase)('login local contra base de datos', () => {
 		});
 		expect((await local.fijarRoles('tester', jefe.id, ['operador'])).ok).toBe(true);
 	});
+
+	it('autogestión: el usuario cambia su propio nombre y su propia contraseña', async () => {
+		const c = await local.crear('tester', {
+			usuario: `${P}-yo`,
+			nombre: 'Yo',
+			correo: 'yo@local',
+			roles: ['operador'],
+			clave: clave1
+		});
+		expect(c.ok).toBe(true);
+		const id = c.ok ? c.id : '';
+
+		/* Nombre: cambia (y recorta); vacío se rechaza. */
+		const n = await local.cambiarNombrePropio('yo@local', id, '  Yo Mismo  ');
+		expect(n.ok).toBe(true);
+		if (n.ok) expect(n.nombre).toBe('Yo Mismo');
+		expect((await local.cambiarNombrePropio('yo@local', id, '   ')).ok).toBe(false);
+
+		/* Contraseña: rechaza la actual incorrecta, la corta y la igual a la actual. */
+		expect((await local.cambiarClavePropia('yo@local', id, 'no es la actual larga', clave2)).ok).toBe(
+			false
+		);
+		expect((await local.cambiarClavePropia('yo@local', id, clave1, 'corta')).ok).toBe(false);
+		expect((await local.cambiarClavePropia('yo@local', id, clave1, clave1)).ok).toBe(false);
+
+		/* Con la actual correcta, cambia: la nueva entra y la vieja ya no. */
+		expect((await local.cambiarClavePropia('yo@local', id, clave1, clave2)).ok).toBe(true);
+		expect((await local.verificar(`${P}-yo`, clave2)).ok).toBe(true);
+		expect((await local.verificar(`${P}-yo`, clave1)).ok).toBe(false);
+	});
 });

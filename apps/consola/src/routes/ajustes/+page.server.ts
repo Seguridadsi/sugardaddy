@@ -19,9 +19,12 @@ import {
 	buscarActualizaciones,
 	cabecera,
 	guardarAutoActualizar,
-	guardarBuscarActualizaciones
+	guardarBuscarActualizaciones,
+	guardarWebhook,
+	webhook
 } from '$lib/server/consultas';
 import { gestionado } from '$lib/server/actualizaciones';
+import { enviarLead } from '$lib/server/lead';
 import { db, schema as s } from '$lib/server/db';
 import { aceptar, cerrarYa, rechazar, soporte } from '$lib/server/soporte';
 import { llaves, retirarLlave } from '$lib/server/emergencia';
@@ -49,6 +52,7 @@ export const load = async ({ locals }) => {
 		gestionado: await gestionado(),
 		buscarActualizaciones: await buscarActualizaciones(),
 		autoActualizar: await autoActualizar(),
+		webhook: await webhook(),
 		espacio: esp,
 		estimacion: estimacion(esp, cons.dias),
 		canal: await estadoCanal(),
@@ -97,15 +101,52 @@ export const actions = {
 			if (form.get('consentimiento') !== 'on')
 				return fail(400, { error: 'Marca el consentimiento para activar la auto-actualización.' });
 		}
+		const anterior = await autoActualizar();
 		await guardarAutoActualizar(u.correo, {
 			decidido: true,
 			activo: activar,
 			correo: activar ? correo : null,
 			consentimiento: activar ? new Date().toISOString() : null
 		});
+		/*
+		 * Lead a SeguridadSI (solo nodos community: enviarLead corta solo si hay
+		 * panel). El mismo consentimiento de la casilla cubre recibir novedades.
+		 * No se espera (void): el guardado local ya está hecho y el envío es
+		 * best-effort con su propio timeout; así el toggle responde al instante
+		 * aunque el panel esté caído o lento.
+		 */
+		if (activar) void enviarLead('alta', correo).catch(() => {});
+		else if (anterior.activo && anterior.correo)
+			void enviarLead('baja', anterior.correo).catch(() => {});
 		return {
 			mensaje: activar ? 'Auto-actualización activada.' : 'Auto-actualización desactivada.'
 		};
+	},
+	webhook: async ({ request, locals }) => {
+		const u = exigir(locals, 'ajustes');
+		const f = await request.formData();
+		const activo = f.get('activo') === 'on';
+		const url = String(f.get('url') ?? '').trim();
+		const secreto = String(f.get('secreto') ?? '').trim();
+		if (activo) {
+			let ok = false;
+			try {
+				const p = new URL(url);
+				ok = p.protocol === 'https:' || p.protocol === 'http:';
+			} catch {
+				ok = false;
+			}
+			if (!ok) return fail(400, { error: 'Pon una URL http(s) válida para activar el webhook.' });
+		}
+		/* El secreto en blanco NO lo borra: mantiene el que hubiera (no hace falta
+		 * volver a teclearlo en cada guardado). */
+		const previo = await webhook();
+		await guardarWebhook(u.correo, {
+			url: url || null,
+			activo,
+			secreto: secreto || previo.secreto
+		});
+		return { mensaje: activo ? 'Webhook activado.' : 'Webhook desactivado.' };
 	},
 	palabras: async ({ request, locals }) => {
 		const u = exigir(locals, 'ajustes');

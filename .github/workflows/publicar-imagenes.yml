@@ -39,7 +39,7 @@ jobs:
             docker build --platform linux/amd64 -t "$repo:$etq" -f "$df" "$tmp/fuente"
             docker push "$repo:$etq"
             digest=$(docker inspect --format='{{index .RepoDigests 0}}' "$repo:$etq" | sed 's/^[^@]*@//')
-            perl -pi -e "s{(imagen:\s*\Q$repo:$etq\E)\@sha256:[0-9a-f]{64}}{\${1}\@$digest}" "modulos/trampas/$t/trampa.yaml"
+            perl -pi -e "s{(imagen(?:Publica)?:\s*\Q$repo:$etq\E)\@sha256:[0-9a-f]{64}}{\${1}\@$digest}" "modulos/trampas/$t/trampa.yaml"
             rm -rf "$tmp"
             echo "::endgroup::"
           done

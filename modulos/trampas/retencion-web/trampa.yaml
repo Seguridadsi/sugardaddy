@@ -50,6 +50,7 @@ contenedor:
   # retencion-web; el banco de pruebas (herramientas/probar-trampa.sh) la
   # sustituye por la que construye en local.
   imagen: ghcr.io/seguridadsi/sugardaddy-trampa-retencion-web:1.1.2-sd4@sha256:ca0be292691aa7592acb8b2bffa22cea9c3543b9fb5a3faa4682f202fad2057d
+  imagenPublica: ghcr.io/seguridadsi/sugardaddy-trampa-retencion-web:1.1.2-sd4@sha256:ca0be292691aa7592acb8b2bffa22cea9c3543b9fb5a3faa4682f202fad2057d
   puertos:
     - { interno: 8080, expuesto: '${puerto}', protocolo: tcp }
   entorno:

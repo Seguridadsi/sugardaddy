@@ -2,7 +2,7 @@
  * Todo lo que las páginas leen y escriben. Cada escritura que es una decisión
  * de una persona deja su línea en auditoría, en la misma transacción.
  */
-import { and, desc, eq, gte, inArray, like, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, gte, inArray, like, or, sql } from 'drizzle-orm';
 import { EJECUTORES } from '@sugardaddy/contrato';
 import type { Evento, PasosGenerados, Severidad, TipoTrampa } from '@sugardaddy/contrato';
 import { env } from '$env/dynamic/private';
@@ -103,6 +103,45 @@ export async function eventos(
 		.orderBy(desc(s.eventos.cuando))
 		.limit(limite);
 	return filas.map((f) => conAlerta(f));
+}
+
+/*
+ * Los eventos en columnas planas, para que el cliente se baje sus datos en CSV
+ * (edición community: sacar tus datos tú mismo). Usa las COPIAS denormalizadas
+ * (las mismas con las que se filtra), no la línea firmada: salen listas para una
+ * hoja de cálculo sin parsear nada. Mismo filtro que `eventos`, con un tope alto.
+ */
+export async function eventosPlanos(
+	filtro: { desde?: Severidad; trampa?: string; origen?: string } = {},
+	limite = 50_000
+) {
+	const desde = SEVERIDADES.indexOf(filtro.desde ?? 'baja');
+	return db
+		.select({
+			cuando: s.eventos.cuando,
+			severidad: s.eventos.severidad,
+			sensor: s.eventos.sensor,
+			trampa: s.eventos.trampa,
+			modulo: s.eventos.modulo,
+			tipo: s.eventos.tipo,
+			accion: s.eventos.accion,
+			ip: s.eventos.ip,
+			usuario: s.eventos.usuario,
+			contrasena: s.eventos.contrasena,
+			conexionEstablecida: s.eventos.conexionEstablecida,
+			alerta: s.eventos.alerta,
+			prueba: s.eventos.prueba
+		})
+		.from(s.eventos)
+		.where(
+			and(
+				inArray(s.eventos.severidad, SEVERIDADES.slice(desde)),
+				filtro.trampa ? eq(s.eventos.trampa, filtro.trampa) : undefined,
+				filtro.origen ? like(s.eventos.ip, `${filtro.origen.replace(/[%_\\]/g, '')}%`) : undefined
+			)
+		)
+		.orderBy(desc(s.eventos.cuando))
+		.limit(limite);
 }
 
 export async function totalEventos() {
@@ -472,6 +511,73 @@ export async function guardarAutoActualizar(quien: string, valor: AutoActualizar
 			detalle: { correo: valor.correo ? 'dado' : 'no' }
 		});
 	});
+}
+
+/*
+ * Webhook de eventos (edición community: «saca tus datos tú mismo»). Dispara
+ * cada evento nuevo, tal cual, a una URL del cliente; él monta su fiabilidad
+ * (NATS, su SIEM…) al otro lado. La entrega GESTIONADA y fiable (reglas,
+ * reintentos, Sentinel/Teams/Slack/correo con formato) es de pago (Avisos y SIEM).
+ * `secreto`, si se pone, firma cada envío con HMAC-SHA256 para que el cliente
+ * pueda comprobar que viene del nodo.
+ */
+export type Webhook = { url: string | null; activo: boolean; secreto: string | null };
+
+export const webhook = () =>
+	ajuste<Webhook>('webhook', { url: null, activo: false, secreto: null });
+
+/* Hasta dónde se ha enviado ya (marca de agua): el evento con (recibido, id) más
+ * reciente que salió. El par evita duplicar o perder los que comparten recibido. */
+export type WebhookPos = { recibido: string | null; id: string | null };
+
+export const webhookPos = () => ajuste<WebhookPos>('webhook-pos', { recibido: null, id: null });
+
+export async function guardarWebhookPos(pos: WebhookPos) {
+	await db
+		.insert(s.ajustes)
+		.values({ clave: 'webhook-pos', valor: pos })
+		.onConflictDoUpdate({ target: s.ajustes.clave, set: { valor: pos } });
+}
+
+export async function guardarWebhook(quien: string, valor: Webhook) {
+	const previo = await webhook();
+	await db.transaction(async (tx) => {
+		await tx
+			.insert(s.ajustes)
+			.values({ clave: 'webhook', valor })
+			.onConflictDoUpdate({ target: s.ajustes.clave, set: { valor } });
+		/* Al ACTIVARLO, el reloj empieza ahora: solo se envían los eventos nuevos,
+		 * no se vuelca el histórico de golpe. */
+		if (valor.activo && !previo.activo) {
+			const pos: WebhookPos = { recibido: new Date().toISOString(), id: '' };
+			await tx
+				.insert(s.ajustes)
+				.values({ clave: 'webhook-pos', valor: pos })
+				.onConflictDoUpdate({ target: s.ajustes.clave, set: { valor: pos } });
+		}
+		/* En la auditoría va la URL (es del propio cliente), pero del secreto solo si lo hay. */
+		await tx.insert(s.auditoria).values({
+			quien,
+			accion: valor.activo ? 'webhook de eventos activado' : 'webhook de eventos desactivado',
+			detalle: { url: valor.url, secreto: valor.secreto ? 'sí' : 'no' }
+		});
+	});
+}
+
+/* Los eventos a partir de la marca de agua, en orden de llegada, para el webhook. */
+export async function eventosParaWebhook(pos: WebhookPos, limite = 200) {
+	const base = pos.recibido ? new Date(pos.recibido) : new Date(0);
+	/* `id` es UUID: cuando aún no se ha enviado nada (id vacío/nulo) se usa el
+	 * UUID cero como centinela, que es menor que cualquier id real. */
+	const idBase = pos.id || '00000000-0000-0000-0000-000000000000';
+	return db
+		.select({ id: s.eventos.id, linea: s.eventos.linea, recibido: s.eventos.recibido })
+		.from(s.eventos)
+		.where(
+			or(gt(s.eventos.recibido, base), and(eq(s.eventos.recibido, base), gt(s.eventos.id, idBase)))
+		)
+		.orderBy(asc(s.eventos.recibido), asc(s.eventos.id))
+		.limit(limite);
 }
 
 /*
