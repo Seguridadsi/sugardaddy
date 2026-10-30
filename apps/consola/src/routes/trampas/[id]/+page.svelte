@@ -6,6 +6,7 @@
 	import EstadoTrampa from '$lib/components/EstadoTrampa.svelte';
 	import FormularioParametros from '$lib/components/FormularioParametros.svelte';
 	import ListaPasos from '$lib/components/ListaPasos.svelte';
+	import { ENTORNOS, ENTORNO_ETIQUETA, ENTORNO_EXPLICACION } from '$lib/entorno';
 	import { puede } from '$lib/permisos';
 
 	let { data, form } = $props();
@@ -95,6 +96,45 @@
 			<ul>
 				{#each e.avisos as a (a.codigo)}<li>{a.texto}</li>{/each}
 			</ul>
+		{/if}
+	</section>
+{/if}
+
+<!--
+	Dónde está puesta esta trampa (respuesta por entorno): decide qué respuesta
+	tiene sentido si alguien la toca. Hereda de su sensor y se puede afinar aquí
+	para este honeypot. Gana lo más específico (lib/entorno.ts).
+-->
+{#if opera}
+	<section class="panel entornobloque" aria-label="Dónde está puesta">
+		<h2>Dónde está puesta</h2>
+		<p class="ayuda">
+			Un señuelo dentro de la red y uno de cara a la web no piden la misma respuesta. Déjalo heredar
+			de su sensor o afínalo para este honeypot.
+		</p>
+		<form method="POST" action="?/entorno" use:enhance>
+			<select
+				name="entorno"
+				aria-label="Entorno de la trampa"
+				onchange={(ev) => ev.currentTarget.form?.requestSubmit()}
+			>
+				<option value="" selected={!data.entorno.propio}
+					>Heredar del sensor {data.entorno.sensor
+						? `(${ENTORNO_ETIQUETA[data.entorno.sensor]})`
+						: '(sin entorno)'}</option
+				>
+				{#each ENTORNOS as ent (ent)}
+					<option value={ent} selected={data.entorno.propio === ent}>{ENTORNO_ETIQUETA[ent]}</option
+					>
+				{/each}
+			</select>
+		</form>
+		{#if data.entorno.efectivo}
+			<p class="explica">{ENTORNO_EXPLICACION[data.entorno.efectivo]}</p>
+		{:else}
+			<p class="explica sin">
+				Sin entorno puesto: el motor se comporta como siempre (no lo frena por ubicación).
+			</p>
 		{/if}
 	</section>
 {/if}
@@ -706,5 +746,37 @@
 		font-size: 12px;
 		color: var(--ink-3);
 		overflow-wrap: anywhere;
+	}
+
+	.entornobloque {
+		max-width: 720px;
+		margin: 0 0 16px;
+		padding: 14px 18px 16px;
+		font-size: 13.5px;
+		color: var(--ink-2);
+	}
+
+	.entornobloque h2 {
+		margin: 0 0 2px;
+		color: var(--ink);
+	}
+
+	.entornobloque form {
+		margin: 10px 0 0;
+	}
+
+	.entornobloque select {
+		max-width: 320px;
+	}
+
+	.explica {
+		margin: 10px 0 0;
+		font-size: 12.5px;
+		color: var(--ink-3);
+		overflow-wrap: anywhere;
+	}
+
+	.explica.sin {
+		font-style: italic;
 	}
 </style>

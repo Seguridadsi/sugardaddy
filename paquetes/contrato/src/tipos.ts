@@ -271,6 +271,12 @@ export interface ManifiestoRespuesta {
 	 * informativas (avisar/enviar) lo omiten: actúan sobre el evento entero.
 	 */
 	acepta?: ClaseIoc[];
-	secretos?: { id: Slug; descripcion: string }[];
+	/*
+	 * `obligatorio` por defecto true: si el módulo lo declara, hace falta. Se
+	 * pone en false cuando el módulo tiene varios canales y cada secreto solo lo
+	 * usa uno (p. ej. abrir-ticket: `autorizacion` por API o `contrasena` por
+	 * correo): el ejecutor exige en tiempo de ejecución el que toque.
+	 */
+	secretos?: { id: Slug; descripcion: string; obligatorio?: boolean }[];
 	parametros: EsquemaParametros;
 }

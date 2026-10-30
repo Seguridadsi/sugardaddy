@@ -1,13 +1,14 @@
 import { error, fail, redirect } from '@sveltejs/kit';
 import { proyectarParaSensor, validarParametros, viaDe } from '@sugardaddy/contrato';
+import { esEntorno } from '$lib/entorno';
 import { recibeSenalDe } from '$lib/formato';
 import { avisosDeTrampa, modificarConElector, regenerarPasos } from '$lib/server/alta';
 import { exigir } from '$lib/server/auth/permisos';
 import { trampasAutorizadas } from '$lib/server/catalogo';
 import { estadosVisibles } from '$lib/server/colocacion';
-import { trampa } from '$lib/server/consultas';
+import { entornoDeTrampa, trampa } from '$lib/server/consultas';
 import { destinoDeTrampa, trampasDelCliente } from '$lib/server/destinos';
-import { retirarTrampa, trampaHecha, trampaQuitada } from '$lib/server/gestion';
+import { cambiarEntornoTrampa, retirarTrampa, trampaHecha, trampaQuitada } from '$lib/server/gestion';
 import { fichaDePasos, opcionesDeObjetivo } from '$lib/server/pasos';
 import { abrirPrueba, normalizarIp, pruebaDeTrampa } from '$lib/server/pruebas';
 
@@ -57,6 +58,8 @@ export const load = async ({ params, getClientAddress }) => {
 		...(await pruebaDeTrampa(t, estado)),
 		ipNavegador: ipDelNavegador(getClientAddress)
 	};
+	/* Dónde está puesta (dentro | web | aislada): su valor propio y el que heredaría del sensor. */
+	const entorno = (await entornoDeTrampa(params.id)) ?? { propio: null, sensor: null, efectivo: null };
 	if (t.ejecutor === 'manual@1') {
 		const destino = await destinoDeTrampa(t);
 		const objetivo = t.senalTrampa ? await trampa(t.senalTrampa) : null;
@@ -69,6 +72,7 @@ export const load = async ({ params, getClientAddress }) => {
 			trampa: { id: t.id, nombre: t.nombre, colocacion: t.colocacion, modulo: t.modulo },
 			estado,
 			prueba,
+			entorno,
 			destino: destino && { id: destino.id, nombre: destino.nombre },
 			objetivo: objetivo && { id: objetivo.id, nombre: objetivo.nombre },
 			pasos: t.manual ? fichaDePasos(t.manual) : null,
@@ -90,6 +94,7 @@ export const load = async ({ params, getClientAddress }) => {
 		trampa: { id: t.id, nombre: t.nombre, sensor: t.sensor, donde: t.donde },
 		estado,
 		prueba,
+		entorno,
 		modulo: m,
 		valores: p.ok ? p.valor : t.parametros,
 		/* Lo que dice hoy el elector de su máquina con sus valores: no impide guardar. */
@@ -139,6 +144,22 @@ export const actions = {
 		const r = await modificarConElector(u.correo, t, h, { nombre, parametros: p.valor });
 		if (r !== 'modificada') return fail(400, { ...r, nombre, valores });
 		redirect(303, `/trampas?cambiado=${encodeURIComponent(nombre)}`);
+	},
+
+	/*
+	 * Dónde está puesta esta trampa (dentro | de cara a la web | aislada), que
+	 * afina el entorno de su sensor; gana lo más específico (lib/entorno.ts).
+	 * Vacío = que herede del sensor. Decide qué respuesta tiene sentido, así que
+	 * es cosa de quien despliega.
+	 */
+	entorno: async ({ params, request, locals }) => {
+		const u = exigir(locals, 'desplegar');
+		const v = String((await request.formData()).get('entorno') ?? '');
+		const entorno = v === '' ? null : esEntorno(v) ? v : undefined;
+		if (entorno === undefined) return fail(400, { aviso: 'Entorno no válido.' });
+		if (!(await cambiarEntornoTrampa(u.correo, params.id, entorno)))
+			error(404, 'Esa trampa no existe.');
+		return { hecho: 'Entorno de la trampa guardado.' };
 	},
 
 	/*

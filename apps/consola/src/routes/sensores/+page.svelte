@@ -3,6 +3,7 @@
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import { nombreTipoDestino } from '$lib/destinos';
+	import { ENTORNOS, ENTORNO_ETIQUETA } from '$lib/entorno';
 	import { haceCuanto } from '$lib/formato';
 	import { puede } from '$lib/permisos';
 	import { redYVlan } from '$lib/red';
@@ -119,6 +120,27 @@
 								>{redYVlan(x.red, x.vlan) || 'sin indicar'}</span
 							>
 						{/if}
+						<div class="entorno">
+							{#if admin}
+								<form method="POST" action="?/entorno" use:enhance>
+									<input type="hidden" name="id" value={x.id} />
+									<select
+										name="entorno"
+										aria-label="Entorno del sensor"
+										onchange={(e) => e.currentTarget.form?.requestSubmit()}
+									>
+										<option value="" selected={!x.entorno}>sin entorno</option>
+										{#each ENTORNOS as ent (ent)}
+											<option value={ent} selected={x.entorno === ent}>{ENTORNO_ETIQUETA[ent]}</option>
+										{/each}
+									</select>
+								</form>
+							{:else}
+								<small class:sin={!x.entorno}
+									>{x.entorno ? ENTORNO_ETIQUETA[x.entorno] : 'sin entorno'}</small
+								>
+							{/if}
+						</div>
 					</td>
 					<td class="num mono">{x.trampas}</td>
 					<td>

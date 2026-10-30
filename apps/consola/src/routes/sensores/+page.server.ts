@@ -1,8 +1,9 @@
 import { fail } from '@sveltejs/kit';
 import { SIN_IDENTIFICADOR, identificador } from '$lib/identificador';
+import { esEntorno } from '$lib/entorno';
 import { exigir } from '$lib/server/auth/permisos';
 import { redDelFormulario } from '$lib/red';
-import { cambiarRed, retirarSensor, sensores, ultimaCuarentena } from '$lib/server/gestion';
+import { cambiarEntorno, cambiarRed, retirarSensor, sensores, ultimaCuarentena } from '$lib/server/gestion';
 import { listaDestinos } from '$lib/server/destinos';
 import { esCommunity } from '$lib/server/edicion';
 import { altaSensorRemoto, lineaSensorRemoto } from '$lib/server/sensores-remotos';
@@ -57,6 +58,18 @@ export const actions = {
 		if (!(await cambiarRed(u.correo, id, r)))
 			return fail(404, { error: 'Ese sensor ya no existe.' });
 		return { mensaje: 'Red del sensor guardada.' };
+	},
+	entorno: async ({ request, locals }) => {
+		const u = exigir(locals, 'ajustes');
+		const f = await request.formData();
+		const id = String(f.get('id'));
+		const v = String(f.get('entorno') ?? '');
+		/* Vacío = sin entorno (null); cualquier otra cosa tiene que ser uno de los tres válidos. */
+		const entorno = v === '' ? null : esEntorno(v) ? v : undefined;
+		if (entorno === undefined) return fail(400, { error: 'Entorno no válido.', cambiando: id });
+		if (!(await cambiarEntorno(u.correo, id, entorno)))
+			return fail(404, { error: 'Ese sensor ya no existe.' });
+		return { mensaje: 'Entorno del sensor guardado.' };
 	},
 	retirar: async ({ request, locals }) => {
 		const u = exigir(locals, 'ajustes');

@@ -57,6 +57,13 @@ export const sensores = pgTable('sensores', {
 	 */
 	red: text('red'),
 	vlan: integer('vlan'),
+	/*
+	 * Dónde está este sensor, para decidir qué respuesta tiene sentido (ver
+	 * lib/entorno.ts): «dentro» de la red, «perimetro-web» de cara a internet o
+	 * «aislada». Es el defecto cómodo para todas sus trampas; cada honeypot puede
+	 * afinarlo. Nulo = sin entorno (el motor se comporta como antes).
+	 */
+	entorno: text('entorno', { enum: ['dentro', 'perimetro-web', 'aislada'] }),
 	/* sha256 del token del sensor. El token solo se ve una vez, al darlo de alta. */
 	claveHash: text('clave_hash').notNull(),
 	/* Hash de la última línea aceptada: la siguiente tiene que traerlo en hashAnterior. */
@@ -176,6 +183,11 @@ export const trampas = pgTable(
 		parametros: jsonb('parametros').$type<Record<string, unknown>>().notNull().default({}),
 		activo: boolean('activo').notNull().default(true),
 		/*
+		 * El entorno de ESTA trampa, si se afina aparte de su sensor (lib/entorno.ts).
+		 * Nulo = hereda el del sensor. Gana lo más específico (trampa sobre sensor).
+		 */
+		entorno: text('entorno', { enum: ['dentro', 'perimetro-web', 'aislada'] }),
+		/*
 		 * Dónde está puesta. Nula = la máquina de su sensor, que es lo que deja
 		 * el INSERT de una consola anterior (scripts/destinos.mjs lo completa al
 		 * arrancar); pasa a NOT NULL dos versiones después de la 0012.
@@ -256,6 +268,8 @@ export const eventos = pgTable(
 		index('eventos_trampa').on(t.trampa),
 		index('eventos_contrasena').on(t.contrasena),
 		index('eventos_ip').on(t.ip),
+		/* Incidentes (incidentes.ts) agrupa y abre la línea de tiempo por usuario. */
+		index('eventos_usuario').on(t.usuario),
 		/* El borrado por plazo de conservación (conservacion.ts) va por «recibido». */
 		index('eventos_recibido').on(t.recibido)
 	]
@@ -435,6 +449,8 @@ export const reglas = pgTable('reglas', {
 	}).notNull(),
 	/* null: todas las trampas. */
 	trampas: jsonb('trampas').$type<string[] | null>(),
+	/* null: todos los entornos; si no, solo los eventos de trampas de estos entornos (lib/entorno.ts). */
+	entornos: jsonb('entornos').$type<string[] | null>(),
 	respuestas: jsonb('respuestas').$type<{ modulo: string; modo: ModoRespuesta }[]>().notNull(),
 	activa: boolean('activa').notNull().default(true),
 	creado: creado()
@@ -496,6 +512,13 @@ export const respuestasConfig = pgTable('respuestas_config', {
 	modulo: text('modulo').primaryKey(),
 	parametros: jsonb('parametros').$type<Record<string, unknown>>().notNull().default({}),
 	secretosCifrados: text('secretos_cifrados'),
+	/*
+	 * Si el cliente ha activado este módulo. El motor solo ofrece y ejecuta un
+	 * módulo con activa=true (sus credenciales completas se exigen al guardar):
+	 * sin activar, no actúa (falla cerrado). Aditiva y con DEFAULT: la consola
+	 * anterior, que ni la lee ni la escribe, cae en false y sigue igual.
+	 */
+	activa: boolean('activa').notNull().default(false),
 	actualizado: timestamp('actualizado', { withTimezone: true }).notNull().defaultNow()
 });
 
@@ -668,6 +691,53 @@ export const ajustes = pgTable('ajustes', {
 	clave: text('clave').primaryKey(),
 	valor: jsonb('valor').notNull()
 });
+
+/*
+ * Enriquecimiento de la IP pública de origen (país, operador y reputación de
+ * AbuseIPDB y GreyNoise), cacheado por IP con un TTL. Tabla nueva y sin claves
+ * hacia las de antes: la consola anterior no la ve y sigue igual. Solo la
+ * escribe quien abre el detalle de un evento (enriquecimiento.ts), nunca la
+ * recepción de eventos.
+ */
+export const enriquecimientoIp = pgTable('enriquecimiento_ip', {
+	ip: text('ip').primaryKey(),
+	pais: text('pais'),
+	operador: text('operador'),
+	puntuacion: integer('puntuacion'),
+	clasificacion: text('clasificacion'),
+	totalInformes: integer('total_informes'),
+	tor: boolean('tor').notNull().default(false),
+	fuentes: jsonb('fuentes').$type<string[]>().notNull().default([]),
+	crudo: jsonb('crudo').$type<Record<string, unknown>>().notNull().default({}),
+	cuando: timestamp('cuando', { withTimezone: true }).notNull().defaultNow()
+});
+
+/*
+ * Lo que el sensor sube de verdad de una visita a cowrie: el binario que
+ * capturó la trampa, o el ttylog para repetir la sesión byte a byte. Cuelga del
+ * evento que lo trajo y se va con él al caducar (ON DELETE CASCADE). HOY está
+ * vacía: el sensor de cowrie solo sube cowrie.json (los eventos), no el
+ * contenido de los ficheros ni el ttylog; esta tabla es donde aterrizará ese
+ * contenido cuando se conecte ese tramo (captura-artefactos.ts). Mientras
+ * tanto, la sesión se arma con lo que cowrie ya reporta (captura.ts).
+ */
+export const artefactos = pgTable(
+	'artefactos',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		evento: uuid('evento')
+			.notNull()
+			.references(() => eventos.id, { onDelete: 'cascade' }),
+		tipo: text('tipo', { enum: ['descarga', 'escritura'] }).notNull(),
+		nombre: text('nombre'),
+		sha256: text('sha256'),
+		bytes: bigint('bytes', { mode: 'number' }),
+		/* Dónde está la copia subida por el sensor; null mientras no haya copia. */
+		ref: text('ref'),
+		creado: creado()
+	},
+	(t) => [index('artefactos_evento').on(t.evento)]
+);
 
 export const auditoria = pgTable(
 	'auditoria',

@@ -310,6 +310,7 @@
 	</form>
 </section>
 
+
 <section class="panel bloque">
 	<h2>Panel central de SeguridadSI</h2>
 

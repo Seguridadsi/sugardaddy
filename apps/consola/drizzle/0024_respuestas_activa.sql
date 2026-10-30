@@ -1,0 +1,1 @@
+ALTER TABLE "respuestas_config" ADD COLUMN "activa" boolean DEFAULT false NOT NULL;

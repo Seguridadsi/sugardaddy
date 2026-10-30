@@ -89,7 +89,7 @@
 				...(v.geo ? [{ nombre: 'De', v: textoGeo(v.geo) }] : []),
 				...(v.geo?.tor ? [{ nombre: 'Tor', v: 'nodo de salida' }] : []),
 				...(usuarios.size === 1 ? [{ nombre: 'Usuario', v: [...usuarios][0] }] : []),
-				...fijos.map((k) => ({ nombre: v.etiquetas[k] ?? k, v: [...valores.get(k)!][0] }))
+				...fijos.map((k) => ({ nombre: v.etiquetas[k] ?? k, v: [...valores.get(k)!][0] })),
 			],
 			pasos: v.visita.map((e) => ({
 				e,

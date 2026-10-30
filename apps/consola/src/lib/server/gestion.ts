@@ -7,6 +7,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { and, asc, desc, eq, ilike, isNull, or, sql } from 'drizzle-orm';
 import { EJECUTORES } from '@sugardaddy/contrato';
 import { avisosSensor, resumenMotor } from '$lib/capacidades';
+import type { Entorno } from '$lib/entorno';
 import { trasHecho, trasParar, trasQuitado, trasRetirar } from './colocacion';
 import { db, schema as s } from './db';
 import { insertarDestino, type Tx } from './destinos';
@@ -22,6 +23,7 @@ export async function sensores() {
 			nombre: s.sensores.nombre,
 			red: s.sensores.red,
 			vlan: s.sensores.vlan,
+			entorno: s.sensores.entorno,
 			ultimoLatido: s.sensores.ultimoLatido,
 			remoto: s.sensores.remoto,
 			version: s.sensores.version,
@@ -121,6 +123,55 @@ export async function cambiarRed(
 		await tx
 			.insert(s.auditoria)
 			.values({ quien, accion: 'red del sensor cambiada', detalle: { id, ...v } });
+		return true;
+	});
+}
+
+/*
+ * El entorno de un sensor (dentro | perimetro-web | aislada | null), el defecto
+ * de todas sus trampas (lib/entorno.ts). Decide qué respuesta tiene sentido, así
+ * que queda en la auditoría.
+ */
+export async function cambiarEntorno(
+	quien: string,
+	id: string,
+	entorno: Entorno | null
+) {
+	return db.transaction(async (tx) => {
+		const [f] = await tx
+			.update(s.sensores)
+			.set({ entorno })
+			.where(eq(s.sensores.id, id))
+			.returning({ id: s.sensores.id });
+		if (!f) return false;
+		await tx
+			.insert(s.auditoria)
+			.values({ quien, accion: 'entorno del sensor cambiado', detalle: { id, entorno } });
+		return true;
+	});
+}
+
+/*
+ * El entorno de un honeypot concreto (dentro | perimetro-web | aislada | null),
+ * que afina el de su sensor: gana lo más específico (lib/entorno.ts). null = que
+ * herede del sensor. Decide qué respuesta tiene sentido, así que queda en la
+ * auditoría. false si la trampa ya no existe.
+ */
+export async function cambiarEntornoTrampa(
+	quien: string,
+	id: string,
+	entorno: Entorno | null
+) {
+	return db.transaction(async (tx) => {
+		const [f] = await tx
+			.update(s.trampas)
+			.set({ entorno })
+			.where(eq(s.trampas.id, id))
+			.returning({ id: s.trampas.id });
+		if (!f) return false;
+		await tx
+			.insert(s.auditoria)
+			.values({ quien, accion: 'entorno de la trampa cambiado', detalle: { id, entorno } });
 		return true;
 	});
 }

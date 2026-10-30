@@ -7,6 +7,7 @@ import { EJECUTORES } from '@sugardaddy/contrato';
 import type { Evento, PasosGenerados, Severidad, TipoTrampa } from '@sugardaddy/contrato';
 import { env } from '$env/dynamic/private';
 import { avisosSensor } from '$lib/capacidades';
+import { entornoDe, type Entorno } from '$lib/entorno';
 import { redYVlan } from '$lib/red';
 import { db, schema as s } from './db';
 import { honeycosas, traductorDeTrampa } from './catalogo';
@@ -648,6 +649,32 @@ export function etiquetasModulos(): Record<
 export async function trampa(id: string) {
 	const [f] = await db.select().from(s.trampas).where(eq(s.trampas.id, id));
 	return f ?? null;
+}
+
+/*
+ * El entorno efectivo de una trampa y de dónde sale: el suyo si lo tiene, si no
+ * el de su sensor (lib/entorno.ts). Un único sitio para la ficha de la trampa y
+ * para el motor (la guarda y el filtrado de reglas por entorno). null si la
+ * trampa ya no existe.
+ */
+export async function entornoDeTrampa(
+	id: string
+): Promise<{ propio: Entorno | null; sensor: Entorno | null; efectivo: Entorno | null } | null> {
+	const [t] = await db
+		.select({ entorno: s.trampas.entorno, sensor: s.trampas.sensor })
+		.from(s.trampas)
+		.where(eq(s.trampas.id, id));
+	if (!t) return null;
+	let sensor: Entorno | null = null;
+	if (t.sensor) {
+		const [sen] = await db
+			.select({ entorno: s.sensores.entorno })
+			.from(s.sensores)
+			.where(eq(s.sensores.id, t.sensor));
+		sensor = (sen?.entorno as Entorno | null) ?? null;
+	}
+	const propio = t.entorno as Entorno | null;
+	return { propio, sensor, efectivo: entornoDe(propio, sensor) };
 }
 
 /*

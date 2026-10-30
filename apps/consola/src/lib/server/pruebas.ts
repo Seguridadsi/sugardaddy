@@ -257,6 +257,25 @@ async function datosDe(t: Trampa) {
 	return { h, parametros, destino };
 }
 
+/*
+ * El objetivo de la prueba genérica de una trampa —su dirección y el primer
+ * puerto TCP que publica— para tocarlo desde el nodo («Prueba mi detección»,
+ * prueba-deteccion.ts). Es la misma dirección y puerto que enseña «Probar» en
+ * su ficha. null si no es una trampa genérica con puerto TCP y una dirección
+ * conocida (las de vía o destino se prueban con sus pasos, no con un toque).
+ */
+export async function objetivoGenerico(
+	t: Trampa
+): Promise<{ direccion: string; puerto: number } | null> {
+	const { h, parametros, destino } = await datosDe(t);
+	if (!h || !destino.direccion || !DIRECCION.test(destino.direccion)) return null;
+	const via = viaDe(h, t.via);
+	if (!via || via.ejecutor !== t.ejecutor) return null;
+	const puerto = puertoTcp(via, parametros);
+	if (puerto === null) return null;
+	return { direccion: destino.direccion, puerto };
+}
+
 /* Los pasos de una prueba ya rellenos, para enseñarlos. null si ya no se pueden preparar. */
 type PasosDePrueba =
 	| {

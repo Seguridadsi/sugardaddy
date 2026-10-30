@@ -1,0 +1,1 @@
+CREATE INDEX "eventos_usuario" ON "eventos" USING btree ("usuario");

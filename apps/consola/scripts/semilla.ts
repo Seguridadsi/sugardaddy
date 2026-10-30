@@ -31,7 +31,7 @@ if (n > 0 && !process.argv.includes('--reiniciar')) {
 }
 
 await db.execute(
-	sql`truncate auditoria, ajustes, listas, aprobaciones, reglas, eventos, trampas, destinos, sensores restart identity cascade`
+	sql`truncate auditoria, ajustes, listas, aprobaciones, reglas, respuestas_config, eventos, trampas, destinos, sensores restart identity cascade`
 );
 
 const tokens: Record<string, string> = {};
@@ -93,6 +93,22 @@ await db.insert(s.reglas).values(
 		activa: r.activa
 	}))
 );
+
+/*
+ * Los módulos de respuesta que usan esas reglas, activados: sin esto el motor no
+ * ofrecería ninguno (activa=false por defecto) y /respuestas saldría todo
+ * inactivo. Es un ejemplo en local: no llevan credenciales, así que la contención
+ * real fallaría cerrada; en simulación o a la espera de aprobación, que es lo que
+ * enseña la demo, no hace falta. Se deriva de las propias reglas para no
+ * desincronizarse.
+ */
+const modulosDeReglas = [
+	...new Set(ejemplo.reglas.flatMap((r) => r.respuestas.map((x) => x.modulo)))
+];
+if (modulosDeReglas.length)
+	await db
+		.insert(s.respuestasConfig)
+		.values(modulosDeReglas.map((modulo) => ({ modulo, activa: true })));
 
 await db.insert(s.aprobaciones).values(
 	ejemplo.aprobaciones.map((a) => ({

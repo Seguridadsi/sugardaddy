@@ -95,7 +95,11 @@
 				"required": ["id", "descripcion"],
 				"properties": {
 					"id": { "$ref": "evento.schema.json#/$defs/slug" },
-					"descripcion": { "type": "string" }
+					"descripcion": { "type": "string" },
+					"obligatorio": {
+						"description": "Si hace falta siempre. Por defecto true. Se pone en false cuando el módulo tiene varios canales y cada secreto solo lo usa uno.",
+						"type": "boolean"
+					}
 				}
 			}
 		},
