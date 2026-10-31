@@ -4,9 +4,24 @@
 	 * El evento firmado, más lo que le añade la consola al recibirlo: la alerta,
 	 * o que lo provocó «Probar» (no es un ataque).
 	 */
-	type Evento = EventoFirmado & { alerta?: string | null; prueba?: boolean };
+	type Triaje = { estado: string; nota: string | null } | null | undefined;
+	type Evento = EventoFirmado & {
+		alerta?: string | null;
+		prueba?: boolean;
+		triaje?: Triaje;
+		/* Con la vista agrupada: cuántos eventos iguales representa esta fila (>1). */
+		repeticiones?: number;
+	};
+	import { enhance } from '$app/forms';
 	import { haceCuanto, horaCorta, horaLarga, nombreAccion, textoGeo, type Geo } from '$lib/formato';
 	import { AVISO_IP_MOTOR } from '$lib/capacidades';
+
+	/* El nombre legible de cada estado de triaje. */
+	const ETIQUETA_TRIAJE: Record<string, string> = {
+		revisado: 'Revisado',
+		'falso-positivo': 'Falso positivo',
+		interesante: 'Interesante'
+	};
 
 	type Modulos = Record<
 		string,
@@ -25,13 +40,19 @@
 		nombres,
 		modulos = {},
 		geos = {},
-		ahora
+		ahora,
+		/* Con triaje: muestra el control para marcar cada evento (solo en /eventos,
+		 * la única pantalla con las acciones de triaje). La insignia se ve siempre. */
+		conTriaje = false,
+		estadosTriaje = []
 	}: {
 		eventos: Evento[];
 		nombres: Record<string, string>;
 		modulos?: Modulos;
 		geos?: Record<string, Geo>;
 		ahora: number;
+		conTriaje?: boolean;
+		estadosTriaje?: readonly string[];
 	} = $props();
 
 	/*
@@ -155,6 +176,15 @@
 					{#if e.prueba}<span class="prueba" title="Lo provocó «Probar»: no es un ataque"
 							>prueba</span
 						>{/if}
+					{#if e.triaje && !(e.repeticiones && e.repeticiones > 1)}<span
+							class="triaje triaje-{e.triaje.estado}"
+							title={e.triaje.nota ?? ''}
+							>{ETIQUETA_TRIAJE[e.triaje.estado] ?? e.triaje.estado}</span
+						>{/if}
+					{#if e.repeticiones && e.repeticiones > 1}<span
+							class="repes mono"
+							title="{e.repeticiones} eventos iguales agrupados (de los cargados)">×{e.repeticiones}</span
+						>{/if}
 				</span>
 				<span class="que">
 					<b>{nombres[e.trampa.id] ?? e.trampa.id}</b>
@@ -190,6 +220,45 @@
 
 			{#if abierto === e.id}
 				<div class="visita">
+					<div class="perfiles">
+						{#if e.origen.ip && !e.origen.oculta}
+							<a class="perfil-ip mono" href="/eventos/ip/{encodeURIComponent(e.origen.ip)}"
+								>Ver todo de {e.origen.ip} →</a
+							>
+						{/if}
+						{#if e.origen.usuario}
+							<a class="perfil-ip mono" href="/eventos/usuario?u={encodeURIComponent(e.origen.usuario)}"
+								>Ver todo del usuario {e.origen.usuario} →</a
+							>
+						{/if}
+					</div>
+					{#if conTriaje}
+						<form method="POST" action="?/triaje" class="triaje-control" use:enhance>
+							<input type="hidden" name="evento" value={e.id} />
+							<span class="eyebrow">Triaje</span>
+							<div class="chips">
+								{#each estadosTriaje as est (est)}
+									<button
+										name="estado"
+										value={est}
+										class="chip triaje-{est}"
+										class:activo={e.triaje?.estado === est}>{ETIQUETA_TRIAJE[est] ?? est}</button
+									>
+								{/each}
+							</div>
+							<input
+								name="nota"
+								class="nota mono"
+								placeholder="Nota (opcional)"
+								value={e.triaje?.nota ?? ''}
+								maxlength="2000"
+								onkeydown={(ev) => ev.key === 'Enter' && ev.preventDefault()}
+							/>
+							{#if e.triaje}
+								<button type="submit" formaction="?/quitarTriaje" class="quitar">Quitar</button>
+							{/if}
+						</form>
+					{/if}
 					{#if cargando}
 						<p class="nota">Cargando la visita…</p>
 					{:else if fallo}
@@ -328,6 +397,122 @@
 		color: var(--ink-2);
 		background: var(--surface-2);
 		width: max-content;
+	}
+
+	/* La insignia de triaje: hereda la forma de .prueba, con color por estado. */
+	.triaje {
+		padding: 0 6px;
+		border-radius: 4px;
+		border: 1px solid var(--line);
+		font-size: 11px;
+		font-weight: 600;
+		width: max-content;
+		color: var(--ink-2);
+		background: var(--surface-2);
+	}
+
+	.triaje-revisado {
+		color: var(--ok, #15803d);
+		border-color: color-mix(in srgb, var(--ok, #15803d) 40%, var(--line));
+	}
+
+	.triaje-falso-positivo {
+		color: var(--ink-2);
+	}
+
+	.triaje-interesante {
+		color: var(--warn);
+		border-color: color-mix(in srgb, var(--warn) 40%, var(--line));
+	}
+
+	/* La cuenta de eventos agrupados en una fila (×N). */
+	.repes {
+		padding: 0 6px;
+		border-radius: 4px;
+		font-size: 11px;
+		font-weight: 700;
+		color: var(--ink);
+		background: var(--surface);
+		border: 1px solid var(--line);
+		width: max-content;
+	}
+
+	/* Los enlaces a los perfiles (IP, usuario), al abrir una visita. */
+	.perfiles {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 6px 18px;
+		margin: 10px 0 2px;
+	}
+
+	.perfil-ip {
+		font-size: 12.5px;
+		font-weight: 600;
+		color: var(--accent);
+		text-decoration: none;
+	}
+
+	.perfil-ip:hover {
+		text-decoration: underline;
+	}
+
+	/* El control de triaje, dentro de la visita abierta. */
+	.triaje-control {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 8px;
+		margin: 12px 0 4px;
+		padding-bottom: 12px;
+		border-bottom: 1px dashed var(--line);
+	}
+
+	.triaje-control .chips {
+		display: flex;
+		gap: 6px;
+		flex-wrap: wrap;
+	}
+
+	.triaje-control .chip {
+		padding: 3px 10px;
+		border-radius: 999px;
+		border: 1px solid var(--line);
+		background: var(--surface);
+		font-size: 12px;
+		font-weight: 600;
+		color: var(--ink-2);
+		cursor: pointer;
+	}
+
+	.triaje-control .chip:hover {
+		border-color: var(--ink-2);
+		color: var(--ink);
+	}
+
+	.triaje-control .chip.activo {
+		background: var(--ink);
+		color: var(--surface);
+		border-color: var(--ink);
+	}
+
+	.triaje-control .nota {
+		flex: 1 1 200px;
+		min-width: 0;
+		padding: 4px 9px;
+		border: 1px solid var(--line);
+		border-radius: var(--r-sm);
+		font-size: 12.5px;
+		background: var(--surface);
+		color: var(--ink);
+	}
+
+	.triaje-control .quitar {
+		border: none;
+		background: none;
+		color: var(--ink-2);
+		font-size: 12px;
+		text-decoration: underline;
+		cursor: pointer;
 	}
 
 	.que b {

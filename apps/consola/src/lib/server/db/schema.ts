@@ -268,8 +268,12 @@ export const eventos = pgTable(
 		index('eventos_trampa').on(t.trampa),
 		index('eventos_contrasena').on(t.contrasena),
 		index('eventos_ip').on(t.ip),
+		/* El perfil de una IP (perfilDeIp) pide sus eventos por fecha: (ip, cuando) hace el ORDER BY … LIMIT sin ordenar todo el rango. */
+		index('eventos_ip_cuando').on(t.ip, t.cuando),
 		/* Incidentes (incidentes.ts) agrupa y abre la línea de tiempo por usuario. */
 		index('eventos_usuario').on(t.usuario),
+		/* El perfil de un usuario (perfilDeUsuario) pide sus eventos por fecha, como el de IP. */
+		index('eventos_usuario_cuando').on(t.usuario, t.cuando),
 		/* El borrado por plazo de conservación (conservacion.ts) va por «recibido». */
 		index('eventos_recibido').on(t.recibido)
 	]
@@ -737,6 +741,83 @@ export const artefactos = pgTable(
 		creado: creado()
 	},
 	(t) => [index('artefactos_evento').on(t.evento)]
+);
+
+/*
+ * El triaje de un evento: la marca que le pone quien lo revisa (revisado,
+ * falso positivo, interesante) y una nota. Es metadato del operador, aparte de
+ * la línea firmada (que no se toca); se va con el evento al caducar (FK ON
+ * DELETE CASCADE). Un triaje por evento (PK = evento).
+ */
+export const triaje = pgTable(
+	'triaje',
+	{
+		evento: uuid('evento')
+			.primaryKey()
+			.references(() => eventos.id, { onDelete: 'cascade' }),
+		estado: text('estado', {
+			enum: ['revisado', 'falso-positivo', 'interesante']
+		}).notNull(),
+		nota: text('nota'),
+		quien: text('quien').notNull(),
+		cuando: timestamp('cuando', { withTimezone: true }).notNull().defaultNow()
+	},
+	(t) => [index('triaje_estado').on(t.estado)]
+);
+
+/*
+ * Silenciar ruido: una IP o un rango (CIDR) que durante un tiempo no genera
+ * avisos ni respuesta (el evento se sigue guardando y se ve en la consola).
+ * Baja la fatiga de alertas con escáneres y fuentes conocidas. Es de pago (muda
+ * los avisos/SIEM y el motor de respuesta, que lo son); la edición community no
+ * la usa. El patrón se compara en memoria al recibir (salidas/silencios.ts).
+ */
+export const silencios = pgTable(
+	'silencios',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		/* IP exacta o CIDR (IPv4 o IPv6). */
+		patron: text('patron').notNull(),
+		hasta: timestamp('hasta', { withTimezone: true }).notNull(),
+		motivo: text('motivo'),
+		quien: text('quien').notNull(),
+		creado: creado()
+	},
+	(t) => [index('silencios_hasta').on(t.hasta)]
+);
+
+/*
+ * Reglas de triaje automático (gratis): patrones que marcan solos los eventos
+ * NUEVOS que casan, para que el operador no triaje a mano lo repetitivo (un
+ * escáner conocido como falso positivo, una IP propia como revisada, un usuario
+ * de pruebas…). Se aplican al recibir el evento (lib/server/triaje-auto.ts),
+ * nunca al histórico (forward-only). Metadato del operador, aparte de la línea
+ * firmada. Tabla nueva y sin que nadie más la referencie: la consola anterior,
+ * a la que vuelve el actualizador sin restaurar la base de datos, ni la ve.
+ */
+export const reglasTriaje = pgTable(
+	'reglas_triaje',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		/* Qué campo del evento mira la regla. */
+		criterio: text('criterio', { enum: ['ip', 'usuario', 'comando', 'trampa'] }).notNull(),
+		/*
+		 * El patrón, según el criterio: una IP o un CIDR (ip), un texto a buscar
+		 * (usuario exacto; comando, dentro de lo que tecleó o envió el atacante) o
+		 * el id de una trampa (trampa).
+		 */
+		valor: text('valor').notNull(),
+		/* Con qué estado se marca el evento que casa. */
+		estado: text('estado', {
+			enum: ['revisado', 'falso-positivo', 'interesante']
+		}).notNull(),
+		/* La nota que se le pone al triaje (opcional). */
+		nota: text('nota'),
+		activa: boolean('activa').notNull().default(true),
+		quien: text('quien').notNull(),
+		creado: creado()
+	},
+	(t) => [index('reglas_triaje_activa').on(t.activa)]
 );
 
 export const auditoria = pgTable(

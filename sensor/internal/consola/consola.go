@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/kinomakino/sugardaddy/sensor/internal/plan"
@@ -125,6 +126,43 @@ func (c *Cliente) Entregar(ctx context.Context, lineas [][]byte) (Recepcion, err
 		return r, fmt.Errorf("eventos: %d %s", resp.StatusCode, b)
 	}
 	return r, json.NewDecoder(resp.Body).Decode(&r)
+}
+
+// ErrArtefactoRechazado: la consola no quiere esta copia y NO hay que
+// reintentar — la captura está apagada (403), es demasiado grande (413) o el
+// contenido no cuadra (400). El sensor la descarta.
+var ErrArtefactoRechazado = errors.New("la consola rechaza la copia del artefacto")
+
+// ErrEventoNoVisto: la consola aún no conoce el evento del artefacto (404).
+// Es transitorio: el evento llega en una entrega posterior; se reintenta.
+var ErrEventoNoVisto = errors.New("la consola no conoce aún el evento del artefacto")
+
+// SubirArtefacto sube la COPIA de un fichero que capturó una trampa (el binario
+// que el atacante mandó traer o dejó). Los metadatos van en la query y el
+// contenido en el cuerpo. Idempotente: la consola deduplica por sha256. Ver
+// docs/diseno/captura-artefactos.md.
+func (c *Cliente) SubirArtefacto(ctx context.Context, evento, tipo, sha256, nombre string, cuerpo []byte) error {
+	q := url.Values{"evento": {evento}, "tipo": {tipo}, "sha256": {sha256}}
+	if nombre != "" {
+		q.Set("nombre", nombre)
+	}
+	resp, err := c.peticion(ctx, http.MethodPost, "/api/sensor/artefactos?"+q.Encode(), "application/octet-stream", cuerpo)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	switch resp.StatusCode {
+	case http.StatusOK:
+		return nil
+	case http.StatusNotFound:
+		return ErrEventoNoVisto
+	case http.StatusForbidden, http.StatusRequestEntityTooLarge, http.StatusBadRequest:
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
+		return fmt.Errorf("%w: %d %s", ErrArtefactoRechazado, resp.StatusCode, b)
+	default:
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
+		return fmt.Errorf("artefactos: %d %s", resp.StatusCode, b)
+	}
 }
 
 // Relevo pregunta a la consola si este sensor puede pasar ya su nodo a la

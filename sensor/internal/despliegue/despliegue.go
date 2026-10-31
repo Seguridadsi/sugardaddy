@@ -659,6 +659,27 @@ func borrarVolumenesRetirados(ctx context.Context, d *docker.Cliente, sensor str
 	return errors.Join(fallos...)
 }
 
+// ContenedorDeTrampa da el id del contenedor EN MARCHA de una trampa de este
+// sensor, para sacarle un fichero que capturó (captura de artefactos). "" si no
+// hay (la trampa no está, o está parada): el que llama lo reintenta. Solo mira
+// contenedores de este sensor por su etiqueta, nunca de otro de la máquina.
+func ContenedorDeTrampa(ctx context.Context, d *docker.Cliente, sensor, trampa string) (string, error) {
+	cs, err := d.ListarConEtiqueta(ctx, etiquetaSensor+"="+sensor)
+	if err != nil {
+		return "", err
+	}
+	for _, c := range cs {
+		id := c.Labels[etiquetaTrampa]
+		if id == "" {
+			id = c.Labels[etiquetaAntigua]
+		}
+		if id == trampa && c.State == "running" {
+			return c.ID, nil
+		}
+	}
+	return "", nil
+}
+
 // redDe: la red del puente donde va la trampa, o la macvlan propia si pide
 // el modo «IP propia» (docs/diseno/red.md §4).
 func redDe(o Opciones, s plan.TrampaPlan) string {

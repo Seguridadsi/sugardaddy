@@ -36,6 +36,16 @@ export default defineConfig({
 	test: {
 		expect: { requireAssertions: true },
 		include: ['src/**/*.spec.ts'],
-		environment: 'node'
+		environment: 'node',
+		/*
+		 * Los specs *-base comparten UN mismo Postgres (el de .env). Varios tocan
+		 * filas de configuración globales —respuestas_config.activa, ajustes,
+		 * salidas, listas—, que no se pueden aislar por prefijo porque prueban los
+		 * mismos módulos reales; corriéndose en paralelo chocaban entre sí y daban
+		 * fallos intermitentes. Se ejecutan los ficheros de uno en uno: cada spec
+		 * limpia lo suyo antes y después, así que en serie no se pisan. (Para
+		 * iterar sobre un fichero suelto, `vitest run <ruta>` sigue siendo rápido.)
+		 */
+		fileParallelism: false
 	}
 });

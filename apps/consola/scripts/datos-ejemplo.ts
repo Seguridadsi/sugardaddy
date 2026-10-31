@@ -8,6 +8,8 @@ import type { Accion, Evento, Severidad, TipoTrampa } from '@sugardaddy/contrato
 
 export const cliente = { nombre: 'Grupo Aldanza', nodo: 'nodo-mad01', version: '0.1.0' };
 
+export type Entorno = 'dentro' | 'perimetro-web' | 'aislada';
+
 export type Sensor = {
 	id: string;
 	nombre: string;
@@ -15,6 +17,8 @@ export type Sensor = {
 	vlan: number | null;
 	vivo: boolean;
 	ultimoLatido: string;
+	/* Dónde está la red del sensor; sus trampas lo heredan (lib/entorno.ts). */
+	entorno?: Entorno | null;
 };
 
 export type TrampaDesplegado = {
@@ -34,6 +38,8 @@ export type Regla = {
 	nombre: string;
 	severidadMinima: Severidad;
 	trampas: string[] | 'todos';
+	/* Solo eventos de trampas de estos entornos; ausente = cualquiera (lib/entorno.ts). */
+	entornos?: Entorno[] | null;
 	respuestas: { modulo: string; modo: ModoRespuesta }[];
 	activa: boolean;
 };
@@ -67,7 +73,8 @@ export const sensores: Sensor[] = [
 		red: '10.20.0.0/24',
 		vlan: 20,
 		vivo: true,
-		ultimoLatido: hace(0.3)
+		ultimoLatido: hace(0.3),
+		entorno: 'dentro'
 	},
 	{
 		id: 'usuarios',
@@ -75,7 +82,8 @@ export const sensores: Sensor[] = [
 		red: '10.30.0.0/23',
 		vlan: 30,
 		vivo: true,
-		ultimoLatido: hace(0.5)
+		ultimoLatido: hace(0.5),
+		entorno: 'dentro'
 	},
 	{
 		id: 'dmz',
@@ -83,7 +91,8 @@ export const sensores: Sensor[] = [
 		red: '172.16.10.0/27',
 		vlan: 100,
 		vivo: true,
-		ultimoLatido: hace(0.2)
+		ultimoLatido: hace(0.2),
+		entorno: 'perimetro-web'
 	},
 	{
 		id: 'oficina-bcn',
@@ -91,7 +100,8 @@ export const sensores: Sensor[] = [
 		red: '10.60.0.0/24',
 		vlan: null,
 		vivo: false,
-		ultimoLatido: hace(190)
+		ultimoLatido: hace(190),
+		entorno: 'aislada'
 	}
 ];
 
@@ -340,6 +350,8 @@ export const reglas: Regla[] = [
 		nombre: 'Cortar movimiento lateral',
 		severidadMinima: 'critica',
 		trampas: ['ssh-backup', 'smb-nominas', 'svc-backup'],
+		/* Solo dentro de la red: ahí el origen es un equipo del cliente y contener tiene sentido. */
+		entornos: ['dentro'],
 		respuestas: [{ modulo: 'bloquear-ip', modo: 'aprobacion' }],
 		activa: true
 	},

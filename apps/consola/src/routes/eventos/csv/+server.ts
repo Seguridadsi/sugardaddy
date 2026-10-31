@@ -1,5 +1,12 @@
 import { error } from '@sveltejs/kit';
-import { SEVERIDADES, auditar, eventosPlanos, nombresTrampas } from '$lib/server/consultas';
+import {
+	ESTADOS_TRIAJE,
+	SEVERIDADES,
+	auditar,
+	eventosPlanos,
+	nombresTrampas,
+	type FiltroTriaje
+} from '$lib/server/consultas';
 
 /*
  * Descarga de los eventos en CSV, con los mismos filtros que la página de
@@ -25,9 +32,17 @@ export const GET = async ({ url, locals }) => {
 	const desde = SEVERIDADES.find((x) => x === pedida) ?? 'baja';
 	const trampa = url.searchParams.get('trampa') || undefined;
 	const origen = url.searchParams.get('origen')?.trim() || undefined;
+	/* Usuario EXACTO (sin trim: se guarda verbatim), como en la página de Eventos. */
+	const usuario = url.searchParams.get('usuario') || undefined;
+	const q = url.searchParams.get('q')?.trim() || undefined;
+	const pedidoT = url.searchParams.get('triaje');
+	const triaje: FiltroTriaje | undefined =
+		pedidoT === 'sin' || (ESTADOS_TRIAJE as readonly string[]).includes(pedidoT ?? '')
+			? (pedidoT as FiltroTriaje)
+			: undefined;
 
 	const nombres = await nombresTrampas();
-	const filas = await eventosPlanos({ desde, trampa, origen });
+	const filas = await eventosPlanos({ desde, trampa, origen, usuario, q, triaje });
 
 	const cabecera = [
 		'cuando',
@@ -42,7 +57,8 @@ export const GET = async ({ url, locals }) => {
 		'contrasena',
 		'conexion_establecida',
 		'alerta',
-		'prueba'
+		'prueba',
+		'triaje'
 	];
 	const lineas = [cabecera.join(',')];
 	for (const f of filas) {
@@ -60,7 +76,8 @@ export const GET = async ({ url, locals }) => {
 				f.contrasena ?? '',
 				f.conexionEstablecida ? 'sí' : 'no',
 				f.alerta ?? '',
-				f.prueba ? 'sí' : 'no'
+				f.prueba ? 'sí' : 'no',
+				f.triaje ?? ''
 			]
 				.map(csvCampo)
 				.join(',')
@@ -72,7 +89,14 @@ export const GET = async ({ url, locals }) => {
 
 	await auditar(u.correo, 'eventos exportados a CSV', {
 		eventos: filas.length,
-		filtro: { desde, trampa: trampa ?? null, origen: origen ?? null }
+		filtro: {
+			desde,
+			trampa: trampa ?? null,
+			origen: origen ?? null,
+			usuario: usuario ?? null,
+			q: q ?? null,
+			triaje: triaje ?? null
+		}
 	});
 
 	return new Response(csv, {

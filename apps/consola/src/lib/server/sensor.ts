@@ -31,6 +31,7 @@ import { comprobarConEvento, trasDescarte, trasEstado, type FilaColocacion } fro
 import { db, schema as s } from './db';
 import { preparar } from './credenciales';
 import { anotarPrueba, pruebasAbiertas, pruebasDe } from './pruebas';
+import { aplicarTriajeAuto } from './triaje-auto';
 
 export const LIMITE_LINEAS = 500;
 export const LIMITE_LINEA = 128 * 1024;
@@ -95,6 +96,20 @@ export function textoDescarte(codigo: CodigoMotivo, datos: DatosMotivo = {}): st
  * origen.oculta: la IP del evento es la del motor de contenedores (0.13.1).
  */
 export const ADMITE = ['origen.oculta'];
+
+/*
+ * ¿El nodo guarda copias de los ficheros capturados? (ajuste 'captura'.archivos,
+ * opt-in por defecto NO). Se lee aquí DIRECTAMENTE —sin importar
+ * captura-artefactos.ts, que es de pago y la edición community no trae— para
+ * anunciarlo en el plan ('artefactos'): así el sensor sube la copia del binario
+ * que capturó una trampa. En community el ajuste no existe (su interruptor está
+ * recortado) y el endpoint de subida tampoco: nunca se anuncia y nada se sube.
+ * Ver docs/diseno/captura-artefactos.md.
+ */
+async function capturaDeCopias(): Promise<boolean> {
+	const [fila] = await db.select().from(s.ajustes).where(eq(s.ajustes.clave, 'captura'));
+	return !!(fila?.valor as { archivos?: boolean } | undefined)?.archivos;
+}
 
 /*
  * Un sensor sin credencial del registro privado (anterior a la 0.12.1, o de un
@@ -215,7 +230,7 @@ export async function plan(sensor: string, registroPrivado: boolean, versionSens
 		trampas,
 		senuelos: trampas,
 		descartados,
-		admite: ADMITE,
+		admite: (await capturaDeCopias()) ? [...ADMITE, 'artefactos'] : ADMITE,
 		...(lic ? { licencia: lic } : {})
 	};
 }
@@ -510,7 +525,9 @@ export type Recepcion = { ok: true; aceptadas: number; ultimoHash: string };
  */
 export async function recibirEventos(sensor: string, lineas: string[]): Promise<Recepcion> {
 	const credencial = await preparar();
-	const { recepcion } = await guardarEntrega(sensor, lineas, credencial);
+	const { recepcion, nuevos } = await guardarEntrega(sensor, lineas, credencial);
+	/* Triaje automático (gratis): marca los eventos nuevos que casen una regla. */
+	aplicarTriajeAuto(nuevos);
 	return recepcion;
 }
 

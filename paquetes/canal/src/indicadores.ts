@@ -77,7 +77,7 @@ export function esIpPublica(ip: string): boolean {
 }
 
 /* Contención y resta de IPs y redes (IPv4 e IPv6): en rangos.ts. */
-export { contenidaEn, restar } from './rangos.ts';
+export { contenidaEn, rango, restar } from './rangos.ts';
 
 /* ---------- la lista global, firmada por el panel ---------- */
 

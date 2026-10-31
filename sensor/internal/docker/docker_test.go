@@ -1,6 +1,8 @@
 package docker
 
 import (
+	"archive/tar"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -15,6 +17,73 @@ import (
 
 	"github.com/kinomakino/sugardaddy/sensor/internal/docker/motorfalso"
 )
+
+// tarCon arma un tar con un único fichero regular, como el que devuelve la API
+// de archivo de Docker para un path que es un fichero.
+func tarCon(t *testing.T, nombre string, datos []byte) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	if err := tw.WriteHeader(&tar.Header{Name: nombre, Mode: 0o600, Size: int64(len(datos)), Typeflag: tar.TypeReg}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tw.Write(datos); err != nil {
+		t.Fatal(err)
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+func TestPrimerFicheroTar(t *testing.T) {
+	datos := []byte("\x7fELF binario de mentira")
+	b, err := primerFicheroTar(bytes.NewReader(tarCon(t, "deadbeef", datos)), 1<<20)
+	if err != nil || !bytes.Equal(b, datos) {
+		t.Fatalf("no extrajo el fichero: %q %v", b, err)
+	}
+	// Pasa del tope: error, no se trae.
+	if _, err := primerFicheroTar(bytes.NewReader(tarCon(t, "x", datos)), 4); err == nil {
+		t.Fatal("tenía que rechazar por el tope")
+	}
+	// Tar sin ningún fichero regular (solo un directorio): error.
+	var soloDir bytes.Buffer
+	tw := tar.NewWriter(&soloDir)
+	_ = tw.WriteHeader(&tar.Header{Name: "dir/", Typeflag: tar.TypeDir})
+	_ = tw.Close()
+	if _, err := primerFicheroTar(bytes.NewReader(soloDir.Bytes()), 1<<20); err == nil {
+		t.Fatal("un tar sin fichero regular es error")
+	}
+}
+
+// LeerDeContenedor saca el fichero del contenedor por la API de archivo de
+// Docker, pidiendo el path que le dan; un 404 es NoExiste.
+func TestLeerDeContenedor(t *testing.T) {
+	datos := []byte("\x7fELF binario de mentira")
+	var pedido string
+	h := motorfalso.Envolver(motorfalso.Docker27, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/containers/sd-s1-t1/archive") {
+			pedido = r.URL.Path + "?" + r.URL.RawQuery
+			w.Header().Set("Content-Type", "application/x-tar")
+			_, _ = w.Write(tarCon(t, "deadbeef", datos))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"message":"no existe"}`))
+	}))
+	d := Nuevo(servir(t, h))
+	b, err := d.LeerDeContenedor(context.Background(), "sd-s1-t1", "/tmp/deadbeef", 1<<20)
+	if err != nil || !bytes.Equal(b, datos) {
+		t.Fatalf("%q %v", b, err)
+	}
+	if !strings.Contains(pedido, "/containers/sd-s1-t1/archive?path=%2Ftmp%2Fdeadbeef") {
+		t.Fatalf("no pidió el path esperado: %q", pedido)
+	}
+	// Un contenedor o path que no está: 404 → NoExiste, para que el que llama lo distinga.
+	if _, err := d.LeerDeContenedor(context.Background(), "noesta", "/x", 1<<20); !NoExiste(err) {
+		t.Fatalf("un 404 tenía que ser NoExiste: %v", err)
+	}
+}
 
 // servir levanta un motor falso por un socket unix y devuelve su ruta.
 func servir(t *testing.T, h http.Handler) string {

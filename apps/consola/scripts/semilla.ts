@@ -45,7 +45,8 @@ await db.insert(s.sensores).values(
 			red: x.red,
 			vlan: x.vlan,
 			claveHash: createHash('sha256').update(token).digest('hex'),
-			ultimoLatido: new Date(x.ultimoLatido)
+			ultimoLatido: new Date(x.ultimoLatido),
+			entorno: x.entorno ?? null
 		};
 	})
 );
@@ -89,6 +90,7 @@ await db.insert(s.reglas).values(
 		nombre: r.nombre,
 		severidadMinima: r.severidadMinima,
 		trampas: r.trampas === 'todos' ? null : r.trampas,
+		entornos: r.entornos ?? null,
 		respuestas: r.respuestas,
 		activa: r.activa
 	}))

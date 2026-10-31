@@ -2,7 +2,21 @@
  * Todo lo que las páginas leen y escriben. Cada escritura que es una decisión
  * de una persona deja su línea en auditoría, en la misma transacción.
  */
-import { and, asc, desc, eq, gt, gte, inArray, like, or, sql } from 'drizzle-orm';
+import {
+	and,
+	asc,
+	desc,
+	eq,
+	gt,
+	gte,
+	ilike,
+	inArray,
+	isNotNull,
+	isNull,
+	like,
+	or,
+	sql
+} from 'drizzle-orm';
 import { EJECUTORES } from '@sugardaddy/contrato';
 import type { Evento, PasosGenerados, Severidad, TipoTrampa } from '@sugardaddy/contrato';
 import { env } from '$env/dynamic/private';
@@ -15,6 +29,7 @@ import { estadosVisibles, type EstadoVisible } from './colocacion';
 import type { Tx } from './destinos';
 import { geo, type Geo } from './geo';
 import { ipsTor } from './tor';
+import type { CriterioTriaje } from './triaje-auto';
 
 export const SEVERIDADES = ['baja', 'media', 'alta', 'critica'] as const;
 const DIA = 86_400_000;
@@ -33,24 +48,44 @@ function evento(linea: string): Evento {
  * añadido al recibirlo (si es alerta y por qué, y entonces su severidad sube;
  * si lo provocó «Probar»).
  */
-export type EventoConsola = Evento & { alerta?: string | null; prueba?: boolean };
+/* Los estados de triaje que un operador le pone a un evento (aparte de «sin triar»). */
+export const ESTADOS_TRIAJE = ['revisado', 'falso-positivo', 'interesante'] as const;
+export type EstadoTriaje = (typeof ESTADOS_TRIAJE)[number];
+export type Triaje = { estado: EstadoTriaje; nota: string | null };
+
+export type EventoConsola = Evento & {
+	alerta?: string | null;
+	prueba?: boolean;
+	triaje?: Triaje | null;
+};
 const conAlerta = (f: {
 	linea: string;
 	severidad: string;
 	alerta: string | null;
 	prueba: boolean;
+	triajeEstado?: EstadoTriaje | null;
+	triajeNota?: string | null;
 }): EventoConsola => ({
 	...evento(f.linea),
 	severidad: f.severidad as Severidad,
 	alerta: f.alerta,
-	prueba: f.prueba
+	prueba: f.prueba,
+	triaje: f.triajeEstado ? { estado: f.triajeEstado, nota: f.triajeNota ?? null } : null
 });
+/*
+ * Solo columnas de `eventos`: lo comparten resumen(), visita() y la lista. El
+ * triaje (de otra tabla) NO va aquí; lo añade solo eventos(), que es quien hace
+ * el leftJoin. Si se metiera aquí, resumen()/visita() —que no unen triaje—
+ * fallarían al construir la consulta (regresión que cazó la revisión).
+ */
 const COLUMNAS = {
 	linea: s.eventos.linea,
 	severidad: s.eventos.severidad,
 	alerta: s.eventos.alerta,
 	prueba: s.eventos.prueba
 };
+/* Las columnas de triaje, solo para las consultas que unen la tabla `triaje`. */
+const COLUMNAS_TRIAJE = { triajeEstado: s.triaje.estado, triajeNota: s.triaje.nota };
 
 const vivo = (ultimo: Date | null, ahora = Date.now()) =>
 	!!ultimo && ahora - ultimo.getTime() < LATIDO_MAXIMO;
@@ -86,24 +121,378 @@ export async function nombresTrampas(): Promise<Record<string, string>> {
 	return Object.fromEntries(filas.map((f) => [f.id, f.nombre]));
 }
 
+/*
+ * El estado de triaje por el que se filtra: uno de los tres, «sin» (sin triar
+ * todavía) o nada (todos). Lo valida la página; aquí se usa tal cual.
+ */
+export type FiltroTriaje = EstadoTriaje | 'sin';
+
+/* Escapa los comodines de un LIKE/ILIKE para que el texto se busque literal. */
+const sinComodines = (t: string) => t.replace(/[%_\\]/g, '\\$&');
+
 export async function eventos(
-	filtro: { desde?: Severidad; trampa?: string; origen?: string } = {},
+	filtro: {
+		desde?: Severidad;
+		trampa?: string;
+		origen?: string;
+		/* El usuario EXACTO (lo que probó el atacante), no la búsqueda libre. */
+		usuario?: string;
+		/* Búsqueda libre dentro del evento (comando, usuario, URL, texto crudo…). */
+		q?: string;
+		triaje?: FiltroTriaje;
+	} = {},
 	limite = 200
 ) {
 	const desde = SEVERIDADES.indexOf(filtro.desde ?? 'baja');
+	const q = filtro.q?.trim();
 	const filas = await db
-		.select(COLUMNAS)
+		.select({ ...COLUMNAS, ...COLUMNAS_TRIAJE })
 		.from(s.eventos)
+		.leftJoin(s.triaje, eq(s.triaje.evento, s.eventos.id))
 		.where(
 			and(
 				inArray(s.eventos.severidad, SEVERIDADES.slice(desde)),
 				filtro.trampa ? eq(s.eventos.trampa, filtro.trampa) : undefined,
-				filtro.origen ? like(s.eventos.ip, `${filtro.origen.replace(/[%_\\]/g, '')}%`) : undefined
+				filtro.origen ? like(s.eventos.ip, `${filtro.origen.replace(/[%_\\]/g, '')}%`) : undefined,
+				filtro.usuario ? eq(s.eventos.usuario, filtro.usuario) : undefined,
+				/* Dentro de la línea firmada (JSON): comando, usuario, URL, contraseña, crudo. */
+				q ? ilike(s.eventos.linea, `%${sinComodines(q)}%`) : undefined,
+				filtro.triaje === 'sin'
+					? isNull(s.triaje.evento)
+					: filtro.triaje
+						? eq(s.triaje.estado, filtro.triaje)
+						: undefined
 			)
 		)
 		.orderBy(desc(s.eventos.cuando))
 		.limit(limite);
 	return filas.map((f) => conAlerta(f));
+}
+
+/*
+ * Pone (o cambia) el triaje de un evento: la marca de quien lo revisó y una
+ * nota. Upsert por evento (uno por evento). Queda en la auditoría. El evento
+ * tiene que existir (la FK lo exige); si no, se avisa sin romper.
+ */
+export async function fijarTriaje(
+	quien: string,
+	evento: string,
+	estado: EstadoTriaje,
+	nota: string | null
+): Promise<boolean> {
+	const limpia = nota?.trim() ? nota.trim().slice(0, 2000) : null;
+	return db.transaction(async (tx) => {
+		const [ev] = await tx
+			.select({ id: s.eventos.id })
+			.from(s.eventos)
+			.where(eq(s.eventos.id, evento));
+		if (!ev) return false;
+		await tx
+			.insert(s.triaje)
+			.values({ evento, estado, nota: limpia, quien })
+			.onConflictDoUpdate({
+				target: s.triaje.evento,
+				set: { estado, nota: limpia, quien, cuando: new Date() }
+			});
+		await tx
+			.insert(s.auditoria)
+			.values({ quien, accion: 'triaje de evento', detalle: { evento, estado } });
+		return true;
+	});
+}
+
+/* Quita el triaje de un evento (vuelve a «sin triar»). Queda en la auditoría. */
+export async function quitarTriaje(quien: string, evento: string): Promise<void> {
+	await db.transaction(async (tx) => {
+		await tx.delete(s.triaje).where(eq(s.triaje.evento, evento));
+		await tx
+			.insert(s.auditoria)
+			.values({ quien, accion: 'triaje de evento retirado', detalle: { evento } });
+	});
+}
+
+/* ---------------------------------------------------------------------------
+ * Reglas de triaje automático (gratis). El cotejo y la aplicación al recibir
+ * viven en triaje-auto.ts; aquí solo el CRUD con su auditoría. Cada cambio de
+ * una regla es una decisión de una persona: deja su línea.
+ * ------------------------------------------------------------------------- */
+
+export type DatosReglaTriaje = {
+	criterio: CriterioTriaje;
+	valor: string;
+	estado: EstadoTriaje;
+	nota: string | null;
+};
+
+/* Todas las reglas de triaje, de la más antigua a la más nueva (orden en que casan). */
+export function reglasTriaje() {
+	return db.select().from(s.reglasTriaje).orderBy(asc(s.reglasTriaje.creado));
+}
+
+/* Crea una regla de triaje automático. Devuelve su id. */
+export async function crearReglaTriaje(quien: string, v: DatosReglaTriaje): Promise<string> {
+	const valor = v.valor.trim();
+	const nota = v.nota?.trim() ? v.nota.trim().slice(0, 2000) : null;
+	return db.transaction(async (tx) => {
+		const [f] = await tx
+			.insert(s.reglasTriaje)
+			.values({ criterio: v.criterio, valor, estado: v.estado, nota, quien })
+			.returning({ id: s.reglasTriaje.id });
+		await tx.insert(s.auditoria).values({
+			quien,
+			accion: 'regla de triaje creada',
+			detalle: { criterio: v.criterio, valor, estado: v.estado }
+		});
+		return f.id;
+	});
+}
+
+/* Borra una regla de triaje. Los triajes que ya puso se quedan (son del evento). false si ya no está. */
+export async function borrarReglaTriaje(quien: string, id: string): Promise<boolean> {
+	return db.transaction(async (tx) => {
+		const [f] = await tx
+			.delete(s.reglasTriaje)
+			.where(eq(s.reglasTriaje.id, id))
+			.returning({ criterio: s.reglasTriaje.criterio, valor: s.reglasTriaje.valor });
+		if (!f) return false;
+		await tx
+			.insert(s.auditoria)
+			.values({ quien, accion: 'regla de triaje borrada', detalle: { id, ...f } });
+		return true;
+	});
+}
+
+/* Enciende o apaga una regla de triaje sin tocar el resto. false si ya no existe. */
+export async function cambiarActivaReglaTriaje(
+	quien: string,
+	id: string,
+	activa: boolean
+): Promise<boolean> {
+	return db.transaction(async (tx) => {
+		const [f] = await tx
+			.update(s.reglasTriaje)
+			.set({ activa })
+			.where(eq(s.reglasTriaje.id, id))
+			.returning({ id: s.reglasTriaje.id });
+		if (!f) return false;
+		await tx.insert(s.auditoria).values({
+			quien,
+			accion: activa ? 'regla de triaje activada' : 'regla de triaje desactivada',
+			detalle: { id }
+		});
+		return true;
+	});
+}
+
+/*
+ * Agrupa eventos repetidos para bajar el ruido visual: los que comparten IP de
+ * origen, trampa y acción se colapsan en una fila, con su cuenta, el más
+ * reciente como representante (la lista llega del más nuevo al más viejo) y el
+ * lapso que cubren. Es solo una ayuda de la vista, sobre la página ya traída
+ * (no toca la consulta ni la base): la cuenta es de lo que hay en pantalla. Con
+ * eventos agrupados el triaje por evento se oculta (se marcaría el
+ * representante, no el grupo).
+ */
+export type EventoAgrupado = EventoConsola & {
+	repeticiones: number;
+	desde: string;
+	hasta: string;
+};
+
+export function agruparEventos(eventos: EventoConsola[]): EventoAgrupado[] {
+	const grupos = new Map<string, EventoAgrupado>();
+	const orden: string[] = [];
+	for (const e of eventos) {
+		const clave = `${e.origen.ip ?? '∅'}|${e.trampa.id}|${e.accion}`;
+		const g = grupos.get(clave);
+		if (!g) {
+			grupos.set(clave, { ...e, repeticiones: 1, desde: e.cuando, hasta: e.cuando });
+			orden.push(clave);
+		} else {
+			g.repeticiones++;
+			if (e.cuando < g.desde) g.desde = e.cuando;
+			if (e.cuando > g.hasta) g.hasta = e.cuando;
+		}
+	}
+	return orden.map((k) => grupos.get(k)!);
+}
+
+/*
+ * El perfil de una IP de origen: todo lo que ha hecho esa IP en el nodo, para
+ * investigarla de un vistazo (cuántos eventos, desde cuándo, qué trampas tocó,
+ * qué acciones, su geo) y los últimos eventos. Lectura. La IP se busca EXACTA
+ * (no por prefijo como el filtro de la lista). Sin enriquecimiento externo
+ * (AbuseIPDB/GreyNoise): eso es de pago y vive en el detalle del evento; aquí
+ * solo la geolocalización local, que es gratis. null si no hay ningún evento.
+ */
+export async function perfilDeIp(ip: string) {
+	const limpia = ip.trim();
+	if (!limpia) return null;
+	const deLaIp = eq(s.eventos.ip, limpia);
+	/*
+	 * Las cinco lecturas son independientes: van en paralelo (una sola espera, no
+	 * cinco seguidas), que importa para una IP con muchísimos eventos. La de
+	 * «recientes» se apoya en el índice compuesto (ip, cuando) para el ORDER BY …
+	 * LIMIT. Las fechas salen como el resto de la consola: ISO con .toISOString().
+	 */
+	const [tot, porTrampa, porAccion, porSeveridad, recientesFilas] = await Promise.all([
+		db
+			.select({
+				n: sql<number>`count(*)::int`,
+				primera: sql<string>`min(${s.eventos.cuando})`,
+				ultima: sql<string>`max(${s.eventos.cuando})`
+			})
+			.from(s.eventos)
+			.where(deLaIp),
+		db
+			.select({ id: s.eventos.trampa, nombre: s.trampas.nombre, n: sql<number>`count(*)::int` })
+			.from(s.eventos)
+			.leftJoin(s.trampas, eq(s.trampas.id, s.eventos.trampa))
+			.where(deLaIp)
+			.groupBy(s.eventos.trampa, s.trampas.nombre)
+			.orderBy(desc(sql`count(*)`)),
+		db
+			.select({ accion: s.eventos.accion, n: sql<number>`count(*)::int` })
+			.from(s.eventos)
+			.where(deLaIp)
+			.groupBy(s.eventos.accion)
+			.orderBy(desc(sql`count(*)`)),
+		db
+			.select({ severidad: s.eventos.severidad, n: sql<number>`count(*)::int` })
+			.from(s.eventos)
+			.where(deLaIp)
+			.groupBy(s.eventos.severidad),
+		db
+			.select({ ...COLUMNAS, ...COLUMNAS_TRIAJE })
+			.from(s.eventos)
+			.leftJoin(s.triaje, eq(s.triaje.evento, s.eventos.id))
+			.where(deLaIp)
+			.orderBy(desc(s.eventos.cuando))
+			.limit(50)
+	]);
+	const t0 = tot[0];
+	if (!t0 || !t0.n) return null;
+	const peor = porSeveridad.reduce<Severidad>(
+		(a, r) =>
+			SEVERIDADES.indexOf(r.severidad as Severidad) > SEVERIDADES.indexOf(a)
+				? (r.severidad as Severidad)
+				: a,
+		'baja'
+	);
+	const recientes = recientesFilas.map((f) => conAlerta(f));
+	return {
+		total: t0.n,
+		/* min/max de timestamptz: el driver lo da como Date; a ISO canónico para el navegador. */
+		primera: new Date(t0.primera).toISOString(),
+		ultima: new Date(t0.ultima).toISOString(),
+		peor,
+		trampas: porTrampa,
+		acciones: porAccion,
+		severidades: porSeveridad,
+		recientes,
+		geo: (await geoDe(recientes))[limpia] ?? null,
+		/* La IP es la del motor de contenedores de un sensor, no la de un atacante. */
+		oculta: recientes.some((e) => e.origen.oculta === true)
+	};
+}
+
+/*
+ * El perfil de un usuario (el que probó el atacante): todo lo que ha hecho ese
+ * usuario en el nodo, para ver de un vistazo el reúso de credenciales entre IPs
+ * (p. ej. «root» probado desde media internet). Igual que perfilDeIp pero por
+ * `usuario`; en vez de una geo, las IP de origen desde las que se usó (con su
+ * geo). Lectura, gratis. null si no hay ningún evento con ese usuario.
+ */
+export async function perfilDeUsuario(usuario: string) {
+	if (!usuario.trim()) return null;
+	/* Igualdad por el valor CRUDO: el usuario se guarda verbatim y puede llevar
+	 * espacios; trim() solo vale para descartar el vacío, no para el cotejo. */
+	const delUsuario = eq(s.eventos.usuario, usuario);
+	const [tot, porTrampa, porAccion, porSeveridad, porOrigen, recientesFilas] = await Promise.all([
+		db
+			.select({
+				n: sql<number>`count(*)::int`,
+				primera: sql<string>`min(${s.eventos.cuando})`,
+				ultima: sql<string>`max(${s.eventos.cuando})`
+			})
+			.from(s.eventos)
+			.where(delUsuario),
+		db
+			.select({ id: s.eventos.trampa, nombre: s.trampas.nombre, n: sql<number>`count(*)::int` })
+			.from(s.eventos)
+			.leftJoin(s.trampas, eq(s.trampas.id, s.eventos.trampa))
+			.where(delUsuario)
+			.groupBy(s.eventos.trampa, s.trampas.nombre)
+			.orderBy(desc(sql`count(*)`)),
+		db
+			.select({ accion: s.eventos.accion, n: sql<number>`count(*)::int` })
+			.from(s.eventos)
+			.where(delUsuario)
+			.groupBy(s.eventos.accion)
+			.orderBy(desc(sql`count(*)`)),
+		db
+			.select({ severidad: s.eventos.severidad, n: sql<number>`count(*)::int` })
+			.from(s.eventos)
+			.where(delUsuario)
+			.groupBy(s.eventos.severidad),
+		/*
+		 * Las IP de origen desde las que se usó el usuario, las más activas primero.
+		 * `oculta` marca la IP del motor de contenedores (no es la de un atacante): el
+		 * flag vive en la línea firmada, así que se saca con bool_or sobre el JSON. Se
+		 * piden 21 para saber si hay más de 20 sin un count aparte.
+		 */
+		db
+			.select({
+				ip: s.eventos.ip,
+				n: sql<number>`count(*)::int`,
+				oculta: sql<boolean>`bool_or(((${s.eventos.linea})::jsonb #>> '{origen,oculta}') = 'true')`
+			})
+			.from(s.eventos)
+			.where(and(delUsuario, isNotNull(s.eventos.ip)))
+			.groupBy(s.eventos.ip)
+			.orderBy(desc(sql`count(*)`))
+			.limit(21),
+		db
+			.select({ ...COLUMNAS, ...COLUMNAS_TRIAJE })
+			.from(s.eventos)
+			.leftJoin(s.triaje, eq(s.triaje.evento, s.eventos.id))
+			.where(delUsuario)
+			.orderBy(desc(s.eventos.cuando))
+			.limit(50)
+	]);
+	const t0 = tot[0];
+	if (!t0 || !t0.n) return null;
+	const peor = porSeveridad.reduce<Severidad>(
+		(a, r) =>
+			SEVERIDADES.indexOf(r.severidad as Severidad) > SEVERIDADES.indexOf(a)
+				? (r.severidad as Severidad)
+				: a,
+		'baja'
+	);
+	const masOrigenes = porOrigen.length > 20;
+	const origenesTop = porOrigen.slice(0, 20);
+	const geos = await geoDe(origenesTop.map((o) => ({ origen: { ip: o.ip } }) as Evento));
+	const recientes = recientesFilas.map((f) => conAlerta(f));
+	return {
+		total: t0.n,
+		primera: new Date(t0.primera).toISOString(),
+		ultima: new Date(t0.ultima).toISOString(),
+		peor,
+		trampas: porTrampa,
+		acciones: porAccion,
+		severidades: porSeveridad,
+		origenes: origenesTop.map((o) => ({
+			ip: o.ip as string,
+			n: o.n,
+			oculta: o.oculta === true,
+			geo: geos[o.ip as string] ?? null
+		})),
+		/* Hay más de 20 IP de origen distintas (se muestra «20+»). */
+		masOrigenes,
+		recientes,
+		/* Geo de TODOS los recientes (no solo del top de orígenes), para ListaEventos. */
+		geosRecientes: await geoDe(recientes)
+	};
 }
 
 /*
@@ -113,10 +502,18 @@ export async function eventos(
  * hoja de cálculo sin parsear nada. Mismo filtro que `eventos`, con un tope alto.
  */
 export async function eventosPlanos(
-	filtro: { desde?: Severidad; trampa?: string; origen?: string } = {},
+	filtro: {
+		desde?: Severidad;
+		trampa?: string;
+		origen?: string;
+		usuario?: string;
+		q?: string;
+		triaje?: FiltroTriaje;
+	} = {},
 	limite = 50_000
 ) {
 	const desde = SEVERIDADES.indexOf(filtro.desde ?? 'baja');
+	const q = filtro.q?.trim();
 	return db
 		.select({
 			cuando: s.eventos.cuando,
@@ -131,14 +528,23 @@ export async function eventosPlanos(
 			contrasena: s.eventos.contrasena,
 			conexionEstablecida: s.eventos.conexionEstablecida,
 			alerta: s.eventos.alerta,
-			prueba: s.eventos.prueba
+			prueba: s.eventos.prueba,
+			triaje: s.triaje.estado
 		})
 		.from(s.eventos)
+		.leftJoin(s.triaje, eq(s.triaje.evento, s.eventos.id))
 		.where(
 			and(
 				inArray(s.eventos.severidad, SEVERIDADES.slice(desde)),
 				filtro.trampa ? eq(s.eventos.trampa, filtro.trampa) : undefined,
-				filtro.origen ? like(s.eventos.ip, `${filtro.origen.replace(/[%_\\]/g, '')}%`) : undefined
+				filtro.origen ? like(s.eventos.ip, `${filtro.origen.replace(/[%_\\]/g, '')}%`) : undefined,
+				filtro.usuario ? eq(s.eventos.usuario, filtro.usuario) : undefined,
+				q ? ilike(s.eventos.linea, `%${sinComodines(q)}%`) : undefined,
+				filtro.triaje === 'sin'
+					? isNull(s.triaje.evento)
+					: filtro.triaje
+						? eq(s.triaje.estado, filtro.triaje)
+						: undefined
 			)
 		)
 		.orderBy(desc(s.eventos.cuando))

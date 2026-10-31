@@ -27,6 +27,16 @@ try {
 }
 vi.mock('$env/dynamic/private', () => ({ env: process.env }));
 vi.mock('$app/environment', () => ({ building: false, dev: true }));
+/*
+ * El candado de licencia (capa 4) tiene su propio banco (plan-licencia-base.spec):
+ * aquí se prueba el alta/elector, no la licencia, así que el nodo cuenta como
+ * totalmente licenciado (sin esto, con PUBLICACION_CLAVE_PUBLICA en el .env y sin
+ * licencia montada, las trampas de pago saldrían descartadas del plan).
+ */
+vi.mock('./candado', () => ({
+	coberturaLicencia: async () => () => 'cubierta',
+	licenciaGuardada: async () => null
+}));
 /* Lo que autoriza el panel: lo cambia cada prueba. */
 const autorizadosAhora = vi.hoisted(() => ({ ids: ['cowrie', 'dns-ntp', 'smb'] }));
 vi.mock('./catalogo', async (original) => {

@@ -85,6 +85,25 @@ describe.skipIf(!hayBase)('estado del sensor: motor y hechos', () => {
 			.where(eq(s.trampas.id, TRAMPA));
 	});
 
+	it('el plan anuncia «artefactos» solo si el nodo activó la captura', async () => {
+		// Por defecto (sin ajuste) no se anuncia: el nodo no guarda malware vivo
+		// sin que alguien lo pida, y el sensor no saca binarios del contenedor.
+		await db.delete(s.ajustes).where(eq(s.ajustes.clave, 'captura'));
+		expect((await plan(SENSOR, true, '0.13.1')).admite).not.toContain('artefactos');
+		// Con la captura activada (ajuste 'captura'.archivos), sí.
+		await db
+			.insert(s.ajustes)
+			.values({ clave: 'captura', valor: { archivos: true } })
+			.onConflictDoUpdate({ target: s.ajustes.clave, set: { valor: { archivos: true } } });
+		expect((await plan(SENSOR, true, '0.13.1')).admite).toContain('artefactos');
+		await db.delete(s.ajustes).where(eq(s.ajustes.clave, 'captura'));
+		/* plan() dejó la trampa «en espera» (cowrie sin autorizar); las de abajo la quieren en el plan. */
+		await db
+			.update(s.trampas)
+			.set({ donde: '-', colocacion: 'por-colocar', colocacionMotivo: null })
+			.where(eq(s.trampas.id, TRAMPA));
+	});
+
 	it('guarda el motor y los hechos de un sensor 0.13.1', async () => {
 		await informarEstado(SENSOR, cuerpo131.trampas, leerCapacidades(cuerpo131));
 		const f = await fila();

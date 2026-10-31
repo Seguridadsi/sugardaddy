@@ -176,6 +176,34 @@
       "when": 1793374596533,
       "tag": "0024_respuestas_activa",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1793432388001,
+      "tag": "0025_abandoned_marvel_zombies",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1793444714598,
+      "tag": "0026_reglas_triaje",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1793446694380,
+      "tag": "0027_eventos_ip_cuando",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1793448562437,
+      "tag": "0028_eventos_usuario_cuando",
+      "breakpoints": true
     }
   ]
 }

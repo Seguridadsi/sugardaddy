@@ -214,6 +214,9 @@ func main() {
 		Docker: s.docker, Consola: s.consola, Version: version, Datos: *datos, Socket: *socket,
 		Log: func(m string, args ...any) { slog.Info(m, args...) },
 	})
+	// Sube las copias de los ficheros capturados, si el nodo activó la captura
+	// (opt-in; ver artefactos.go). Inerte si el plan no la anuncia.
+	go s.subirArtefactos(ctx)
 	s.correr(ctx)
 }
 
@@ -278,6 +281,13 @@ type sensor struct {
 	}
 	// Fallo general del motor en el último despliegue: lo mira el punto de salud.
 	falloMotor atomic.Pointer[docker.ErrMotor]
+	// Copias de ficheros capturados pendientes de subir a la consola (captura
+	// de artefactos, opt-in del nodo; ver artefactos.go). Solo metadatos: el
+	// binario se saca del contenedor al subirlo. Los tocan el bucle (que las
+	// apunta en leer) y la goroutina subirArtefactos (que las entrega), con su
+	// candado.
+	artefactos   []artefactoPendiente
+	muArtefactos sync.Mutex
 }
 
 // servirSalud responde 200 mientras el sensor siga hablando con su consola
@@ -659,6 +669,10 @@ func (s *sensor) leer() {
 			}
 			if pasa {
 				encolar(e)
+				// Si el nodo activó la captura, apunta la copia del fichero que
+				// el atacante descargó o subió para entregarla aparte (el
+				// evento tiene que llegar antes a la consola: ver artefactos.go).
+				s.encolarArtefacto(e)
 			}
 		}
 	}

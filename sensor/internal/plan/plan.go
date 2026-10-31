@@ -29,6 +29,13 @@ type Plan struct {
 // OrigenOculta: la consola acepta origen.oculta en los eventos (desde la 0.13.1).
 const OrigenOculta = "origen.oculta"
 
+// Artefactos: la consola guarda la COPIA de los ficheros que captura una trampa
+// (el binario que el atacante mandó traer o dejó) y pide al sensor que se la
+// suba. Solo lo anuncia si el nodo activó la captura (opt-in, por defecto no;
+// ver docs/diseno/captura-artefactos.md). Un sensor solo saca binarios del
+// contenedor y los sube si la consola lo admite: sin esto, no toca nada.
+const Artefactos = "artefactos"
+
 // Acepta dice si la consola admite algo nuevo en lo que le manda el sensor.
 func (p *Plan) Acepta(que string) bool {
 	if p == nil {

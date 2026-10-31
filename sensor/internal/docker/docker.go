@@ -3,6 +3,7 @@
 package docker
 
 import (
+	"archive/tar"
 	"bytes"
 	"context"
 	"encoding/base64"
@@ -751,6 +752,71 @@ func (c *Cliente) Salida(ctx context.Context, id string, lineas int) (string, er
 		b = b[8+n:]
 	}
 	return out.String(), nil
+}
+
+// LeerDeContenedor saca un fichero del sistema de ficheros de un contenedor por
+// la API de archivo del motor (GET /containers/<id>/archive?path=<ruta>): el
+// motor devuelve un tar con ese fichero. Es la única forma de que el sensor lea
+// lo que una trampa guardó en su /tmp (tmpfs) o en un volumen aislado, que el
+// anfitrión no ve. Extrae el único fichero regular del tar, hasta `tope` bytes;
+// si pasa del tope, es error (no se trae malware sin límite). La ruta se pasa
+// al motor tal cual: quien pide la captura la tomó del propio evento.
+func (c *Cliente) LeerDeContenedor(ctx context.Context, id, ruta string, tope int64) ([]byte, error) {
+	n, err := c.Negociar(ctx)
+	if err != nil {
+		return nil, err
+	}
+	u := fmt.Sprintf("http://docker/v%s/containers/%s/archive?path=%s", n.API, url.PathEscape(id), url.QueryEscape(ruta))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		var m struct {
+			Message string `json:"message"`
+		}
+		_ = json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&m)
+		return nil, &ErrAPI{Codigo: resp.StatusCode, Mensaje: m.Message}
+	}
+	// Tope del cuerpo entero, no solo del fichero: el tar lleva cabeceras de 512
+	// bytes y relleno, así que un poco de holgura basta para no leer en memoria
+	// un tar enorme que el motor (o un contenedor tomado) devolviera.
+	return primerFicheroTar(io.LimitReader(resp.Body, tope+1<<16), tope)
+}
+
+// primerFicheroTar extrae el primer fichero regular de un tar, hasta `tope`
+// bytes. Error si no trae ninguno o si pasa del tope. La API de archivo de
+// Docker devuelve un tar con una sola entrada cuando el path es un fichero.
+func primerFicheroTar(r io.Reader, tope int64) ([]byte, error) {
+	tr := tar.NewReader(r)
+	for {
+		h, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			return nil, errors.New("el contenedor no devolvió ningún fichero")
+		}
+		if err != nil {
+			return nil, err
+		}
+		if h.Typeflag != tar.TypeReg {
+			continue
+		}
+		if h.Size > tope {
+			return nil, fmt.Errorf("el fichero del contenedor pasa del tope (%d > %d bytes)", h.Size, tope)
+		}
+		b, err := io.ReadAll(io.LimitReader(tr, tope+1))
+		if err != nil {
+			return nil, err
+		}
+		if int64(len(b)) > tope {
+			return nil, fmt.Errorf("el fichero del contenedor pasa del tope (%d bytes)", tope)
+		}
+		return b, nil
+	}
 }
 
 // Sonda es un contenedor efímero con la imagen del propio sensor que mide
