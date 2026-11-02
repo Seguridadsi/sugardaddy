@@ -20,16 +20,16 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { CANDIDATOS, idDestino, slugDestino } from '../../../scripts/destinos.mjs';
 import { prepararBase } from '../../../scripts/preparar-base.mjs';
 
-let url = '';
 try {
 	for (const l of readFileSync('.env', 'utf8').split('\n')) {
 		const m = l.match(/^([A-Z_]+)=(.*)$/);
 		if (m && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^"|"$/g, '');
 	}
-	url = process.env.DATABASE_URL ?? '';
 } catch {
-	url = '';
+	/* Sin .env: vale el DATABASE_URL del entorno, si lo hay. Antes se saltaba
+	 * entero y así se coló un arranque roto (0.21.4). */
 }
+const url = process.env.DATABASE_URL ?? '';
 
 const CONSOLA = fileURLToPath(new URL('../../..', import.meta.url));
 const MIGRACIONES = join(CONSOLA, 'drizzle');

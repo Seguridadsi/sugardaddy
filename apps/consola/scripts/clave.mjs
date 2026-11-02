@@ -93,7 +93,7 @@ if (!process.env.DATABASE_URL) {
 					);
 				} else {
 					await sql`insert into auditoria (quien, accion, detalle)
-						values ('máquina del nodo', 'contraseña local restablecida desde la máquina', ${sql.json({ usuario })})`;
+						values ('máquina del nodo', 'contraseña local restablecida desde la máquina', ${JSON.stringify({ usuario })}::text::jsonb)`;
 					imprimirClave(usuario, clave);
 				}
 			}
@@ -113,9 +113,9 @@ if (!process.env.DATABASE_URL) {
 					const clave = randomBytes(12).toString('base64url');
 					await sql`insert into usuarios_locales (id, usuario, nombre, correo, clave_hash, roles, debe_cambiar, creada_por)
 						values (${randomUUID()}, ${usuario}, ${arg3?.trim() || 'Administrador'}, ${arg4?.trim() || `${usuario}@local`},
-							${hashClaveLocal(clave)}, ${sql.json(['admin'])}, true, 'máquina del nodo')`;
+							${hashClaveLocal(clave)}, ${JSON.stringify(['admin'])}::text::jsonb, true, 'máquina del nodo')`;
 					await sql`insert into auditoria (quien, accion, detalle)
-						values ('máquina del nodo', 'administrador local creado desde la máquina', ${sql.json({ usuario })})`;
+						values ('máquina del nodo', 'administrador local creado desde la máquina', ${JSON.stringify({ usuario })}::text::jsonb)`;
 					imprimirClave(usuario, clave);
 				}
 			}

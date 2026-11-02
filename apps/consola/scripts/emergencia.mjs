@@ -16,7 +16,7 @@ const valor = {
 	hash: createHash('sha256').update(codigo).digest('hex'),
 	caduca: new Date(Date.now() + 30 * 60_000).toISOString()
 };
-await sql`insert into ajustes (clave, valor) values ('emergencia_alta', ${sql.json(valor)})
+await sql`insert into ajustes (clave, valor) values ('emergencia_alta', ${JSON.stringify(valor)}::text::jsonb)
 	on conflict (clave) do update set valor = excluded.valor`;
 await sql`insert into auditoria (quien, accion) values ('máquina del nodo', 'código de alta de emergencia generado')`;
 await sql.end();

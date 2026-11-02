@@ -29,7 +29,7 @@ const valor = {
 	creado: new Date().toISOString(),
 	por: 'instalador'
 };
-await sql`insert into ajustes (clave, valor) values ('emergencia_codigo', ${sql.json(valor)})
+await sql`insert into ajustes (clave, valor) values ('emergencia_codigo', ${JSON.stringify(valor)}::text::jsonb)
 	on conflict (clave) do update set valor = excluded.valor`;
 await sql`insert into auditoria (quien, accion) values ('instalador', 'código de emergencia generado')`;
 await sql.end();

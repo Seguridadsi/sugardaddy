@@ -8,7 +8,12 @@ import { trampasAutorizadas } from '$lib/server/catalogo';
 import { estadosVisibles } from '$lib/server/colocacion';
 import { entornoDeTrampa, trampa } from '$lib/server/consultas';
 import { destinoDeTrampa, trampasDelCliente } from '$lib/server/destinos';
-import { cambiarEntornoTrampa, retirarTrampa, trampaHecha, trampaQuitada } from '$lib/server/gestion';
+import {
+	cambiarEntornoTrampa,
+	retirarTrampa,
+	trampaHecha,
+	trampaQuitada
+} from '$lib/server/gestion';
 import { fichaDePasos, opcionesDeObjetivo } from '$lib/server/pasos';
 import { abrirPrueba, normalizarIp, pruebaDeTrampa } from '$lib/server/pruebas';
 
@@ -59,7 +64,11 @@ export const load = async ({ params, getClientAddress }) => {
 		ipNavegador: ipDelNavegador(getClientAddress)
 	};
 	/* Dónde está puesta (dentro | web | aislada): su valor propio y el que heredaría del sensor. */
-	const entorno = (await entornoDeTrampa(params.id)) ?? { propio: null, sensor: null, efectivo: null };
+	const entorno = (await entornoDeTrampa(params.id)) ?? {
+		propio: null,
+		sensor: null,
+		efectivo: null
+	};
 	if (t.ejecutor === 'manual@1') {
 		const destino = await destinoDeTrampa(t);
 		const objetivo = t.senalTrampa ? await trampa(t.senalTrampa) : null;
@@ -190,7 +199,7 @@ export const actions = {
 		const r = await abrirPrueba(u.correo, params.id, ip || null);
 		if (r === 'no-existe') error(404, 'Esa trampa no existe.');
 		/* El resultado se ve en la propia sección de la prueba, que se mira sola mientras espera. */
-		if (r !== 'abierta') return fail(400, { avisoPrueba: r.error, ip });
+		if ('error' in r) return fail(400, { avisoPrueba: r.error, ip });
 		return { probada: true };
 	},
 

@@ -32,7 +32,7 @@ export async function prepararBase(
 
 	const { NODO_ID, NODO_NOMBRE, SENSOR_LOCAL_TOKEN } = entorno;
 	if (NODO_ID && NODO_NOMBRE) {
-		await conexion`insert into ajustes (clave, valor) values ('nodo', ${conexion.json({ nodo: NODO_ID, nombre: NODO_NOMBRE, version: entorno.SUGARDADDY_VERSION ?? '0.0.0' })}) on conflict (clave) do nothing`;
+		await conexion`insert into ajustes (clave, valor) values ('nodo', ${JSON.stringify({ nodo: NODO_ID, nombre: NODO_NOMBRE, version: entorno.SUGARDADDY_VERSION ?? '0.0.0' })}::text::jsonb) on conflict (clave) do nothing`;
 	}
 	if (SENSOR_LOCAL_TOKEN) {
 		const hash = createHash('sha256').update(SENSOR_LOCAL_TOKEN).digest('hex');
@@ -77,8 +77,8 @@ async function sembrarAdmin(conexion, entorno) {
 	if (hay) return;
 	const clave = randomBytes(12).toString('base64url');
 	await conexion`insert into usuarios_locales (id, usuario, nombre, correo, clave_hash, roles, debe_cambiar, creada_por)
-		values (${randomUUID()}, 'admin', 'Administrador', 'admin@local', ${hashClaveLocal(clave)}, ${conexion.json(['admin'])}, true, 'instalador')`;
-	await conexion`insert into auditoria (quien, accion, detalle) values ('instalador', 'primer administrador local creado', ${conexion.json({ usuario: 'admin' })})`;
+		values (${randomUUID()}, 'admin', 'Administrador', 'admin@local', ${hashClaveLocal(clave)}, ${JSON.stringify(['admin'])}::text::jsonb, true, 'instalador')`;
+	await conexion`insert into auditoria (quien, accion, detalle) values ('instalador', 'primer administrador local creado', ${JSON.stringify({ usuario: 'admin' })}::text::jsonb)`;
 	const barra = '='.repeat(60);
 	console.log(
 		`\n${barra}\n  PRIMER ADMINISTRADOR DE LA CONSOLA (login local)\n` +

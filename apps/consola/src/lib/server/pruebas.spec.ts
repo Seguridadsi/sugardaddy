@@ -213,7 +213,7 @@ describe('pruebasDe', () => {
 		de: 'smb-1',
 		senal: null,
 		marca: { campo: 'origen.usuario', contiene: 'sdpruebaabcd1234' },
-		ip: null,
+		ips: [],
 		desde: new Date(T),
 		hasta: new Date(T + 15 * min),
 		evento: null,
@@ -238,12 +238,19 @@ describe('pruebasDe', () => {
 	});
 
 	it('sin marca, desde la IP indicada (también escrita como IPv4 en IPv6)', () => {
-		const a = [abierta({ marca: null, ip: '10.40.0.9' })];
+		const a = [abierta({ marca: null, ips: ['10.40.0.9'] })];
 		expect(de(evento({ origen: { ip: '10.40.0.9' } }), T, a)).toEqual(['p1']);
 		expect(de(evento({ origen: { ip: '::ffff:10.40.0.9' } }), T, a)).toEqual(['p1']);
 		expect(de(evento({ origen: { ip: '10.40.0.10' } }), T, a)).toEqual([]);
 		expect(de(evento({ origen: {} }), T, a)).toEqual([]);
-		expect(de(evento(), T, [abierta({ marca: null, ip: null })])).toEqual([]);
+		expect(de(evento(), T, [abierta({ marca: null, ips: [] })])).toEqual([]);
+	});
+
+	it('sin marca y con varias IPs (el toque desde el nodo, tras el NAT de Docker): vale cualquiera', () => {
+		const a = [abierta({ marca: null, ips: ['172.20.0.1', '10.40.0.5', '172.18.0.3'] })];
+		for (const ip of ['172.20.0.1', '10.40.0.5', '::ffff:172.18.0.3'])
+			expect(de(evento({ origen: { ip } }), T, a)).toEqual(['p1']);
+		expect(de(evento({ origen: { ip: '10.40.0.9' } }), T, a)).toEqual([]);
 	});
 
 	it('si su señal es otra trampa: un evento de esa otra que la active y cumpla la prueba', () => {

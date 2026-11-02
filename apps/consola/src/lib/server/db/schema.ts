@@ -284,7 +284,8 @@ export const eventos = pgTable(
  * ventana de unos minutos en la que cuenta como prueba un evento de la
  * trampa, o de la trampa que recibe su señal si la activa, recibido (reloj
  * de la consola) entre «desde» y «hasta» más 2 minutos, que cumpla «marca»
- * o, si la prueba no tiene, venga de «ip». «evento» es el primero que llegó.
+ * o, si la prueba no tiene, venga de una de sus «ips». «evento» es el primero
+ * que llegó.
  *
  * «marca» se guarda ya rellena con los valores reales y el nonce: así la
  * entrega de eventos no vuelve a leer el catálogo y un cambio del módulo a
@@ -299,7 +300,19 @@ export const pruebas = pgTable(
 			.references(() => trampas.id, { onDelete: 'cascade' }),
 		/* 8 caracteres [a-z0-9]: lo que hace única esta prueba en sus pasos y en su marca. */
 		nonce: text('nonce').notNull(),
+		/*
+		 * La primera de «ips». Es lo que lee una consola anterior a «ips»: se
+		 * sigue escribiendo para que esa consola reconozca la prueba si el nodo
+		 * vuelve atrás tras actualizarse.
+		 */
 		ip: text('ip'),
+		/*
+		 * Sin marca, las IPs de las que puede venir su evento: la que dice quien
+		 * prueba o, en «Prueba mi detección», las que puede llevar el toque desde
+		 * el nodo (prueba-deteccion.ts). Nula en las de una consola anterior, que
+		 * solo tienen «ip».
+		 */
+		ips: text('ips').array(),
 		marca: jsonb('marca').$type<Marca>(),
 		desde: timestamp('desde', { withTimezone: true }).notNull().defaultNow(),
 		hasta: timestamp('hasta', { withTimezone: true }).notNull(),
@@ -778,6 +791,11 @@ export const silencios = pgTable(
 		id: uuid('id').primaryKey().defaultRandom(),
 		/* IP exacta o CIDR (IPv4 o IPv6). */
 		patron: text('patron').notNull(),
+		/*
+		 * «Para siempre» es PARA_SIEMPRE (silencios.ts), una fecha del año 9999,
+		 * y no un nulo: así una consola anterior lo sigue leyendo como uno que
+		 * aún no ha vencido. Se quita a mano, como los demás.
+		 */
 		hasta: timestamp('hasta', { withTimezone: true }).notNull(),
 		motivo: text('motivo'),
 		quien: text('quien').notNull(),

@@ -1,3 +1,18 @@
+<script lang="ts" module>
+	/*
+	 * Las salidas de Avisos que puede elegir cada parámetro x-salida, por su
+	 * clave: las de su tipo de canal, sin nada secreto (respuesta/config.ts).
+	 */
+	export type SalidasParaElegir = Record<
+		string,
+		{
+			tipo: string;
+			tipoNombre: string;
+			opciones: { id: string; nombre: string; destino: string | null; activa: boolean }[];
+		}
+	>;
+</script>
+
 <script lang="ts">
 	import type { EsquemaParametros } from '@sugardaddy/contrato';
 
@@ -21,6 +36,8 @@
 		'x-multilinea'?: boolean;
 		/* Elegir una trampa del cliente de esos módulos (§2.5). */
 		'x-trampa'?: { modulos?: string[] };
+		/* Elegir una salida de Avisos de ese tipo de canal (las respuestas enviar-correo…). */
+		'x-salida'?: { tipo: string };
 	};
 	/* Una trampa a la que puede apuntar un parámetro x-trampa; con motivo, no se puede elegir. */
 	type Objetivo = { id: string; nombre: string; destino: string; motivo: string | null };
@@ -28,12 +45,15 @@
 	let {
 		esquema,
 		valores = {},
-		objetivos = {}
+		objetivos = {},
+		salidas = {}
 	}: {
 		esquema: EsquemaParametros;
 		valores?: Record<string, unknown>;
 		/* Las opciones de cada parámetro x-trampa, que calcula el servidor. */
 		objetivos?: Record<string, Objetivo[]>;
+		/* Las de cada parámetro x-salida, que también calcula el servidor. */
+		salidas?: SalidasParaElegir;
 	} = $props();
 
 	const campos = $derived(Object.entries(esquema.properties) as [string, Campo][]);
@@ -44,6 +64,12 @@
 		if (valores[k] !== undefined) return String(valores[k]);
 		const validos = (objetivos[k] ?? []).filter((o) => !o.motivo);
 		return validos.length === 1 ? validos[0].id : '';
+	}
+	/* Igual con las salidas: si solo hay una de ese tipo, ya va elegida. */
+	function salidaDe(k: string) {
+		if (valores[k] !== undefined) return String(valores[k]);
+		const opciones = salidas[k]?.opciones ?? [];
+		return opciones.length === 1 ? opciones[0].id : '';
 	}
 </script>
 
@@ -72,6 +98,27 @@
 					>
 				{/each}
 			</select>
+		{:else if c['x-salida']}
+			{@const sal = salidas[clave]}
+			{@const opciones = sal?.opciones ?? []}
+			<select id="p-{clave}" name="p.{clave}" value={salidaDe(clave)} required={obligatorio(clave)}>
+				<option value="" disabled
+					>{opciones.length ? 'Elige una salida' : 'No tienes ninguna salida de este tipo'}</option
+				>
+				{#each opciones as o (o.id)}
+					<option value={o.id}
+						>{o.nombre}{o.destino ? ` · ${o.destino}` : ''}{o.activa ? '' : ' (en pausa)'}</option
+					>
+				{/each}
+			</select>
+			{#if !opciones.length}
+				<p class="falta">
+					Aún no tienes ninguna salida de {sal?.tipoNombre ?? 'este tipo'} en Avisos. Créala en
+					<a href="/avisos/nueva?tipo={encodeURIComponent(sal?.tipo ?? c['x-salida'].tipo)}"
+						>Avisos y SIEM</a
+					> y vuelve aquí a elegirla: esta respuesta usa su configuración, sin credenciales nuevas.
+				</p>
+			{/if}
 		{:else if c.enum}
 			<select id="p-{clave}" name="p.{clave}" value={valor(clave, c)}>
 				{#each c.enum as op (op)}
@@ -135,5 +182,20 @@
 		margin: 5px 0 0;
 		font-size: 12px;
 		color: var(--ink-3);
+	}
+
+	.falta {
+		margin: 8px 0 0;
+		padding: 9px 12px;
+		border-radius: var(--r-sm);
+		font-size: 13px;
+		background: color-mix(in oklab, var(--warn) 12%, var(--surface));
+		color: var(--warn);
+	}
+
+	.falta a {
+		color: inherit;
+		font-weight: 600;
+		text-decoration: underline;
 	}
 </style>

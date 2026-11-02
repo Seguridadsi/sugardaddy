@@ -157,8 +157,8 @@
 		{:else if u?.estado === 'esperando'}
 			<p class="esperando" role="status">
 				Esperando el evento de la prueba hasta las {hora(u.hasta)}.
-				{#if u.ip}Cuenta lo que llegue desde <span class="mono">{u.ip}</span>.{:else}La consola lo
-					reconoce por el código de la prueba.{/if}
+				{#if u.ips.length}Cuenta lo que llegue desde <span class="mono">{u.ips.join(', ')}</span
+					>.{:else}La consola lo reconoce por el código de la prueba.{/if}
 				Esta página lo dirá en cuanto llegue.
 			</p>
 			{#if u.pasos?.forma === 'generica'}

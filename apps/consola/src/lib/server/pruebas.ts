@@ -5,7 +5,7 @@
  * trae ninguno, o, si la señal es otra trampa, un script que se ejecuta en el
  * propio destino de lo sembrado. Un evento recibido (reloj de la consola)
  * dentro de la ventana más 2 minutos, que cumpla la marca de la prueba o, si
- * no tiene, venga de la IP indicada, es de prueba: comprueba la trampa y se
+ * no tiene, venga de una de sus IPs, es de prueba: comprueba la trampa y se
  * ve como los demás, con su etiqueta, pero no pasa al motor de respuesta, no
  * da alerta y no se comparte como indicador.
  *
@@ -258,22 +258,25 @@ async function datosDe(t: Trampa) {
 }
 
 /*
- * El objetivo de la prueba genérica de una trampa —su dirección y el primer
- * puerto TCP que publica— para tocarlo desde el nodo («Prueba mi detección»,
- * prueba-deteccion.ts). Es la misma dirección y puerto que enseña «Probar» en
- * su ficha. null si no es una trampa genérica con puerto TCP y una dirección
- * conocida (las de vía o destino se prueban con sus pasos, no con un toque).
+ * Lo que necesita «Prueba mi detección» (prueba-deteccion.ts) para tocar una
+ * trampa desde el nodo: cómo se probaría (comoProbar) y, si es la genérica,
+ * su objetivo —su dirección y el primer puerto TCP que publica—, el mismo que
+ * enseña «Probar» en su ficha. objetivo es null si no es una trampa genérica
+ * con puerto TCP y una dirección conocida (las de vía o destino se prueban con
+ * sus pasos, no con un toque). Lee lo de la trampa una sola vez.
  */
-export async function objetivoGenerico(
-	t: Trampa
-): Promise<{ direccion: string; puerto: number } | null> {
+export async function toqueDeTrampa(
+	t: Trampa,
+	estado: EstadoVisible | null
+): Promise<{ como: ComoProbar; objetivo: { direccion: string; puerto: number } | null }> {
 	const { h, parametros, destino } = await datosDe(t);
-	if (!h || !destino.direccion || !DIRECCION.test(destino.direccion)) return null;
-	const via = viaDe(h, t.via);
-	if (!via || via.ejecutor !== t.ejecutor) return null;
-	const puerto = puertoTcp(via, parametros);
-	if (puerto === null) return null;
-	return { direccion: destino.direccion, puerto };
+	const como = comoProbar(t, estado, h, parametros, destino);
+	if (!como.puede || como.forma !== 'generica') return { como, objetivo: null };
+	const via = h && viaDe(h, t.via);
+	const puerto = via ? puertoTcp(via, parametros) : null;
+	if (puerto === null || !destino.direccion || !DIRECCION.test(destino.direccion))
+		return { como, objetivo: null };
+	return { como, objetivo: { direccion: destino.direccion, puerto } };
 }
 
 /* Los pasos de una prueba ya rellenos, para enseñarlos. null si ya no se pueden preparar. */
@@ -353,30 +356,40 @@ const conOrdenes = (p: PruebaDeVia): [string, string][] =>
 		? Object.entries(p.variables)
 		: [];
 
-export type AbrirPrueba = 'abierta' | 'no-existe' | { error: string };
+/* Abierta, con su id; o por qué no. */
+export type AbrirPrueba = { abierta: string } | 'no-existe' | { error: string };
 
 /*
  * «Probar» (§8.3): abre una prueba de la trampa con un nonce nuevo y su
- * ventana, con la marca ya rellena o la IP de la que tiene que venir el
+ * ventana, con la marca ya rellena o las IPs de las que tiene que venir el
  * evento. ip: la que dice quien prueba, si la prueba no tiene marca (por
- * defecto, la de su navegador). Queda en la auditoría: es una persona quien
- * decide que unos eventos no pasen al motor de respuesta.
+ * defecto, la de su navegador), o varias: las que puede llevar el toque de
+ * «Prueba mi detección», que sale del nodo por el NAT de Docker. Queda en la
+ * auditoría: es una persona quien decide que unos eventos no pasen al motor
+ * de respuesta.
+ *
+ * opciones: la ventana, si no es la de su forma (el toque llega en segundos:
+ * no hace falta dejar abiertos 15 minutos en los que lo que llegue de esas IPs
+ * no avisaría), y los estados visibles ya leídos, para no volver a leerlos por
+ * cada trampa al probar muchas a la vez.
  */
 export async function abrirPrueba(
 	quien: string,
 	id: string,
-	ip: string | null
+	ip: string | readonly string[] | null,
+	opciones: { ventanaMin?: number; estados?: Map<string, EstadoVisible> } = {}
 ): Promise<AbrirPrueba> {
 	const [t] = await db.select().from(s.trampas).where(eq(s.trampas.id, id));
 	if (!t) return 'no-existe';
 	const { h, parametros, destino } = await datosDe(t);
-	const estado = (await estadosVisibles()).get(t.id) ?? null;
+	const estado = (opciones.estados ?? (await estadosVisibles())).get(t.id) ?? null;
 	const como = comoProbar(t, estado, h, parametros, destino);
 	if (!como.puede) return { error: como.motivo };
-	let esperada = como.ip;
+	let esperadas = como.ip ? [como.ip] : [];
 	if (como.porIp === 'pedir') {
-		esperada = normalizarIp(ip);
-		if (!esperada)
+		const dichas = typeof ip === 'string' ? [ip] : (ip ?? []);
+		esperadas = [...new Set(dichas.map(normalizarIp).filter((x) => x !== null))];
+		if (!esperadas.length)
 			return {
 				error:
 					'Escribe la IP del equipo desde el que vas a probar (por ejemplo, 10.0.0.25): es como la consola sabrá qué evento es de la prueba.'
@@ -385,15 +398,17 @@ export async function abrirPrueba(
 	const nonce = nuevoNonce();
 	const r = pasosDePrueba(t, h, parametros, destino, como.forma, nonce);
 	if ('error' in r) return { error: `No se puede preparar su prueba: ${r.error}` };
-	await db.transaction(async (tx) => {
+	const ventanaMin = opciones.ventanaMin ?? como.ventanaMin;
+	const abierta = await db.transaction(async (tx) => {
 		const [p] = await tx
 			.insert(s.pruebas)
 			.values({
 				trampa: t.id,
 				nonce,
-				ip: r.marca ? null : esperada,
+				ip: r.marca ? null : (esperadas[0] ?? null),
+				ips: r.marca ? null : esperadas,
 				marca: r.marca,
-				hasta: sql`now() + ${como.ventanaMin} * interval '1 minute'`,
+				hasta: sql`now() + ${ventanaMin} * interval '1 minute'`,
 				quien
 			})
 			.returning({ id: s.pruebas.id, hasta: s.pruebas.hasta });
@@ -404,12 +419,17 @@ export async function abrirPrueba(
 				id: t.id,
 				prueba: p.id,
 				hasta: p.hasta.toISOString(),
-				...(r.marca ? { marca: r.marca } : { ip: esperada })
+				...(r.marca ? { marca: r.marca } : { ips: esperadas })
 			}
 		});
+		return p.id;
 	});
-	return 'abierta';
+	return { abierta };
 }
+
+/* Las IPs de una prueba; la de «ip» si la abrió una consola anterior a «ips». */
+const ipsDe = (p: { ip: string | null; ips: string[] | null }): string[] =>
+	p.ips ?? (p.ip ? [p.ip] : []);
 
 export type PruebaVista = {
 	id: string;
@@ -417,8 +437,8 @@ export type PruebaVista = {
 	estado: 'esperando' | 'recibida' | 'caducada';
 	desde: string;
 	hasta: string;
-	/* Sin marca: la IP de la que tiene que venir. */
-	ip: string | null;
+	/* Sin marca: las IPs de las que tiene que venir. */
+	ips: string[];
 	conMarca: boolean;
 	evento: { recibido: string; ip: string | null } | null;
 	pasos: PasosDePrueba | null;
@@ -467,7 +487,7 @@ export async function pruebaDeTrampa(
 					: 'caducada',
 			desde: p.desde.toISOString(),
 			hasta: p.hasta.toISOString(),
-			ip: p.ip,
+			ips: ipsDe(p),
 			conMarca: p.marca !== null,
 			evento: e ? { recibido: e.recibido.toISOString(), ip: e.ip } : null,
 			pasos: 'error' in r ? null : r.pasos
@@ -510,7 +530,8 @@ export type PruebaAbierta = {
 	/* Si su señal es otra trampa, la marca con que se reconoce lo sembrado: el evento tiene que activarla. */
 	senal: Marca | null;
 	marca: Marca | null;
-	ip: string | null;
+	/* Sin marca: las IPs de las que tiene que venir su evento. */
+	ips: string[];
 	desde: Date;
 	hasta: Date;
 	evento: string | null;
@@ -528,6 +549,7 @@ export async function pruebasAbiertas(tx: Tx, sensor: string): Promise<PruebaAbi
 			trampa: s.pruebas.trampa,
 			marca: s.pruebas.marca,
 			ip: s.pruebas.ip,
+			ips: s.pruebas.ips,
 			desde: s.pruebas.desde,
 			hasta: s.pruebas.hasta,
 			evento: s.pruebas.evento,
@@ -542,10 +564,11 @@ export async function pruebasAbiertas(tx: Tx, sensor: string): Promise<PruebaAbi
 				sql`${s.pruebas.hasta} >= now() - ${MARGEN_MS / 1000} * interval '1 second'`
 			)
 		);
-	return filas.map(({ senalTrampa, senal, ...p }) => {
+	return filas.map(({ senalTrampa, senal, ip, ips, ...p }) => {
 		const porOtra = senalTrampa !== null || (senal !== null && typeof senal === 'object');
 		return {
 			...p,
+			ips: ipsDe({ ip, ips }),
 			de: porOtra ? senalTrampa : p.trampa,
 			senal: porOtra && senal && typeof senal === 'object' ? senal : null
 		};
@@ -555,8 +578,8 @@ export async function pruebasAbiertas(tx: Tx, sensor: string): Promise<PruebaAbi
 /*
  * Las pruebas de las que es un evento recibido a esa hora (§8.3): de su
  * trampa (o de la que recibe su señal, si la activa), dentro de la ventana
- * más el margen, y con la marca de la prueba o, si no tiene, desde su IP.
- * Pura.
+ * más el margen, y con la marca de la prueba o, si no tiene, desde una de sus
+ * IPs. Pura.
  */
 export function pruebasDe(e: Evento, recibido: Date, abiertas: PruebaAbierta[]): PruebaAbierta[] {
 	const cuando = recibido.getTime();
@@ -567,7 +590,7 @@ export function pruebasDe(e: Evento, recibido: Date, abiertas: PruebaAbierta[]):
 			(p.de === p.trampa || (p.senal !== null && cumpleMarca(e, p.senal))) &&
 			cuando >= p.desde.getTime() &&
 			cuando <= p.hasta.getTime() + MARGEN_MS &&
-			(p.marca ? cumpleMarca(e, p.marca) : p.ip !== null && ip === normalizarIp(p.ip))
+			(p.marca ? cumpleMarca(e, p.marca) : ip !== null && p.ips.some((x) => normalizarIp(x) === ip))
 	);
 }
 
