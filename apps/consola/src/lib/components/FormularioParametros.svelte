@@ -14,6 +14,7 @@
 </script>
 
 <script lang="ts">
+	import { page } from '$app/state';
 	import type { EsquemaParametros } from '@sugardaddy/contrato';
 
 	/*
@@ -65,6 +66,9 @@
 		const validos = (objetivos[k] ?? []).filter((o) => !o.motivo);
 		return validos.length === 1 ? validos[0].id : '';
 	}
+	/* Cómo se nombra el canal en una frase («el envío por correo electrónico»). */
+	const enFrase = (nombre: string) => (nombre === 'Correo' ? 'correo electrónico' : nombre);
+
 	/* Igual con las salidas: si solo hay una de ese tipo, ya va elegida. */
 	function salidaDe(k: string) {
 		if (valores[k] !== undefined) return String(valores[k]);
@@ -103,7 +107,7 @@
 			{@const opciones = sal?.opciones ?? []}
 			<select id="p-{clave}" name="p.{clave}" value={salidaDe(clave)} required={obligatorio(clave)}>
 				<option value="" disabled
-					>{opciones.length ? 'Elige una salida' : 'No tienes ninguna salida de este tipo'}</option
+					>{opciones.length ? 'Elige una salida' : 'Aún no hay ninguna salida de este tipo'}</option
 				>
 				{#each opciones as o (o.id)}
 					<option value={o.id}
@@ -112,12 +116,20 @@
 				{/each}
 			</select>
 			{#if !opciones.length}
-				<p class="falta">
-					Aún no tienes ninguna salida de {sal?.tipoNombre ?? 'este tipo'} en Avisos. Créala en
-					<a href="/avisos/nueva?tipo={encodeURIComponent(sal?.tipo ?? c['x-salida'].tipo)}"
-						>Avisos y SIEM</a
-					> y vuelve aquí a elegirla: esta respuesta usa su configuración, sin credenciales nuevas.
-				</p>
+				<div class="falta">
+					<p>
+						Antes de usar esta respuesta hay que configurar el envío por {enFrase(
+							sal?.tipoNombre ?? 'este canal'
+						)}. Se hace una sola vez, en Avisos y SIEM; al guardarlo, volverás aquí con la salida ya
+						seleccionada.
+					</p>
+					<a
+						class="boton principal"
+						href="/avisos/nueva?tipo={encodeURIComponent(
+							sal?.tipo ?? c['x-salida'].tipo
+						)}&volver={encodeURIComponent(page.url.pathname)}">Configurar ahora</a
+					>
+				</div>
 			{/if}
 		{:else if c.enum}
 			<select id="p-{clave}" name="p.{clave}" value={valor(clave, c)}>
@@ -193,9 +205,12 @@
 		color: var(--warn);
 	}
 
-	.falta a {
-		color: inherit;
-		font-weight: 600;
-		text-decoration: underline;
+	.falta p {
+		margin: 0;
+	}
+
+	.falta .boton {
+		display: inline-block;
+		margin-top: 10px;
 	}
 </style>

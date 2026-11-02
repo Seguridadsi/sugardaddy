@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
+	import BotonPlegar from '$lib/components/BotonPlegar.svelte';
 	import EstadoTrampa from '$lib/components/EstadoTrampa.svelte';
 	import ListaEventos from '$lib/components/ListaEventos.svelte';
 	import MapaOrigenes from '$lib/components/MapaOrigenes.svelte';
@@ -11,6 +12,9 @@
 
 	/* Las que ahora no reciben nada se ven apagadas; una degradada sigue a la vista. */
 	const APAGADAS = ['parada', 'por-colocar', 'sin-contacto', 'retirando'];
+
+	/* Qué secciones tiene plegadas quien mira (BotonPlegar lo recuerda en su navegador). */
+	let plegado = $state({ eventos: false, activos: false, origenes: false, trampas: false });
 </script>
 
 <svelte:head>
@@ -34,104 +38,128 @@
 
 <div class="rejilla">
 	<section class="panel">
-		<header class="titulo">
+		<header class="titulo" class:solo={plegado.eventos}>
 			<h2>Últimos eventos</h2>
-			<a href={resolve('/eventos')}>Ver todos</a>
+			<span class="acciones">
+				<a href={resolve('/eventos')}>Ver todos</a>
+				<BotonPlegar id="resumen-eventos" titulo="Últimos eventos" bind:plegado={plegado.eventos} />
+			</span>
 		</header>
-		<ListaEventos
-			eventos={data.ultimos}
-			nombres={data.nombres}
-			modulos={data.modulos}
-			geos={data.geos}
-			ahora={data.ahora}
-		/>
+		{#if !plegado.eventos}
+			<ListaEventos
+				eventos={data.ultimos}
+				nombres={data.nombres}
+				modulos={data.modulos}
+				geos={data.geos}
+				ahora={data.ahora}
+			/>
+		{/if}
 	</section>
 
 	<div class="lateral">
 		<section class="panel">
-			<header class="titulo"><h2>Orígenes más activos</h2></header>
-			<ul class="origenes">
-				{#each data.origenes as o (o.ip)}
-					<li>
-						<span class="ip">
-							<span class="mono"
-								>{o.ip}{#if o.geo?.tor}<span class="tor" title="Nodo de salida de Tor">Tor</span
-									>{/if}{#if o.oculta}<span class="tor" title={AVISO_IP_MOTOR}>IP del motor</span
-									>{/if}</span
-							>
-							{#if o.geo}<small>{textoGeo(o.geo)}</small>{/if}
-							{#if o.oculta}<small>no es la de un atacante</small>{/if}
-						</span>
-						<span class="sev sev-{o.peor}">{o.peor}</span>
-						<span class="n mono">{o.eventos}</span>
-					</li>
-				{/each}
-			</ul>
+			<header class="titulo" class:solo={plegado.activos}>
+				<h2>Orígenes más activos</h2>
+				<BotonPlegar
+					id="resumen-activos"
+					titulo="Orígenes más activos"
+					bind:plegado={plegado.activos}
+				/>
+			</header>
+			{#if !plegado.activos}
+				<ul class="origenes">
+					{#each data.origenes as o (o.ip)}
+						<li>
+							<span class="ip">
+								<span class="mono"
+									>{o.ip}{#if o.geo?.tor}<span class="tor" title="Nodo de salida de Tor">Tor</span
+										>{/if}{#if o.oculta}<span class="tor" title={AVISO_IP_MOTOR}>IP del motor</span
+										>{/if}</span
+								>
+								{#if o.geo}<small>{textoGeo(o.geo)}</small>{/if}
+								{#if o.oculta}<small>no es la de un atacante</small>{/if}
+							</span>
+							<span class="sev sev-{o.peor}">{o.peor}</span>
+							<span class="n mono">{o.eventos}</span>
+						</li>
+					{/each}
+				</ul>
+			{/if}
 		</section>
 	</div>
 </div>
 
-<h2 class="seccion">Orígenes</h2>
-<section class="panel">
-	<MapaOrigenes
-		paises={data.geo.paises}
-		regiones={data.geo.regiones}
-		organizaciones={data.geo.organizaciones}
-		dias={data.geo.dias}
-	/>
-</section>
-
-<h2 class="seccion">Mapa de trampas</h2>
-<div class="mapa">
-	{#each data.sensores as s (s.id)}
-		<section class="panel sensor" class:caido={!s.vivo}>
-			<header>
-				<div>
-					<h3>{s.nombre}</h3>
-					{#if s.red}<p class="mono">{s.red}</p>{/if}
-				</div>
-				<span class="latido" class:mal={!s.vivo}>
-					{s.vivo
-						? 'en línea'
-						: s.ultimoLatido
-							? `sin contacto ${haceCuanto(s.ultimoLatido, data.ahora)}`
-							: 'nunca ha contactado'}
-				</span>
-			</header>
-			{#if s.avisos.length}
-				<!-- El detalle, con lo que hay que hacer, está en Sensores. -->
-				<a class="avisos-sensor" href={resolve('/sensores')}>
-					{#each s.avisos as a (a.codigo)}
-						<span class:grave={a.gravedad === 'error'}>{a.titulo}</span>
-					{/each}
-				</a>
-			{/if}
-			<ul>
-				{#each s.trampas as x (x.id)}
-					<li class:parado={APAGADAS.includes(x.estado.estado)}>
-						<span
-							class="estado"
-							data-peor={x.peor}
-							title={x.peor ? `Tocado: ${x.peor}` : 'Sin eventos'}
-						></span>
-						<span class="nombre">
-							<b>{x.nombre}</b>
-							<small>
-								<EstadoTrampa estado={x.estado} />
-								<!-- Una trampa a mano: la recibe este sensor, pero está en su destino. -->
-								{#if x.aMano}{' · '}a mano en {x.destino ??
-										'su destino'}{:else if estaPuesta(x.estado.estado)}{' · '}<span class="mono"
-										>{x.donde}</span
-									>{/if}
-							</small>
-						</span>
-						<span class="tag">{nombreTipo[x.tipo]}</span>
-					</li>
-				{/each}
-			</ul>
-		</section>
-	{/each}
+<div class="seccion">
+	<h2>Orígenes</h2>
+	<BotonPlegar id="resumen-origenes" titulo="Orígenes" bind:plegado={plegado.origenes} />
 </div>
+{#if !plegado.origenes}
+	<section class="panel">
+		<MapaOrigenes
+			paises={data.geo.paises}
+			regiones={data.geo.regiones}
+			organizaciones={data.geo.organizaciones}
+			dias={data.geo.dias}
+		/>
+	</section>
+{/if}
+
+<div class="seccion">
+	<h2>Mapa de trampas</h2>
+	<BotonPlegar id="resumen-trampas" titulo="Mapa de trampas" bind:plegado={plegado.trampas} />
+</div>
+{#if !plegado.trampas}
+	<div class="mapa">
+		{#each data.sensores as s (s.id)}
+			<section class="panel sensor" class:caido={!s.vivo}>
+				<header>
+					<div>
+						<h3>{s.nombre}</h3>
+						{#if s.red}<p class="mono">{s.red}</p>{/if}
+					</div>
+					<span class="latido" class:mal={!s.vivo}>
+						{s.vivo
+							? 'en línea'
+							: s.ultimoLatido
+								? `sin contacto ${haceCuanto(s.ultimoLatido, data.ahora)}`
+								: 'nunca ha contactado'}
+					</span>
+				</header>
+				{#if s.avisos.length}
+					<!-- El detalle, con lo que hay que hacer, está en Sensores. -->
+					<a class="avisos-sensor" href={resolve('/sensores')}>
+						{#each s.avisos as a (a.codigo)}
+							<span class:grave={a.gravedad === 'error'}>{a.titulo}</span>
+						{/each}
+					</a>
+				{/if}
+				<ul>
+					{#each s.trampas as x (x.id)}
+						<li class:parado={APAGADAS.includes(x.estado.estado)}>
+							<span
+								class="estado"
+								data-peor={x.peor}
+								title={x.peor ? `Tocado: ${x.peor}` : 'Sin eventos'}
+							></span>
+							<span class="nombre">
+								<b>{x.nombre}</b>
+								<small>
+									<EstadoTrampa estado={x.estado} />
+									<!-- Una trampa a mano: la recibe este sensor, pero está en su destino. -->
+									{#if x.aMano}{' · '}a mano en {x.destino ??
+											'su destino'}{:else if estaPuesta(x.estado.estado)}{' · '}<span class="mono"
+											>{x.donde}</span
+										>{/if}
+								</small>
+							</span>
+							<span class="tag">{nombreTipo[x.tipo]}</span>
+						</li>
+					{/each}
+				</ul>
+			</section>
+		{/each}
+	</div>
+{/if}
 
 <style>
 	.cabecera {
@@ -183,7 +211,7 @@
 	.titulo {
 		display: flex;
 		justify-content: space-between;
-		align-items: baseline;
+		align-items: center;
 		padding: 14px 17px 10px;
 		border-bottom: 1px solid var(--line);
 	}
@@ -220,9 +248,27 @@
 	}
 
 	.seccion {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 12px;
+		margin: 30px 0 12px;
+	}
+
+	.seccion h2 {
 		font-size: 18px;
 		font-weight: 600;
-		margin: 30px 0 12px;
+	}
+
+	.titulo .acciones {
+		display: inline-flex;
+		align-items: center;
+		gap: 12px;
+	}
+
+	/* Plegada, la cabecera es lo único del panel: sin raya debajo. */
+	.titulo.solo {
+		border-bottom: 0;
 	}
 
 	.mapa {

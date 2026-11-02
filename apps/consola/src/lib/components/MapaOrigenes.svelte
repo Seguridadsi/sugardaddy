@@ -6,6 +6,7 @@
 	import mundo from '$lib/mapa/mundo.json';
 	import espana from '$lib/mapa/espana.json';
 	import { COMUNIDADES, nombrePais } from '$lib/formato';
+	import BotonPlegar from './BotonPlegar.svelte';
 	import MapaCalor, { type IpDeZona } from './MapaCalor.svelte';
 
 	type Zona = { eventos: number; ips: number; top: IpDeZona[] };
@@ -29,6 +30,9 @@
 		zonas: mundo.paises.map((p) => ({ id: p.a2, d: p.d }))
 	};
 	const plural = (n: number, uno: string, varios: string) => `${n} ${n === 1 ? uno : varios}`;
+
+	/* Cada mapa se pliega por su cuenta (BotonPlegar lo recuerda en el navegador). */
+	let plegado = $state({ mundo: false, espana: false });
 </script>
 
 {#snippet atribucion()}
@@ -52,32 +56,61 @@
 	{/if}
 {/snippet}
 
-<MapaCalor
-	dibujo={dibujoMundo}
-	zonas={paises.map((p) => ({ ...p, id: p.pais }))}
-	nombre={nombrePais}
-	titulo="Países"
-	etiqueta="Mapa de orígenes por país"
-	vacio="Ningún evento desde IP públicas."
-	pie={atribucion}
-	resumen={redes}
-/>
+<div class="cab-mapa">
+	<h3>Mapa mundial</h3>
+	<BotonPlegar id="resumen-mapa-mundo" titulo="Mapa mundial" bind:plegado={plegado.mundo} />
+</div>
+{#if !plegado.mundo}
+	<MapaCalor
+		dibujo={dibujoMundo}
+		zonas={paises.map((p) => ({ ...p, id: p.pais }))}
+		nombre={nombrePais}
+		titulo="Países"
+		etiqueta="Mapa de orígenes por país"
+		vacio="Ningún evento desde IP públicas."
+		pie={atribucion}
+		resumen={redes}
+	/>
+{/if}
 
 <div class="separador"></div>
 
-<MapaCalor
-	dibujo={espana}
-	zonas={regiones.map((r) => ({ ...r, id: r.region }))}
-	nombre={(id) => COMUNIDADES[id] ?? id}
-	titulo="España, por comunidad"
-	etiqueta="Mapa de orígenes en España por comunidad autónoma"
-	vacio="Ningún evento desde IP españolas."
-	pie={atribucion}
-/>
+<div class="cab-mapa">
+	<h3>Mapa de España</h3>
+	<BotonPlegar id="resumen-mapa-espana" titulo="Mapa de España" bind:plegado={plegado.espana} />
+</div>
+{#if !plegado.espana}
+	<MapaCalor
+		dibujo={espana}
+		zonas={regiones.map((r) => ({ ...r, id: r.region }))}
+		nombre={(id) => COMUNIDADES[id] ?? id}
+		titulo="España, por comunidad"
+		etiqueta="Mapa de orígenes en España por comunidad autónoma"
+		vacio="Ningún evento desde IP españolas."
+		pie={atribucion}
+	/>
+{/if}
 
 <style>
 	.separador {
 		border-top: 1px solid var(--line);
+	}
+
+	.cab-mapa {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 12px;
+		margin-bottom: 10px;
+	}
+
+	.separador + .cab-mapa {
+		margin-top: 16px;
+	}
+
+	.cab-mapa h3 {
+		font-size: 14px;
+		font-weight: 600;
 	}
 
 	h3.redes {

@@ -596,10 +596,11 @@ describe('variablesDeVia', () => {
 });
 
 describe('validarCatalogo', () => {
+	/* El ejemplo de credencial-ssh en lugar del módulo de verdad del mismo id (H21). */
 	const conCredencial = (cambiar: (m: Datos) => void = () => {}) => {
 		const m = credencial();
 		cambiar(m);
-		return [...catalogo(), honeycosa(m)];
+		return [...catalogo().filter((h) => h.id !== 'credencial-ssh'), honeycosa(m)];
 	};
 
 	it('el catálogo de modulos/trampas no tiene referencias rotas', () => {
@@ -622,7 +623,7 @@ describe('validarCatalogo', () => {
 				'vias[0] (windows): carga.pasos[0].orden: $sd.objetivo_noexiste: cowrie no tiene el parámetro noexiste'
 			]
 		});
-		expect(r.validas.map((h) => h.id)).toEqual(trampas);
+		expect(r.validas.map((h) => h.id)).toEqual(trampas.filter((m) => m !== 'credencial-ssh'));
 	});
 
 	it('también en sh y en los textos', () => {
