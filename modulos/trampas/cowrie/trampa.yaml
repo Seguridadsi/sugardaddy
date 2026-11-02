@@ -30,8 +30,8 @@ contenedor:
   # sin JA4H ni el resto de JA4+ con licencia FoxIO 1.1 (no comercial), y con
   # tope en lo que apunta del atacante (ver COWRIE_OUTPUT_JSONLOG_MAX_BYTES_DAY).
   # La construye y deja aquí su digest herramientas/publicar-trampa.sh cowrie.
-  imagen: ghcr.io/seguridadsi/sugardaddy-trampa-cowrie:3.1.2-sd3@sha256:7c18f1136dddca8d1bd4d48112652492f793c570bf988936bf46c91f884e7c84
-  imagenPublica: ghcr.io/seguridadsi/sugardaddy-trampa-cowrie:3.1.2-sd3@sha256:7c18f1136dddca8d1bd4d48112652492f793c570bf988936bf46c91f884e7c84
+  imagen: ghcr.io/seguridadsi/sugardaddy-trampa-cowrie:3.1.2-sd3@sha256:1a4ac914ba7e002b381d10d61adf18623eb714493ded77d2843d224f744027d8
+  imagenPublica: ghcr.io/seguridadsi/sugardaddy-trampa-cowrie:3.1.2-sd3@sha256:1a4ac914ba7e002b381d10d61adf18623eb714493ded77d2843d224f744027d8
   # Sin imagen pública: la de Docker Hub (cowrie/cowrie) lleva JA4+ con
   # licencia FoxIO 1.1 y no tiene el tope de cowrie.json. A un sensor sin
   # credencial del registro (anterior a la 0.12.1, o sin relevo) la consola
