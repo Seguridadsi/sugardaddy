@@ -105,9 +105,41 @@ export type Geo = {
 	pais: string | null;
 	asn: number | null;
 	organizacion: string | null;
+	region?: string | null;
 	tor?: boolean;
 };
 
-/* "España · TELEFONICA DE ESPANA S.A.U." */
+/* Las comunidades y ciudades autónomas, por su código de ISO 3166-2:ES. */
+export const COMUNIDADES: Record<string, string> = {
+	AN: 'Andalucía',
+	AR: 'Aragón',
+	AS: 'Asturias',
+	CB: 'Cantabria',
+	CE: 'Ceuta',
+	CL: 'Castilla y León',
+	CM: 'Castilla-La Mancha',
+	CN: 'Canarias',
+	CT: 'Cataluña',
+	EX: 'Extremadura',
+	GA: 'Galicia',
+	IB: 'Illes Balears',
+	MC: 'Región de Murcia',
+	MD: 'Comunidad de Madrid',
+	ML: 'Melilla',
+	NC: 'Navarra',
+	PV: 'País Vasco',
+	RI: 'La Rioja',
+	VC: 'Comunitat Valenciana'
+};
+
+/* "España (Comunidad de Madrid) · TELEFONICA DE ESPANA S.A.U." */
 export const textoGeo = (g: Geo | null | undefined) =>
-	g ? [nombrePais(g.pais), g.organizacion].filter(Boolean).join(' · ') : '';
+	g
+		? [
+				nombrePais(g.pais) +
+					(g.region && COMUNIDADES[g.region] ? ` (${COMUNIDADES[g.region]})` : ''),
+				g.organizacion
+			]
+				.filter(Boolean)
+				.join(' · ')
+		: '';

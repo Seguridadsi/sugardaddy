@@ -1,7 +1,7 @@
 import { fail } from '@sveltejs/kit';
 import { isIP } from 'node:net';
 import { exigir } from '$lib/server/auth/permisos';
-import { anadirALista, comparticion, guardarComparticion, listasDe } from '$lib/server/consultas';
+import { anadirALista, listasDe } from '$lib/server/consultas';
 import { normalizarDominio } from '$lib/server/dominios';
 import { cambiarUsoTor, listaTor, usoTor } from '$lib/server/tor';
 
@@ -28,7 +28,6 @@ export const load = async ({ url }) => {
 		ahora: Date.now(),
 		entradas: lista === 'tor' ? [] : entradas,
 		cuentas: { ...cuentas, tor: tor?.ips.length ?? 0 },
-		comparticion: await comparticion(),
 		tor: tor
 			? { ips: lista === 'tor' ? tor.ips : [], emitida: tor.emitida, fuente: tor.fuente }
 			: null,
@@ -69,15 +68,5 @@ export const actions = {
 		const u = exigir(locals, 'listas');
 		await cambiarUsoTor(u.correo, { edl: (await request.formData()).get('edl') === 'on' });
 		return { guardadoTor: true };
-	},
-
-	comparticion: async ({ request, locals }) => {
-		const u = exigir(locals, 'ajustes');
-		const form = await request.formData();
-		await guardarComparticion(u.correo, {
-			compartir: form.get('compartir') === 'on',
-			recibir: form.get('recibir') === 'on'
-		});
-		return { guardado: true };
 	}
 };

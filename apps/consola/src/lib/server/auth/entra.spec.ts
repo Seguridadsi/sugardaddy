@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { puede } from '$lib/permisos';
-import { identidadDesdePayload } from './entra';
+import { identidadDesdePayload, identidadPropia } from './entra';
 
 const GRUPO = '11111111-1111-1111-1111-111111111111';
 const base = {
@@ -85,5 +85,31 @@ describe('qué puede hacer cada rol', () => {
 	it('admin lo puede todo', () => {
 		for (const p of ['ver', 'desplegar', 'aprobar', 'listas', 'ajustes'] as const)
 			expect(puede(['admin'], p)).toBe(true);
+	});
+});
+
+describe('con el Entra propio del cliente', () => {
+	const suyo = { oid: 'xyz', preferred_username: 'Luis@Kebaps.es', name: 'Luis', roles: ['admin'] };
+
+	it('no hace falta grupo: basta un rol de Sugardaddy', () => {
+		expect(identidadPropia(suyo)).toEqual({
+			oid: 'xyz',
+			correo: 'luis@kebaps.es',
+			nombre: 'Luis',
+			roles: ['admin'],
+			soporte: false
+		});
+	});
+
+	it('sin rol de Sugardaddy no entra, aunque traiga otros', () => {
+		expect(identidadPropia({ ...suyo, roles: ['Global.Admin'] })).toEqual({ rechazo: 'sin_rol' });
+		expect(identidadPropia({ ...suyo, roles: undefined })).toEqual({ rechazo: 'sin_rol' });
+	});
+
+	it('sin correo ni oid tampoco', () => {
+		expect(identidadPropia({ ...suyo, preferred_username: 'luis' })).toEqual({
+			rechazo: 'sin_correo'
+		});
+		expect(identidadPropia({ ...suyo, oid: undefined })).toEqual({ rechazo: 'sin_oid' });
 	});
 });

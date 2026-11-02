@@ -1,5 +1,8 @@
 <script lang="ts">
+	import { enhance } from '$app/forms';
 	import { startAuthentication } from '@simplewebauthn/browser';
+
+	let { form } = $props();
 
 	let estado = $state<'listo' | 'esperando' | 'error'>('listo');
 	let mensaje = $state('');
@@ -30,16 +33,49 @@
 
 <div class="caja panel">
 	<span class="cuadro">!</span>
-	<h1>Entrada de emergencia</h1>
-	<p class="sub">
-		Con una llave FIDO2 registrada en este nodo. Funciona sin Entra y sin internet. Da rol de
-		administrador y queda en los logs.
-	</p>
-	{#if estado === 'error'}<p class="error" role="alert">{mensaje}</p>{/if}
-	<button class="boton principal" onclick={entrar} disabled={estado === 'esperando'}>
-		{estado === 'esperando' ? 'Toca tu llave…' : 'Entrar con la llave'}
-	</button>
-	<a class="volver" href="/entrar">Volver a la entrada normal</a>
+	{#if form?.nuevo}
+		<h1>Ya estás dentro</h1>
+		<p class="sub">
+			El código que has usado ya no vale. Este es el nuevo: guárdalo donde guardabas el anterior. No
+			se vuelve a enseñar.
+		</p>
+		<p class="codigo" aria-label="Código de emergencia nuevo"><code>{form.nuevo}</code></p>
+		<p class="sub">
+			Para volver a entrar como siempre, pon una contraseña nueva en Ajustes → Usuarios locales.
+			Esta entrada dura una hora.
+		</p>
+		<a class="boton principal" href="/usuarios">Ya lo he guardado</a>
+	{:else}
+		<h1>Entrada de emergencia</h1>
+		<p class="sub">
+			Para entrar como administrador cuando no queda otra forma. Funciona sin Microsoft y sin
+			internet, y queda en los logs.
+		</p>
+
+		<h2>Con tu código de emergencia</h2>
+		<p class="sub">El que te enseñó el instalador (o Ajustes), con el formato XXXX-XXXX-…</p>
+		{#if form?.error}<p class="error" role="alert">{form.error}</p>{/if}
+		<form method="POST" action="?/codigo" use:enhance>
+			<input
+				name="codigo"
+				aria-label="Código de emergencia"
+				autocomplete="off"
+				autocapitalize="characters"
+				spellcheck="false"
+				placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX"
+				required
+			/>
+			<button class="boton principal">Entrar con el código</button>
+		</form>
+
+		<h2>Con una llave FIDO2</h2>
+		<p class="sub">Si registraste una en Ajustes.</p>
+		{#if estado === 'error'}<p class="error" role="alert">{mensaje}</p>{/if}
+		<button class="boton" onclick={entrar} disabled={estado === 'esperando'}>
+			{estado === 'esperando' ? 'Toca tu llave…' : 'Entrar con la llave'}
+		</button>
+		<a class="volver" href="/entrar">Volver a la entrada normal</a>
+	{/if}
 </div>
 
 <style>
@@ -66,6 +102,40 @@
 	h1 {
 		margin-top: 14px;
 		font-size: 22px;
+	}
+
+	h2 {
+		margin: 22px 0 0;
+		font-size: 15px;
+		text-align: left;
+	}
+
+	h2 + .sub {
+		margin-top: 2px;
+		margin-bottom: 10px;
+		text-align: left;
+	}
+
+	form {
+		display: grid;
+		gap: 10px;
+	}
+
+	input {
+		font-family: var(--font-mono);
+		text-align: center;
+		letter-spacing: 0.04em;
+	}
+
+	.codigo code {
+		display: block;
+		padding: 14px 10px;
+		font-size: 17px;
+		letter-spacing: 0.06em;
+		background: var(--surface-2);
+		border: 1px solid var(--line);
+		border-radius: var(--r-sm);
+		user-select: all;
 	}
 
 	.sub {

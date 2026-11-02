@@ -46,6 +46,8 @@
 	<h2>Contraseña</h2>
 	<p class="sub">Al menos {data.minimo} caracteres; mejor una frase larga que símbolos raros.</p>
 	<form method="POST" action="?/contrasena" use:enhance>
+		<!-- Para que el navegador sepa de quién es la contraseña nueva y ofrezca guardarla. -->
+		<input type="text" autocomplete="username" value={data.usuario} hidden readonly />
 		<label class="campo">
 			<span>Contraseña actual</span>
 			<input name="actual" type="password" autocomplete="current-password" required />

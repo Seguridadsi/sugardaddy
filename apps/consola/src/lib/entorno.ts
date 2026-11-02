@@ -21,11 +21,11 @@ export type Entorno = (typeof ENTORNOS)[number];
 export const esEntorno = (v: unknown): v is Entorno =>
 	typeof v === 'string' && (ENTORNOS as readonly string[]).includes(v);
 
-/* El nombre corto para las pantallas. */
+/* El nombre corto para las pantallas: interno (en la red), externo (de cara a internet) o aislado. */
 export const ENTORNO_ETIQUETA: Record<Entorno, string> = {
-	dentro: 'Dentro de la red',
-	'perimetro-web': 'De cara a la web',
-	aislada: 'Red aislada'
+	dentro: 'Interno',
+	'perimetro-web': 'Externo',
+	aislada: 'Aislado'
 };
 
 /* Una frase que explica qué implica cada entorno para la respuesta. */

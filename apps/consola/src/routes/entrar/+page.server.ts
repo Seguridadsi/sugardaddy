@@ -1,6 +1,6 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { volverSeguro } from '@sugardaddy/entra';
-import { configurado } from '$lib/server/auth/entra';
+import { configActiva } from '$lib/server/auth/entra-propio';
 import {
 	COOKIE_CAMBIO,
 	abrirRetoCambio,
@@ -25,10 +25,10 @@ const MENSAJES: Record<string, string> = {
 	sin_oid: 'El token de Microsoft no identifica tu cuenta.'
 };
 
-export const load = ({ url, locals }) => {
+export const load = async ({ url, locals }) => {
 	if (locals.usuario) redirect(303, '/');
 	return {
-		configurado: configurado(),
+		configurado: !!(await configActiva()),
 		local: loginLocalHabilitado(),
 		volverA: url.searchParams.get('volverA') ?? '/',
 		error: MENSAJES[url.searchParams.get('error') ?? ''] ?? null,

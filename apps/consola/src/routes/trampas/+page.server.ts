@@ -14,17 +14,21 @@ import { noSeParaPor, recibeSenalDe } from '$lib/formato';
  * Una desplegada de un módulo que ya no está en el catálogo va sin
  * procedencia, con el pictograma de su tipo si lo tiene.
  *
- * El catálogo va con las disponibles delante (en la suscripción y, si son de
+ * El catálogo va con las instaladas delante, luego las disponibles (en la suscripción y, si son de
  * pago, en la licencia) y, dentro de cada grupo, por nombre.
  */
 export const load = async ({ url }) => {
 	const catalogo = await catalogoConSuscripcion();
 	const procedencias = new Map(catalogo.map((m) => [m.id, m.procedencia ?? null]));
+	const desplegados = await trampasConEventos();
+	/* Cuántas trampas hay puestas de cada módulo: el catálogo marca las que ya están en uso. */
+	const instaladas = new Map<string, number>();
+	for (const t of desplegados) instaladas.set(t.modulo, (instaladas.get(t.modulo) ?? 0) + 1);
 	return {
 		creado: url.searchParams.get('creado'),
 		cambiado: url.searchParams.get('cambiado'),
 		quitada: url.searchParams.get('quitada'),
-		desplegados: (await trampasConEventos()).map((t) => ({
+		desplegados: desplegados.map((t) => ({
 			...t,
 			procedencia: procedencias.get(t.modulo) ?? null,
 			pictograma: tipoDeServicio(t.modulo)
@@ -32,13 +36,16 @@ export const load = async ({ url }) => {
 		catalogo: catalogo
 			.toSorted(
 				(a, b) =>
-					Number(b.disponible) - Number(a.disponible) || a.nombre.localeCompare(b.nombre, 'es')
+					Number(instaladas.has(b.id)) - Number(instaladas.has(a.id)) ||
+					Number(b.disponible) - Number(a.disponible) ||
+					a.nombre.localeCompare(b.nombre, 'es')
 			)
 			.map((m) => ({
 				id: m.id,
 				nombre: m.nombre,
 				tipo: tipoEvento(m),
 				disponible: m.disponible,
+				instaladas: instaladas.get(m.id) ?? 0,
 				porQueNo: porQueNo(m),
 				/* Tiene alguna vía que esta consola sabe poner (en un sensor o a mano). */
 				desplegable: desplegable(m),

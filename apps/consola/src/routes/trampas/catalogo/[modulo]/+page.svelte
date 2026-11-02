@@ -28,7 +28,12 @@
 		</div>
 	</div>
 	<p class="desc">{m.descripcion}</p>
-	{#if m.disponible}
+	{#if m.instaladas > 0}
+		<p class="estado instalada">
+			✓ Instalada{m.instaladas > 1 ? ` · ${m.instaladas} puestas` : ''}
+			<a href="/trampas">Ver en Trampas</a>
+		</p>
+	{:else if m.disponible}
 		<p class="estado incluida">Disponible</p>
 	{:else}
 		<p class="estado no-incluida">{m.porQueNo}</p>
@@ -171,6 +176,19 @@
 
 	.incluida {
 		color: var(--ok);
+	}
+
+	.instalada {
+		color: var(--ok);
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+	}
+
+	.instalada a {
+		margin-left: 8px;
+		font-weight: 500;
+		text-transform: none;
+		letter-spacing: 0;
 	}
 
 	.no-incluida {

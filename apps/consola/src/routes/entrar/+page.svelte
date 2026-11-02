@@ -71,7 +71,7 @@
 		<p class="error">Esta consola no tiene configurada ninguna forma de entrar.</p>
 	{/if}
 
-	<a class="emergencia" href="/emergencia">Entrada de emergencia con llave</a>
+	<a class="emergencia" href="/emergencia">Entrada de emergencia</a>
 </div>
 
 <style>

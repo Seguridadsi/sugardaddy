@@ -224,11 +224,11 @@ describe.skipIf(!hayBase)('login local contra base de datos', () => {
 			.where(eq(s.usuariosLocales.id, id));
 		const r = await local.verificar(`${P}-co`, clave1);
 		expect(r.ok && r.pideCorreo).toBe(true);
-		expect(await local.pendientesAlEntrar(id)).toEqual({ clave: true, correo: true });
+		expect(await local.pendientesAlEntrar(id)).toMatchObject({ clave: true, correo: true });
 
 		expect((await local.cambiarCorreo('tester', id, 'esto no es un correo')).ok).toBe(false);
 		const ok = await local.cambiarCorreo('tester', id, '  co2@ejemplo.com ');
 		expect(ok.ok && ok.identidad.correo).toBe('co2@ejemplo.com');
-		expect(await local.pendientesAlEntrar(id)).toEqual({ clave: true, correo: false });
+		expect(await local.pendientesAlEntrar(id)).toMatchObject({ clave: true, correo: false });
 	});
 });

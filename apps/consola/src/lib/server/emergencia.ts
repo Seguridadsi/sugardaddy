@@ -16,7 +16,7 @@ import {
 	type AuthenticationResponseJSON,
 	type RegistrationResponseJSON
 } from '@simplewebauthn/server';
-import { eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { db, schema as s } from './db';
 import { auditar } from './consultas';
 
@@ -161,4 +161,98 @@ export async function verificarEntrada(
 		.set({ contador: v.authenticationInfo.newCounter, ultimoUso: new Date() })
 		.where(eq(s.llavesEmergencia.id, llave.id));
 	return llave;
+}
+
+/* ---------- código de emergencia (se crea al instalar) ---------- */
+
+/*
+ * La otra forma de entrar si todo falla: un código que el instalador enseña una
+ * sola vez y el cliente guarda fuera de la máquina. Vale para entrar como
+ * administrador una vez; al usarlo se cambia por otro, que se enseña en ese
+ * momento. Tiene 120 bits de azar, así que basta con su sha256 (no hay nada que
+ * adivinar por fuerza bruta) y el freno es solo para no llenar la auditoría.
+ *
+ * scripts/codigo-emergencia.mjs (el que usa el instalador) repite el formato y
+ * el hash: si cambian aquí, cambian allí.
+ */
+const AJUSTE_CODIGO = 'emergencia_codigo';
+const ALFABETO = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+export function generarCodigoEmergencia() {
+	const b = randomBytes(24);
+	const c = Array.from(b, (x) => ALFABETO[x & 31]).join('');
+	return c.match(/.{4}/g)!.join('-');
+}
+
+export const normalizarCodigo = (c: string) => c.toUpperCase().replace(/[^A-Z0-9]/g, '');
+export const hashCodigoEmergencia = (c: string) => hash(normalizarCodigo(c));
+
+export async function estadoCodigoEmergencia() {
+	const [f] = await db.select().from(s.ajustes).where(eq(s.ajustes.clave, AJUSTE_CODIGO));
+	const v = f?.valor as { creado: string; por: string } | undefined;
+	return v ? { creado: v.creado, por: v.por } : null;
+}
+
+/* Crea (o sustituye) el código y lo devuelve en claro: es la única vez que se ve. */
+export async function nuevoCodigoEmergencia(quien: string) {
+	const codigo = generarCodigoEmergencia();
+	const valor = {
+		hash: hashCodigoEmergencia(codigo),
+		creado: new Date().toISOString(),
+		por: quien
+	};
+	await db
+		.insert(s.ajustes)
+		.values({ clave: AJUSTE_CODIGO, valor })
+		.onConflictDoUpdate({ target: s.ajustes.clave, set: { valor } });
+	await auditar(quien, 'código de emergencia generado');
+	return codigo;
+}
+
+const FALLOS_POR_IP = 5;
+const FALLOS_EN_TOTAL = 30;
+const VENTANA_FALLOS = 15 * 60_000;
+const fallos = new Map<string, number[]>();
+
+function frenado(ip: string, ahora: number) {
+	for (const [k, v] of fallos) {
+		const vivos = v.filter((t) => ahora - t < VENTANA_FALLOS);
+		if (vivos.length) fallos.set(k, vivos);
+		else fallos.delete(k);
+	}
+	const total = [...fallos.values()].reduce((n, v) => n + v.length, 0);
+	return (fallos.get(ip)?.length ?? 0) >= FALLOS_POR_IP || total >= FALLOS_EN_TOTAL;
+}
+
+export function _olvidarFallos() {
+	fallos.clear();
+}
+
+/*
+ * Entrar con el código. Se gasta de forma atómica (solo borra la fila si el hash
+ * coincide), así que dos peticiones a la vez no entran las dos. Si vale, deja
+ * puesto el siguiente y lo devuelve para enseñarlo.
+ */
+export async function canjearCodigoEmergencia(codigo: string, ip: string, ahora = Date.now()) {
+	if (frenado(ip, ahora)) return { ok: false as const, motivo: 'frenado' as const };
+	const limpio = normalizarCodigo(codigo);
+	const gastado =
+		limpio.length === 24
+			? await db
+					.delete(s.ajustes)
+					.where(
+						and(
+							eq(s.ajustes.clave, AJUSTE_CODIGO),
+							sql`${s.ajustes.valor}->>'hash' = ${hash(limpio)}`
+						)
+					)
+					.returning()
+			: [];
+	if (gastado.length === 0) {
+		fallos.set(ip, [...(fallos.get(ip) ?? []), ahora]);
+		await auditar('anónimo', 'código de emergencia rechazado', { ip });
+		return { ok: false as const, motivo: 'invalido' as const };
+	}
+	await auditar('emergencia · código', 'ENTRADA DE EMERGENCIA', { via: 'código', ip });
+	return { ok: true as const, nuevo: await nuevoCodigoEmergencia('emergencia · código') };
 }

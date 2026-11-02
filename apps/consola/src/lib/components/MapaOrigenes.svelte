@@ -1,122 +1,86 @@
 <script lang="ts">
+	/*
+	 * Orígenes del Resumen: el mapa del mundo por país y el de España por
+	 * comunidad autónoma (solo las IP españolas). Los dos se pinchan.
+	 */
 	import mundo from '$lib/mapa/mundo.json';
-	import { nombrePais } from '$lib/formato';
+	import espana from '$lib/mapa/espana.json';
+	import { COMUNIDADES, nombrePais } from '$lib/formato';
+	import MapaCalor, { type IpDeZona } from './MapaCalor.svelte';
 
-	type Pais = { pais: string; eventos: number; ips: number };
+	type Zona = { eventos: number; ips: number; top: IpDeZona[] };
 	type Org = { organizacion: string; asn: number | null; eventos: number; ips: number };
 
-	let { paises, organizaciones, dias }: { paises: Pais[]; organizaciones: Org[]; dias: number } =
-		$props();
+	let {
+		paises,
+		regiones,
+		organizaciones,
+		dias
+	}: {
+		paises: (Zona & { pais: string })[];
+		regiones: (Zona & { region: string })[];
+		organizaciones: Org[];
+		dias: number;
+	} = $props();
 
-	const porPais = $derived(new Map(paises.map((p) => [p.pais, p])));
-	const maximo = $derived(Math.max(1, ...paises.map((p) => p.eventos)));
-	/* Escala logarítmica: un país con 5 eventos se ve aunque otro tenga 5.000. */
-	const intensidad = (n: number) => 0.25 + 0.75 * (Math.log(1 + n) / Math.log(1 + maximo));
+	const dibujoMundo = {
+		ancho: mundo.ancho,
+		alto: mundo.alto,
+		zonas: mundo.paises.map((p) => ({ id: p.a2, d: p.d }))
+	};
 	const plural = (n: number, uno: string, varios: string) => `${n} ${n === 1 ? uno : varios}`;
 </script>
 
-<div class="geo">
-	<figure>
-		<svg viewBox="0 0 {mundo.ancho} {mundo.alto}" role="img" aria-label="Mapa de orígenes">
-			{#each mundo.paises as p (p.a2)}
-				{@const d = porPais.get(p.a2)}
-				<path
-					d={p.d}
-					class:tocado={!!d}
-					style={d ? `fill-opacity: ${intensidad(d.eventos)}` : undefined}
-					><title
-						>{nombrePais(p.a2)}{d
-							? ` · ${plural(d.eventos, 'evento', 'eventos')} desde ${plural(d.ips, 'IP', 'IP')}`
-							: ''}</title
-					></path
-				>
-			{/each}
-		</svg>
-		<figcaption>
-			Últimos {dias} días, solo IP públicas. Geolocalización:
-			<a href="https://db-ip.com" rel="noreferrer noopener" target="_blank">DB-IP</a> (CC BY 4.0).
-		</figcaption>
-	</figure>
+{#snippet atribucion()}
+	Últimos {dias} días, solo IP públicas. Geolocalización:
+	<a href="https://db-ip.com" rel="noreferrer noopener" target="_blank">DB-IP</a> (CC BY 4.0).
+{/snippet}
 
-	<div class="listas">
+{#snippet redes()}
+	{#if organizaciones.length}
 		<section>
-			<h3>Países</h3>
-			{#if paises.length === 0}
-				<p class="vacio">Ningún evento desde IP públicas.</p>
-			{/if}
-			<ol>
-				{#each paises.slice(0, 6) as p (p.pais)}
+			<h3 class="redes">Desde qué redes</h3>
+			<ol class="redes">
+				{#each organizaciones as o (o.organizacion)}
 					<li>
-						<span class="mono codigo">{p.pais}</span>
-						<span class="nombre">{nombrePais(p.pais)}</span>
-						<span class="n mono" title={plural(p.ips, 'IP', 'IP')}>{p.eventos}</span>
+						<span class="nombre" title={o.asn ? `AS${o.asn}` : ''}>{o.organizacion}</span>
+						<span class="n mono" title={plural(o.ips, 'IP', 'IP')}>{o.eventos}</span>
 					</li>
 				{/each}
 			</ol>
 		</section>
-		{#if organizaciones.length}
-			<section>
-				<h3>Desde qué redes</h3>
-				<ol>
-					{#each organizaciones as o (o.organizacion)}
-						<li>
-							<span class="nombre" title={o.asn ? `AS${o.asn}` : ''}>{o.organizacion}</span>
-							<span class="n mono" title={plural(o.ips, 'IP', 'IP')}>{o.eventos}</span>
-						</li>
-					{/each}
-				</ol>
-			</section>
-		{/if}
-	</div>
-</div>
+	{/if}
+{/snippet}
+
+<MapaCalor
+	dibujo={dibujoMundo}
+	zonas={paises.map((p) => ({ ...p, id: p.pais }))}
+	nombre={nombrePais}
+	titulo="Países"
+	etiqueta="Mapa de orígenes por país"
+	vacio="Ningún evento desde IP públicas."
+	pie={atribucion}
+	resumen={redes}
+/>
+
+<div class="separador"></div>
+
+<MapaCalor
+	dibujo={espana}
+	zonas={regiones.map((r) => ({ ...r, id: r.region }))}
+	nombre={(id) => COMUNIDADES[id] ?? id}
+	titulo="España, por comunidad"
+	etiqueta="Mapa de orígenes en España por comunidad autónoma"
+	vacio="Ningún evento desde IP españolas."
+	pie={atribucion}
+/>
 
 <style>
-	.geo {
-		display: grid;
-		grid-template-columns: minmax(0, 2fr) minmax(220px, 1fr);
-		gap: 18px;
-		padding: 16px 18px;
+	.separador {
+		border-top: 1px solid var(--line);
 	}
 
-	@media (max-width: 860px) {
-		.geo {
-			grid-template-columns: minmax(0, 1fr);
-		}
-	}
-
-	figure {
-		margin: 0;
-		min-width: 0;
-	}
-
-	svg {
-		display: block;
-		width: 100%;
-		height: auto;
-	}
-
-	path {
-		fill: var(--surface-2);
-		stroke: var(--line);
-		stroke-width: 0.5;
-	}
-
-	path.tocado {
-		fill: var(--accent);
-	}
-
-	path:hover {
-		stroke: var(--ink-2);
-		stroke-width: 1;
-	}
-
-	figcaption {
-		margin-top: 8px;
-		font-size: 11.5px;
-		color: var(--ink-3);
-	}
-
-	h3 {
+	h3.redes {
 		font-size: 12px;
 		font-weight: 600;
 		text-transform: uppercase;
@@ -125,17 +89,13 @@
 		margin: 0 0 6px;
 	}
 
-	.listas section + section {
-		margin-top: 16px;
-	}
-
-	ol {
+	ol.redes {
 		list-style: none;
 		margin: 0;
 		padding: 0;
 	}
 
-	li {
+	ol.redes li {
 		display: flex;
 		align-items: baseline;
 		gap: 8px;
@@ -144,14 +104,8 @@
 		font-size: 13px;
 	}
 
-	li:last-child {
+	ol.redes li:last-child {
 		border-bottom: none;
-	}
-
-	.codigo {
-		font-size: 11.5px;
-		color: var(--ink-3);
-		width: 22px;
 	}
 
 	.nombre {
@@ -164,11 +118,5 @@
 
 	.n {
 		color: var(--ink-2);
-	}
-
-	.vacio {
-		font-size: 13px;
-		color: var(--ink-3);
-		margin: 0;
 	}
 </style>

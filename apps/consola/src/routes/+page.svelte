@@ -75,6 +75,7 @@
 <section class="panel">
 	<MapaOrigenes
 		paises={data.geo.paises}
+		regiones={data.geo.regiones}
 		organizaciones={data.geo.organizaciones}
 		dias={data.geo.dias}
 	/>

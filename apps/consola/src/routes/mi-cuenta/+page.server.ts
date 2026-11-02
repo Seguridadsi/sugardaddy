@@ -5,7 +5,8 @@ import {
 	cambiarCorreo,
 	cambiarNombrePropio,
 	correoValido,
-	loginLocalHabilitado
+	loginLocalHabilitado,
+	pendientesAlEntrar
 } from '$lib/server/auth/local';
 import { cambiarCorreoSesiones, renombrarSesiones } from '$lib/server/auth/sesion';
 
@@ -21,10 +22,12 @@ function idLocal(locals: App.Locals): string | null {
 	return oid.slice('local:'.length);
 }
 
-export const load = ({ locals }) => {
-	if (!idLocal(locals)) redirect(303, '/');
+export const load = async ({ locals }) => {
+	const id = idLocal(locals);
+	if (!id) redirect(303, '/');
 	const correo = locals.usuario!.correo;
 	return {
+		usuario: (await pendientesAlEntrar(id))?.usuario ?? '',
 		nombre: locals.usuario!.nombre,
 		correo: correoValido(correo) ? correo : '',
 		minimo: MIN_CLAVE

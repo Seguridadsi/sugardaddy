@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import { haceCuanto } from '$lib/formato';
+	import EntraPropio from '$lib/components/EntraPropio.svelte';
 
 	let { data, form } = $props();
 	const c = $derived(data.canal);
@@ -144,14 +145,52 @@
 	</section>
 {/if}
 
+<EntraPropio {...data.entra} error={form?.entraError} valores={form?.entraValores} />
+
+<section class="panel bloque">
+	<h2>Código de emergencia</h2>
+	<p class="ayuda">
+		Para entrar como administrador si se pierde todo lo demás (contraseña, correo, Microsoft). Se
+		usa en <a href="/emergencia">/emergencia</a>, vale una vez y al usarlo se cambia por otro.
+		Guárdalo fuera de esta máquina.
+	</p>
+	{#if form?.codigoEmergencia}
+		<p class="codigo-nuevo" role="status">
+			Código nuevo (el anterior ya no vale). Cópialo ahora: no se vuelve a enseñar.
+			<code>{form.codigoEmergencia}</code>
+		</p>
+	{:else if data.codigoEmergencia}
+		<p>
+			Creado por {data.codigoEmergencia.por} el
+			{new Date(data.codigoEmergencia.creado).toLocaleDateString('es-ES')}.
+		</p>
+	{:else}
+		<p class="mal">Este nodo no tiene código de emergencia.</p>
+	{/if}
+	<form
+		method="POST"
+		action="?/codigoEmergencia"
+		use:enhance
+		onsubmit={(e) => {
+			if (
+				data.codigoEmergencia &&
+				!confirm('El código que tienes guardado dejará de valer. ¿Sigo?')
+			)
+				e.preventDefault();
+		}}
+	>
+		<button class="boton">{data.codigoEmergencia ? 'Cambiarlo por otro' : 'Crear uno'}</button>
+	</form>
+</section>
+
 <section class="panel bloque">
 	<h2>Llaves de emergencia</h2>
 	<p class="ayuda">
-		Para entrar como administrador si falla Entra o no hay internet. Conviene tener al menos dos,
-		guardadas por separado.
+		Otra forma de entrar como administrador si falla todo: una llave FIDO2. Conviene tener al menos
+		dos, guardadas por separado.
 	</p>
 	{#if data.llaves.length === 0}
-		<p class="mal">Este nodo no tiene ninguna: si Entra falla, nadie podrá entrar.</p>
+		<p>Ninguna registrada.</p>
 	{:else}
 		<ul class="llaves">
 			{#each data.llaves as l (l.id)}
@@ -431,6 +470,34 @@
 	{/if}
 </section>
 
+<section class="panel bloque">
+	<h2>Compartir con otros clientes</h2>
+	<p class="ayuda">
+		Inteligencia compartida a través del panel central de SeguridadSI: lo que te ataca a ti avisa a
+		los demás, y al revés.
+		{#if !c}Hace falta dar de alta este nodo en el panel (arriba) para que tenga efecto.{/if}
+	</p>
+	<form method="POST" action="?/comparticion" use:enhance>
+		<label class="interruptor">
+			<input type="checkbox" name="compartir" checked={data.comparticion.compartir} />
+			<span>
+				<b>Compartir mis indicadores</b>
+				<small
+					>Solo IPs públicas con sesión completa. Nunca IPs internas, usuarios ni tu nombre.</small
+				>
+			</span>
+		</label>
+		<label class="interruptor">
+			<input type="checkbox" name="recibir" checked={data.comparticion.recibir} />
+			<span>
+				<b>Recibir la lista global</b>
+				<small>Indicadores vistos por varios clientes o aprobados por SeguridadSI.</small>
+			</span>
+		</label>
+		<button class="boton">Guardar</button>
+	</form>
+</section>
+
 <style>
 	.cabecera {
 		margin-bottom: 18px;
@@ -467,6 +534,36 @@
 	.bloque h2 {
 		font-size: 16px;
 		font-weight: 600;
+	}
+
+	.interruptor {
+		display: flex;
+		gap: 10px;
+		align-items: flex-start;
+		margin: 14px 0;
+		font-weight: 400;
+		color: var(--ink);
+	}
+
+	.interruptor input {
+		width: auto;
+		margin-top: 3px;
+		accent-color: var(--accent);
+	}
+
+	.interruptor span {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+	}
+
+	.interruptor b {
+		font-size: 13.5px;
+	}
+
+	.interruptor small {
+		font-size: 12px;
+		color: var(--ink-3);
 	}
 
 	.ayuda {
@@ -528,6 +625,19 @@
 
 	.plazo input {
 		width: 8em;
+	}
+
+	.codigo-nuevo code {
+		display: block;
+		width: fit-content;
+		margin-top: 8px;
+		padding: 10px 14px;
+		font-size: 16px;
+		letter-spacing: 0.06em;
+		background: var(--surface-2);
+		border: 1px solid var(--line);
+		border-radius: var(--r-sm);
+		user-select: all;
 	}
 
 	.llaves {

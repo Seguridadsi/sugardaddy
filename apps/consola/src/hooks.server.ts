@@ -1,7 +1,7 @@
 import { error, redirect, type Handle, type ServerInit } from '@sveltejs/kit';
 import { dev } from '$app/environment';
 import { env } from '$env/dynamic/private';
-import { configurado } from '$lib/server/auth/entra';
+import { configuradoEnEntorno } from '$lib/server/auth/entra';
 import { leer } from '$lib/server/auth/sesion';
 import { altaAutomatica, considerarCommunity, latir } from '$lib/server/canal';
 import { purgar } from '$lib/server/conservacion';
@@ -92,7 +92,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 			soporte: s.soporte,
 			emergencia: s.emergencia
 		};
-	else if (!configurado() && dev) {
+	else if (!configuradoEnEntorno() && dev) {
 		/* Sin Entra y en desarrollo: un usuario con todos los roles, y la barra lo dice. */
 		event.locals.usuario = { nombre: 'Desarrollo', correo: 'dev@localhost', roles: ['admin'] };
 		event.locals.modoDesarrollo = true;

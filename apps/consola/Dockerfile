@@ -25,6 +25,14 @@ RUN set -e; for f in country asn; do \
 		done; \
 		[ -s "dbip-$f-lite.mmdb" ]; \
 	done
+# Para el mapa de España: de DB-IP City Lite solo se queda la comunidad autónoma
+# de cada rango español (espana.bin, unos 700 KB; la base entera pesa cientos de MB).
+COPY apps/consola/scripts/geo-espana.mjs /tmp/
+RUN set -e; for mes in "$(date +%Y-%m)" "$(date -d "@$(( $(date +%s) - 2592000 ))" +%Y-%m)"; do \
+		wget -qO- "https://download.db-ip.com/free/dbip-city-lite-$mes.csv.gz" | gunzip \
+			| awk -F, '$4=="ES"' | node /tmp/geo-espana.mjs espana.bin && break; \
+	done; \
+	[ -s espana.bin ]
 
 FROM node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402
 ARG VERSION=0.0.0
@@ -39,7 +47,7 @@ COPY --from=construccion /src/node_modules /app/node_modules
 COPY --from=construccion /src/apps/consola/build ./build
 COPY --from=construccion /src/apps/consola/package.json ./
 COPY apps/consola/drizzle ./drizzle
-COPY apps/consola/scripts/arrancar.mjs apps/consola/scripts/preparar-base.mjs apps/consola/scripts/destinos.mjs apps/consola/scripts/emergencia.mjs apps/consola/scripts/clave.mjs apps/consola/scripts/red.mjs ./scripts/
+COPY apps/consola/scripts/arrancar.mjs apps/consola/scripts/preparar-base.mjs apps/consola/scripts/destinos.mjs apps/consola/scripts/emergencia.mjs apps/consola/scripts/clave.mjs apps/consola/scripts/codigo-emergencia.mjs apps/consola/scripts/red.mjs ./scripts/
 COPY modulos /app/modulos
 COPY --from=geo /geo /app/geo
 # Sin root y sin nada que escribir: el contenedor puede ir en solo lectura.

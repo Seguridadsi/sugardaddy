@@ -208,12 +208,16 @@ export function cerrarRetoCambio(reto: string | undefined) {
 /* Lo que le falta a un usuario para poder entrar: cambiar la contraseña, poner un correo o las dos. */
 export async function pendientesAlEntrar(
 	id: string
-): Promise<{ clave: boolean; correo: boolean } | null> {
+): Promise<{ usuario: string; clave: boolean; correo: boolean } | null> {
 	const [u] = await db
-		.select({ debeCambiar: s.usuariosLocales.debeCambiar, correo: s.usuariosLocales.correo })
+		.select({
+			usuario: s.usuariosLocales.usuario,
+			debeCambiar: s.usuariosLocales.debeCambiar,
+			correo: s.usuariosLocales.correo
+		})
 		.from(s.usuariosLocales)
 		.where(eq(s.usuariosLocales.id, id));
-	return u ? { clave: u.debeCambiar, correo: !correoValido(u.correo) } : null;
+	return u ? { usuario: u.usuario, clave: u.debeCambiar, correo: !correoValido(u.correo) } : null;
 }
 
 /* Fija el correo de recuperación de un usuario (el suyo propio o el forzado al entrar). */

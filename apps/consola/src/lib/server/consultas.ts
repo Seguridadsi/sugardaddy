@@ -685,6 +685,15 @@ export async function trampasConEventos() {
 	});
 }
 
+/* Cuántas trampas hay puestas de un módulo (la ficha del catálogo dice si ya está en uso). */
+export async function contarTrampasDe(modulo: string) {
+	const [f] = await db
+		.select({ n: sql<number>`count(*)::int` })
+		.from(s.trampas)
+		.where(eq(s.trampas.modulo, modulo));
+	return f?.n ?? 0;
+}
+
 export async function existeTrampa(id: string) {
 	return (
 		(await db.select({ id: s.trampas.id }).from(s.trampas).where(eq(s.trampas.id, id))).length > 0
@@ -1120,32 +1129,63 @@ export async function geoDe(eventos: Evento[]): Promise<Record<string, Geo & { t
 export const DIAS_MAPA = 30;
 
 /*
- * Orígenes: las IP públicas de los últimos 30 días, por país y por
- * organización. Las internas no salen: no tienen sitio en un mapa, y para
- * ellas está el mapa de trampas por sensor.
+ * Orígenes: las IP públicas de los últimos 30 días, por país, por comunidad
+ * autónoma (las españolas) y por organización. Cada país y cada comunidad
+ * llevan sus IP con más eventos, para verlas al pinchar en el mapa. Las
+ * internas no salen: no tienen sitio en un mapa, y para ellas está el mapa de
+ * trampas por sensor.
  */
+export const IPS_POR_ZONA = 30;
+
+type IpDeZona = { ip: string; eventos: number; organizacion: string | null; ultimo: string };
+type Zona<K extends string> = { [k in K]: string } & {
+	eventos: number;
+	ips: number;
+	top: IpDeZona[];
+};
+
 export async function mapaDeOrigenes() {
 	const filas = await db
-		.select({ ip: s.eventos.ip, n: sql<number>`count(*)::int` })
+		.select({
+			ip: s.eventos.ip,
+			n: sql<number>`count(*)::int`,
+			ultimo: sql<string>`max(${s.eventos.cuando})`
+		})
 		.from(s.eventos)
 		.where(gte(s.eventos.cuando, new Date(Date.now() - DIAS_MAPA * DIA)))
 		.groupBy(s.eventos.ip);
-	const paises = new Map<string, { pais: string; eventos: number; ips: number }>();
+	const paises = new Map<string, Zona<'pais'>>();
+	const regiones = new Map<string, Zona<'region'>>();
 	const orgs = new Map<
 		string,
 		{ organizacion: string; asn: number | null; eventos: number; ips: number }
 	>();
+	const sumar = <Z extends { eventos: number; ips: number; top: IpDeZona[] }>(
+		m: Map<string, Z>,
+		clave: string,
+		nueva: () => Z,
+		ip: IpDeZona
+	) => {
+		const z = m.get(clave) ?? nueva();
+		z.eventos += ip.eventos;
+		z.ips++;
+		z.top.push(ip);
+		m.set(clave, z);
+	};
 	let publicas = 0;
 	for (const f of filas) {
 		const g = geo(f.ip);
-		if (!g) continue;
+		if (!g || !f.ip) continue;
 		publicas++;
-		if (g.pais) {
-			const p = paises.get(g.pais) ?? { pais: g.pais, eventos: 0, ips: 0 };
-			p.eventos += f.n;
-			p.ips++;
-			paises.set(g.pais, p);
-		}
+		const ip: IpDeZona = {
+			ip: f.ip,
+			eventos: f.n,
+			organizacion: g.organizacion,
+			ultimo: new Date(f.ultimo).toISOString()
+		};
+		if (g.pais) sumar(paises, g.pais, () => ({ pais: g.pais!, eventos: 0, ips: 0, top: [] }), ip);
+		if (g.region)
+			sumar(regiones, g.region, () => ({ region: g.region!, eventos: 0, ips: 0, top: [] }), ip);
 		if (g.organizacion) {
 			const o = orgs.get(g.organizacion) ?? {
 				organizacion: g.organizacion,
@@ -1160,10 +1200,15 @@ export async function mapaDeOrigenes() {
 	}
 	const orden = <T extends { eventos: number }>(m: Map<string, T>) =>
 		[...m.values()].sort((a, b) => b.eventos - a.eventos);
+	const recortar = <T extends { top: IpDeZona[] }>(z: T) => ({
+		...z,
+		top: z.top.sort((a, b) => b.eventos - a.eventos).slice(0, IPS_POR_ZONA)
+	});
 	return {
 		dias: DIAS_MAPA,
 		ipsPublicas: publicas,
-		paises: orden(paises),
+		paises: orden(paises).map(recortar),
+		regiones: orden(regiones).map(recortar),
 		organizaciones: orden(orgs).slice(0, 6)
 	};
 }

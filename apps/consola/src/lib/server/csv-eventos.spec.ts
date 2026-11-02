@@ -42,7 +42,9 @@ describe('construirCsvEventos', () => {
 	});
 
 	it('rellena país/operador/ASN/Tor por IP', () => {
-		const geos = { '8.8.8.8': { pais: 'US', asn: 15169, organizacion: 'Google LLC' } };
+		const geos = {
+			'8.8.8.8': { pais: 'US', asn: 15169, organizacion: 'Google LLC', region: null }
+		};
 		const csv = construirCsvEventos(
 			[fila({ ip: '8.8.8.8', usuario: 'root' })],
 			nombres,
@@ -70,7 +72,9 @@ describe('construirCsvEventos', () => {
 	});
 
 	it('sigue escapando la inyección de fórmulas en el operador', () => {
-		const geos = { '1.2.3.4': { pais: 'ZZ', asn: 1, organizacion: '=HYPERLINK("http://x")' } };
+		const geos = {
+			'1.2.3.4': { pais: 'ZZ', asn: 1, organizacion: '=HYPERLINK("http://x")', region: null }
+		};
 		const csv = construirCsvEventos([fila({ ip: '1.2.3.4' })], nombres, geos, new Set());
 		expect(csv).toContain('"\'=HYPERLINK(""http://x"")"');
 	});

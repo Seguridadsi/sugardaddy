@@ -1,6 +1,6 @@
 import { redirect } from '@sveltejs/kit';
 import { urlDeCierre } from '@sugardaddy/entra';
-import { config, configurado } from '$lib/server/auth/entra';
+import { configActiva } from '$lib/server/auth/entra-propio';
 import { cerrar } from '$lib/server/auth/sesion';
 import { auditar } from '$lib/server/consultas';
 
@@ -14,8 +14,6 @@ export const POST = async ({ url, cookies, locals }) => {
 	 * emergencia no pasan por Microsoft: mandarlas allí sería un desvío sin sentido.
 	 */
 	const federada = !!oid && !oid.startsWith('local:') && !oid.startsWith('emergencia:');
-	redirect(
-		303,
-		configurado() && federada ? urlDeCierre(config(), `${url.origin}/auth/callback`) : '/entrar'
-	);
+	const activa = federada ? await configActiva() : null;
+	redirect(303, activa ? urlDeCierre(activa.config, `${url.origin}/auth/callback`) : '/entrar');
 };

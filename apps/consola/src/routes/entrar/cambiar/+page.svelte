@@ -34,6 +34,8 @@
 
 	<form method="POST" use:enhance>
 		<input type="hidden" name="volverA" value={data.volverA} />
+		<!-- Para que el navegador sepa de quién es la contraseña nueva y ofrezca guardarla. -->
+		<input type="text" autocomplete="username" value={data.usuario} hidden readonly />
 		{#if data.pideCorreo}
 			<label class="campo">
 				<span>Tu correo</span>

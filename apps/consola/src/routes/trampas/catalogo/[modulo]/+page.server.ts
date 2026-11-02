@@ -9,6 +9,7 @@ import {
 	porQueNo,
 	viaContenedor
 } from '$lib/server/catalogo';
+import { contarTrampasDe } from '$lib/server/consultas';
 
 /*
  * La ficha de una trampa del catálogo, esté o no disponible para el cliente
@@ -29,6 +30,7 @@ export const load = async ({ params }) => {
 			tipo: tipoEvento(m),
 			version: m.versionModulo,
 			disponible: m.disponible,
+			instaladas: await contarTrampasDe(m.id),
 			porQueNo: porQueNo(m),
 			desplegable: desplegable(m),
 			ficha: fichaDe(m) ?? null,

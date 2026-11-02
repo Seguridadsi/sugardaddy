@@ -29,6 +29,7 @@ export const load = async ({ url, cookies, locals }) => {
 	return {
 		volverA: url.searchParams.get('volverA') ?? '/',
 		minimo: MIN_CLAVE,
+		usuario: pendientes.usuario,
 		pideClave: pendientes.clave,
 		pideCorreo: pendientes.correo
 	};

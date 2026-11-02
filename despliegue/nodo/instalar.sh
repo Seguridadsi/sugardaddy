@@ -258,3 +258,31 @@ if [[ "$TLS_MODO" == interno ]]; then
 	[[ -s ca-raiz.crt ]] && echo "Raíz de la CA del nodo en $DIR/ca-raiz.crt (huella $(openssl x509 -in ca-raiz.crt -noout -fingerprint -sha256 | cut -d= -f2))"
 fi
 echo "Nodo en marcha. Consola en $URL"
+
+# Lo que el cliente tiene que guardar, junto y una sola vez: la contraseña del
+# primer administrador (si el nodo la acaba de crear, sale en el registro de la
+# consola) y el código de emergencia (solo se crea si el nodo aún no tiene uno:
+# al reinstalar encima, el que ya guardó sigue valiendo).
+PASO="crear el código de emergencia"
+CLAVE_ADMIN="$(docker compose --env-file .env --env-file versiones.env logs --no-log-prefix consola 2>/dev/null \
+	| sed -n 's/^  Contraseña:  //p' | tail -1 || true)"
+CODIGO_EMERGENCIA="$(docker compose --env-file .env --env-file versiones.env exec -T consola node scripts/codigo-emergencia.mjs --si-no-hay)"
+if [[ -n "$CLAVE_ADMIN" || -n "$CODIGO_EMERGENCIA" ]]; then
+	barra="$(printf '=%.0s' {1..64})"
+	echo
+	echo "$barra"
+	echo "  GUARDA ESTO FUERA DE ESTA MÁQUINA: no se vuelve a enseñar"
+	echo
+	if [[ -n "$CLAVE_ADMIN" ]]; then
+		echo "  Primer administrador:  admin"
+		echo "  Contraseña inicial:    $CLAVE_ADMIN   (si aún no la has cambiado)"
+		echo
+	fi
+	if [[ -n "$CODIGO_EMERGENCIA" ]]; then
+		echo "  Código de emergencia:  $CODIGO_EMERGENCIA"
+		echo "  Para entrar como administrador si pierdes la contraseña y el"
+		echo "  correo no llega: $URL/emergencia"
+		echo "  Vale una vez; al usarlo, la consola te da otro."
+	fi
+	echo "$barra"
+fi

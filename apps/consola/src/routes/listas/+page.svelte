@@ -90,7 +90,9 @@
 								></td
 							>
 							<td>{l.motivo}</td>
-							<td class="mono fecha" class:caducada={l.caduca && new Date(l.caduca).getTime() < data.ahora}
+							<td
+								class="mono fecha"
+								class:caducada={l.caduca && new Date(l.caduca).getTime() < data.ahora}
 								>{l.caduca
 									? new Date(l.caduca).getTime() < data.ahora
 										? 'caducada'
@@ -137,28 +139,6 @@
 					<button class="boton principal">Añadir</button>
 				</form>
 			{/if}
-
-			<form class="panel bloque" method="POST" action="?/comparticion" use:enhance>
-				<h2>Compartir con otros clientes</h2>
-				<label class="interruptor">
-					<input type="checkbox" name="compartir" checked={data.comparticion.compartir} />
-					<span>
-						<b>Compartir mis indicadores</b>
-						<small
-							>Solo IPs públicas con sesión completa. Nunca IPs internas, usuarios ni tu nombre.</small
-						>
-					</span>
-				</label>
-				<label class="interruptor">
-					<input type="checkbox" name="recibir" checked={data.comparticion.recibir} />
-					<span>
-						<b>Recibir la lista global</b>
-						<small>Indicadores vistos por varios clientes o aprobados por SeguridadSI.</small>
-					</span>
-				</label>
-				{#if form?.guardado}<p class="guardado" role="status">Guardado.</p>{/if}
-				{#if puede(roles, 'ajustes')}<button class="boton">Guardar</button>{/if}
-			</form>
 		</div>
 	</div>
 {/if}

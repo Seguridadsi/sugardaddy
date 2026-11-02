@@ -10,16 +10,18 @@
 	let { data, form } = $props();
 	const opera = $derived(puede(page.data.usuario?.roles ?? [], 'desplegar'));
 
-	/* El catálogo: todas o solo las disponibles, y lo que se escriba en el buscador. */
-	let soloDisponibles = $state(false);
+	/* El catálogo: todas, las disponibles o las instaladas, y lo que se escriba en el buscador. */
+	let ver = $state<'todas' | 'disponibles' | 'instaladas'>('todas');
 	let buscar = $state('');
 	const llano = (t: string) => t.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
 	const disponibles = $derived(data.catalogo.filter((m) => m.disponible).length);
+	const instaladas = $derived(data.catalogo.filter((m) => m.instaladas > 0).length);
 	const visibles = $derived.by(() => {
 		const q = llano(buscar.trim());
 		return data.catalogo.filter(
 			(m) =>
-				(!soloDisponibles || m.disponible) &&
+				(ver !== 'disponibles' || m.disponible) &&
+				(ver !== 'instaladas' || m.instaladas > 0) &&
 				(!q || llano(`${m.nombre} ${m.id} ${nombreTipo[m.tipo]} ${m.resumen}`).includes(q))
 		);
 	});
@@ -126,11 +128,18 @@
 
 <div class="filtros">
 	<div class="pestanas" role="group" aria-label="Qué trampas ver">
-		<button type="button" aria-pressed={!soloDisponibles} onclick={() => (soloDisponibles = false)}>
+		<button type="button" aria-pressed={ver === 'todas'} onclick={() => (ver = 'todas')}>
 			Todas <span class="mono">{data.catalogo.length}</span>
 		</button>
-		<button type="button" aria-pressed={soloDisponibles} onclick={() => (soloDisponibles = true)}>
+		<button
+			type="button"
+			aria-pressed={ver === 'disponibles'}
+			onclick={() => (ver = 'disponibles')}
+		>
 			Disponibles <span class="mono">{disponibles}</span>
+		</button>
+		<button type="button" aria-pressed={ver === 'instaladas'} onclick={() => (ver = 'instaladas')}>
+			Instaladas <span class="mono">{instaladas}</span>
 		</button>
 	</div>
 	<input
@@ -143,10 +152,16 @@
 
 <div class="catalogo">
 	{#each visibles as m (m.id)}
-		<article class="panel modulo" class:fuera={!m.disponible}>
+		<article class="panel modulo" class:fuera={!m.disponible} class:en-uso={m.instaladas > 0}>
 			<header>
 				<span class="tag on">{nombreTipo[m.tipo]}</span>
-				{#if m.disponible}
+				{#if m.instaladas > 0}
+					<span
+						class="instalada"
+						title={m.instaladas === 1 ? 'Hay una puesta' : `Hay ${m.instaladas} puestas`}
+						>✓ Instalada{m.instaladas > 1 ? ` · ${m.instaladas}` : ''}</span
+					>
+				{:else if m.disponible}
 					<span class="incluida">Disponible</span>
 				{:else}
 					<span class="no-incluida">{m.porQueNo}</span>
@@ -373,6 +388,23 @@
 
 	.incluida {
 		color: var(--ok);
+	}
+
+	.instalada {
+		padding: 2px 8px;
+		border-radius: 999px;
+		background: var(--ok);
+		color: var(--accent-ink);
+		font-size: 11px;
+		font-weight: 700;
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
+		white-space: nowrap;
+	}
+
+	.modulo.en-uso {
+		border-color: color-mix(in oklab, var(--ok) 55%, var(--line));
+		box-shadow: inset 3px 0 0 var(--ok);
 	}
 
 	.no-incluida {

@@ -1,6 +1,12 @@
-import { fail } from '@sveltejs/kit';
+import { fail, redirect } from '@sveltejs/kit';
 import { exigir } from '$lib/server/auth/permisos';
 import { loginLocalHabilitado } from '$lib/server/auth/local';
+import { configuradoEnEntorno } from '$lib/server/auth/entra';
+import {
+	estadoEntraPropio,
+	guardarEntraPropio,
+	quitarEntraPropio
+} from '$lib/server/auth/entra-propio';
 import {
 	actualizacion,
 	configuracion,
@@ -18,8 +24,10 @@ import {
 	autoActualizar,
 	buscarActualizaciones,
 	cabecera,
+	comparticion,
 	guardarAutoActualizar,
 	guardarBuscarActualizaciones,
+	guardarComparticion,
 	guardarWebhook,
 	webhook
 } from '$lib/server/consultas';
@@ -27,7 +35,12 @@ import { gestionado } from '$lib/server/actualizaciones';
 import { enviarLead } from '$lib/server/lead';
 import { db, schema as s } from '$lib/server/db';
 import { aceptar, cerrarYa, rechazar, soporte } from '$lib/server/soporte';
-import { llaves, retirarLlave } from '$lib/server/emergencia';
+import {
+	estadoCodigoEmergencia,
+	llaves,
+	nuevoCodigoEmergencia,
+	retirarLlave
+} from '$lib/server/emergencia';
 import { MINIMO_PALABRA, guardarPalabras, palabras } from '$lib/server/credenciales';
 import {
 	DIAS_MAXIMO,
@@ -41,7 +54,7 @@ import { estadoEspacio, estimacion } from '$lib/server/espacio';
 
 const DIA_MS = 86_400_000;
 
-export const load = async ({ locals }) => {
+export const load = async ({ locals, url }) => {
 	exigir(locals, 'ajustes');
 	const a = await actualizacion();
 	const cons = await conservacion();
@@ -69,9 +82,16 @@ export const load = async ({ locals }) => {
 			return { sensor: sen?.nombre ?? r.sensor, remoto: r.remoto, desde: r.desde };
 		})(),
 		soporte: await soporte(),
+		comparticion: await comparticion(),
 		palabras: await palabras(),
 		minimoPalabra: MINIMO_PALABRA,
 		conservacion: { ...cons, minimo: DIAS_MINIMO, maximo: DIAS_MAXIMO },
+		codigoEmergencia: await estadoCodigoEmergencia(),
+		entra: {
+			propio: await estadoEntraPropio(),
+			seguridadsi: configuradoEnEntorno(),
+			retorno: `${url.origin}/auth/callback`
+		},
 		llaves: (await llaves()).map((l) => ({
 			...l,
 			creada: l.creada.toISOString(),
@@ -214,6 +234,43 @@ export const actions = {
 		const u = exigir(locals, 'ajustes');
 		await cortar(u.correo);
 		return { mensaje: 'Canal cortado. El panel central ya no recibe nada de este nodo.' };
+	},
+	/* Guarda el Entra propio, pendiente, y se va a probarlo con Microsoft. */
+	entraGuardar: async ({ locals, request }) => {
+		const u = exigir(locals, 'ajustes');
+		const f = await request.formData();
+		const datos = {
+			tenant: String(f.get('tenant') ?? ''),
+			clientId: String(f.get('clientId') ?? ''),
+			secreto: String(f.get('secreto') ?? '')
+		};
+		const r = await guardarEntraPropio(u.correo, datos);
+		if (!r.ok)
+			return fail(400, {
+				entraError: r.error,
+				entraValores: { tenant: datos.tenant, clientId: datos.clientId }
+			});
+		redirect(303, '/auth/login?probar=1');
+	},
+	entraQuitar: async ({ locals }) => {
+		const u = exigir(locals, 'ajustes');
+		await quitarEntraPropio(u.correo);
+		redirect(303, '/ajustes#entra');
+	},
+	/* El código se enseña solo en esta respuesta: no se guarda en claro en ningún sitio. */
+	codigoEmergencia: async ({ locals }) => {
+		const u = exigir(locals, 'ajustes');
+		return { codigoEmergencia: await nuevoCodigoEmergencia(u.correo) };
+	},
+	/* Compartir con otros clientes (va por el canal con el panel central). */
+	comparticion: async ({ request, locals }) => {
+		const u = exigir(locals, 'ajustes');
+		const form = await request.formData();
+		await guardarComparticion(u.correo, {
+			compartir: form.get('compartir') === 'on',
+			recibir: form.get('recibir') === 'on'
+		});
+		return { mensaje: 'Compartición guardada.' };
 	},
 	retirarLlave: async ({ locals, request }) => {
 		const u = exigir(locals, 'ajustes');
