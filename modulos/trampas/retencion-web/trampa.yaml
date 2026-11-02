@@ -49,8 +49,8 @@ contenedor:
   # los cambia por el digest de verdad herramientas/publicar-trampa.sh
   # retencion-web; el banco de pruebas (herramientas/probar-trampa.sh) la
   # sustituye por la que construye en local.
-  imagen: ghcr.io/seguridadsi/sugardaddy-trampa-retencion-web:1.1.2-sd4@sha256:ae842b5108408ede9083bb84ee93b94a28ecd9ecfef56e441ecaebdbb1940a5c
-  imagenPublica: ghcr.io/seguridadsi/sugardaddy-trampa-retencion-web:1.1.2-sd4@sha256:ae842b5108408ede9083bb84ee93b94a28ecd9ecfef56e441ecaebdbb1940a5c
+  imagen: ghcr.io/seguridadsi/sugardaddy-trampa-retencion-web:1.1.2-sd4@sha256:250eb21e770f037284df0431956263568d5d2344f167bb36153ae598d36bd5a7
+  imagenPublica: ghcr.io/seguridadsi/sugardaddy-trampa-retencion-web:1.1.2-sd4@sha256:250eb21e770f037284df0431956263568d5d2344f167bb36153ae598d36bd5a7
   puertos:
     - { interno: 8080, expuesto: '${puerto}', protocolo: tcp }
   entorno:
