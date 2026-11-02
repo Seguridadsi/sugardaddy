@@ -47,8 +47,8 @@ contenedor:
   # modulos/comun/glutton) desde el commit fijado de glutton y con
   # sugardaddy.patch. Los ceros los cambia por el digest de verdad
   # herramientas/publicar-trampa.sh smb; el banco de pruebas usa la local.
-  imagen: ghcr.io/seguridadsi/sugardaddy-trampa-smb:1.0.1-sd1@sha256:d815a3a25f917b81b3763beccdc736f9ad730d842b292077299e452bad2cbd30
-  imagenPublica: ghcr.io/seguridadsi/sugardaddy-trampa-smb:1.0.1-sd1@sha256:d815a3a25f917b81b3763beccdc736f9ad730d842b292077299e452bad2cbd30
+  imagen: ghcr.io/seguridadsi/sugardaddy-trampa-smb:1.0.1-sd1@sha256:82836a6dfa61cd3b378a11af6dc0f2b8aa61131d3743096d131f90df48b6f40a
+  imagenPublica: ghcr.io/seguridadsi/sugardaddy-trampa-smb:1.0.1-sd1@sha256:82836a6dfa61cd3b378a11af6dc0f2b8aa61131d3743096d131f90df48b6f40a
   puertos:
     - { interno: 1445, expuesto: '${puertoSmb}', protocolo: tcp }
   entorno:

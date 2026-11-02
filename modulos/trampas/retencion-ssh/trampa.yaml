@@ -43,8 +43,8 @@ contenedor:
   # scratch, usuario no root). Los ceros los cambia por el digest de verdad
   # herramientas/publicar-trampa.sh retencion-ssh; el banco de pruebas
   # (herramientas/probar-trampa.sh) la sustituye por la que construye en local.
-  imagen: ghcr.io/seguridadsi/sugardaddy-trampa-retencion-ssh:0.2.0@sha256:462baa7db09cb367a99e78101db86082aa81ae6ce2311d22b3b778e86ece3dc6
-  imagenPublica: ghcr.io/seguridadsi/sugardaddy-trampa-retencion-ssh:0.2.0@sha256:462baa7db09cb367a99e78101db86082aa81ae6ce2311d22b3b778e86ece3dc6
+  imagen: ghcr.io/seguridadsi/sugardaddy-trampa-retencion-ssh:0.2.0@sha256:88389c083b1f824f5a4bc40f8e3f8f145a441dfa1ed5e25cc518698dae9658cc
+  imagenPublica: ghcr.io/seguridadsi/sugardaddy-trampa-retencion-ssh:0.2.0@sha256:88389c083b1f824f5a4bc40f8e3f8f145a441dfa1ed5e25cc518698dae9658cc
   puertos:
     - { interno: 2222, expuesto: '${puerto}', protocolo: tcp }
   entorno:

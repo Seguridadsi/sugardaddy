@@ -50,8 +50,8 @@ contenedor:
   # modulos/comun/glutton) desde el commit fijado de glutton y con
   # sugardaddy-rdp.patch. Los ceros los cambia por el digest de verdad
   # herramientas/publicar-trampa.sh rdp; el banco de pruebas usa la local.
-  imagen: ghcr.io/seguridadsi/sugardaddy-trampa-rdp:1.0.1-sd1@sha256:6972523b916ea4e111b2d86fdf09cd65cdbd11ccf4deb1cca589aaacc247fd58
-  imagenPublica: ghcr.io/seguridadsi/sugardaddy-trampa-rdp:1.0.1-sd1@sha256:6972523b916ea4e111b2d86fdf09cd65cdbd11ccf4deb1cca589aaacc247fd58
+  imagen: ghcr.io/seguridadsi/sugardaddy-trampa-rdp:1.0.1-sd1@sha256:16ecc711185f8995917c1551596774fbac42a407e8fe7d5aa9740fe17e13b496
+  imagenPublica: ghcr.io/seguridadsi/sugardaddy-trampa-rdp:1.0.1-sd1@sha256:16ecc711185f8995917c1551596774fbac42a407e8fe7d5aa9740fe17e13b496
   puertos:
     - { interno: 3389, expuesto: '${puertoRdp}', protocolo: tcp }
   entorno:
