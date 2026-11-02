@@ -76,15 +76,40 @@ func Cargar(dir string) (*Estado, error) {
 }
 
 // Guardar escribe en un temporal y lo renombra: un corte de luz deja el
-// estado anterior o el nuevo, nunca medio fichero.
+// estado anterior o el nuevo, nunca medio fichero. Para que esa promesa se
+// cumpla de verdad hay que volcar a disco el temporal ANTES del rename (si no,
+// el rename puede quedar apuntando a un fichero cuyos datos aún no se han
+// escrito, y tras el corte estado.json sale vacío o a medias) y volcar el
+// directorio DESPUÉS, para que el propio rename sea duradero.
 func (e *Estado) Guardar(dir string) error {
 	b, err := json.MarshalIndent(e, "", "\t")
 	if err != nil {
 		return err
 	}
 	tmp := filepath.Join(dir, "estado.json.tmp")
-	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
 		return err
 	}
-	return os.Rename(tmp, filepath.Join(dir, "estado.json"))
+	if _, err := f.Write(b); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, filepath.Join(dir, "estado.json")); err != nil {
+		return err
+	}
+	// Volcar el directorio hace duradero el rename. Si falla, los datos ya están
+	// escritos y renombrados: es mejor no romper el guardado por esto.
+	if d, err := os.Open(dir); err == nil {
+		_ = d.Sync()
+		_ = d.Close()
+	}
+	return nil
 }

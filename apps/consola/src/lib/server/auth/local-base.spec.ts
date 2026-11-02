@@ -22,7 +22,7 @@ vi.mock('$app/environment', () => ({ building: false, dev: true }));
 
 const { db, schema: s } = hayBase ? await import('../db') : ({} as never);
 const local = hayBase ? await import('./local') : ({} as never);
-const { like } = await import('drizzle-orm');
+const { eq, like } = await import('drizzle-orm');
 
 const P = 'zz-auth';
 const clave1 = 'contraseña muy larga uno';
@@ -42,7 +42,7 @@ describe.skipIf(!hayBase)('login local contra base de datos', () => {
 		const r = await local.crear('tester', {
 			usuario: `${P}-ana`,
 			nombre: 'Ana',
-			correo: 'ana@local',
+			correo: 'ana@ejemplo.com',
 			roles: ['operador'],
 			clave: clave1
 		});
@@ -53,7 +53,7 @@ describe.skipIf(!hayBase)('login local contra base de datos', () => {
 				await local.crear('tester', {
 					usuario: `${P}-ANA`,
 					nombre: '',
-					correo: '',
+					correo: 'x@ejemplo.com',
 					roles: ['operador'],
 					clave: clave1
 				})
@@ -64,7 +64,7 @@ describe.skipIf(!hayBase)('login local contra base de datos', () => {
 				await local.crear('tester', {
 					usuario: 'x',
 					nombre: '',
-					correo: '',
+					correo: 'x@ejemplo.com',
 					roles: ['operador'],
 					clave: clave1
 				})
@@ -75,7 +75,7 @@ describe.skipIf(!hayBase)('login local contra base de datos', () => {
 				await local.crear('tester', {
 					usuario: `${P}-corta`,
 					nombre: '',
-					correo: '',
+					correo: 'x@ejemplo.com',
 					roles: ['operador'],
 					clave: 'corta'
 				})
@@ -104,7 +104,7 @@ describe.skipIf(!hayBase)('login local contra base de datos', () => {
 		await local.crear('tester', {
 			usuario: `${P}-bruto`,
 			nombre: 'B',
-			correo: 'b@local',
+			correo: 'b@ejemplo.com',
 			roles: ['lector'],
 			clave: clave1
 		});
@@ -143,7 +143,7 @@ describe.skipIf(!hayBase)('login local contra base de datos', () => {
 		await local.crear('tester', {
 			usuario: `${P}-jefe`,
 			nombre: 'Jefe',
-			correo: 'j@local',
+			correo: 'j@ejemplo.com',
 			roles: ['admin'],
 			clave: clave1
 		});
@@ -160,7 +160,7 @@ describe.skipIf(!hayBase)('login local contra base de datos', () => {
 		await local.crear('tester', {
 			usuario: `${P}-jefe2`,
 			nombre: 'Jefa dos',
-			correo: 'j2@local',
+			correo: 'j2@ejemplo.com',
 			roles: ['admin'],
 			clave: clave1
 		});
@@ -171,7 +171,7 @@ describe.skipIf(!hayBase)('login local contra base de datos', () => {
 		const c = await local.crear('tester', {
 			usuario: `${P}-yo`,
 			nombre: 'Yo',
-			correo: 'yo@local',
+			correo: 'yo@ejemplo.com',
 			roles: ['operador'],
 			clave: clave1
 		});
@@ -179,21 +179,56 @@ describe.skipIf(!hayBase)('login local contra base de datos', () => {
 		const id = c.ok ? c.id : '';
 
 		/* Nombre: cambia (y recorta); vacío se rechaza. */
-		const n = await local.cambiarNombrePropio('yo@local', id, '  Yo Mismo  ');
+		const n = await local.cambiarNombrePropio('yo@ejemplo.com', id, '  Yo Mismo  ');
 		expect(n.ok).toBe(true);
 		if (n.ok) expect(n.nombre).toBe('Yo Mismo');
-		expect((await local.cambiarNombrePropio('yo@local', id, '   ')).ok).toBe(false);
+		expect((await local.cambiarNombrePropio('yo@ejemplo.com', id, '   ')).ok).toBe(false);
 
 		/* Contraseña: rechaza la actual incorrecta, la corta y la igual a la actual. */
-		expect((await local.cambiarClavePropia('yo@local', id, 'no es la actual larga', clave2)).ok).toBe(
-			false
-		);
-		expect((await local.cambiarClavePropia('yo@local', id, clave1, 'corta')).ok).toBe(false);
-		expect((await local.cambiarClavePropia('yo@local', id, clave1, clave1)).ok).toBe(false);
+		expect(
+			(await local.cambiarClavePropia('yo@ejemplo.com', id, 'no es la actual larga', clave2)).ok
+		).toBe(false);
+		expect((await local.cambiarClavePropia('yo@ejemplo.com', id, clave1, 'corta')).ok).toBe(false);
+		expect((await local.cambiarClavePropia('yo@ejemplo.com', id, clave1, clave1)).ok).toBe(false);
 
 		/* Con la actual correcta, cambia: la nueva entra y la vieja ya no. */
-		expect((await local.cambiarClavePropia('yo@local', id, clave1, clave2)).ok).toBe(true);
+		expect((await local.cambiarClavePropia('yo@ejemplo.com', id, clave1, clave2)).ok).toBe(true);
 		expect((await local.verificar(`${P}-yo`, clave2)).ok).toBe(true);
 		expect((await local.verificar(`${P}-yo`, clave1)).ok).toBe(false);
+	});
+
+	it('correo de recuperación: el alta lo exige y el que no vale se pide al entrar', async () => {
+		const sinCorreo = await local.crear('tester', {
+			usuario: `${P}-sincorreo`,
+			nombre: '',
+			correo: 'admin@local',
+			roles: ['operador'],
+			clave: clave1
+		});
+		expect(sinCorreo.ok).toBe(false);
+
+		const c = await local.crear('tester', {
+			usuario: `${P}-co`,
+			nombre: 'Co',
+			correo: 'co@ejemplo.com',
+			roles: ['admin'],
+			clave: clave1
+		});
+		expect(c.ok).toBe(true);
+		const id = c.ok ? c.id : '';
+
+		/* Como el primer administrador del instalador: correo de relleno. */
+		await db
+			.update(s.usuariosLocales)
+			.set({ correo: 'admin@local' })
+			.where(eq(s.usuariosLocales.id, id));
+		const r = await local.verificar(`${P}-co`, clave1);
+		expect(r.ok && r.pideCorreo).toBe(true);
+		expect(await local.pendientesAlEntrar(id)).toEqual({ clave: true, correo: true });
+
+		expect((await local.cambiarCorreo('tester', id, 'esto no es un correo')).ok).toBe(false);
+		const ok = await local.cambiarCorreo('tester', id, '  co2@ejemplo.com ');
+		expect(ok.ok && ok.identidad.correo).toBe('co2@ejemplo.com');
+		expect(await local.pendientesAlEntrar(id)).toEqual({ clave: true, correo: false });
 	});
 });

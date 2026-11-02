@@ -7,22 +7,18 @@ import {
 	nombresTrampas,
 	type FiltroTriaje
 } from '$lib/server/consultas';
+import { geo, type Geo } from '$lib/server/geo';
+import { ipsTor } from '$lib/server/tor';
+import { construirCsvEventos } from '$lib/server/csv-eventos';
 
 /*
  * Descarga de los eventos en CSV, con los mismos filtros que la página de
  * Eventos. Pensado para la edición community («saca tus datos tú mismo»), pero
  * útil en cualquier edición. Lo puede hacer cualquier usuario con sesión (ver
  * los eventos no pide un permiso aparte); queda en la auditoría con quién y
- * cuántos, nunca el contenido.
+ * cuántos, nunca el contenido. El CSV (y su escapado anti-fórmula) se arma en
+ * csv-eventos.ts; aquí solo se resuelve la geo local por IP.
  */
-
-/* Escapa un campo de CSV: comillas dobladas y entrecomillado si hay coma, salto
- * o comilla. Previene además la inyección de fórmulas en hojas de cálculo. */
-function csvCampo(v: unknown): string {
-	let t = v === null || v === undefined ? '' : String(v);
-	if (/^[=+\-@\t\r]/.test(t)) t = "'" + t;
-	return /[",\n\r]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t;
-}
 
 export const GET = async ({ url, locals }) => {
 	const u = locals.usuario;
@@ -44,47 +40,17 @@ export const GET = async ({ url, locals }) => {
 	const nombres = await nombresTrampas();
 	const filas = await eventosPlanos({ desde, trampa, origen, usuario, q, triaje });
 
-	const cabecera = [
-		'cuando',
-		'severidad',
-		'sensor',
-		'trampa',
-		'modulo',
-		'tipo',
-		'accion',
-		'ip',
-		'usuario',
-		'contrasena',
-		'conexion_establecida',
-		'alerta',
-		'prueba',
-		'triaje'
-	];
-	const lineas = [cabecera.join(',')];
+	/* La misma geo que ya se ve en pantalla, de las bases locales: la IP no sale
+	 * del nodo. Una por IP (se reúsa entre eventos del mismo origen). */
+	const tor = await ipsTor();
+	const geos: Record<string, Geo> = {};
 	for (const f of filas) {
-		lineas.push(
-			[
-				f.cuando.toISOString(),
-				f.severidad,
-				f.sensor,
-				nombres[f.trampa] ?? f.trampa,
-				f.modulo,
-				f.tipo,
-				f.accion,
-				f.ip ?? '',
-				f.usuario ?? '',
-				f.contrasena ?? '',
-				f.conexionEstablecida ? 'sí' : 'no',
-				f.alerta ?? '',
-				f.prueba ? 'sí' : 'no',
-				f.triaje ?? ''
-			]
-				.map(csvCampo)
-				.join(',')
-		);
+		if (f.ip && !(f.ip in geos)) {
+			const g = geo(f.ip);
+			if (g) geos[f.ip] = g;
+		}
 	}
-	/* BOM para que Excel abra el UTF-8 bien; CRLF por costumbre de CSV. */
-	const csv = '﻿' + lineas.join('\r\n') + '\r\n';
+	const csv = construirCsvEventos(filas, nombres, geos, tor);
 	const fecha = new Date().toISOString().slice(0, 10);
 
 	await auditar(u.correo, 'eventos exportados a CSV', {

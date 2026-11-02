@@ -4,9 +4,9 @@
  * FIDO2. Solo lo puede ejecutar quien tiene acceso al servidor y a su base de
  * datos: ese acceso ES la autorización, igual que scripts/emergencia.mjs.
  *
- *   docker compose exec consola node scripts/clave.mjs listar
- *   docker compose exec consola node scripts/clave.mjs reset <usuario>
- *   docker compose exec consola node scripts/clave.mjs crear-admin <usuario> [nombre] [correo]
+ *   sudo docker compose --env-file .env --env-file versiones.env exec consola node scripts/clave.mjs listar
+ *   sudo docker compose --env-file .env --env-file versiones.env exec consola node scripts/clave.mjs reset <usuario>
+ *   sudo docker compose --env-file .env --env-file versiones.env exec consola node scripts/clave.mjs crear-admin <usuario> [nombre] [correo]
  *
  * reset y crear-admin imprimen una contraseña de UN SOLO USO (aquí y solo aquí);
  * la consola obliga a cambiarla al entrar. No tocan los roles de nadie, así que

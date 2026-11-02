@@ -818,7 +818,7 @@ export async function anadirALista(
 	quien: string,
 	v: {
 		valor: string;
-		clase: 'ip' | 'red';
+		clase: 'ip' | 'red' | 'dominio';
 		lista: 'negra' | 'blanca';
 		motivo: string;
 		caduca: Date | null;

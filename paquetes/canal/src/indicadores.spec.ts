@@ -24,12 +24,27 @@ describe('qué se puede compartir', () => {
 		'fd00::1',
 		'fe80::1',
 		'2001:db8::1',
+		/* Reservadas con el primer HEXTETO fuera de 2000::/3, pero cuyo texto
+		 * empieza por «2»/«3»: el bug las daba por públicas (miraba el carácter). */
+		'2::',
+		'20::',
+		'200::',
+		'2a::',
+		'2:a::b',
+		'1fff::1',
+		'4000::1',
 		'no-es-ip'
 	])('%s no sale nunca del nodo', (ip) => expect(esIpPublica(ip)).toBe(false));
 
-	it.each(['185.220.101.34', '8.8.8.8', '45.155.205.11', '2a01:4f8::1'])('%s es pública', (ip) =>
-		expect(esIpPublica(ip)).toBe(true)
+	it.each(['185.220.101.34', '8.8.8.8', '45.155.205.11', '2a01:4f8::1', '2000::', '3fff::1', '2606:4700::1'])(
+		'%s es pública',
+		(ip) => expect(esIpPublica(ip)).toBe(true)
 	);
+
+	it('2:: y 0002:: son la misma dirección reservada: ninguna sale', () => {
+		expect(esIpPublica('2::')).toBe(false);
+		expect(esIpPublica('0002::')).toBe(false);
+	});
 
 	it('las redes contienen sus IPs y nada más', () => {
 		expect(contenidaEn('20.190.151.7', ['20.0.0.0/8'])).toBe(true);

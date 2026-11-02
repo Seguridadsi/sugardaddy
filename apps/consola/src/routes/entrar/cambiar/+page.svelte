@@ -5,40 +5,70 @@
 </script>
 
 <svelte:head>
-	<title>Cambiar contraseña — Sugardaddy</title>
+	<title>Antes de entrar — Sugardaddy</title>
 </svelte:head>
 
 <div class="caja panel">
-	<h1>Cambia tu contraseña</h1>
-	<p class="sub">
-		Has entrado con una contraseña de un solo uso. Elige una nueva para seguir; al menos {data.minimo}
-		caracteres (mejor una frase larga).
-	</p>
+	{#if data.pideClave && data.pideCorreo}
+		<h1>Antes de entrar</h1>
+		<p class="sub">
+			Has entrado con una contraseña de un solo uso: elige una nueva (al menos {data.minimo} caracteres,
+			mejor una frase larga) y pon tu correo. Si un día pierdes la contraseña, te mandaremos ahí un código
+			para entrar.
+		</p>
+	{:else if data.pideClave}
+		<h1>Cambia tu contraseña</h1>
+		<p class="sub">
+			Has entrado con una contraseña de un solo uso. Elige una nueva para seguir; al menos {data.minimo}
+			caracteres (mejor una frase larga).
+		</p>
+	{:else}
+		<h1>Pon tu correo</h1>
+		<p class="sub">
+			Si un día pierdes la contraseña, te mandaremos ahí un código para entrar. Luego lo puedes
+			cambiar en «Mi cuenta».
+		</p>
+	{/if}
 
 	{#if form?.error}<p class="error" role="alert">{form.error}</p>{/if}
 
 	<form method="POST" use:enhance>
 		<input type="hidden" name="volverA" value={data.volverA} />
-		<label class="campo">
-			<span>Nueva contraseña</span>
-			<input
-				name="clave"
-				type="password"
-				autocomplete="new-password"
-				minlength={data.minimo}
-				required
-			/>
-		</label>
-		<label class="campo">
-			<span>Repítela</span>
-			<input
-				name="repetir"
-				type="password"
-				autocomplete="new-password"
-				minlength={data.minimo}
-				required
-			/>
-		</label>
+		{#if data.pideCorreo}
+			<label class="campo">
+				<span>Tu correo</span>
+				<input
+					name="correo"
+					type="email"
+					autocomplete="email"
+					value={form?.correo ?? ''}
+					maxlength="254"
+					required
+				/>
+			</label>
+		{/if}
+		{#if data.pideClave}
+			<label class="campo">
+				<span>Nueva contraseña</span>
+				<input
+					name="clave"
+					type="password"
+					autocomplete="new-password"
+					minlength={data.minimo}
+					required
+				/>
+			</label>
+			<label class="campo">
+				<span>Repítela</span>
+				<input
+					name="repetir"
+					type="password"
+					autocomplete="new-password"
+					minlength={data.minimo}
+					required
+				/>
+			</label>
+		{/if}
 		<button class="boton principal">Guardar y entrar</button>
 	</form>
 </div>

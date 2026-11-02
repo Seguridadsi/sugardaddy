@@ -26,7 +26,7 @@ vi.mock('$env/dynamic/private', () => ({ env: process.env }));
 vi.mock('$app/environment', () => ({ building: false, dev: true }));
 
 const { db, schema: s } = hayBase ? await import('./db') : ({} as never);
-const { borrarAntesDe, borrarAuditoriaAntesDe } = hayBase
+const { borrarAntesDe, borrarAuditoriaAntesDe, borrarListasVencidasAntesDe } = hayBase
 	? await import('./conservacion')
 	: ({} as never);
 const { eq, like } = await import('drizzle-orm');
@@ -129,5 +129,43 @@ describe.skipIf(!hayBase)('la consola borra los eventos que pasan del plazo', ()
 	it('sin nada viejo, no borra nada', async () => {
 		const r = await borrarAntesDe(new Date('2020-06-01T00:00:00Z'));
 		expect(r.cadena[S]).toBeUndefined();
+	});
+});
+
+describe.skipIf(!hayBase)('la consola borra las entradas de lista caducadas', () => {
+	const QL = `${P}-lista`;
+	const fila = (valor: string, lista: 'negra' | 'blanca', caduca: Date | null) => ({
+		valor,
+		clase: 'ip' as const,
+		lista,
+		ambito: 'local' as const,
+		motivo: 'zz',
+		quien: QL,
+		caduca
+	});
+	beforeAll(async () => {
+		await db.delete(s.listas).where(like(s.listas.quien, `${P}%`));
+		await db
+			.insert(s.listas)
+			.values([
+				fila('203.0.113.201', 'negra', viejaA), // caducada
+				fila('203.0.113.202', 'negra', new Date('2999-01-01T00:00:00Z')), // futura
+				fila('203.0.113.203', 'blanca', null) // «nunca»
+			])
+			.onConflictDoNothing();
+	});
+	afterAll(async () => {
+		if (!process.env.CONSERVAR) await db.delete(s.listas).where(like(s.listas.quien, `${P}%`));
+	});
+
+	it('borra solo las vencidas; las futuras y las «nunca» se quedan', async () => {
+		const n = await borrarListasVencidasAntesDe(new Date());
+		expect(n).toBeGreaterThanOrEqual(1);
+		const quedan = (
+			await db.select({ valor: s.listas.valor }).from(s.listas).where(eq(s.listas.quien, QL))
+		).map((q) => q.valor);
+		expect(quedan).not.toContain('203.0.113.201');
+		expect(quedan).toContain('203.0.113.202');
+		expect(quedan).toContain('203.0.113.203');
 	});
 });

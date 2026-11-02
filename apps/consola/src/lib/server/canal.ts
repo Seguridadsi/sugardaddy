@@ -24,8 +24,10 @@ import {
 	type EstadoDeseado,
 	type Latido,
 	type LicenciaFirmada,
+	type RecuperacionPanel,
 	type ReleaseFirmada
 } from '@sugardaddy/canal';
+import { recibirBalizasRele, type BalizaRele } from './balizas-rele';
 import { cuentaActivas } from './colocacion';
 import { db, schema as s } from './db';
 import { auditar, autoActualizar, cabecera, comparticion } from './consultas';
@@ -542,6 +544,25 @@ async function enviar(c: Canal, ruta: string, cuerpo: string) {
 	});
 }
 
+/*
+ * Lleva al panel el código para recuperar una contraseña, para que lo mande por
+ * correo (auth/recuperar.ts). Por el canal firmado si a este nodo lo gestiona un
+ * panel y no está cortado; null si no (entonces va por la puerta de community).
+ */
+export async function mandarCodigoPorCanal(
+	correo: string,
+	codigo: string
+): Promise<boolean | null> {
+	const c = await leer();
+	if (!c || c.cortado) return null;
+	try {
+		const r = await enviar(c, '/api/nodo/recuperacion', JSON.stringify({ correo, codigo }));
+		return r.status === 202;
+	} catch {
+		return false;
+	}
+}
+
 /* Un latido. Lo llama el reloj de hooks.server.ts; los fallos se guardan, no se lanzan. */
 export async function latir() {
 	const c = await leer();
@@ -568,8 +589,60 @@ export async function latir() {
 		if (v.estado.logo !== undefined) await sincronizarLogo(c, v.estado.logo);
 		if (v.estado.tor !== undefined) await sincronizarTor(c, v.estado.tor);
 		await intercambiarInteligencia(c);
+		await publicarBalizasRele(c);
+		if (v.estado.releBalizas) await drenarBalizasRele(c);
+		await guardarRecuperacionPanel(v.estado.recuperacion);
 	} catch (e) {
 		await guardar({ ...c, error: (e as Error).message });
+	}
+}
+
+/* ---------- balizas que vuelven por el relé público (docs/diseno/rele-balizas.md) ---------- */
+
+/*
+ * El nodo publica en el panel su conjunto VIGENTE de tokens de baliza para que
+ * el panel pueda rutear a este cliente los eventos externos que lleguen por el
+ * relé (token→cliente, /api/nodo/balizas). Solo cuando el conjunto cambia: se
+ * guarda su huella y, si es la misma, no se vuelve a mandar (como el logo o la
+ * lista de Tor), para que miles de nodos con tokens estables no reenvíen lo
+ * mismo cada minuto. Un nodo sin balizas y que nunca publicó no manda nada.
+ */
+async function publicarBalizasRele(c: Canal) {
+	const filas = await db.select({ token: s.balizas.token }).from(s.balizas);
+	const tokens = filas.map((f) => f.token).sort();
+	const huella = createHash('sha256').update(JSON.stringify(tokens)).digest('hex');
+	const [f] = await db.select().from(s.ajustes).where(eq(s.ajustes.clave, 'balizas-rele-huella'));
+	const previa = (f?.valor as { huella?: string } | undefined)?.huella ?? null;
+	if (huella === previa) return;
+	if (!tokens.length && previa === null) return; // nunca tuvo balizas: nada que registrar aún
+	const r = await enviar(c, '/api/nodo/balizas', JSON.stringify({ tokens }));
+	if (!r.ok) throw new Error(`el panel no acepta los tokens de baliza: ${r.status}`);
+	await db
+		.insert(s.ajustes)
+		.values({ clave: 'balizas-rele-huella', valor: { huella } })
+		.onConflictDoUpdate({ target: s.ajustes.clave, set: { valor: { huella } } });
+}
+
+/*
+ * El nodo recoge del panel las balizas pendientes del relé (eventos externos ya
+ * ruteados a este cliente) y las ingiere. Confirma cada tanda y pide la
+ * siguiente hasta vaciar; la confirmación viaja en la petición de la tanda
+ * siguiente, así que la última se confirma en la vuelta que ya no trae nada. Lo
+ * no confirmado se vuelve a dar (el ingreso deduplica por la huella). Acotado a
+ * un número de tandas por latido: si queda más, el flag del siguiente latido lo
+ * trae otra vez.
+ */
+const MAX_TANDAS_RELE = 50;
+
+async function drenarBalizasRele(c: Canal) {
+	let ack: number[] = [];
+	for (let tanda = 0; tanda < MAX_TANDAS_RELE; tanda++) {
+		const r = await enviar(c, '/api/nodo/rele', JSON.stringify({ ack }));
+		if (!r.ok) throw new Error(`el panel no entrega las balizas del relé: ${r.status}`);
+		const { eventos } = (await r.json()) as { eventos?: BalizaRele[] };
+		if (!Array.isArray(eventos) || !eventos.length) break;
+		await recibirBalizasRele(eventos);
+		ack = eventos.map((e) => e.id);
 	}
 }
 
@@ -594,6 +667,39 @@ async function intercambiarInteligencia(c: Canal) {
 	} else {
 		await retirarListaGlobal();
 	}
+}
+
+/*
+ * Un código de recuperación que SeguridadSI ha mandado desde su panel al correo
+ * de contacto del cliente: aquí solo llega su hash, en el estado firmado. Se
+ * guarda una vez (el id es el del panel) para ese usuario local y se canjea en
+ * /entrar/recuperar como uno pedido desde la entrada (auth/recuperar.ts).
+ */
+export async function guardarRecuperacionPanel(r: RecuperacionPanel | null | undefined) {
+	if (!r || typeof r.usuario !== 'string' || typeof r.codigoHash !== 'string') return;
+	const caduca = new Date(r.caduca);
+	if (!(caduca.getTime() > Date.now())) return;
+	if (!/^sha256\$[0-9a-f]{32}\$[0-9a-f]{64}$/.test(r.codigoHash)) return;
+	const [u] = await db
+		.select({ id: s.usuariosLocales.id })
+		.from(s.usuariosLocales)
+		.where(eq(s.usuariosLocales.usuario, r.usuario.trim().toLowerCase()));
+	if (!u) return;
+	const [nueva] = await db
+		.insert(s.recuperacionesClave)
+		.values({
+			id: `panel:${r.id}`,
+			usuarioId: u.id,
+			codigoHash: r.codigoHash,
+			origen: 'panel',
+			caduca
+		})
+		.onConflictDoNothing()
+		.returning({ id: s.recuperacionesClave.id });
+	if (nueva)
+		await auditar('panel central', 'código de recuperación recibido del panel', {
+			usuario: r.usuario
+		});
 }
 
 /* Los módulos autorizados, tal como vienen en el estado firmado. Si cambian, queda en la auditoría. */

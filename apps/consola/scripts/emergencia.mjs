@@ -3,7 +3,7 @@
  * nadie puede entrar en la consola. Solo lo puede sacar quien tiene acceso a
  * la máquina del nodo:
  *
- *   docker compose exec consola node scripts/emergencia.mjs
+ *   sudo docker compose --env-file .env --env-file versiones.env exec consola node scripts/emergencia.mjs
  *
  * Vale 30 minutos y para una sola llave.
  */

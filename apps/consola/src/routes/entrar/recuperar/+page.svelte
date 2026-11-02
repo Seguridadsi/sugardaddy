@@ -1,0 +1,170 @@
+<script lang="ts">
+	import { enhance } from '$app/forms';
+
+	let { data, form } = $props();
+	const paso = $derived(form?.paso ?? (data.yaTengo ? 'codigo' : 'pedir'));
+</script>
+
+<svelte:head>
+	<title>Recuperar la contraseña — Sugardaddy</title>
+</svelte:head>
+
+<div class="caja panel">
+	<h1>¿Has olvidado la contraseña?</h1>
+
+	{#if paso === 'pedir'}
+		<p class="sub">
+			Escribe tu usuario y te mandamos un código al correo que tienes puesto en la consola.
+		</p>
+		{#if form?.error}<p class="error" role="alert">{form.error}</p>{/if}
+		<form method="POST" action="?/pedir" use:enhance>
+			<label class="campo">
+				<span>Usuario</span>
+				<input
+					name="usuario"
+					autocomplete="username"
+					autocapitalize="off"
+					spellcheck="false"
+					required
+					value={form?.usuario ?? ''}
+				/>
+			</label>
+			<button class="boton principal">Mandarme el código</button>
+		</form>
+		<a class="enlace" href="?codigo">Ya tengo un código</a>
+	{:else}
+		{#if form?.enviado}
+			<p class="ok" role="status">
+				Si ese usuario existe y tiene correo, le acabamos de mandar un código. Mira también en el
+				correo no deseado. Caduca en {data.minutos} minutos.
+			</p>
+		{:else}
+			<p class="sub">Escribe el código que te ha llegado por correo y tu contraseña nueva.</p>
+		{/if}
+		{#if form?.error}<p class="error" role="alert">{form.error}</p>{/if}
+		<form method="POST" action="?/cambiar" use:enhance>
+			<label class="campo">
+				<span>Usuario</span>
+				<input
+					name="usuario"
+					autocomplete="username"
+					autocapitalize="off"
+					spellcheck="false"
+					required
+					value={form?.usuario ?? ''}
+				/>
+			</label>
+			<label class="campo">
+				<span>Código</span>
+				<input
+					name="codigo"
+					inputmode="numeric"
+					autocomplete="one-time-code"
+					maxlength="7"
+					required
+				/>
+			</label>
+			<label class="campo">
+				<span>Contraseña nueva (al menos {data.minimo} caracteres)</span>
+				<input
+					name="clave"
+					type="password"
+					autocomplete="new-password"
+					minlength={data.minimo}
+					required
+				/>
+			</label>
+			<label class="campo">
+				<span>Repítela</span>
+				<input
+					name="repetir"
+					type="password"
+					autocomplete="new-password"
+					minlength={data.minimo}
+					required
+				/>
+			</label>
+			<button class="boton principal">Cambiar y entrar</button>
+		</form>
+		<a class="enlace" href="/entrar/recuperar">Pedir otro código</a>
+	{/if}
+	<a class="enlace" href="/entrar">Volver a entrar</a>
+</div>
+
+<style>
+	.caja {
+		width: min(380px, calc(100% - 32px));
+		margin: 12vh auto 0;
+		padding: 30px;
+	}
+
+	h1 {
+		font-size: 19px;
+		margin: 0 0 8px;
+	}
+
+	.sub {
+		margin: 0 0 20px;
+		color: var(--ink-3);
+		font-size: 13.5px;
+	}
+
+	.error,
+	.ok {
+		font-size: 13.5px;
+		margin: 0 0 16px;
+		padding: 10px 12px;
+		border-radius: var(--r-sm);
+	}
+
+	.error {
+		color: var(--crit);
+		background: color-mix(in oklab, var(--crit) 12%, var(--surface));
+	}
+
+	.ok {
+		background: var(--accent-soft);
+	}
+
+	.campo {
+		display: block;
+		margin-bottom: 14px;
+	}
+
+	.campo span {
+		display: block;
+		font-size: 12.5px;
+		color: var(--ink-3);
+		margin-bottom: 5px;
+	}
+
+	.campo input {
+		width: 100%;
+		padding: 9px 11px;
+		border-radius: var(--r-sm);
+		border: 1px solid var(--line);
+		background: var(--surface);
+		color: var(--ink);
+		font-size: 14px;
+	}
+
+	.campo input:focus {
+		outline: 2px solid var(--accent);
+		outline-offset: 0;
+		border-color: transparent;
+	}
+
+	.boton {
+		display: block;
+		width: 100%;
+		padding: 10px;
+	}
+
+	.enlace {
+		display: block;
+		margin-top: 14px;
+		text-align: center;
+		font-size: 12.5px;
+		color: var(--ink-3);
+	}
+</style>

@@ -117,6 +117,10 @@ services:
     environment:
       CONSOLA_DOMINIO: ${CONSOLA_DOMINIO:?falta en .env}
       TLS_MODO: ${TLS_MODO:-interno}
+      # Modo de entrada, para elegir el sitio del Caddyfile. «Cualquier IP o
+      # nombre» lo marca HOST_HEADER, que instalar.sh solo pone en ese modo (la
+      # consola saca entonces el origen de las cabeceras de Caddy); vacío = fijo.
+      CADDY_MODO: ${HOST_HEADER:+-cualquier-ip}
     ports:
       - '${CONSOLA_ESCUCHA:-0.0.0.0}:${CONSOLA_PUERTO:-443}:443'
     volumes:

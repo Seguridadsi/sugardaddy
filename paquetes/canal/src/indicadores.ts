@@ -16,6 +16,7 @@
 import { isIP } from 'node:net';
 import { sign, verify } from 'node:crypto';
 import { createPrivateKey, createPublicKey } from 'node:crypto';
+import { contenidaEn } from './rangos.ts';
 
 export type IndicadorSubida = {
 	valor: string;
@@ -69,9 +70,10 @@ export function esIpPublica(ip: string): boolean {
 		return !NO_PUBLICAS_V4.some(([red, bits]) => n >>> (32 - bits) === red >>> (32 - bits));
 	}
 	if (v === 6) {
-		const x = ip.toLowerCase();
-		/* Solo unicast global (2000::/3), y fuera el rango de documentación. */
-		return /^[23]/.test(x) && !x.startsWith('2001:db8') && !x.startsWith('2001:0db8');
+		/* Solo unicast global (2000::/3), y fuera el rango de documentación
+		 * (2001:db8::/32). Se mira el PRIMER HEXTETO, no el primer carácter del
+		 * texto: 2:: es 0002::, reservado, no global. */
+		return contenidaEn(ip, ['2000::/3']) && !contenidaEn(ip, ['2001:db8::/32']);
 	}
 	return false;
 }

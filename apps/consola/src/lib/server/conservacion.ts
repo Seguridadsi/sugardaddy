@@ -8,6 +8,10 @@
  * mismo que los eventos si es más: así siempre queda rastro de al menos un
  * año, también de quién cambió el plazo.
  *
+ * Las entradas de lista negra/blanca con caducidad vencida se borran también
+ * cada hora, con el TTL que eligió el cliente al añadir cada una (al margen del
+ * plazo de conservación de eventos). Lo que no caduca (caduca NULL) se queda.
+ *
  * Dos cuidados:
  *
  * - La cadena de cada sensor tiene que seguir verificable. Se borra por
@@ -85,9 +89,16 @@ type Ultima = { recibido: number; lineas: Linea[] };
 /*
  * Por sensor, la última entrega borrada (la de «recibido» mayor). Dentro de
  * ella, la cola de la cadena es la línea a la que no apunta ninguna otra.
+ *
+ * Las balizas que llegaron por el relé se guardan bajo un sensor real pero SIN
+ * cadena firmada (hashAnterior vacío; docs/diseno/rele-balizas.md): no son parte
+ * de la cadena del sensor, así que no cuentan para el hash de reanudación —si
+ * contaran, lo envenenarían con un hash que no encadena nada—. Se borran igual,
+ * solo no definen la cola.
  */
 function anotar(ultimas: Map<string, Ultima>, lineas: Linea[]) {
 	for (const l of lineas) {
+		if (l.anterior === '') continue;
 		const r = l.recibido.getTime();
 		const u = ultimas.get(l.sensor);
 		if (!u || r > u.recibido) ultimas.set(l.sensor, { recibido: r, lineas: [l] });
@@ -171,6 +182,24 @@ export async function borrarAntesDe(limite: Date) {
 	return { eventos, cuarentena, cadena: colas(ultimas) };
 }
 
+/*
+ * Las entradas de lista (negra/blanca) con caducidad ya vencida, de una vez. El
+ * TTL lo elige el cliente al añadir cada una; esto hace cumplir esa caducidad,
+ * igual que edl() y el guard «intocable» ya ignoran lo vencido. No toca lo que
+ * no caduca (caduca NULL): listas «para siempre» y globales sin plazo se quedan.
+ */
+export async function borrarListasVencidasAntesDe(ahora: Date) {
+	const [{ n }] = await db.execute<{ n: number }>(sql`
+		with borradas as (
+			delete from ${s.listas}
+			where ${s.listas.caduca} is not null and ${s.listas.caduca} < ${ahora.toISOString()}
+			returning 1
+		)
+		select count(*)::int as n from borradas
+	`);
+	return n;
+}
+
 /* La auditoría anterior a «limite», de una vez: dice cuántas entradas, no cuáles. */
 export async function borrarAuditoriaAntesDe(limite: Date) {
 	const [{ n }] = await db.execute<{ n: number }>(sql`
@@ -189,10 +218,15 @@ export async function borrarAuditoriaAntesDe(limite: Date) {
  * la cadena; después la auditoría, que nunca alcanza a ese apunte recién hecho.
  */
 export async function purgar(ahora = new Date()) {
+	/* Las entradas de lista caducadas se van cada hora, con su propio TTL, al
+	 * margen del plazo de conservación de eventos (y de su aviso de 30 días). */
+	const listas = await borrarListasVencidasAntesDe(ahora);
+	if (listas)
+		await auditar('nodo', 'entradas de lista caducadas borradas', { entradas: listas });
 	const c = await conservacion(ahora);
 	const limite = limiteDeBorrado(c, ahora);
 	const limiteAuditoria = limiteDeAuditoria(c, ahora);
-	if (!limite || !limiteAuditoria) return null;
+	if (!limite || !limiteAuditoria) return { listas };
 	const r = await borrarAntesDe(limite);
 	if (r.eventos || r.cuarentena)
 		await auditar('nodo', `eventos de más de ${c.dias} días borrados`, {
@@ -205,5 +239,5 @@ export async function purgar(ahora = new Date()) {
 			antesDe: limiteAuditoria.toISOString(),
 			entradas: auditoria
 		});
-	return { ...r, auditoria };
+	return { ...r, auditoria, listas };
 }

@@ -81,6 +81,13 @@ export async function renombrarSesiones(oid: string, nombre: string) {
 		.where(and(eq(s.sesiones.oid, oid), isNull(s.sesiones.cerrada)));
 }
 
+export async function cambiarCorreoSesiones(oid: string, correo: string) {
+	await db
+		.update(s.sesiones)
+		.set({ correo })
+		.where(and(eq(s.sesiones.oid, oid), isNull(s.sesiones.cerrada)));
+}
+
 /* Devuelve el oid de la sesión cerrada (o null): quien llama decide a dónde mandar al salir. */
 export async function cerrar(cookies: Cookies): Promise<string | null> {
 	const id = cookies.get(COOKIE_SESION);

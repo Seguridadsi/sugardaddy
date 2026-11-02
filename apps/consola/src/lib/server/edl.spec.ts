@@ -19,7 +19,7 @@ vi.mock('$env/dynamic/private', () => ({ env: process.env }));
 vi.mock('$app/environment', () => ({ building: false, dev: true }));
 
 const { db, schema: s } = hayBase ? await import('./db') : ({} as never);
-const { edl } = hayBase ? await import('./inteligencia') : ({} as never);
+const { edl, edlDominios } = hayBase ? await import('./inteligencia') : ({} as never);
 const { contenidaEn } = await import('@sugardaddy/canal');
 const { eq } = await import('drizzle-orm');
 
@@ -51,5 +51,66 @@ describe.skipIf(!hayBase)('EDL: la blanca gana siempre', () => {
 		expect(lista.some((c) => contenidaEn('100.64.7.7', [c]))).toBe(false);
 		expect(lista.some((c) => contenidaEn('100.64.7.8', [c]))).toBe(true);
 		expect(lista.some((c) => contenidaEn('100.64.255.255', [c]))).toBe(true);
+	});
+});
+
+describe.skipIf(!hayBase)('EDL: una entrada blanca caducada ya no protege', () => {
+	const QC = 'prueba-edl-caduca';
+	const ayer = new Date(Date.now() - 86_400_000);
+	beforeAll(async () => {
+		await db.delete(s.listas).where(eq(s.listas.quien, QC));
+		await db
+			.insert(s.listas)
+			.values([
+				{ ...fila('203.0.113.50', 'negra'), quien: QC },
+				{ ...fila('203.0.113.50', 'blanca'), quien: QC, caduca: ayer }
+			])
+			.onConflictDoNothing();
+	});
+	afterAll(async () => {
+		if (hayBase) await db.delete(s.listas).where(eq(s.listas.quien, QC));
+	});
+
+	it('la IP tapada solo por una blanca vencida vuelve a bloquearse', async () => {
+		const lista = await edl();
+		expect(lista).toContain('203.0.113.50');
+	});
+});
+
+describe.skipIf(!hayBase)('EDL de dominios: negra vigente menos blanca', () => {
+	const QD = 'prueba-edl-dominios';
+	const ayer = new Date(Date.now() - 86_400_000);
+	const dom = (valor: string, lista: 'negra' | 'blanca', caduca: Date | null = null) => ({
+		valor,
+		clase: 'dominio' as const,
+		lista,
+		ambito: 'local' as const,
+		motivo: 'prueba',
+		quien: QD,
+		caduca
+	});
+	beforeAll(async () => {
+		await db.delete(s.listas).where(eq(s.listas.quien, QD));
+		await db
+			.insert(s.listas)
+			.values([
+				dom('malo.example', 'negra'),
+				dom('caducado.example', 'negra', ayer),
+				dom('bueno.example', 'negra'), // tapado por la blanca
+				dom('sub.bueno.example', 'negra'), // tapado por subdominio de la blanca
+				dom('bueno.example', 'blanca')
+			])
+			.onConflictDoNothing();
+	});
+	afterAll(async () => {
+		if (hayBase) await db.delete(s.listas).where(eq(s.listas.quien, QD));
+	});
+
+	it('lista los dominios negros vigentes y no los caducados, blancos ni sus subdominios', async () => {
+		const lista = await edlDominios();
+		expect(lista).toContain('malo.example');
+		expect(lista).not.toContain('caducado.example');
+		expect(lista).not.toContain('bueno.example');
+		expect(lista).not.toContain('sub.bueno.example');
 	});
 });

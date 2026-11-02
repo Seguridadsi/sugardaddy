@@ -1,12 +1,16 @@
 <script lang="ts">
+	import { enhance } from '$app/forms';
+	import { page } from '$app/state';
 	import ListaEventos from '$lib/components/ListaEventos.svelte';
 	import { haceCuanto, horaLarga, nombreAccion, textoGeo } from '$lib/formato';
+	import { puede } from '$lib/permisos';
 	import { AVISO_IP_MOTOR } from '$lib/capacidades';
 
-	let { data } = $props();
+	let { data, form } = $props();
 
 	const geos = $derived(data.geo ? { [data.ip]: data.geo } : {});
 	const nombreTrampa = (id: string) => data.nombres[id] ?? id;
+	const roles = $derived(page.data.usuario?.roles ?? []);
 </script>
 
 <svelte:head>
@@ -30,11 +34,32 @@
 			>
 		{/if}
 		<a class="csv" href="/eventos?origen={encodeURIComponent(data.ip)}">Ver en la lista →</a>
+		{#if !data.oculta && puede(roles, 'listas')}
+			<form class="bloquear" method="POST" action="?/bloquear" use:enhance>
+				<select name="dias" aria-label="Caducidad del bloqueo">
+					<option value="0">sin caducidad</option>
+					<option value="1">1 día</option>
+					<option value="7">7 días</option>
+					<option value="30">30 días</option>
+				</select>
+				<button class="csv peligro">Bloquear esta IP</button>
+			</form>
+		{/if}
 	</div>
 </div>
 
 {#if data.oculta}
 	<p class="aviso">{AVISO_IP_MOTOR}</p>
+{/if}
+
+{#if form?.bloqueada}
+	<p class="hecho" role="status">
+		IP en la lista negra local. La leen tus firewalls por la lista externa (EDL).
+	</p>
+{:else if form?.yaEstaba}
+	<p class="hecho" role="status">Esta IP ya estaba en la lista negra.</p>
+{:else if form?.error}
+	<p class="aviso" role="alert">{form.error}</p>
 {/if}
 
 <section class="cifras">
@@ -153,6 +178,42 @@
 	.csv:hover {
 		background: var(--surface-2);
 		color: var(--ink);
+	}
+
+	.bloquear {
+		display: flex;
+		gap: 6px;
+		align-items: center;
+	}
+
+	.bloquear select {
+		border: 1px solid var(--line);
+		border-radius: var(--r-sm);
+		padding: 6px 8px;
+		font-size: 12.5px;
+		color: var(--ink-2);
+		background: var(--surface);
+	}
+
+	.csv.peligro {
+		border: none;
+		cursor: pointer;
+		color: #fff;
+		background: var(--crit);
+	}
+
+	.csv.peligro:hover {
+		filter: brightness(0.92);
+		color: #fff;
+	}
+
+	.hecho {
+		margin: 0 0 16px;
+		padding: 10px 14px;
+		border-radius: var(--r-sm);
+		font-size: 13px;
+		color: var(--ok);
+		border: 1px solid color-mix(in srgb, var(--ok) 40%, var(--line));
 	}
 
 	.sev {

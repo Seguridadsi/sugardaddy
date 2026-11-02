@@ -135,7 +135,8 @@ ENTRA_GRUPO_SOPORTE=${ENTRA_GRUPO_SOPORTE:-}
 # Login local (usuario y contraseña del nodo): LOGIN_LOCAL=1 para activarlo en
 # vez de, o además de, Entra. Vacío = solo Entra. Al activarlo, la consola crea
 # un primer administrador y escribe su contraseña de un solo uso en su registro
-# de arranque (docker compose logs consola). Ver docs/diseno/auth-login.md.
+# de arranque (sudo docker compose --env-file .env --env-file versiones.env logs consola,
+# desde $DIR). Ver docs/diseno/auth-login.md.
 LOGIN_LOCAL=${LOGIN_LOCAL:-}
 # Entrar por CUALQUIER IP o nombre (ENTRAR_CUALQUIER_IP=1): Caddy escucha en :443
 # para cualquier host y la consola saca el origen de las cabeceras. Vacío = solo la
@@ -165,13 +166,13 @@ fijar_env CONSOLA_DOMINIO "$DOMINIO"
 # cualquier host y la consola saca el origen de las cabeceras, así entras por la
 # IP o el nombre que sea sin reinstalar. A cambio, en un nodo con IP pública Caddy
 # puede emitir certificados a demanda a quien se los pida (riesgo menor; docs).
+# El modo vive SOLO en .env (HOST_HEADER), no en el Caddyfile: el Caddyfile es
+# uno, viaja firmado con cada versión y compose le pasa el modo.
 if [[ "${ENTRAR_CUALQUIER_IP:-}" == 1 ]]; then
-	cp "$AQUI/Caddyfile.cualquiera" "$DIR/Caddyfile"
 	fijar_env ORIGIN ""
 	fijar_env PROTOCOL_HEADER "x-forwarded-proto"
 	fijar_env HOST_HEADER "x-forwarded-host"
 else
-	cp "$AQUI/Caddyfile" "$DIR/Caddyfile"
 	fijar_env ORIGIN "$URL"
 	fijar_env PROTOCOL_HEADER ""
 	fijar_env HOST_HEADER ""

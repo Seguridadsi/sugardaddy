@@ -2,14 +2,16 @@ import { fail, redirect } from '@sveltejs/kit';
 import {
 	MIN_CLAVE,
 	cambiarClavePropia,
+	cambiarCorreo,
 	cambiarNombrePropio,
+	correoValido,
 	loginLocalHabilitado
 } from '$lib/server/auth/local';
-import { renombrarSesiones } from '$lib/server/auth/sesion';
+import { cambiarCorreoSesiones, renombrarSesiones } from '$lib/server/auth/sesion';
 
 /*
- * «Mi cuenta»: cada usuario de login LOCAL gestiona lo suyo (su nombre y su
- * contraseña). No es Ajustes (eso es solo admin): aquí entra cualquier rol,
+ * «Mi cuenta»: cada usuario de login LOCAL gestiona lo suyo (su nombre, su
+ * correo de recuperación y su contraseña). No es Ajustes (eso es solo admin): aquí entra cualquier rol,
  * pero SOLO con login local. En Entra el nombre y la contraseña los lleva
  * Microsoft; emergencia/soporte y el usuario de desarrollo no tienen `local:`.
  */
@@ -21,7 +23,12 @@ function idLocal(locals: App.Locals): string | null {
 
 export const load = ({ locals }) => {
 	if (!idLocal(locals)) redirect(303, '/');
-	return { nombre: locals.usuario!.nombre, minimo: MIN_CLAVE };
+	const correo = locals.usuario!.correo;
+	return {
+		nombre: locals.usuario!.nombre,
+		correo: correoValido(correo) ? correo : '',
+		minimo: MIN_CLAVE
+	};
 };
 
 export const actions = {
@@ -33,6 +40,15 @@ export const actions = {
 		if (!r.ok) return fail(400, { error: r.error });
 		await renombrarSesiones(locals.usuario!.oid!, r.nombre);
 		return { mensaje: 'Nombre actualizado.' };
+	},
+	correo: async ({ request, locals }) => {
+		const id = idLocal(locals);
+		if (!id) return fail(403, { error: 'Esto solo lo cambian aquí los usuarios con login local.' });
+		const correo = String((await request.formData()).get('correo') ?? '');
+		const r = await cambiarCorreo(locals.usuario!.correo, id, correo);
+		if (!r.ok) return fail(400, { error: r.error });
+		await cambiarCorreoSesiones(locals.usuario!.oid!, r.identidad.correo);
+		return { mensaje: 'Correo actualizado. Si pierdes la contraseña, el código irá ahí.' };
 	},
 	contrasena: async ({ request, locals }) => {
 		const id = idLocal(locals);

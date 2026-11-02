@@ -3,7 +3,7 @@
  * las reglas de @sugardaddy/canal (esIpPublica); aquí además se quita lo que
  * el cliente tiene en su lista blanca: eso no se comparte nunca.
  */
-import { and, eq, gt, inArray, isNotNull, sql } from 'drizzle-orm';
+import { and, eq, gt, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import {
 	contenidaEn,
 	restar,
@@ -15,6 +15,7 @@ import {
 import { db, schema as s } from './db';
 import { listaTor, usoTor } from './tor';
 import { auditar } from './consultas';
+import { cubreDominio } from './dominios';
 
 type Marca = { hasta: string };
 
@@ -23,11 +24,18 @@ async function marca(): Promise<Date> {
 	return new Date((f?.valor as Marca | undefined)?.hasta ?? 0);
 }
 
-async function blancas() {
+/*
+ * La lista blanca vigente: se excluye lo caducado igual que hace edl() con las
+ * negras. Una entrada blanca con caduca vencida ya no protege (si no, seguiría
+ * sacando IPs del EDL y silenciando la compartición para siempre).
+ */
+async function blancas(ahora = new Date()) {
 	const filas = await db
 		.select({ valor: s.listas.valor })
 		.from(s.listas)
-		.where(eq(s.listas.lista, 'blanca'));
+		.where(
+			and(eq(s.listas.lista, 'blanca'), or(isNull(s.listas.caduca), gt(s.listas.caduca, ahora)))
+		);
 	return filas.map((f) => f.valor);
 }
 
@@ -117,7 +125,7 @@ export async function edl() {
 		.select({ valor: s.listas.valor, caduca: s.listas.caduca })
 		.from(s.listas)
 		.where(and(eq(s.listas.lista, 'negra'), inArray(s.listas.clase, ['ip', 'red'])));
-	const blanca = await blancas();
+	const blanca = await blancas(ahora);
 	/* Tor, solo si el cliente lo ha activado. */
 	const tor = (await usoTor()).edl ? ((await listaTor())?.ips ?? []) : [];
 	/*
@@ -129,5 +137,36 @@ export async function edl() {
 		.map((n) => n.valor)
 		.concat(tor)
 		.flatMap((v) => restar(v, blanca));
+	return [...new Set(vigentes)].sort();
+}
+
+/*
+ * Lo que leen los filtros de DNS, proxies web y NGFW: los dominios maliciosos
+ * de la lista negra, vigentes, quitando los que tape la lista blanca (por
+ * dominio: exacto o subdominio). Igual que edl() pero para la clase «dominio»;
+ * los dominios de la negra local NO entran en la inteligencia compartida
+ * (indicadoresPendientes solo sube IPs), así que no hay decisión de privacidad.
+ */
+export async function edlDominios(ahora = new Date()) {
+	const negras = await db
+		.select({ valor: s.listas.valor, caduca: s.listas.caduca })
+		.from(s.listas)
+		.where(and(eq(s.listas.lista, 'negra'), eq(s.listas.clase, 'dominio')));
+	const blanca = (
+		await db
+			.select({ valor: s.listas.valor })
+			.from(s.listas)
+			.where(
+				and(
+					eq(s.listas.lista, 'blanca'),
+					eq(s.listas.clase, 'dominio'),
+					or(isNull(s.listas.caduca), gt(s.listas.caduca, ahora))
+				)
+			)
+	).map((b) => b.valor);
+	const vigentes = negras
+		.filter((n) => !n.caduca || n.caduca > ahora)
+		.map((n) => n.valor)
+		.filter((d) => !cubreDominio(blanca, d));
 	return [...new Set(vigentes)].sort();
 }

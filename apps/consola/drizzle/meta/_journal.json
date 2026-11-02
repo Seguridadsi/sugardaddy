@@ -204,6 +204,13 @@
       "when": 1793448562437,
       "tag": "0028_eventos_usuario_cuando",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1793622985956,
+      "tag": "0029_recuperaciones_clave",
+      "breakpoints": true
     }
   ]
 }

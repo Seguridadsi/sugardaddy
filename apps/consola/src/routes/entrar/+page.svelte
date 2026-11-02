@@ -58,6 +58,7 @@
 			</label>
 			<button class="boton principal">Entrar</button>
 			<p class="pista">Tras varios intentos fallidos la cuenta se bloquea unos minutos.</p>
+			<a class="olvidada" href="/entrar/recuperar">¿Has olvidado la contraseña?</a>
 		</form>
 	{/if}
 
@@ -69,6 +70,7 @@
 	{:else if !data.local}
 		<p class="error">Esta consola no tiene configurada ninguna forma de entrar.</p>
 	{/if}
+
 	<a class="emergencia" href="/emergencia">Entrada de emergencia con llave</a>
 </div>
 
@@ -119,6 +121,13 @@
 
 	.ok {
 		background: var(--accent-soft);
+	}
+
+	.olvidada {
+		display: block;
+		margin-top: 12px;
+		font-size: 12.5px;
+		color: var(--ink-3);
 	}
 
 	.emergencia {

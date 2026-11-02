@@ -38,7 +38,7 @@
 		</label>
 		<label>
 			<span>Correo</span>
-			<input name="correo" type="email" />
+			<input name="correo" type="email" required />
 		</label>
 		<label>
 			<span>Contraseña inicial (mín. {data.minimo})</span>

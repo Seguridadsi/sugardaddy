@@ -50,10 +50,13 @@ const TIPO_DE_TRAMPA: Record<string, TipoDeServicio> = {
 	memcached: 'bases-de-datos',
 	sap: 'bases-de-datos',
 	elasticsearch: 'bases-de-datos',
+	/* Volcado de MySQL sembrado (H26): no corre servicio, apunta a una trampa MySQL */
+	'volcado-mysql': 'bases-de-datos',
 	/* Carpetas y ficheros */
 	smb: 'ficheros',
 	ftp: 'ficheros',
 	tftp: 'ficheros',
+	webdav: 'ficheros',
 	/* Escritorio remoto */
 	rdp: 'escritorio-remoto',
 	vnc: 'escritorio-remoto',
@@ -62,12 +65,18 @@ const TIPO_DE_TRAMPA: Record<string, TipoDeServicio> = {
 	'telnet-red': 'terminal',
 	'router-upnp': 'terminal',
 	snmp: 'terminal',
+	/* Credencial SSH sembrada (H21): no corre servicio, apunta a una trampa SSH */
+	'credencial-ssh': 'terminal',
 	/* Web y portales */
 	'login-web': 'web',
 	'portal-vpn': 'web',
 	'api-interna': 'web',
 	'web-vulnerable': 'web',
 	'proxy-http': 'web',
+	/* URL trampa (H45): no corre servicio, es una URL cebo con baliza del relé */
+	'url-trampa': 'web',
+	/* Consola de copias de seguridad (H85): consola web que imita Veeam/Nakivo */
+	'consola-copias': 'web',
 	/* Correo */
 	correo: 'correo-electronico',
 	/* Servicios de red */
@@ -78,8 +87,12 @@ const TIPO_DE_TRAMPA: Record<string, TipoDeServicio> = {
 	/* Directorio y llaves */
 	'controlador-dominio': 'directorio',
 	bmc: 'directorio',
+	/* Certificado .pfx sembrado (H88): no corre servicio, su CDP es una baliza del relé */
+	'certificado-cebo': 'directorio',
 	/* Contenedores */
 	'api-docker': 'contenedores',
+	/* Kubeconfig sembrado (H32): no corre servicio, su clúster es una baliza del relé */
+	'kubeconfig-cebo': 'contenedores',
 	/* Impresoras, cámaras, IoT e industria */
 	impresora: 'impresoras',
 	'camara-ip': 'camaras',
@@ -97,9 +110,13 @@ const TIPO_DE_TRAMPA: Record<string, TipoDeServicio> = {
 	/* Inteligencia artificial */
 	mcp: 'ia',
 	'api-ia': 'ia',
+	/* Configuración MCP sembrada (H34): no corre servicio, apunta a una trampa MCP */
+	'configuracion-mcp': 'ia',
 	/* Código */
 	git: 'codigo',
 	svn: 'codigo',
+	/* Secretos en el código (.env) sembrados (H94): no corre servicio, apunta a una trampa */
+	'secretos-env': 'codigo',
 	/* Ficheros cebo con baliza */
 	'fichero-word': 'ficheros',
 	'fichero-excel': 'ficheros',

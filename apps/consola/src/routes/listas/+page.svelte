@@ -90,7 +90,13 @@
 								></td
 							>
 							<td>{l.motivo}</td>
-							<td class="mono fecha">{l.caduca ? diaCorto(l.caduca) : 'nunca'}</td>
+							<td class="mono fecha" class:caducada={l.caduca && new Date(l.caduca).getTime() < data.ahora}
+								>{l.caduca
+									? new Date(l.caduca).getTime() < data.ahora
+										? 'caducada'
+										: diaCorto(l.caduca)
+									: 'nunca'}</td
+							>
 							<td class="quien">{l.quien}</td>
 						</tr>
 					{/each}
@@ -109,13 +115,13 @@
 						</p>
 					{/if}
 					<input type="hidden" name="lista" value={data.lista} />
-					<label for="valor">IP o red</label>
+					<label for="valor">IP, red o dominio</label>
 					<input
 						id="valor"
 						name="valor"
 						class="mono"
 						required
-						placeholder="10.20.0.0/24"
+						placeholder="10.20.0.0/24 · malo.example.com"
 						value={form?.valor ?? ''}
 					/>
 					<label for="motivo">Motivo</label>
@@ -249,6 +255,11 @@
 	.fecha {
 		color: var(--ink-2);
 		white-space: nowrap;
+	}
+
+	.fecha.caducada {
+		color: var(--crit);
+		font-style: italic;
 	}
 
 	.lateral {

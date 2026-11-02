@@ -45,6 +45,16 @@ const norma = (u: string) => u.trim().toLowerCase();
 const USUARIO_RE = /^[a-z0-9][a-z0-9._-]{1,30}[a-z0-9]$/;
 export const usuarioValido = (u: string) => USUARIO_RE.test(norma(u));
 
+/*
+ * Correo de recuperación: cada usuario local necesita uno de verdad, porque es
+ * adonde va el código si pierde la contraseña (/entrar/recuperar). El primer
+ * administrador nace con «admin@local» (el instalador no lo sabe), así que la
+ * consola se lo pide al entrar. Basta con «algo@dominio.tld» sin espacios: si el
+ * buzón existe ya lo dirá el correo que le llegue.
+ */
+const CORREO_RE = /^[^\s@]{1,64}@[^\s@]+\.[^\s@.]{2,}$/;
+export const correoValido = (c: string) => c.trim().length <= 254 && CORREO_RE.test(c.trim());
+
 export function loginLocalHabilitado() {
 	return env.LOGIN_LOCAL === '1' || env.EDICION === 'community';
 }
@@ -93,7 +103,7 @@ const HASH_FALSO = hashClave(randomBytes(18).toString('base64url'));
 /* ---------- entrada ---------- */
 
 export type ResultadoEntrada =
-	| { ok: true; identidad: Identidad; id: string; debeCambiar: boolean }
+	| { ok: true; identidad: Identidad; id: string; debeCambiar: boolean; pideCorreo: boolean }
 	| { ok: false; motivo: 'credenciales' | 'bloqueado'; hasta?: Date };
 
 function identidadDe(u: {
@@ -149,10 +159,16 @@ export async function verificar(usuario: string, clave: string): Promise<Resulta
 		.update(s.usuariosLocales)
 		.set({ intentosFallidos: 0, bloqueadoHasta: null, ultimoAcceso: new Date(ahora) })
 		.where(eq(s.usuariosLocales.id, u.id));
-	return { ok: true, id: u.id, debeCambiar: u.debeCambiar, identidad: identidadDe(u) };
+	return {
+		ok: true,
+		id: u.id,
+		debeCambiar: u.debeCambiar,
+		pideCorreo: !correoValido(u.correo),
+		identidad: identidadDe(u)
+	};
 }
 
-/* ---------- cambio de contraseña obligatorio (primer acceso o restablecimiento) ---------- */
+/* ---------- antes de entrar: contraseña de un solo uso y correo de recuperación ---------- */
 
 /*
  * Un reto de un solo uso para el cambio forzado: al entrar con una contraseña de
@@ -187,6 +203,36 @@ export function retoCambio(reto: string | undefined): string | null {
 
 export function cerrarRetoCambio(reto: string | undefined) {
 	if (reto) retosCambio.delete(reto);
+}
+
+/* Lo que le falta a un usuario para poder entrar: cambiar la contraseña, poner un correo o las dos. */
+export async function pendientesAlEntrar(
+	id: string
+): Promise<{ clave: boolean; correo: boolean } | null> {
+	const [u] = await db
+		.select({ debeCambiar: s.usuariosLocales.debeCambiar, correo: s.usuariosLocales.correo })
+		.from(s.usuariosLocales)
+		.where(eq(s.usuariosLocales.id, id));
+	return u ? { clave: u.debeCambiar, correo: !correoValido(u.correo) } : null;
+}
+
+/* Fija el correo de recuperación de un usuario (el suyo propio o el forzado al entrar). */
+export async function cambiarCorreo(
+	quien: string,
+	id: string,
+	correo: string
+): Promise<{ ok: true; identidad: Identidad } | { ok: false; error: string }> {
+	const limpio = correo.trim();
+	if (!correoValido(limpio))
+		return { ok: false, error: 'Pon un correo válido, del tipo nombre@empresa.com.' };
+	const [u] = await db
+		.update(s.usuariosLocales)
+		.set({ correo: limpio })
+		.where(eq(s.usuariosLocales.id, id))
+		.returning();
+	if (!u) return { ok: false, error: 'El usuario ya no existe.' };
+	await auditar(quien, 'correo de recuperación cambiado', { usuario: u.usuario });
+	return { ok: true, identidad: identidadDe(u) };
 }
 
 export async function cambiarClave(
@@ -295,6 +341,12 @@ export async function crear(
 		return {
 			ok: false,
 			error: 'El usuario lleva de 3 a 32 caracteres: letras, números, punto, guion o guion bajo.'
+		};
+	if (!correoValido(datos.correo))
+		return {
+			ok: false,
+			error:
+				'Hace falta su correo (nombre@empresa.com): es adonde le llega el código si pierde la contraseña.'
 		};
 	if (datos.clave.length < MIN_CLAVE)
 		return { ok: false, error: `La contraseña necesita al menos ${MIN_CLAVE} caracteres.` };

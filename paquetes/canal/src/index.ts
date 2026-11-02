@@ -18,7 +18,9 @@ import {
 	createPrivateKey,
 	createPublicKey,
 	generateKeyPairSync,
+	randomBytes,
 	sign,
+	timingSafeEqual,
 	verify,
 	type KeyObject
 } from 'node:crypto';
@@ -147,9 +149,45 @@ export type EstadoDeseado = {
 	logo?: string | null;
 	/* sha256 de la lista firmada de nodos de salida de Tor; el nodo la pide aparte cuando cambia. */
 	tor?: string | null;
+	/*
+	 * Hay balizas de este cliente esperando en la bandeja de salida del panel:
+	 * eventos de honeycosas externas que volvieron por el relé público
+	 * (docs/diseno/rele-balizas.md). El nodo, si lo ve, las recoge por
+	 * /api/nodo/rele en la misma tanda del latido y las ingiere como eventos
+	 * baliza. Solo una señal (no viajan aquí: pueden ser muchas y son dato
+	 * hostil); el nodo las deduplica por su huella. Opcional: los nodos
+	 * anteriores lo ignoran, y un panel sin relé nunca lo pone.
+	 */
+	releBalizas?: boolean;
+	/*
+	 * Código para recuperar una contraseña que SeguridadSI ha mandado desde su
+	 * panel al correo de contacto del cliente. Aquí solo viaja su hash: el código
+	 * va por correo, nunca por el canal. El nodo lo guarda para ese usuario local y
+	 * se canjea en /entrar/recuperar. Opcional: los nodos anteriores lo ignoran.
+	 */
+	recuperacion?: RecuperacionPanel | null;
 	emitido: string;
 	caduca: string;
 };
+
+export type RecuperacionPanel = { id: string; usuario: string; codigoHash: string; caduca: string };
+
+/*
+ * Hash de un código de recuperación de contraseña, con sal: sha256$<sal>$<hex>.
+ * Lo calculan el nodo (código pedido desde su entrada) y el panel (código que
+ * manda SeguridadSI); lo comprueba siempre el nodo.
+ */
+export function hashCodigoRecuperacion(codigo: string, sal = randomBytes(16).toString('hex')) {
+	return `sha256$${sal}$${createHash('sha256').update(`${sal}:${codigo}`).digest('hex')}`;
+}
+
+export function codigoRecuperacionCorrecto(codigo: string, almacenado: string) {
+	const p = almacenado.split('$');
+	if (p.length !== 3 || p[0] !== 'sha256') return false;
+	const a = Buffer.from(hashCodigoRecuperacion(codigo, p[1]));
+	const b = Buffer.from(almacenado);
+	return a.length === b.length && timingSafeEqual(a, b);
+}
 
 export type SolicitudSoporte = { por: string; motivo: string; cuando: string };
 

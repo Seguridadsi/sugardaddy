@@ -891,3 +891,26 @@ export const usuariosLocales = pgTable('usuarios_locales', {
 	ultimoAcceso: timestamp('ultimo_acceso', { withTimezone: true }),
 	creadaPor: text('creada_por').notNull()
 });
+
+/*
+ * Códigos para recuperar la contraseña de un usuario local (auth/recuperar.ts).
+ * Solo el hash del código; caduca, aguanta pocos intentos y se cierra al usarlo
+ * o al pedir otro. Origen «correo»: lo pidió alguien en /entrar/recuperar.
+ */
+export const recuperacionesClave = pgTable(
+	'recuperaciones_clave',
+	{
+		id: text('id').primaryKey(),
+		usuarioId: text('usuario_id')
+			.notNull()
+			.references(() => usuariosLocales.id, { onDelete: 'cascade' }),
+		codigoHash: text('codigo_hash').notNull(),
+		origen: text('origen').notNull(),
+		intentos: integer('intentos').notNull().default(0),
+		caduca: timestamp('caduca', { withTimezone: true }).notNull(),
+		/* Usado, o anulado al pedir otro. */
+		cerrada: timestamp('cerrada', { withTimezone: true }),
+		creada: creado()
+	},
+	(t) => [index('recuperaciones_clave_usuario').on(t.usuarioId, t.creada)]
+);

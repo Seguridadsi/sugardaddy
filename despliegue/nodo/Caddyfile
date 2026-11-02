@@ -1,5 +1,14 @@
 # Entrada HTTPS de la consola del nodo. Lo único del nodo que escucha hacia la
 # red del cliente, junto con las trampas.
+#
+# Un solo fichero para los dos modos de entrada: viaja firmado con cada versión
+# y el actualizador lo escribe tal cual, así que el modo no puede vivir aquí.
+# Vive en .env y compose.yml lo pasa en CADDY_MODO, que elige el sitio de abajo:
+#  - Fijo (por defecto): solo la dirección dada al instalar.
+#  - «Cualquier IP o nombre» (ENTRAR_CUALQUIER_IP=1 al instalar): :443 para
+#    cualquier host, con certificado a demanda. En un nodo con IP pública Caddy
+#    puede emitir certificados a quien se los pida (riesgo menor; por eso NO es
+#    el modo por defecto).
 {
 	admin off
 	# Sin peticiones a Let's Encrypt ni a ningún sitio: el nodo no sale a
@@ -18,13 +27,25 @@
 	tls internal
 }
 
+(tls-interno-a-demanda) {
+	# Igual, pero emite el certificado del host con que te conectes (sin esto,
+	# en :443 un SNI nuevo rompería el TLS).
+	tls internal {
+		on_demand
+	}
+}
+
 (tls-ficheros) {
 	# Certificado de la CA del cliente, dejado en certs/ por quien instala.
 	tls /certs/certificado.pem /certs/clave.pem
 }
 
-{$CONSOLA_DOMINIO}:443 {
-	import tls-{$TLS_MODO}
+(tls-ficheros-a-demanda) {
+	# Con certificado propio no se emite nada: el mismo para cualquier host.
+	tls /certs/certificado.pem /certs/clave.pem
+}
+
+(consola) {
 	encode zstd gzip
 	header {
 		Strict-Transport-Security "max-age=31536000"
@@ -32,3 +53,21 @@
 	}
 	reverse_proxy consola:3000
 }
+
+# Modo fijo (CADDY_MODO vacío).
+(sitio) {
+	{$CONSOLA_DOMINIO}:443 {
+		import tls-{$TLS_MODO}
+		import consola
+	}
+}
+
+# Modo «cualquier IP o nombre» (CADDY_MODO=-cualquier-ip).
+(sitio-cualquier-ip) {
+	:443 {
+		import tls-{$TLS_MODO}-a-demanda
+		import consola
+	}
+}
+
+import sitio{$CADDY_MODO}

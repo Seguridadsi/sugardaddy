@@ -62,8 +62,9 @@ export const actions = {
 			return fail(401, { error: 'Usuario o contraseña incorrectos.', usuario });
 		}
 
-		/* Contraseña de un solo uso: no se abre sesión hasta que la cambie. */
-		if (r.debeCambiar) {
+		/* Contraseña de un solo uso o sin correo de recuperación: no se abre sesión
+		 * hasta que lo arregle en /entrar/cambiar. */
+		if (r.debeCambiar || r.pideCorreo) {
 			cookies.set(COOKIE_CAMBIO, abrirRetoCambio(r.id), {
 				path: '/entrar',
 				httpOnly: true,

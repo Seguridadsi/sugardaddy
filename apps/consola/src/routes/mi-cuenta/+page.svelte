@@ -24,6 +24,25 @@
 </section>
 
 <section class="tarjeta">
+	<h2>Correo</h2>
+	<p class="sub">Si pierdes la contraseña, te mandamos aquí un código para volver a entrar.</p>
+	<form method="POST" action="?/correo" use:enhance>
+		<label class="campo">
+			<span>Correo</span>
+			<input
+				name="correo"
+				type="email"
+				autocomplete="email"
+				value={data.correo}
+				maxlength="254"
+				required
+			/>
+		</label>
+		<button class="boton">Guardar correo</button>
+	</form>
+</section>
+
+<section class="tarjeta">
 	<h2>Contraseña</h2>
 	<p class="sub">Al menos {data.minimo} caracteres; mejor una frase larga que símbolos raros.</p>
 	<form method="POST" action="?/contrasena" use:enhance>

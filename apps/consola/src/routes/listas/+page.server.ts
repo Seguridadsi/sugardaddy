@@ -2,17 +2,20 @@ import { fail } from '@sveltejs/kit';
 import { isIP } from 'node:net';
 import { exigir } from '$lib/server/auth/permisos';
 import { anadirALista, comparticion, guardarComparticion, listasDe } from '$lib/server/consultas';
+import { normalizarDominio } from '$lib/server/dominios';
 import { cambiarUsoTor, listaTor, usoTor } from '$lib/server/tor';
 
-/* Una IP o una red en CIDR. Lo demás (dominios, hashes) llegará con su propia validación. */
-function claseDe(valor: string): 'ip' | 'red' | null {
-	if (isIP(valor)) return 'ip';
+/* Una IP, una red en CIDR o un dominio. Devuelve además el valor ya normalizado
+ * (el dominio en minúsculas, sin punto final). null si no es nada de eso. */
+function clasificar(valor: string): { clase: 'ip' | 'red' | 'dominio'; valor: string } | null {
+	if (isIP(valor)) return { clase: 'ip', valor };
 	const [base, mascara] = valor.split('/');
 	const bits = isIP(base);
 	const n = Number(mascara);
 	if (bits && /^\d{1,3}$/.test(mascara ?? '') && n >= 8 && n <= (bits === 4 ? 32 : 128))
-		return 'red';
-	return null;
+		return { clase: 'red', valor };
+	const dominio = normalizarDominio(valor);
+	return dominio ? { clase: 'dominio', valor: dominio } : null;
 }
 
 export const load = async ({ url }) => {
@@ -22,6 +25,7 @@ export const load = async ({ url }) => {
 	const tor = await listaTor();
 	return {
 		lista,
+		ahora: Date.now(),
 		entradas: lista === 'tor' ? [] : entradas,
 		cuentas: { ...cuentas, tor: tor?.ips.length ?? 0 },
 		comparticion: await comparticion(),
@@ -41,14 +45,18 @@ export const actions = {
 		const motivo = String(form.get('motivo') ?? '').trim();
 		const dias = Number(form.get('dias') ?? 0);
 
-		const clase = claseDe(valor);
-		if (!clase)
-			return fail(400, { error: 'Escribe una IP o una red en CIDR (mínimo /8).', valor, motivo });
+		const c = clasificar(valor);
+		if (!c)
+			return fail(400, {
+				error: 'Escribe una IP, una red en CIDR (mínimo /8) o un dominio.',
+				valor,
+				motivo
+			});
 		if (!motivo)
 			return fail(400, { error: 'Explica el motivo: queda en los logs.', valor, motivo });
 		const nuevo = await anadirALista(u.correo, {
-			valor,
-			clase,
+			valor: c.valor,
+			clase: c.clase,
 			lista,
 			motivo,
 			caduca: dias > 0 ? new Date(Date.now() + dias * 86_400_000) : null
