@@ -94,7 +94,14 @@ const latir = (cuando = new Date()) =>
 	db.update(s.sensores).set({ ultimoLatido: cuando }).where(eq(s.sensores.id, S));
 
 let catalogo = '';
-const cowrie = readFileSync('../../modulos/trampas/cowrie/trampa.yaml', 'utf8');
+/*
+ * Con la imagen privada en las dos ediciones (en community el generador la
+ * declara pública): si no, un sensor sin credencial no se quedaría sin ella.
+ */
+const cowrie = readFileSync('../../modulos/trampas/cowrie/trampa.yaml', 'utf8').replace(
+	/^\s*imagenPublica:.*\n/m,
+	''
+);
 function modulo(id: string, yaml: string) {
 	mkdirSync(join(catalogo, 'trampas', id), { recursive: true });
 	writeFileSync(join(catalogo, 'trampas', id, 'trampa.yaml'), yaml);

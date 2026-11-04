@@ -96,8 +96,18 @@ describe('manifiesto v2: los ejemplos', () => {
 		if (!v1.ok) throw new Error(v1.errores.join('\n'));
 		const p = proyectarParaSensor(honeycosa(smb()), 'contenedor');
 		/* Lo que el sensor usa para desplegarla y traducir sus eventos, igual. */
-		for (const campo of ['tipo', 'contenedor', 'aislamiento', 'eventos', 'procedencia'] as const)
+		for (const campo of ['tipo', 'aislamiento', 'eventos', 'procedencia'] as const)
 			expect(p[campo]).toEqual(v1.valor[campo]);
+		/*
+		 * La imagen, salvo en community (se reconoce por imagenPublica): allí la
+		 * fija su publicación y este ejemplo no se regenera con ella.
+		 */
+		const comparable = (c: typeof p.contenedor) => {
+			if (!v1.valor.contenedor?.imagenPublica) return c;
+			const { imagen: _imagen, imagenPublica: _publica, ...resto } = c!;
+			return resto;
+		};
+		expect(comparable(p.contenedor)).toEqual(comparable(v1.valor.contenedor));
 		/* Sus parámetros, y además los dos de la vía de Windows. */
 		expect(p.parametros.properties).toEqual({
 			...v1.valor.parametros.properties,

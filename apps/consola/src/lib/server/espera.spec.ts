@@ -1,9 +1,13 @@
 /*
  * Una trampa fuera del plan queda en espera, contra una base de datos de
- * verdad (la de desarrollo, DATABASE_URL de .env), con el catálogo de verdad.
+ * verdad (la de desarrollo, DATABASE_URL de .env). El catálogo es uno de prueba
+ * con cowrie e imagen privada, en las dos ediciones: en community el generador
+ * la declara pública, y un sensor sin credencial no se quedaría sin ella.
  * Si no hay base, la prueba se salta.
  */
-import { readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 let hayBase = false;
@@ -40,7 +44,19 @@ const donde = async () =>
 	(await db.select().from(s.trampas).where(eq(s.trampas.id, TRAMPA)))[0].donde;
 
 describe.skipIf(!hayBase)('trampa en espera, con la base de verdad', () => {
+	let catalogo = '';
+
 	beforeAll(async () => {
+		catalogo = mkdtempSync(join(tmpdir(), 'sd-espera-'));
+		mkdirSync(join(catalogo, 'trampas', 'cowrie'), { recursive: true });
+		writeFileSync(
+			join(catalogo, 'trampas', 'cowrie', 'trampa.yaml'),
+			readFileSync('../../modulos/trampas/cowrie/trampa.yaml', 'utf8').replace(
+				/^\s*imagenPublica:.*\n/m,
+				''
+			)
+		);
+		process.env.SUGARDADDY_MODULOS = catalogo;
 		await limpiar();
 		await db.insert(s.sensores).values({ id: SENSOR, nombre: SENSOR, claveHash: `x-${SENSOR}` });
 		await db.insert(s.trampas).values({
@@ -54,6 +70,8 @@ describe.skipIf(!hayBase)('trampa en espera, con la base de verdad', () => {
 		});
 	});
 	afterAll(async () => {
+		delete process.env.SUGARDADDY_MODULOS;
+		if (catalogo) rmSync(catalogo, { recursive: true, force: true });
 		if (hayBase && !process.env.CONSERVAR) await limpiar();
 	});
 

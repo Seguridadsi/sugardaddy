@@ -1,0 +1,60 @@
+# Pruebas en cada push y en cada pull request, con una base de verdad: sin ella,
+# las pruebas *-base se saltan en silencio. Las acciones van fijadas por commit,
+# no por etiqueta: una etiqueta se puede mover debajo de nosotros.
+name: Pruebas
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  node:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: sd
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U sd"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgres://sd@localhost:5432/consola
+      CLAVE_SECRETOS: '0000000000000000000000000000000000000000000000000000000000000000'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Base de datos
+        working-directory: apps/consola
+        run: |
+          psql "postgres://sd@localhost:5432/postgres" -c 'create database consola'
+          node ../../node_modules/drizzle-kit/bin.cjs migrate
+          printf 'DATABASE_URL=%s\nCLAVE_SECRETOS=%s\n' "$DATABASE_URL" "$CLAVE_SECRETOS" > .env
+      - run: npm --workspace apps/consola test
+      - run: npm --workspace paquetes/canal --workspace paquetes/contrato test
+      - run: npm --workspace apps/consola run check
+
+  go:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sensor
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: sensor/go.mod
+      - run: go vet ./...
+      - run: go test ./...
