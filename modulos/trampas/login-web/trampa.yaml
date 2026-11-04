@@ -62,8 +62,8 @@ contenedor:
   # Imagen propia, construida con imagen/preparar.sh (código propio en Go, base
   # scratch, usuario no root). La construye y deja aquí su digest
   # herramientas/publicar-trampa.sh login-web; el banco de pruebas usa la local.
-  imagen: ghcr.io/seguridadsi/sugardaddy-trampa-login-web:0.1.0@sha256:9dad6991e5dfb9b18fea088c29f6714a72525bc8ed0643407b887eb456ac6d60
-  imagenPublica: ghcr.io/seguridadsi/sugardaddy-trampa-login-web:0.1.0@sha256:9dad6991e5dfb9b18fea088c29f6714a72525bc8ed0643407b887eb456ac6d60
+  imagen: ghcr.io/seguridadsi/sugardaddy-trampa-login-web:0.1.0@sha256:63e7052e03d634bb6ddd0c6f613c564f3e54af30fe7dd90f29d2ab7d5e56400c
+  imagenPublica: ghcr.io/seguridadsi/sugardaddy-trampa-login-web:0.1.0@sha256:63e7052e03d634bb6ddd0c6f613c564f3e54af30fe7dd90f29d2ab7d5e56400c
   puertos:
     - { interno: 8080, expuesto: '${puertoWeb}', protocolo: tcp }
   entorno:
