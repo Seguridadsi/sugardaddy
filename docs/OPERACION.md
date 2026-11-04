@@ -36,7 +36,8 @@ ampliando. Cada cebo que pongas no debe tener ningún uso legítimo: así, cualq
 toque es señal.
 
 > Los cebos de fichero que **avisan al abrirse** (Word, Excel, PDF) son una
-> función de pago; en la edición Community usas las trampas de servicio.
+> función de Sugardaddy Cloud; en la edición Community usas las trampas de
+> servicio.
 
 ## 2. Probar una trampa
 
@@ -117,9 +118,9 @@ cd /opt/sugardaddy
 
 Deja el nodo como estaba: trampas, eventos y secretos.
 
-## 6. Ampliar a un plan
+## 6. Pasar a Cloud o ampliarlo
 
-Tu catálogo enseña **todo**, también lo de pago, marcado. Cuando quieras avisos a
+Tu catálogo enseña **todo**, también lo de Cloud, marcado. Cuando quieras avisos a
 tu correo/Teams/Slack/SIEM, trampas avanzadas, varias sedes desde un panel o
 soporte, [habla con SeguridadSI](https://www.seguridadsi.com): se activa lo
 contratado y se enciende en tu consola, sin reinstalar nada.

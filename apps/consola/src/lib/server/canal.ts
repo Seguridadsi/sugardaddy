@@ -563,6 +563,35 @@ export async function mandarCodigoPorCanal(
 	}
 }
 
+/*
+ * Un incidente al que nadie ha contestado, a SeguridadSI (servicio de pago:
+ * solo si el cliente lo marcó en Incidentes y el nodo lo gestiona un panel).
+ * Nada de lo que escribió el atacante: el origen, el motivo y las cuentas.
+ */
+export type Escalado = {
+	origen: string;
+	motivo: string;
+	severidad: string;
+	eventos: number;
+	puntos: number;
+	trampas: number;
+	abierto: string;
+	minutos: number;
+};
+
+export async function escalarAlPanel(d: Escalado): Promise<boolean> {
+	const c = await leer();
+	if (!c || c.cortado) return false;
+	try {
+		const r = await enviar(c, '/api/nodo/escalado', JSON.stringify(d));
+		if (r.status !== 202) throw new Error(`el panel responde ${r.status}`);
+		return true;
+	} catch (e) {
+		console.error('[escalado] no llegó al panel', e);
+		return false;
+	}
+}
+
 /* Un latido. Lo llama el reloj de hooks.server.ts; los fallos se guardan, no se lanzan. */
 export async function latir() {
 	const c = await leer();

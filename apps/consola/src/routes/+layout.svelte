@@ -76,6 +76,16 @@
 		</p>
 	{/if}
 
+	{#if data.pentest}
+		<p class="pentest">
+			Modo pentest «{data.pentest.nombre}» hasta el {new Date(data.pentest.hasta).toLocaleString(
+				'es-ES',
+				{ day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }
+			)}: lo de {data.pentest.ips.length ? data.pentest.ips.join(', ') : 'cualquier IP'} no avisa ni se
+			bloquea. <a href="/origenes/pentest/{data.pentest.id}">Ver</a>
+		</p>
+	{/if}
+
 	{#if data.soporte?.estado === 'abierto'}
 		<p class="soporte">
 			{#if data.usuario.soporte}
@@ -107,7 +117,7 @@
 		<div class="actualizacion oferta">
 			<span>
 				¿Quieres que tu nodo se actualice solo cuando saquemos una versión nueva, a cambio de tu
-				correo? <a href="/ajustes">Activar</a>
+				correo? <a href="/ajustes#actualizaciones">Activar</a>
 			</span>
 			<form method="POST" action="/ajustes?/autoActualizar" use:enhance>
 				<button type="submit">Ahora no</button>
@@ -125,7 +135,7 @@
 					href="https://github.com/Seguridadsi/sugardaddy/blob/main/docs/INSTALACION.md#actualizar"
 					rel="noopener noreferrer">Cómo actualizar</a
 				>
-				o <a href="/ajustes">actívala sola</a>.
+				o <a href="/ajustes#actualizaciones">actívala sola</a>.
 			{/if}
 		</p>
 	{/if}
@@ -183,6 +193,19 @@
 		font-weight: 700;
 		background: var(--crit);
 		color: var(--accent-ink);
+	}
+
+	.pentest {
+		margin: 0;
+		padding: 7px 20px;
+		font-size: 12.5px;
+		font-weight: 600;
+		background: color-mix(in oklab, var(--warn) 16%, var(--surface));
+		color: var(--warn);
+	}
+
+	.pentest a {
+		color: inherit;
 	}
 
 	.soporte {

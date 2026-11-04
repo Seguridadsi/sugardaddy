@@ -16,6 +16,9 @@ descripcion: >-
   Registra cada conexión y negociación (con la cookie mstshash), el usuario, dominio y equipo de
   cada intento de inicio de sesión y el hash NetNTLMv2 que llega; si pones una contraseña sembrada
   y alguien la prueba, la captura en claro. Objetivo número uno de fuerza bruta y movimiento lateral.
+# Ataque si está en la red interna (abre incidente al primer toque); fuera, por puntos.
+alerta:
+  fidelidad: interno
 ficha:
   detecta: >-
     Fuerza bruta de RDP, robo de credenciales y movimiento lateral por el puerto 3389: intentos de

@@ -9,6 +9,9 @@ descripcion: >-
   Un servidor web que responde a cualquier ruta con un fichero inventado (configuración,
   credenciales, copias de bases de datos) enviado byte a byte, muy despacio. Registra cada
   petición, la herramienta que la lanza y cuánto tiempo pierde el escáner atrapado.
+# De cara a internet: solo estadística, salvo credencial cebo o si está dentro de la red.
+alerta:
+  fidelidad: internet
 ficha:
   detecta: >-
     Escáneres y gusanos que barren la red en busca de ficheros con secretos (.env,

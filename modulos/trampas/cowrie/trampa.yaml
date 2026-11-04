@@ -6,6 +6,9 @@ nombre: SSH y Telnet falsos
 descripcion: >-
   Un servidor SSH y Telnet que acepta credenciales débiles y deja al atacante en una
   shell simulada. Registra cada intento de acceso, cada comando y cada descarga.
+# Ataque si está en la red interna (abre incidente al primer toque); fuera, por puntos.
+alerta:
+  fidelidad: interno
 ficha:
   detecta: >-
     Quien intenta entrar por SSH o Telnet: las contraseñas que prueba, los comandos que

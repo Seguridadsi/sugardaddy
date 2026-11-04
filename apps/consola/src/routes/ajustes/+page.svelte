@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import { page } from '$app/state';
+	import { sinLlavePorIp } from '$lib/llave-por-ip';
 	import { haceCuanto } from '$lib/formato';
 	import EntraPropio from '$lib/components/EntraPropio.svelte';
 
@@ -28,6 +30,88 @@
 
 {#if form?.mensaje}<p class="mensaje" role="status">{form.mensaje}</p>{/if}
 {#if form?.error}<p class="error" role="alert">{form.error}</p>{/if}
+
+<section class="panel bloque" id="actualizaciones">
+	<h2>Versión y actualizaciones</h2>
+	<p class="version-actual">
+		Estás en la versión <b class="mono">{data.version}</b>
+		{#if data.actualizacion.estado === 'pendiente'}
+			· la <b class="mono aviso">{data.actualizacion.version}</b> está firmada y verificada, esperando
+			al actualizador
+		{:else if data.actualizacion.estado === 'aplicando'}
+			· instalándose la <b class="mono aviso">{data.actualizacion.version}</b>
+		{:else if data.actualizacion.estado === 'fallida'}
+			· <b class="mal">la {data.actualizacion.version} falló y se volvió atrás</b>
+			{#if data.actualizacion.detalle}<span class="mono">{data.actualizacion.detalle}</span>{/if}
+		{:else if data.disponible}
+			· <b class="aviso">hay una nueva: <span class="mono">{data.disponible}</span></b>
+		{:else if data.gestionado || data.autoActualizar.activo || data.buscarActualizaciones}
+			· al día
+		{/if}
+		{#if c?.estado?.despliegueEnPausa}· despliegue en pausa{/if}
+	</p>
+
+	{#if data.gestionado}
+		<p class="ayuda">
+			Este nodo está dado de alta en el panel de SeguridadSI: las versiones nuevas llegan firmadas
+			por él y se instalan solas.
+		</p>
+	{:else}
+		<h3>Actualizarse solo</h3>
+		{#if data.autoActualizar.activo}
+			<p>
+				Activada: cuando salga una versión nueva, tu nodo se pondrá al día solo. Avisos, soporte y
+				novedades al correo <strong>{data.autoActualizar.correo}</strong>.
+			</p>
+			<form method="POST" action="?/autoActualizar" use:enhance>
+				<button class="boton" type="submit">Desactivar</button>
+			</form>
+		{:else}
+			<p>
+				Que tu nodo se actualice solo cuando saquemos una versión nueva, sin reconstruir a mano. A
+				cambio das tu correo a SeguridadSI, que te avisará de versiones, te dará soporte y te
+				contará novedades del producto.
+			</p>
+			<form method="POST" action="?/autoActualizar" use:enhance>
+				<input type="hidden" name="activar" value="on" />
+				<label>
+					Correo
+					<input
+						type="email"
+						name="correo"
+						required
+						value={data.autoActualizar.correo ?? ''}
+						placeholder="tu@empresa.com"
+					/>
+				</label>
+				<label class="interruptor">
+					<input type="checkbox" name="consentimiento" required />
+					<span>
+						<small
+							>Acepto que mi correo, con el nombre y la versión de mi nodo, se envíe a SeguridadSI y
+							que me escriba para avisarme de versiones, darme soporte y contarme novedades del
+							producto.</small
+						>
+					</span>
+				</label>
+				<button class="boton principal" type="submit">Activar</button>
+			</form>
+		{/if}
+
+		<h3>Solo avisarme</h3>
+		<p>
+			Sin actualizarse sola: la consola mira de vez en cuando si hay una versión más nueva publicada
+			y te avisa arriba. No instala nada; tú decides cuándo actualizar.
+		</p>
+		<form method="POST" action="?/buscarActualizaciones" use:enhance>
+			<label class="interruptor">
+				<input type="checkbox" name="buscar" checked={data.buscarActualizaciones} />
+				<span><b>Avisarme de versiones nuevas</b></span>
+			</label>
+			<button class="boton" type="submit">Guardar</button>
+		</form>
+	{/if}
+</section>
 
 <form class="panel bloque" method="POST" action="?/palabras" use:enhance>
 	<h2>Palabras que disparan una alerta</h2>
@@ -189,6 +273,7 @@
 		Otra forma de entrar como administrador si falla todo: una llave FIDO2. Conviene tener al menos
 		dos, guardadas por separado.
 	</p>
+	{#if sinLlavePorIp(page.url.hostname)}<p class="mal">{sinLlavePorIp(page.url.hostname)}</p>{/if}
 	{#if data.llaves.length === 0}
 		<p>Ninguna registrada.</p>
 	{:else}
@@ -255,68 +340,12 @@
 	{/if}
 </section>
 
-{#if data.gestionado === false}
-	<section class="panel bloque">
-		<h2>Avisos de versión nueva</h2>
-		<p>
-			Este nodo se construye desde el código y no recibe actualizaciones firmadas. Con esto
-			activado, la consola mira de vez en cuando si hay una versión más nueva publicada y te avisa.
-			No instala nada: tú decides cuándo actualizar.
-		</p>
-		<form method="POST" action="?/buscarActualizaciones" use:enhance>
-			<label>
-				<input type="checkbox" name="buscar" checked={data.buscarActualizaciones} />
-				Avisarme de versiones nuevas
-			</label>
-			<button class="boton" type="submit">Guardar</button>
-		</form>
-	</section>
-
-	<section class="panel bloque">
-		<h2>Auto-actualización</h2>
-		{#if data.autoActualizar.activo}
-			<p>
-				Activada: cuando salga una versión nueva, tu nodo se pondrá al día solo. Avisos, soporte y
-				novedades al correo <strong>{data.autoActualizar.correo}</strong>.
-			</p>
-			<form method="POST" action="?/autoActualizar" use:enhance>
-				<button class="boton" type="submit">Desactivar</button>
-			</form>
-		{:else}
-			<p>
-				Que tu nodo se actualice solo cuando saquemos una versión nueva, sin reconstruir a mano. A
-				cambio das tu correo a SeguridadSI, que te avisará de versiones, te dará soporte y te
-				contará novedades del producto.
-			</p>
-			<form method="POST" action="?/autoActualizar" use:enhance>
-				<input type="hidden" name="activar" value="on" />
-				<label>
-					Correo
-					<input
-						type="email"
-						name="correo"
-						required
-						value={data.autoActualizar.correo ?? ''}
-						placeholder="tu@empresa.com"
-					/>
-				</label>
-				<label>
-					<input type="checkbox" name="consentimiento" required />
-					Acepto que mi correo, con el nombre y la versión de mi nodo, se envíe a SeguridadSI y que me
-					escriba para avisarme de versiones, darme soporte y contarme novedades del producto.
-				</label>
-				<button class="boton principal" type="submit">Activar</button>
-			</form>
-		{/if}
-	</section>
-{/if}
-
 <section class="panel bloque">
 	<h2>Webhook de eventos</h2>
 	<p>
 		Dispara cada evento nuevo, tal cual (JSON), a una URL tuya, para que lo lleves a NATS, a tu SIEM
 		o a lo que uses. Es básico y <em>best-effort</em>: la fiabilidad la pones tú. (Los avisos
-		gestionados y fiables —correo, Teams, Sentinel…— son del plan de pago.)
+		gestionados y fiables —correo, Teams, Sentinel…— son de Sugardaddy Cloud.)
 	</p>
 	<form method="POST" action="?/webhook" use:enhance>
 		<label for="wh-url">URL</label>
@@ -399,23 +428,6 @@
 			<dt>Huella de este nodo</dt>
 			<dd class="mono">{c.huellaNodo}</dd>
 			{#if c.estado}
-				<dt>Versión</dt>
-				<dd>
-					<span class="mono">{data.version}</span>
-					{#if data.actualizacion.estado === 'pendiente'}
-						→ <b class="mono aviso">{data.actualizacion.version}</b> firmada y verificada, esperando al
-						actualizador
-					{:else if data.actualizacion.estado === 'aplicando'}
-						→ <b class="mono aviso">{data.actualizacion.version}</b> instalándose
-					{:else if data.actualizacion.estado === 'fallida'}
-						· <b class="mal">la {data.actualizacion.version} falló y se volvió atrás</b>
-						{#if data.actualizacion.detalle}<span class="mono">{data.actualizacion.detalle}</span
-							>{/if}
-					{:else}
-						al día
-					{/if}
-					{#if c.estado.despliegueEnPausa}· despliegue en pausa{/if}
-				</dd>
 				<dt>Configuración</dt>
 				<dd>
 					{#if !data.configuracion}
@@ -564,6 +576,15 @@
 	.interruptor small {
 		font-size: 12px;
 		color: var(--ink-3);
+	}
+
+	.version-actual {
+		font-size: 14px;
+	}
+
+	#actualizaciones h3 {
+		margin: 18px 0 4px;
+		font-size: 14px;
 	}
 
 	.ayuda {

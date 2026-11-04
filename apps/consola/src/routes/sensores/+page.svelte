@@ -67,7 +67,7 @@
 		<thead>
 			<tr>
 				<th>Sensor</th>
-				<th>Red / VLAN</th>
+				<th>IP · red / VLAN</th>
 				<th class="num">Trampas</th>
 				<th>Estado</th>
 				{#if admin}<th></th>{/if}
@@ -90,6 +90,11 @@
 						{#if x.motor}<small title="Su motor de contenedores">{x.motor}</small>{/if}
 					</td>
 					<td class="red">
+						{#if x.ips.length}
+							<span class="ips mono" title="Las IP de la máquina del sensor"
+								>{x.ips.join(' · ')}</span
+							>
+						{/if}
 						{#if admin}
 							<details open={cambiando === x.id}>
 								<summary class:sin={!x.red && !x.vlan}
@@ -131,7 +136,9 @@
 									>
 										<option value="" selected={!x.entorno}>sin entorno</option>
 										{#each ENTORNOS as ent (ent)}
-											<option value={ent} selected={x.entorno === ent}>{ENTORNO_ETIQUETA[ent]}</option>
+											<option value={ent} selected={x.entorno === ent}
+												>{ENTORNO_ETIQUETA[ent]}</option
+											>
 										{/each}
 									</select>
 								</form>
@@ -391,6 +398,12 @@
 
 	.num {
 		text-align: right;
+	}
+
+	.ips {
+		display: block;
+		margin-bottom: 2px;
+		font-weight: 600;
 	}
 
 	.red summary {

@@ -1,9 +1,12 @@
 import { error, json } from '@sveltejs/kit';
+import { sinLlavePorIp } from '$lib/llave-por-ip';
 import { puede } from '$lib/permisos';
 import { codigoValido, opcionesRegistro } from '$lib/server/emergencia';
 
 /* Registrar una llave: un administrador con su sesión, o quien tenga un código sacado en la máquina. */
 export const POST = async ({ url, cookies, request, locals }) => {
+	const porIp = sinLlavePorIp(url.hostname);
+	if (porIp) error(400, porIp);
 	const b = await request.json().catch(() => ({}));
 	const nombre = String(b?.nombre ?? '')
 		.trim()

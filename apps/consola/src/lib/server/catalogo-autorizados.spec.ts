@@ -17,7 +17,7 @@ vi.mock('./db', () => ({
 	schema: { ajustes: { clave: 'clave' } }
 }));
 
-const { autorizados, MODULOS_GRATIS } = await import('./catalogo');
+const { autorizados, porQueNo, MODULOS_GRATIS } = await import('./catalogo');
 
 describe('autorizados (sin panel / con panel)', () => {
 	beforeEach(() => {
@@ -38,5 +38,34 @@ describe('autorizados (sin panel / con panel)', () => {
 		bd.filas = [{ valor: ['cowrie'] }];
 		env.EDICION = 'community';
 		expect(await autorizados()).toEqual(['cowrie']);
+	});
+});
+
+describe('porQueNo: lo de pago se nombra por su edición, Cloud', () => {
+	beforeEach(() => {
+		delete env.EDICION;
+	});
+
+	it('en community, una de pago viene en Cloud; una gratis fuera de la lista no está incluida', () => {
+		env.EDICION = 'community';
+		expect(porQueNo({ id: 'mysql', incluida: false, licencia: 'licencia.sin' })).toBe(
+			'Viene en Sugardaddy Cloud'
+		);
+		expect(porQueNo({ id: 'cowrie', incluida: false, licencia: 'cubierta' })).toBe(
+			'No incluida en tu suscripción'
+		);
+	});
+
+	it('en Cloud: fuera de la suscripción, fuera de la licencia o con la licencia caducada', () => {
+		expect(porQueNo({ id: 'mysql', incluida: false, licencia: 'cubierta' })).toBe(
+			'No incluida en tu suscripción'
+		);
+		expect(porQueNo({ id: 'mysql', incluida: true, licencia: 'licencia.sin' })).toBe(
+			'No está en tu licencia de Cloud'
+		);
+		expect(porQueNo({ id: 'mysql', incluida: true, licencia: 'licencia.caducada' })).toBe(
+			'Tu licencia de Cloud ha caducado'
+		);
+		expect(porQueNo({ id: 'mysql', incluida: true, licencia: 'cubierta' })).toBeNull();
 	});
 });

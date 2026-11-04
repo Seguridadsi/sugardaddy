@@ -299,3 +299,21 @@ describe('IP y nonce', () => {
 		expect(new Set(n).size).toBe(50);
 	});
 });
+
+describe('la IP de la máquina de un sensor, si en Destinos no hay dirección', () => {
+	it('la que cae en su red, si se sabe; si no, la primera que cuenta', () => {
+		const ips = ['10.0.0.11', '192.168.5.6'];
+		expect(p.ipDeLaMaquina(ips, '192.168.5.0/24')).toBe('192.168.5.6');
+		expect(p.ipDeLaMaquina(ips, '10.0.0.0/24')).toBe('10.0.0.11');
+		expect(p.ipDeLaMaquina(ips, null)).toBe('10.0.0.11');
+		/* Una red que no casa con ninguna (o mal escrita): la primera. */
+		expect(p.ipDeLaMaquina(ips, '172.16.0.0/12')).toBe('10.0.0.11');
+		expect(p.ipDeLaMaquina(ips, 'no-es-red')).toBe('10.0.0.11');
+	});
+
+	it('sin nada que contar (un sensor anterior a la 0.17.1), ninguna', () => {
+		expect(p.ipDeLaMaquina(undefined, '10.0.0.0/24')).toBeNull();
+		expect(p.ipDeLaMaquina([], null)).toBeNull();
+		expect(p.ipDeLaMaquina(['', 'fs01', 3], null)).toBeNull();
+	});
+});

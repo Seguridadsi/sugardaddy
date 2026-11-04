@@ -161,28 +161,28 @@ describe.skipIf(!hayBase)('el mismo candado en el catálogo', () => {
 		let cubre = await coberturaLicencia();
 		expect(cubre('mysql')).toBe('licencia.sin');
 		expect(cubre('cowrie')).toBe('cubierta');
-		expect(porQueNo({ incluida: true, licencia: cubre('mysql') })).toBe(
-			'De pago: no está en tu licencia'
+		expect(porQueNo({ id: 'mysql', incluida: true, licencia: cubre('mysql') })).toBe(
+			'No está en tu licencia de Cloud'
 		);
 
 		await guardarLic(licencia());
 		cubre = await coberturaLicencia();
 		expect(cubre('mysql')).toBe('cubierta');
 		expect(cubre('postgresql')).toBe('licencia.sin');
-		expect(porQueNo({ incluida: true, licencia: cubre('mysql') })).toBeNull();
+		expect(porQueNo({ id: 'mysql', incluida: true, licencia: cubre('mysql') })).toBeNull();
 	});
 
 	it('con la licencia caducada, ninguna de pago', async () => {
 		await guardarLic(licencia({ caduca: '2020-01-01T00:00:00.000Z' }));
 		const cubre = await coberturaLicencia();
 		expect(cubre('mysql')).toBe('licencia.caducada');
-		expect(porQueNo({ incluida: true, licencia: cubre('mysql') })).toBe(
-			'De pago: tu licencia ha caducado'
+		expect(porQueNo({ id: 'mysql', incluida: true, licencia: cubre('mysql') })).toBe(
+			'Tu licencia de Cloud ha caducado'
 		);
 	});
 
 	it('fuera de la suscripción no se ofrece aunque la licencia la cubra', () => {
-		expect(porQueNo({ incluida: false, licencia: 'cubierta' })).toBe(
+		expect(porQueNo({ id: 'mysql', incluida: false, licencia: 'cubierta' })).toBe(
 			'No incluida en tu suscripción'
 		);
 	});

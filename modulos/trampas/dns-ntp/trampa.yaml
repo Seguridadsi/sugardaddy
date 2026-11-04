@@ -14,6 +14,9 @@ descripcion: >-
   ntpd, MiniDLNA o MiniUPnPd) pero no resuelve nada para nadie. Registra transferencias de
   zona, consultas de versión, monlist, búsquedas UPnP y las ráfagas de quien intenta usarlo
   para atacar a otros. A Internet nunca le contesta con más bytes de los que recibe.
+# El descubrimiento no avisa; solo acciones concretas (entrar, escribir, bajar algo).
+alerta:
+  fidelidad: ruidosa
 ficha:
   detecta: >-
     Quien busca servidores DNS, de hora (NTP) o UPnP en tu red: transferencias de zona

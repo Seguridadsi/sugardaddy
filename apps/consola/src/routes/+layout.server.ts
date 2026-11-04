@@ -3,6 +3,7 @@ import { gestionado } from '$lib/server/actualizaciones';
 import { hayGeo } from '$lib/server/geo';
 import { soporte } from '$lib/server/soporte';
 import { logo } from '$lib/server/canal';
+import { pentestActivo } from '$lib/server/pentest-activo';
 
 /* Sin sesión (la pantalla de entrada) no se consulta nada: ni el nombre del cliente se enseña. */
 export const load = async ({ locals }) =>
@@ -16,6 +17,7 @@ export const load = async ({ locals }) =>
 				actualizacion: await actualizacionDisponible(),
 				autoActualizar: await autoActualizar(),
 				gestionado: await gestionado(),
+				pentest: await pentestActivo(),
 				...(await cabecera())
 			}
 		: {
@@ -27,6 +29,7 @@ export const load = async ({ locals }) =>
 				actualizacion: { version: null },
 				autoActualizar: { decidido: true, activo: false, correo: null, consentimiento: null },
 				gestionado: true,
+				pentest: null,
 				cliente: null,
 				pendientes: 0
 			};

@@ -49,6 +49,7 @@ import {
 import { db, schema as s } from './db';
 import { destinoDeTrampa, type Tx } from './destinos';
 import { hechosDe } from './hechos';
+import { marcaDeToque } from './toques';
 
 /* Tras «hasta» aún cuenta lo que estaba de camino: 2 minutos (§8.3). */
 export const MARGEN_MS = 2 * 60_000;
@@ -84,6 +85,36 @@ export function normalizarIp(ip: string | null | undefined): string | null {
 	if (v === 4) return t;
 	if (v === 6) return new URL(`http://[${t}]`).hostname.slice(1, -1);
 	return null;
+}
+
+/* Una IPv4 como número, o null si no lo es. */
+function ipv4(ip: string): number | null {
+	const p = ip.split('.');
+	if (p.length !== 4 || p.some((x) => !/^\d{1,3}$/.test(x) || Number(x) > 255)) return null;
+	return p.reduce((n, x) => n * 256 + Number(x), 0);
+}
+
+/* Si una IPv4 cae en una red en CIDR IPv4 (la de un sensor: 10.70.0.0/24). */
+function enRed(ip: string, red: string): boolean {
+	const [base, bits] = red.split('/');
+	const a = ipv4(ip);
+	const b = ipv4(base ?? '');
+	const n = Number(bits);
+	if (a === null || b === null || !Number.isInteger(n) || n < 0 || n > 32) return false;
+	const tramo = 2 ** (32 - n);
+	return Math.floor(a / tramo) === Math.floor(b / tramo);
+}
+
+/*
+ * La IP de la máquina de un sensor, de las que cuenta él mismo (hecho
+ * red.direcciones): la que cae en su red, si se sabe, y si no la primera.
+ * null si no cuenta ninguna (un sensor anterior a la 0.17.1). Pura.
+ */
+export function ipDeLaMaquina(direcciones: unknown, red: string | null): string | null {
+	const ips = Array.isArray(direcciones)
+		? direcciones.filter((x): x is string => typeof x === 'string' && isIP(x) !== 0)
+		: [];
+	return (red ? ips.find((x) => enRed(x, red)) : undefined) ?? ips[0] ?? null;
 }
 
 /* ---------------------------------------------------------------------------
@@ -235,7 +266,14 @@ export function comoProbar(
  * Con la base de datos: abrir una prueba y enseñarla
  * ------------------------------------------------------------------------- */
 
-/* Lo que hace falta de una trampa para su prueba: su módulo, sus ajustes y su destino. */
+/*
+ * Lo que hace falta de una trampa para su prueba: su módulo, sus ajustes y su
+ * destino. La dirección del destino es la que se puso en Destinos; si no se
+ * puso y el destino es la máquina de un sensor, la IP que ese sensor cuenta de
+ * ella (red.direcciones), que es donde publica sus trampas. Sin esto, el
+ * destino del sensor del nodo, que el instalador crea sin dirección, no se
+ * podía probar: ni «Probar» ni «Prueba mi detección» tocaban nada.
+ */
 async function datosDe(t: Trampa) {
 	const h = honeycosas().find((x) => x.id === t.modulo);
 	const p = h ? validarParametros(h.parametros, t.parametros) : null;
@@ -246,8 +284,10 @@ async function datosDe(t: Trampa) {
 		const sensor = fila.sensor
 			? ((await db.select().from(s.sensores).where(eq(s.sensores.id, fila.sensor)))[0] ?? null)
 			: null;
-		const v = hechosDe(fila, sensor)['destino.direccion']?.valor;
+		const hechos = hechosDe(fila, sensor);
+		const v = hechos['destino.direccion']?.valor;
 		if (typeof v === 'string') direccion = v;
+		else if (sensor) direccion = ipDeLaMaquina(hechos['red.direcciones']?.valor, sensor.red);
 	}
 	const destino: DestinoDePrueba = {
 		id: fila?.id ?? t.sensor,
@@ -357,7 +397,7 @@ const conOrdenes = (p: PruebaDeVia): [string, string][] =>
 		: [];
 
 /* Abierta, con su id; o por qué no. */
-export type AbrirPrueba = { abierta: string } | 'no-existe' | { error: string };
+export type AbrirPrueba = { abierta: string; nonce: string } | 'no-existe' | { error: string };
 
 /*
  * «Probar» (§8.3): abre una prueba de la trampa con un nonce nuevo y su
@@ -377,7 +417,12 @@ export async function abrirPrueba(
 	quien: string,
 	id: string,
 	ip: string | readonly string[] | null,
-	opciones: { ventanaMin?: number; estados?: Map<string, EstadoVisible> } = {}
+	opciones: {
+		ventanaMin?: number;
+		estados?: Map<string, EstadoVisible>;
+		/* La toca el sensor, que marca su evento con el nonce: no hacen falta IPs. */
+		porToque?: boolean;
+	} = {}
 ): Promise<AbrirPrueba> {
 	const [t] = await db.select().from(s.trampas).where(eq(s.trampas.id, id));
 	if (!t) return 'no-existe';
@@ -386,7 +431,7 @@ export async function abrirPrueba(
 	const como = comoProbar(t, estado, h, parametros, destino);
 	if (!como.puede) return { error: como.motivo };
 	let esperadas = como.ip ? [como.ip] : [];
-	if (como.porIp === 'pedir') {
+	if (como.porIp === 'pedir' && !opciones.porToque) {
 		const dichas = typeof ip === 'string' ? [ip] : (ip ?? []);
 		esperadas = [...new Set(dichas.map(normalizarIp).filter((x) => x !== null))];
 		if (!esperadas.length)
@@ -399,15 +444,16 @@ export async function abrirPrueba(
 	const r = pasosDePrueba(t, h, parametros, destino, como.forma, nonce);
 	if ('error' in r) return { error: `No se puede preparar su prueba: ${r.error}` };
 	const ventanaMin = opciones.ventanaMin ?? como.ventanaMin;
+	const marca = opciones.porToque ? marcaDeToque(nonce) : r.marca;
 	const abierta = await db.transaction(async (tx) => {
 		const [p] = await tx
 			.insert(s.pruebas)
 			.values({
 				trampa: t.id,
 				nonce,
-				ip: r.marca ? null : (esperadas[0] ?? null),
-				ips: r.marca ? null : esperadas,
-				marca: r.marca,
+				ip: marca ? null : (esperadas[0] ?? null),
+				ips: marca ? null : esperadas,
+				marca,
 				hasta: sql`now() + ${ventanaMin} * interval '1 minute'`,
 				quien
 			})
@@ -419,12 +465,12 @@ export async function abrirPrueba(
 				id: t.id,
 				prueba: p.id,
 				hasta: p.hasta.toISOString(),
-				...(r.marca ? { marca: r.marca } : { ips: esperadas })
+				...(marca ? { marca } : { ips: esperadas })
 			}
 		});
 		return p.id;
 	});
-	return { abierta };
+	return { abierta, nonce };
 }
 
 /* Las IPs de una prueba; la de «ip» si la abrió una consola anterior a «ips». */

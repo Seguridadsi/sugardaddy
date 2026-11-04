@@ -1,7 +1,9 @@
 <script lang="ts">
 	import FormularioParametros from '$lib/components/FormularioParametros.svelte';
+	import { ENTORNOS, ENTORNO_ETIQUETA } from '$lib/entorno';
 	import { nombreAccion } from '$lib/formato';
 	import type { EsquemaParametros } from '@sugardaddy/contrato';
+	import { untrack, type Snippet } from 'svelte';
 
 	/*
 	 * El formulario genérico de una salida (Avisos y SIEM): lo de su canal
@@ -16,14 +18,25 @@
 		descripcion: string;
 		dePrueba?: boolean;
 		parametros: EsquemaParametros;
-		secretos: readonly { id: string; titulo: string; descripcion: string; obligatorio: boolean }[];
+		secretos: readonly {
+			id: string;
+			titulo: string;
+			descripcion: string;
+			obligatorio: boolean;
+			necesario?: boolean;
+			si?: { campo: string; valor: string };
+		}[];
 	};
 	type Reglas = {
 		eventos: boolean;
 		severidadMinima: string;
 		trampas: string[] | null;
 		acciones: string[] | null;
+		entornos?: string[] | null;
 		salud: boolean;
+		respuesta?: boolean;
+		incidentes?: boolean;
+		resumenSemanal?: boolean;
 	};
 	type Valores = {
 		nombre: string;
@@ -48,7 +61,8 @@
 		severidades,
 		guardados = [],
 		claveLista,
-		secretoIlegible = null
+		secretoIlegible = null,
+		extra
 	}: {
 		canal: Canal;
 		valores: Valores;
@@ -58,7 +72,37 @@
 		guardados?: SecretoGuardado[];
 		claveLista: boolean;
 		secretoIlegible?: string | null;
+		/* Algo propio del canal tras sus parámetros (el asistente de Microsoft 365 del correo), según lo elegido. */
+		extra?: Snippet<[Record<string, string>]>;
 	} = $props();
+
+	/* Lo elegido en los desplegables del canal (su modo): decide qué parámetros y secretos se piden. */
+	let elegidos = $state(
+		untrack(
+			() =>
+				Object.fromEntries(
+					Object.entries(canal.parametros.properties)
+						.filter(([, c]) => (c as { enum?: unknown }).enum)
+						.map(([k, c]) => [
+							k,
+							String(valores.configuracion[k] ?? (c as { default?: unknown }).default ?? '')
+						])
+				) as Record<string, string>
+		)
+	);
+	/*
+	 * Un desplegable que depende de otro (el gestor del ticket, solo por API)
+	 * se ve si se ve aquel; lo que cuelga de uno escondido, tampoco se pide.
+	 */
+	type Condicion = { campo: string; valor: string } | undefined;
+	const condicion = (k: string): Condicion =>
+		(canal.parametros.properties[k] as { 'x-si'?: Condicion } | undefined)?.['x-si'];
+	const cumple = (si: Condicion, vistos: string[] = []): boolean =>
+		!si ||
+		(elegidos[si.campo] === si.valor &&
+			!vistos.includes(si.campo) &&
+			cumple(condicion(si.campo), [...vistos, si.campo]));
+	const pedidos = $derived(canal.secretos.filter((x) => cumple(x.si)));
 
 	const NOMBRE_SEVERIDAD: Record<string, string> = {
 		baja: 'Baja: todo',
@@ -70,6 +114,7 @@
 	let eventos = $derived(valores.reglas.eventos);
 	let trampasModo = $derived(valores.reglas.trampas ? 'algunas' : 'todas');
 	let accionesModo = $derived(valores.reglas.acciones ? 'algunas' : 'todas');
+	const entornosElegidos = $derived(new Set(valores.reglas.entornos ?? []));
 	let agrupacion = $derived(valores.agrupacion.modo);
 	const minutos = $derived(valores.agrupacion.modo === 'resumen' ? valores.agrupacion.minutos : 15);
 	const elegidas = $derived(new Set(valores.reglas.trampas ?? []));
@@ -91,10 +136,11 @@
 </div>
 
 {#if Object.keys(canal.parametros.properties).length}
-	<FormularioParametros esquema={canal.parametros} valores={valores.configuracion} />
+	<FormularioParametros esquema={canal.parametros} valores={valores.configuracion} bind:elegidos />
 {/if}
+{@render extra?.(elegidos)}
 
-{#if canal.secretos.length}
+{#if pedidos.length}
 	<div class="secretos">
 		{#if secretoIlegible}
 			<p class="aviso" role="alert">{secretoIlegible}</p>
@@ -105,12 +151,12 @@
 				entonces, esta salida no puede guardar ninguno.
 			</p>
 		{/if}
-		{#each canal.secretos as x (x.id)}
+		{#each pedidos as x (x.id)}
 			{@const g = guardado(x.id)}
 			<div class="campo">
 				<label for="s-{x.id}">
 					{x.titulo}
-					{#if !x.obligatorio}<small>opcional</small>{/if}
+					{#if !x.obligatorio && !x.necesario}<small>opcional</small>{/if}
 				</label>
 				<input
 					id="s-{x.id}"
@@ -119,7 +165,7 @@
 					class="mono"
 					autocomplete="new-password"
 					spellcheck="false"
-					required={x.obligatorio && !g?.puesto}
+					required={(x.obligatorio || x.necesario) && !g?.puesto}
 					placeholder={g?.puesto
 						? `Guardado${g.final ? `, acaba en …${g.final}` : ''}: escribe otro para cambiarlo`
 						: ''}
@@ -130,7 +176,7 @@
 						Lo puso {g.quien} el {fecha(g.cuando)}.
 					{/if}
 				</p>
-				{#if g?.puesto && !x.obligatorio}
+				{#if g?.puesto && !x.obligatorio && !x.necesario}
 					<label class="marca">
 						<input type="checkbox" name="s.{x.id}.quitar" />
 						Quitarlo
@@ -143,6 +189,30 @@
 
 <fieldset>
 	<legend>Qué envía</legend>
+	<label class="interruptor">
+		<input type="checkbox" name="incidentes" checked={valores.reglas.incidentes !== false} />
+		<span>
+			<b>Incidentes (recomendado)</b>
+			<small>
+				Lo que importa, sin ruido: un aviso cuando un origen tiene pinta de ataque (una trampa que
+				solo toca un atacante, una de la red interna, o muchos puntos en una hora), sus novedades
+				agrupadas y un resumen al cerrarse.
+			</small>
+		</span>
+	</label>
+
+	<label class="interruptor">
+		<input type="checkbox" name="resumenSemanal" checked={valores.reglas.resumenSemanal === true} />
+		<span>
+			<b>Resumen semanal</b>
+			<small>
+				Los lunes por la mañana, la semana en pocas líneas: los incidentes reales, lo que tocaron
+				tus orígenes conocidos, el ruido de internet y los pentests. Pensado para personas (correo,
+				Teams, Slack…).
+			</small>
+		</span>
+	</label>
+
 	<label class="interruptor">
 		<input
 			type="checkbox"
@@ -202,6 +272,21 @@
 		</div>
 
 		<div class="grupo">
+			<span class="titulo">De qué ubicación</span>
+			<p class="nota">
+				Dónde está la trampa: la suya o, si no tiene, la de su sensor. Sin marcar ninguna, de todas.
+			</p>
+			<div class="en-linea">
+				{#each ENTORNOS as e (e)}
+					<label class="marca">
+						<input type="checkbox" name="entorno" value={e} checked={entornosElegidos.has(e)} />
+						{ENTORNO_ETIQUETA[e]}
+					</label>
+				{/each}
+			</div>
+		</div>
+
+		<div class="grupo">
 			<span class="titulo">Qué tipo de evento</span>
 			<label class="marca">
 				<input
@@ -243,6 +328,17 @@
 			<small>
 				Un sensor que deja de contestar, una trampa caída o parada, la cola de otra salida llena, y
 				cuando se arreglan.
+			</small>
+		</span>
+	</label>
+
+	<label class="interruptor">
+		<input type="checkbox" name="respuesta" checked={valores.reglas.respuesta !== false} />
+		<span>
+			<b>Lo que hace Respuesta</b>
+			<small>
+				Cada contención ejecutada, simulada o fallida, lo que las guardas no dejan hacer y, sobre
+				todo, lo que espera tu aprobación, con el enlace a la consola.
 			</small>
 		</span>
 	</label>
@@ -414,6 +510,18 @@
 		border: 1px solid var(--line);
 		border-radius: var(--r-sm);
 		background: var(--sunk);
+	}
+
+	.nota {
+		margin: 0 0 2px;
+		font-size: 12px;
+		color: var(--ink-3);
+	}
+
+	.en-linea {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0 18px;
 	}
 
 	.columnas {

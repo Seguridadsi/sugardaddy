@@ -10,6 +10,9 @@ descripcion: >-
   nada de lo que le piden. Registra cada comando, marca como crítico lo que hacen los
   gusanos (persistencia, réplica, carga de módulo, borrado de la base) y guarda cada
   contraseña que se prueba.
+# Ataque si está en la red interna (abre incidente al primer toque); fuera, por puntos.
+alerta:
+  fidelidad: interno
 ficha:
   detecta: >-
     Quien busca servidores Redis sin protección: los comandos que lanza, si intenta minar

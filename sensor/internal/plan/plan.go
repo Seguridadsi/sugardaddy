@@ -5,6 +5,17 @@ package plan
 
 import "encoding/json"
 
+// Toque es una conexión de prueba a una trampa. Codigo es lo que se pone en
+// sus eventos; IPs, las de esta máquina con las que puede llegar a la trampa.
+type Toque struct {
+	ID        string   `json:"id"`
+	Trampa    string   `json:"trampa"`
+	Direccion string   `json:"direccion"`
+	Puerto    int      `json:"puerto"`
+	Codigo    string   `json:"codigo"`
+	IPs       []string `json:"ips,omitempty"`
+}
+
 type Plan struct {
 	Sensor     string       `json:"sensor"`
 	UltimoHash string       `json:"ultimoHash"`
@@ -15,6 +26,9 @@ type Plan struct {
 	// la comprueba al arrancar (modulos/comun/licencia). Vacía si el nodo no
 	// tiene licencia (edición gratis); una consola anterior no la manda.
 	Licencia json.RawMessage `json:"licencia,omitempty"`
+	// Toques son las conexiones de prueba que pide «Prueba mi detección» y se
+	// hacen una vez (ver cmd/sensor/toques.go). Una consola anterior no los manda.
+	Toques []Toque `json:"toques,omitempty"`
 	// Senuelos es el nombre de Trampas en las consolas anteriores a la 0.8.0.
 	Senuelos    []TrampaPlan `json:"senuelos"`
 	Descartados []struct {

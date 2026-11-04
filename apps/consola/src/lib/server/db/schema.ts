@@ -260,7 +260,13 @@ export const eventos = pgTable(
 		 * motor de respuesta, no da alerta y no se comparte como indicador. La
 		 * línea firmada no se toca. La consola anterior no la escribe: false.
 		 */
-		prueba: boolean('prueba').notNull().default(false)
+		prueba: boolean('prueba').notNull().default(false),
+		/*
+		 * Lo que suma este evento a su origen para abrir un incidente
+		 * (incidentes-motor.ts): los puntos de su acción según su trampa,
+		 * multiplicados por su ubicación. Los de antes, 0.
+		 */
+		puntos: integer('puntos').notNull().default(0)
 	},
 	(t) => [
 		uniqueIndex('eventos_hash').on(t.hash),
@@ -320,6 +326,42 @@ export const pruebas = pgTable(
 		quien: text('quien').notNull()
 	},
 	(t) => [index('pruebas_abiertas').on(t.trampa, t.hasta)]
+);
+
+/*
+ * Las conexiones de prueba de «Prueba mi detección» que hace el sensor
+ * (toques.ts): se le dan una vez, con su plan, y cuenta cómo han ido. Lo que
+ * dice que un evento es de la prueba es el código que el sensor pone en él (la
+ * marca de la prueba), no estas filas.
+ */
+export const toques = pgTable(
+	'toques',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		prueba: uuid('prueba')
+			.notNull()
+			.references(() => pruebas.id, { onDelete: 'cascade' }),
+		sensor: text('sensor')
+			.notNull()
+			.references(() => sensores.id, { onDelete: 'cascade' }),
+		trampa: text('trampa').notNull(),
+		direccion: text('direccion').notNull(),
+		puerto: integer('puerto').notNull(),
+		codigo: text('codigo').notNull(),
+		/* Las IPs de su máquina con las que puede llegar a la trampa. */
+		ips: text('ips').array().notNull(),
+		pedido: timestamp('pedido', { withTimezone: true }).notNull().defaultNow(),
+		/* Cuándo se le dio al sensor. Nulo: aún no ha pedido su plan. */
+		entregado: timestamp('entregado', { withTimezone: true }),
+		/* Cómo fue: nulo hasta que lo cuenta. */
+		ok: boolean('ok'),
+		detalle: text('detalle')
+	},
+	(t) => [
+		index('toques_pendientes')
+			.on(t.sensor)
+			.where(sql`${t.entregado} IS NULL`)
+	]
 );
 
 /*
@@ -568,7 +610,12 @@ export const listas = pgTable(
  * sigue borrando trampas y sensores como siempre.
  * ------------------------------------------------------------------------- */
 
-/* Qué manda una salida. Los avisos de salud van todos o ninguno: son pocos y del nodo entero. */
+/*
+ * Qué manda una salida. Los avisos de salud y los de Respuesta van todos o
+ * ninguno: son pocos y del nodo entero. Va en jsonb: los campos nuevos son
+ * opcionales y la consola anterior, que no los conoce, los ignora (sin
+ * entornos manda de todas las ubicaciones, que es lo que hacía).
+ */
 export type ReglasSalida = {
 	/* Los eventos de las trampas, con estos filtros. */
 	eventos: boolean;
@@ -577,8 +624,28 @@ export type ReglasSalida = {
 	trampas: string[] | null;
 	/* null: todas las acciones. */
 	acciones: Accion[] | null;
+	/*
+	 * null o sin poner: de cualquier ubicación. Si no, solo los eventos de
+	 * trampas de estas ubicaciones (lib/entorno.ts: dentro, perimetro-web,
+	 * aislada), las mismas que acotan las reglas de Respuesta.
+	 */
+	entornos?: string[] | null;
 	/* Sensor sin latido, trampa caída o parada, cola de otra salida llena. */
 	salud: boolean;
+	/*
+	 * Lo que hace Respuesta: contención ejecutada, simulada, pendiente de
+	 * aprobación, fallida o parada por las guardas (respuesta/avisos.ts). Sin
+	 * poner (una salida de antes de la casilla) cuenta como sí.
+	 */
+	respuesta?: boolean;
+	/*
+	 * Los incidentes (incidentes-motor.ts): uno al abrirse, sus novedades
+	 * agrupadas y el resumen al cerrarse. Sin poner (una salida de antes de la
+	 * casilla) cuenta como sí.
+	 */
+	incidentes?: boolean;
+	/* El resumen de la semana, los lunes (resumen-semanal.ts). Sin poner, no. */
+	resumenSemanal?: boolean;
 };
 
 /* Cada mensaje en cuanto se puede, o todos juntos cada N minutos. */
@@ -606,11 +673,16 @@ export type AvisoGuardado = {
 	id: string;
 	cuando: string;
 	severidad: Severidad;
-	/* salud.sensor-sin-latido, salud.trampa-caida, salida.cola-llena, salida.prueba… */
+	/* salud.sensor-sin-latido, salud.trampa-caida, salida.cola-llena, salida.prueba, respuesta.ejecutada… */
 	codigo: string;
 	titulo: string;
 	texto: string;
-	sobre?: { tipo: 'sensor' | 'trampa' | 'salida'; id: string; nombre: string };
+	/* respuesta: el id es la ejecución (o la aprobación) y el nombre, el de su regla. */
+	sobre?: {
+		tipo: 'sensor' | 'trampa' | 'salida' | 'respuesta' | 'incidente' | 'pentest';
+		id: string;
+		nombre: string;
+	};
 	/* El problema del que avisó antes se ha resuelto. */
 	resuelto?: boolean;
 	/* Datos que acompañan al aviso (p. ej. el resumen de lo descartado). */
@@ -932,3 +1004,145 @@ export const recuperacionesClave = pgTable(
 	},
 	(t) => [index('recuperaciones_clave_usuario').on(t.usuarioId, t.creada)]
 );
+
+/*
+ * Incidentes por puntos (incidentes-motor.ts): un origen haciendo algo, con
+ * principio y fin. Se abre al tocar una trampa que siempre es ataque, una
+ * interna, o al pasar el umbral de puntos en una hora; se cierra tras una hora
+ * sin actividad. Como mucho uno abierto por origen.
+ */
+export const incidentesAbiertos = pgTable(
+	'incidentes_motor',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		/* La IP del origen. */
+		origen: text('origen').notNull(),
+		estado: text('estado', { enum: ['abierto', 'cerrado'] })
+			.notNull()
+			.default('abierto'),
+		/* Por qué se abrió: siempre, credencial, interno o umbral. */
+		motivo: text('motivo').notNull(),
+		severidad: text('severidad', { enum: ['baja', 'media', 'alta', 'critica'] }).notNull(),
+		puntos: integer('puntos').notNull().default(0),
+		eventos: integer('eventos').notNull().default(0),
+		/* Las trampas que ha tocado (ids). */
+		trampas: jsonb('trampas').$type<string[]>().notNull().default([]),
+		/* El primer y el último evento (reloj del sensor). */
+		primero: timestamp('primero', { withTimezone: true }).notNull(),
+		ultimo: timestamp('ultimo', { withTimezone: true }).notNull(),
+		/* La última vez que llegó algo suyo (reloj de la consola): decide el cierre. */
+		actividad: timestamp('actividad', { withTimezone: true }).notNull().defaultNow(),
+		abierto: timestamp('abierto', { withTimezone: true }).notNull().defaultNow(),
+		cerrado: timestamp('cerrado', { withTimezone: true }),
+		/* La última vez que se avisó (abrir o novedades) y lo que ha llegado desde entonces. */
+		avisado: timestamp('avisado', { withTimezone: true }),
+		pendientes: integer('pendientes').notNull().default(0),
+		/* Alguien contestó desde el aviso (lo-miro, bloqueada o es-mio): ya no se escala. */
+		atendido: timestamp('atendido', { withTimezone: true }),
+		atendidoPor: text('atendido_por'),
+		atendidoComo: text('atendido_como'),
+		/* La última vez que se escaló por falta de respuesta, y cuántas van. */
+		escalado: timestamp('escalado', { withTimezone: true }),
+		escalados: integer('escalados').notNull().default(0)
+	},
+	(t) => [
+		/* Uno abierto por origen: dos entregas a la vez no abren dos. */
+		uniqueIndex('incidentes_motor_abierto')
+			.on(t.origen)
+			.where(sql`${t.estado} = 'abierto'`),
+		index('incidentes_motor_estado').on(t.estado, t.actividad),
+		index('incidentes_motor_abierto_en').on(t.abierto)
+	]
+);
+
+/*
+ * Orígenes conocidos (origenes.ts): lo tuyo que toca las trampas —un escáner,
+ * la monitorización, un administrador—. Junta lo que antes eran la lista
+ * blanca de IP y redes, silenciar ruido y las reglas de triaje por IP: sus
+ * eventos se guardan, pero no abren incidentes ni avisan, Respuesta no los
+ * toca, se marcan revisados y no se comparten. Con horario, solo cuenta dentro
+ * de él (el escáner de los lunes a las 3).
+ */
+export type HorarioOrigen = {
+	/* 1 lunes … 7 domingo; vacío o sin poner, todos. */
+	dias: number[];
+	/* HH:MM en la zona; si hasta < desde, cruza la medianoche. */
+	desde: string;
+	hasta: string;
+	zona: string;
+};
+
+export const origenesConocidos = pgTable(
+	'origenes_conocidos',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		nombre: text('nombre').notNull(),
+		/* Una IP o una red (CIDR), IPv4 o IPv6. */
+		patron: text('patron').notNull(),
+		horario: jsonb('horario').$type<HorarioOrigen>(),
+		/* Sin poner, para siempre. */
+		caduca: timestamp('caduca', { withTimezone: true }),
+		activo: boolean('activo').notNull().default(true),
+		nota: text('nota'),
+		/* manual, es-mio, propuesta o migrado-blanca/-silencio/-triaje. */
+		procedencia: text('procedencia').notNull().default('manual'),
+		quien: text('quien').notNull(),
+		creado: timestamp('creado', { withTimezone: true }).notNull().defaultNow()
+	},
+	(t) => [index('origenes_conocidos_activo').on(t.activo)]
+);
+
+/*
+ * Modo pentest (pentest.ts): una ventana en la que lo que llega de las IP del
+ * equipo de pentest (o de cualquiera, sin IP) se guarda sin avisar, sin abrir
+ * incidentes y sin que Respuesta lo bloquee. Al terminar se hace su informe.
+ */
+export type InformePentest = {
+	eventos: number;
+	primero: string | null;
+	ultimo: string | null;
+	porIp: { ip: string; eventos: number; trampas: number }[];
+	porTrampa: { trampa: string; nombre: string; eventos: number }[];
+	porAccion: Record<string, number>;
+	porSeveridad: Record<string, number>;
+	usuarios: { usuario: string; veces: number }[];
+	credenciales: number;
+	comandos: number;
+	/* Las trampas puestas que no tocó: lo que su reconocimiento no encontró. */
+	noTocadas: { trampa: string; nombre: string }[];
+	/* Con IP declaradas, lo que llegó de otras en la ventana (eso sí avisó). */
+	otras: { ip: string; eventos: number }[];
+};
+
+export const ventanasPentest = pgTable(
+	'ventanas_pentest',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		nombre: text('nombre').notNull(),
+		/* IP o redes del equipo de pentest; vacío, todas. */
+		ips: jsonb('ips').$type<string[]>().notNull().default([]),
+		desde: timestamp('desde', { withTimezone: true }).notNull(),
+		hasta: timestamp('hasta', { withTimezone: true }).notNull(),
+		nota: text('nota'),
+		quien: text('quien').notNull(),
+		creado: timestamp('creado', { withTimezone: true }).notNull().defaultNow(),
+		/* Cuándo se avisó de que empezaba (nulo: aún no). */
+		avisadoInicio: timestamp('avisado_inicio', { withTimezone: true }),
+		/* El informe, hecho al terminar (nulo: aún no). */
+		informe: jsonb('informe').$type<InformePentest>(),
+		terminado: timestamp('terminado', { withTimezone: true })
+	},
+	(t) => [index('ventanas_pentest_hasta').on(t.hasta)]
+);
+
+/*
+ * Los enlaces de los botones de un aviso (enlaces-aviso.ts) que ya se han
+ * usado: cada uno vale una vez. Se guarda la huella del enlace, no el enlace.
+ */
+export const enlacesUsados = pgTable('enlaces_usados', {
+	huella: text('huella').primaryKey(),
+	incidente: uuid('incidente').notNull(),
+	accion: text('accion').notNull(),
+	quien: text('quien').notNull(),
+	usado: timestamp('usado', { withTimezone: true }).notNull().defaultNow()
+});

@@ -17,6 +17,16 @@ export type Accion =
 	| 'otra';
 export type Severidad = 'baja' | 'media' | 'alta' | 'critica';
 
+/*
+ * Cómo avisa una trampa (incidentes por puntos, en la consola):
+ * - siempre: tocarla es ataque en cualquier ubicación (honeytokens, cebos);
+ * - interno: es ataque si está en la red interna; fuera, por puntos;
+ * - ruidosa: el descubrimiento no avisa, solo acciones concretas;
+ * - internet: solo estadística, salvo credencial cebo o si está dentro.
+ */
+export type Fidelidad = 'siempre' | 'interno' | 'ruidosa' | 'internet';
+export type AlertaTrampa = { fidelidad: Fidelidad; puntos?: Partial<Record<Accion, number>> };
+
 export interface Evento {
 	/* La 1 llamaba "senuelo" a la trampa; validarEvento la devuelve ya como 2. */
 	version: 1 | 2;
@@ -49,6 +59,7 @@ export interface ManifiestoTrampa {
 	id: Slug;
 	nombre: string;
 	descripcion: string;
+	alerta?: AlertaTrampa;
 	/* Lo que ve el cliente en el catálogo: qué detecta, dónde ponerla, qué necesita y cómo se instala. */
 	ficha?: {
 		detecta: string;
@@ -232,6 +243,7 @@ export interface ManifiestoTrampaV2 {
 	id: Slug;
 	nombre: string;
 	descripcion: string;
+	alerta?: AlertaTrampa;
 	ficha?: FichaV2;
 	versionModulo: string;
 	procedencia?: ManifiestoTrampa['procedencia'];

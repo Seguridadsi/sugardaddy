@@ -1,3 +1,11 @@
 package-lock.json
 sensor/
 paquetes/contrato/vectores/
+# La web de documentación: lo que escribe generar.mts y lo que compila Docusaurus.
+documentacion/docs/
+documentacion/community/
+documentacion/cloud/
+documentacion/static/
+documentacion/marca.css
+documentacion/build/
+documentacion/.docusaurus/

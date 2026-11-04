@@ -1,7 +1,10 @@
 import { error, json } from '@sveltejs/kit';
+import { sinLlavePorIp } from '$lib/llave-por-ip';
 import { opcionesEntrada } from '$lib/server/emergencia';
 
 export const POST = async ({ url, cookies }) => {
+	const porIp = sinLlavePorIp(url.hostname);
+	if (porIp) error(400, porIp);
 	const r = await opcionesEntrada(url.hostname);
 	if (!r) error(404, 'Este nodo no tiene ninguna llave de emergencia registrada');
 	cookies.set('sd_reto', r.reto, {

@@ -1,11 +1,13 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import { startRegistration } from '@simplewebauthn/browser';
+	import { sinLlavePorIp } from '$lib/llave-por-ip';
 
 	let nombre = $state('');
 	let estado = $state<'listo' | 'esperando' | 'hecho' | 'error'>('listo');
 	let mensaje = $state('');
 	const codigo = $derived(page.url.searchParams.get('codigo'));
+	const porIp = $derived(sinLlavePorIp(page.url.hostname));
 
 	async function registrar(e: SubmitEvent) {
 		e.preventDefault();
@@ -47,20 +49,25 @@
 		<p class="sub">
 			Una YubiKey o una passkey. Conviene registrar al menos dos y guardarlas por separado.
 		</p>
-		{#if estado === 'error'}<p class="error" role="alert">{mensaje}</p>{/if}
-		<form onsubmit={registrar}>
-			<label for="nombre">Nombre de la llave</label>
-			<input
-				id="nombre"
-				bind:value={nombre}
-				required
-				minlength="3"
-				placeholder="YubiKey de la caja fuerte"
-			/>
-			<button class="boton principal" disabled={estado === 'esperando'}>
-				{estado === 'esperando' ? 'Toca tu llave…' : 'Registrar'}
-			</button>
-		</form>
+		{#if porIp}
+			<p class="error" role="alert">{porIp}</p>
+			<a class="boton principal" href="/ajustes">Ir al código de emergencia</a>
+		{:else}
+			{#if estado === 'error'}<p class="error" role="alert">{mensaje}</p>{/if}
+			<form onsubmit={registrar}>
+				<label for="nombre">Nombre de la llave</label>
+				<input
+					id="nombre"
+					bind:value={nombre}
+					required
+					minlength="3"
+					placeholder="YubiKey de la caja fuerte"
+				/>
+				<button class="boton principal" disabled={estado === 'esperando'}>
+					{estado === 'esperando' ? 'Toca tu llave…' : 'Registrar'}
+				</button>
+			</form>
+		{/if}
 	{/if}
 </div>
 

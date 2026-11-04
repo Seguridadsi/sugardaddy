@@ -11,6 +11,9 @@ descripcion: >-
   Un puerto que parece un SSH, o el servicio que anuncie su saludo, y que nunca pasa de la
   bienvenida: quien conecta se queda esperando horas, sin llegar ni a autenticarse. Registra
   quién conecta, con qué cliente llega y cuánto tiempo pierde.
+# De cara a internet: solo estadística, salvo credencial cebo o si está dentro de la red.
+alerta:
+  fidelidad: internet
 ficha:
   detecta: >-
     Quien intenta conectar por SSH, o al servicio que anuncia el saludo, y con qué cliente

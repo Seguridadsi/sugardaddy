@@ -69,8 +69,8 @@ export const MOTIVOS: Readonly<Record<CodigoMotivo, { texto: string; remedio?: s
 			texto: 'La forma con que se puso ya no existe en el módulo; retírala y vuelve a ponerla.'
 		},
 		/* Trampas de pago cuyo candado (la licencia) no las deja arrancar (docs/diseno/licencias-de-pago.md). */
-		'licencia.sin': { texto: 'Esta trampa de pago no está en tu licencia.' },
-		'licencia.caducada': { texto: 'Tu licencia de pago ha caducado.' },
+		'licencia.sin': { texto: 'Esta trampa de Cloud no está en tu licencia.' },
+		'licencia.caducada': { texto: 'Tu licencia de Cloud ha caducado.' },
 		'parametros.invalidos': { texto: '{errores}' },
 		'ejecutor.desconocido': {
 			texto: 'Esta forma ({ejecutor}) llegará con una versión más nueva de Sugardaddy.'

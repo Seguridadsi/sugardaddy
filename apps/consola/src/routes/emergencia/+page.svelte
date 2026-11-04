@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import { page } from '$app/state';
 	import { startAuthentication } from '@simplewebauthn/browser';
+	import { sinLlavePorIp } from '$lib/llave-por-ip';
 
 	let { form } = $props();
 
@@ -69,11 +71,15 @@
 		</form>
 
 		<h2>Con una llave FIDO2</h2>
-		<p class="sub">Si registraste una en Ajustes.</p>
-		{#if estado === 'error'}<p class="error" role="alert">{mensaje}</p>{/if}
-		<button class="boton" onclick={entrar} disabled={estado === 'esperando'}>
-			{estado === 'esperando' ? 'Toca tu llave…' : 'Entrar con la llave'}
-		</button>
+		{#if sinLlavePorIp(page.url.hostname)}
+			<p class="sub">{sinLlavePorIp(page.url.hostname)}</p>
+		{:else}
+			<p class="sub">Si registraste una en Ajustes.</p>
+			{#if estado === 'error'}<p class="error" role="alert">{mensaje}</p>{/if}
+			<button class="boton" onclick={entrar} disabled={estado === 'esperando'}>
+				{estado === 'esperando' ? 'Toca tu llave…' : 'Entrar con la llave'}
+			</button>
+		{/if}
 		<a class="volver" href="/entrar">Volver a la entrada normal</a>
 	{/if}
 </div>

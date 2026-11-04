@@ -20,6 +20,7 @@ import {
 } from '$lib/server/canal';
 import { eq } from 'drizzle-orm';
 import {
+	actualizacionDisponible,
 	auditar,
 	autoActualizar,
 	buscarActualizaciones,
@@ -71,6 +72,8 @@ export const load = async ({ locals, url }) => {
 		canal: await estadoCanal(),
 		version: (await cabecera()).cliente.version,
 		actualizacion: { estado: a.estado, version: a.version, detalle: a.detalle },
+		/* La versión más nueva vista en el repo público (nodos sin panel que la buscan). */
+		disponible: (await actualizacionDisponible()).version,
 		configuracion: await configuracion(),
 		relevo: await (async () => {
 			const r = await relevoEnCurso();

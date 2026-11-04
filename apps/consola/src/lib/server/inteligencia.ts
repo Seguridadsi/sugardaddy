@@ -16,6 +16,7 @@ import { db, schema as s } from './db';
 import { listaTor, usoTor } from './tor';
 import { auditar } from './consultas';
 import { cubreDominio } from './dominios';
+import { migrados } from './origenes-comun';
 
 type Marca = { hasta: string };
 
@@ -31,12 +32,29 @@ async function marca(): Promise<Date> {
  */
 async function blancas(ahora = new Date()) {
 	const filas = await db
-		.select({ valor: s.listas.valor })
+		.select({ id: s.listas.id, valor: s.listas.valor })
 		.from(s.listas)
 		.where(
 			and(eq(s.listas.lista, 'blanca'), or(isNull(s.listas.caduca), gt(s.listas.caduca, ahora)))
 		);
-	return filas.map((f) => f.valor);
+	/*
+	 * Las IP y redes de la lista blanca pasaron a Orígenes conocidos: cuentan las
+	 * de allí (activas y sin caducar, a cualquier hora) y ya no las copiadas.
+	 */
+	const copiadas = new Set((await migrados())?.listas ?? []);
+	const conocidos = await db
+		.select({ patron: s.origenesConocidos.patron })
+		.from(s.origenesConocidos)
+		.where(
+			and(
+				eq(s.origenesConocidos.activo, true),
+				or(isNull(s.origenesConocidos.caduca), gt(s.origenesConocidos.caduca, ahora))
+			)
+		);
+	return [
+		...filas.filter((f) => !copiadas.has(f.id)).map((f) => f.valor),
+		...conocidos.map((c) => c.patron)
+	];
 }
 
 /* Lo que se subiría ahora: agrupado por IP, sin nada más que la IP, el tipo de trampa y el recuento. */

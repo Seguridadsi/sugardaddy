@@ -4,6 +4,14 @@
 
 	let { data, form } = $props();
 
+	/* Una IP tuya que no hay que mirar: el alta en Orígenes conocidos, ya rellena. */
+	const alta = $derived.by(() => {
+		const f = form as { aOrigenes?: string; nota?: string } | null;
+		return f?.aOrigenes
+			? `/origenes?nuevo=${encodeURIComponent(f.aOrigenes)}&nombre=${encodeURIComponent(f.nota ?? '')}`
+			: null;
+	});
+
 	const ETIQUETA_ESTADO: Record<string, string> = {
 		revisado: 'Revisado',
 		'falso-positivo': 'Falso positivo',
@@ -58,8 +66,22 @@
 	<a class="volver" href="/eventos">← Eventos</a>
 </div>
 
+{#if data.origenes}
+	<p class="sub">
+		Las IP y redes tuyas (un escáner, la monitorización) van en
+		<a href="/origenes">Orígenes conocidos</a>{data.pasadas === 1
+			? ', con la regla por IP que había aquí'
+			: data.pasadas
+				? `, con las ${data.pasadas} reglas por IP que había aquí`
+				: ''}: así además no avisan ni se bloquean.
+	</p>
+{/if}
+
 {#if form?.error}
-	<p class="aviso error">{form.error}</p>
+	<p class="aviso error">
+		{form.error}
+		{#if alta}<a href={alta}>Darla de alta allí</a>{/if}
+	</p>
 {:else if form?.mensaje}
 	<p class="aviso ok">{form.mensaje}</p>
 {/if}

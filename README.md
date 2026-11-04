@@ -30,15 +30,15 @@ ID, siembras trampas y ves los eventos en la web.
 
 ## Qué incluye y qué no
 
-**Gratis (esta edición):** la consola, el sensor, el actualizador, las trampas
+**Community (esta edición, gratis):** la consola, el sensor, el actualizador, las trampas
 básicas y ver los eventos en la web de tu consola.
 
-**De pago (no está aquí):** los avisos a tu correo, Teams, Slack, webhook o SIEM
+**En Sugardaddy Cloud (no está aquí):** los avisos a tu correo, Teams, Slack, webhook o SIEM
 (syslog CEF/LEEF, Microsoft Sentinel); las trampas avanzadas (bases de datos,
 controlador de dominio, VPN, sanidad, industria, IA, cebos de fichero…); el
 panel central para gestionar varios nodos; y la máquina virtual lista para
 importar. El catálogo de tu consola las enseña todas, marcadas; se encienden con
-un plan, sin reinstalar nada. [Habla con SeguridadSI](https://www.seguridadsi.com).
+Cloud, sin reinstalar nada. [Habla con SeguridadSI](https://www.seguridadsi.com).
 
 ## Tus datos, en tu empresa
 

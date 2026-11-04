@@ -53,7 +53,7 @@ export function entornoDe(
  * ¿Se puede contener el ORIGEN de un evento de una trampa de este entorno? Solo
  * «de cara a la web» lo prohíbe (el origen es ruido de internet, no de la red).
  * Sin entorno puesto se permite: el nodo se comporta como antes de esta función.
- * Las respuestas informativas (avisar, enviar, ticket) no pasan por aquí.
+ * Avisar (Avisos y SIEM) no pasa por aquí: se avisa esté donde esté.
  */
 export function contieneElOrigen(entorno: Entorno | null | undefined): boolean {
 	return entorno !== 'perimetro-web';

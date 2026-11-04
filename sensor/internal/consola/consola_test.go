@@ -64,3 +64,45 @@ func TestSubirArtefacto(t *testing.T) {
 		t.Fatalf("sin nombre no debía ir el parámetro: %q", gotPath)
 	}
 }
+
+// El plan trae los toques pedidos, y cómo fue cada uno se cuenta con el token.
+func TestToques(t *testing.T) {
+	var gotAuth, gotRuta, gotCuerpo string
+	estado := http.StatusOK
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			_, _ = w.Write([]byte(`{"sensor":"s1","trampas":[],"toques":[{"id":"t1","trampa":"ftp","direccion":"10.0.0.11","puerto":21,"codigo":"abc12345","ips":["172.20.0.1"]}]}`))
+			return
+		}
+		gotAuth, gotRuta = r.Header.Get("Authorization"), r.URL.Path
+		b, _ := io.ReadAll(r.Body)
+		gotCuerpo = string(b)
+		w.WriteHeader(estado)
+	}))
+	defer srv.Close()
+	c := Nuevo(srv.URL, "tok")
+	ctx := context.Background()
+
+	p, err := c.Plan(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Toques) != 1 || p.Toques[0].Puerto != 21 || p.Toques[0].Codigo != "abc12345" || p.Toques[0].IPs[0] != "172.20.0.1" {
+		t.Fatalf("toques = %+v", p.Toques)
+	}
+
+	if err := c.InformarToque(ctx, "t1", false, "connection refused"); err != nil {
+		t.Fatal(err)
+	}
+	if gotAuth != "Bearer tok" || gotRuta != "/api/sensor/toques" {
+		t.Fatalf("auth %q, ruta %q", gotAuth, gotRuta)
+	}
+	if !strings.Contains(gotCuerpo, `"ok":false`) || !strings.Contains(gotCuerpo, "connection refused") {
+		t.Fatalf("cuerpo = %s", gotCuerpo)
+	}
+
+	estado = http.StatusInternalServerError
+	if err := c.InformarToque(ctx, "t1", true, ""); err == nil {
+		t.Fatal("un 500 tiene que ser un error")
+	}
+}

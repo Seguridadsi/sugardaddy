@@ -15,6 +15,9 @@ descripcion: >-
   cada negociación, el usuario, dominio y equipo que se autentican (con el hash NetNTLMv2 si
   llega), el recurso al que se conectan, los ficheros que abren o intentan escribir (solo nombre,
   huella y tamaño) y las sondas de gusanos como EternalBlue y DoublePulsar, marcadas como críticas.
+# Ataque si está en la red interna (abre incidente al primer toque); fuera, por puntos.
+alerta:
+  fidelidad: interno
 ficha:
   detecta: >-
     Movimiento lateral y gusanos en tu red por SMB (el puerto 445): intentos de inicio de sesión

@@ -158,7 +158,9 @@ describe('manifiesto v2: cada trampa de hoy escrita en v2', () => {
 		if (!v1.ok) throw new Error(v1.errores.join('\n'));
 		const h = honeycosa(comoV2(catalogo().find((c) => c.id === m)!));
 		expect(h.origen).toBe(2);
-		expect(proyectarParaSensor(h, 'contenedor')).toEqual(v1.valor);
+		/* Sin «alerta», que es solo de la consola: el sensor recibe lo de antes. */
+		const { alerta: _, ...delSensor } = v1.valor;
+		expect(proyectarParaSensor(h, 'contenedor')).toEqual(delSensor);
 	});
 });
 

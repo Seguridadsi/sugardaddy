@@ -133,9 +133,10 @@
 						id="nombre"
 						name="nombre"
 						required
-						value={form?.nombre ?? ''}
+						value={form?.nombre ?? m.nombre}
 						placeholder="srv-fs02"
 					/>
+					<p class="ayuda">Viene con el nombre de la trampa; cámbialo si vas a poner más de una.</p>
 
 					<h2>Parámetros del módulo</h2>
 					<FormularioParametros

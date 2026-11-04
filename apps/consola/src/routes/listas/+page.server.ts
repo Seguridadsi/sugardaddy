@@ -3,6 +3,7 @@ import { isIP } from 'node:net';
 import { exigir } from '$lib/server/auth/permisos';
 import { anadirALista, listasDe } from '$lib/server/consultas';
 import { normalizarDominio } from '$lib/server/dominios';
+import { migrados } from '$lib/server/origenes-comun';
 import { cambiarUsoTor, listaTor, usoTor } from '$lib/server/tor';
 
 /* Una IP, una red en CIDR o un dominio. Devuelve además el valor ya normalizado
@@ -23,11 +24,25 @@ export const load = async ({ url }) => {
 	const lista = pedida === 'blanca' ? 'blanca' : pedida === 'tor' ? 'tor' : 'negra';
 	const { entradas, cuentas } = await listasDe(lista === 'blanca' ? 'blanca' : 'negra');
 	const tor = await listaTor();
+	/*
+	 * Con Orígenes conocidos, las IP y redes de la blanca viven allí: las que se
+	 * copiaron ya no se enseñan aquí (siguen en la tabla, por si se vuelve a una
+	 * consola anterior). En community no hay migración y todo sigue igual.
+	 */
+	const m = await migrados();
+	const pasadas = new Set(m?.listas ?? []);
+	const blancas = lista === 'blanca' ? entradas.filter((l) => !pasadas.has(l.id)) : entradas;
 	return {
 		lista,
 		ahora: Date.now(),
-		entradas: lista === 'tor' ? [] : entradas,
-		cuentas: { ...cuentas, tor: tor?.ips.length ?? 0 },
+		origenes: !!m,
+		pasadas: pasadas.size,
+		entradas: lista === 'tor' ? [] : blancas,
+		cuentas: {
+			...cuentas,
+			blanca: lista === 'blanca' ? blancas.length : cuentas.blanca - pasadas.size,
+			tor: tor?.ips.length ?? 0
+		},
 		tor: tor
 			? { ips: lista === 'tor' ? tor.ips : [], emitida: tor.emitida, fuente: tor.fuente }
 			: null,
@@ -53,6 +68,14 @@ export const actions = {
 			});
 		if (!motivo)
 			return fail(400, { error: 'Explica el motivo: queda en los logs.', valor, motivo });
+		/* Una IP o red de confianza es un origen conocido: se da de alta allí. */
+		if (lista === 'blanca' && c.clase !== 'dominio' && (await migrados()))
+			return fail(400, {
+				error: 'Las IP y redes de confianza se dan de alta en Orígenes conocidos.',
+				aOrigenes: c.valor,
+				valor,
+				motivo
+			});
 		const nuevo = await anadirALista(u.correo, {
 			valor: c.valor,
 			clase: c.clase,

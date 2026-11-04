@@ -15,6 +15,9 @@ import { insertarDestino, type Tx } from './destinos';
 const LATIDO_MAXIMO = 5 * 60_000;
 const hashToken = (t: string) => createHash('sha256').update(t).digest('hex');
 
+const direccionesDe = (v: unknown): string[] =>
+	Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string').slice(0, 8) : [];
+
 export async function sensores() {
 	const ahora = Date.now();
 	const filas = await db
@@ -47,7 +50,9 @@ export async function sensores() {
 		ultimoLatido: f.ultimoLatido?.toISOString() ?? null,
 		vivo: !!f.ultimoLatido && ahora - f.ultimoLatido.getTime() < LATIDO_MAXIMO,
 		motor: resumenMotor(capacidades?.motor),
-		avisos: avisosSensor(capacidades)
+		avisos: avisosSensor(capacidades),
+		/* Las IP de su máquina, tal como las cuenta el propio sensor (hecho red.direcciones). */
+		ips: direccionesDe(capacidades?.hechos?.['red.direcciones']?.valor)
 	}));
 }
 
@@ -132,11 +137,7 @@ export async function cambiarRed(
  * de todas sus trampas (lib/entorno.ts). Decide qué respuesta tiene sentido, así
  * que queda en la auditoría.
  */
-export async function cambiarEntorno(
-	quien: string,
-	id: string,
-	entorno: Entorno | null
-) {
+export async function cambiarEntorno(quien: string, id: string, entorno: Entorno | null) {
 	return db.transaction(async (tx) => {
 		const [f] = await tx
 			.update(s.sensores)
@@ -157,11 +158,7 @@ export async function cambiarEntorno(
  * herede del sensor. Decide qué respuesta tiene sentido, así que queda en la
  * auditoría. false si la trampa ya no existe.
  */
-export async function cambiarEntornoTrampa(
-	quien: string,
-	id: string,
-	entorno: Entorno | null
-) {
+export async function cambiarEntornoTrampa(quien: string, id: string, entorno: Entorno | null) {
 	return db.transaction(async (tx) => {
 		const [f] = await tx
 			.update(s.trampas)

@@ -218,6 +218,41 @@
       "when": 1793635155225,
       "tag": "0030_pruebas_ips",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1793650206422,
+      "tag": "0031_incidentes_motor",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1793651897422,
+      "tag": "0032_origenes_conocidos",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1793653728518,
+      "tag": "0033_ventanas_pentest",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1793655118762,
+      "tag": "0034_botones_aviso",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1793781104269,
+      "tag": "0035_toques",
+      "breakpoints": true
     }
   ]
 }

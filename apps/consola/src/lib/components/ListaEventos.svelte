@@ -183,7 +183,8 @@
 						>{/if}
 					{#if e.repeticiones && e.repeticiones > 1}<span
 							class="repes mono"
-							title="{e.repeticiones} eventos iguales agrupados (de los cargados)">×{e.repeticiones}</span
+							title="{e.repeticiones} eventos iguales agrupados (de los cargados)"
+							>×{e.repeticiones}</span
 						>{/if}
 				</span>
 				<span class="que">
@@ -227,7 +228,9 @@
 							>
 						{/if}
 						{#if e.origen.usuario}
-							<a class="perfil-ip mono" href="/eventos/usuario?u={encodeURIComponent(e.origen.usuario)}"
+							<a
+								class="perfil-ip mono"
+								href="/eventos/usuario?u={encodeURIComponent(e.origen.usuario)}"
 								>Ver todo del usuario {e.origen.usuario} →</a
 							>
 						{/if}
@@ -295,13 +298,13 @@
 												><small>{d.nombre}</small> <code class="mono">{d.v}</code></span
 											>
 										{/each}
-										{#if p.e.crudo}
-											<!-- La línea tal como la escribió el honeypot: lo que el módulo no recoge sigue aquí. -->
-											<details class="crudo">
-												<summary>ver original</summary>
-												<pre class="mono">{p.e.crudo}</pre>
-											</details>
-										{/if}
+										<!-- La línea tal como la escribió el honeypot (lo que el módulo no recoge sigue
+										     aquí); si no la manda, el evento entero tal como llegó del sensor. Siempre
+										     está: «Qué hacer ahora» manda a mirarlo. -->
+										<details class="crudo">
+											<summary>ver original</summary>
+											<pre class="mono">{p.e.crudo ?? JSON.stringify(p.e, null, 2)}</pre>
+										</details>
 									</span>
 								</li>
 							{/each}
@@ -695,7 +698,7 @@
 
 	.crudo summary {
 		cursor: pointer;
-		color: var(--ink-3);
+		color: var(--accent);
 		width: max-content;
 	}
 

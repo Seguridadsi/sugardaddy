@@ -1,7 +1,8 @@
 <script lang="ts">
 	/*
 	 * Página de upsell de la edición community: la función real (Respuesta,
-	 * Avisos/SIEM) es de pago. Aquí se cuenta qué hace y cómo conseguirla.
+	 * Avisos/SIEM) es de Sugardaddy Cloud, la edición de pago. Aquí se cuenta qué
+	 * hace y cómo conseguirla.
 	 */
 	interface Props {
 		titulo: string;
@@ -20,12 +21,12 @@
 </svelte:head>
 
 <div class="cabecera">
-	<h1>{titulo} <span class="sello">de pago</span></h1>
+	<h1>{titulo} <span class="sello">Cloud</span></h1>
 	<p class="intro">{intro}</p>
 </div>
 
 <section class="panel">
-	<h2>Qué suma la edición de pago</h2>
+	<h2>Qué suma Sugardaddy Cloud</h2>
 	<ul>
 		{#each puntos as punto}
 			<li>{punto}</li>
@@ -40,7 +41,7 @@
 	<p>¿Lo quieres en tu nodo? Hablamos y te lo activamos.</p>
 	<div class="acciones">
 		<a class="boton" href={CONTACTO} target="_blank" rel="noopener noreferrer">
-			Ver la edición de pago
+			Conocer Sugardaddy Cloud
 		</a>
 		<a class="correo" href="mailto:{CORREO}">{CORREO}</a>
 	</div>

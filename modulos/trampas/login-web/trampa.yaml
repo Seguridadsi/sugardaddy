@@ -18,6 +18,9 @@ descripcion: >-
   contraseña probados completos con IP, User-Agent, ruta y método; marca las
   inyecciones SQL y los Path Traversal; y sube a alta la entrada con la
   credencial cebo, que solo puede venir de un robo de credenciales.
+# Ataque si está en la red interna (abre incidente al primer toque); fuera, por puntos.
+alerta:
+  fidelidad: interno
 ficha:
   detecta: >-
     Quien ataca el formulario de login de una web interna: fuerza bruta y

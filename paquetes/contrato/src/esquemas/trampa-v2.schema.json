@@ -49,6 +49,65 @@
 				}
 			}
 		},
+		"alerta": {
+			"description": "Cómo avisa esta trampa (incidentes por puntos): su fidelidad y, si hace falta, los puntos que vale cada acción. Sin él, la consola usa los de por defecto.",
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["fidelidad"],
+			"properties": {
+				"fidelidad": {
+					"description": "siempre: tocarla es ataque en cualquier ubicación. interno: es ataque si está en la red interna. ruidosa: el descubrimiento no avisa, solo acciones concretas. internet: solo estadística salvo credencial cebo o si está dentro.",
+					"enum": ["siempre", "interno", "ruidosa", "internet"]
+				},
+				"puntos": {
+					"description": "Puntos por acción, si no valen los de por defecto de su fidelidad.",
+					"type": "object",
+					"additionalProperties": false,
+					"properties": {
+						"conexion": {
+							"type": "integer",
+							"minimum": 0,
+							"maximum": 1000
+						},
+						"autenticacion": {
+							"type": "integer",
+							"minimum": 0,
+							"maximum": 1000
+						},
+						"comando": {
+							"type": "integer",
+							"minimum": 0,
+							"maximum": 1000
+						},
+						"lectura": {
+							"type": "integer",
+							"minimum": 0,
+							"maximum": 1000
+						},
+						"escritura": {
+							"type": "integer",
+							"minimum": 0,
+							"maximum": 1000
+						},
+						"descarga": {
+							"type": "integer",
+							"minimum": 0,
+							"maximum": 1000
+						},
+						"baliza": {
+							"type": "integer",
+							"minimum": 0,
+							"maximum": 1000
+						},
+						"otra": {
+							"type": "integer",
+							"minimum": 0,
+							"maximum": 1000
+						}
+					}
+				}
+			}
+		},
 		"versionModulo": {
 			"$ref": "trampa.schema.json#/$defs/semver"
 		},

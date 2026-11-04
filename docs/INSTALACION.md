@@ -8,7 +8,7 @@ mismo. Todo ocurre en tu máquina; **nada sale a SeguridadSI**.
 > Sugardaddy Community es gratis y de código libre. Trae la consola, el sensor,
 > el actualizador y un conjunto de trampas básicas. Los avisos a tu correo,
 > Teams, Slack o SIEM, las trampas avanzadas, el panel de flota y la máquina
-> virtual ya montada son de pago (ver [el modelo](#qué-incluye-y-qué-no)).
+> virtual ya montada son de Sugardaddy Cloud (ver [el modelo](#qué-incluye-y-qué-no)).
 
 ## 1. Qué necesitas
 
@@ -213,11 +213,11 @@ Después instala de nuevo como en el paso 4.
 trampas básicas (SSH, Redis, login web, DNS/NTP, impresora, retención)
 y ver los eventos en la web de tu consola.
 
-**De pago (no está en esta edición):** los avisos a tu correo, Teams, Slack,
+**En Sugardaddy Cloud (no está en esta edición):** los avisos a tu correo, Teams, Slack,
 webhook o SIEM (syslog CEF/LEEF, Microsoft Sentinel); las trampas avanzadas
 (bases de datos, controlador de dominio, VPN, sanidad, industria, IA, cebos de
 fichero…); el panel central para gestionar varios nodos; y la máquina virtual ya
-montada. En la edición Community ves los eventos en la web; con un plan, además,
+montada. En la edición Community ves los eventos en la web; con Cloud, además,
 te llegan a donde trabajas. [Habla con SeguridadSI](https://www.seguridadsi.com).
 
 ## Construir las imágenes tú mismo

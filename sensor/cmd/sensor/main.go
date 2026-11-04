@@ -222,6 +222,7 @@ func main() {
 
 type sensor struct {
 	consola *consola.Cliente
+	toques  toques
 	docker  *docker.Cliente
 	opc     despliegue.Opciones
 	estado  *estado.Estado
@@ -358,6 +359,8 @@ func (s *sensor) actualizarPlan(ctx context.Context) {
 	}
 	// Hay plan: el sensor habla con su consola aunque desplegar tarde.
 	s.ultimoPlan.Store(time.Now().Unix())
+	// Antes de desplegar, que puede tardar: quien prueba está esperando.
+	s.toques.tocar(ctx, p.Toques, s.consola.InformarToque)
 	s.olvidarParadasRetiradas(p)
 	// Un puerto que la máquina ya tiene en una dirección local (el resolvedor
 	// de Ubuntu en 127.0.0.53:53) se publica en su IP de red, no en 0.0.0.0.
@@ -459,7 +462,8 @@ func (s *sensor) sondearMotor(ctx context.Context, id string) {
 // se saben: red.ipOrigenReal, motor.clone3 y red.capa2 (docs/diseno/red.md
 // §2.1: si esta máquina puede poner trampas con IP propia en el segmento).
 func (s *sensor) hechos() map[string]any {
-	h := map[string]any{}
+	// La consola le pide los toques de «Prueba mi detección» si lo dice.
+	h := map[string]any{"sensor.toques": map[string]any{"valor": true}}
 	if o := motor.HechoOrigen(s.conocido, s.estado.OrigenReal, s.estado.OrigenOculto); o != nil {
 		h["red.ipOrigenReal"] = o
 	}
@@ -568,6 +572,11 @@ func (s *sensor) olvidarVigilada(ip string) {
 // origen apunta si la IP de un evento es la del atacante o la del motor y,
 // si es la del motor y la consola lo admite, lo marca en el evento.
 func (s *sensor) origen(e *evento.Evento) {
+	// Un toque de prueba no dice nada de lo que ven las trampas: suele llegar
+	// con la IP del motor aunque sí vean la de quien se conecta.
+	if s.toques.marcar(e, time.Now()) {
+		return
+	}
 	if e.Origen.IP == "" {
 		return
 	}

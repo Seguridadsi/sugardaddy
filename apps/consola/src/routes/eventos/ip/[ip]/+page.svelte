@@ -33,6 +33,9 @@
 				>Crear regla de triaje</a
 			>
 		{/if}
+		{#if data.origenes && !data.oculta && !data.conocido && puede(roles, 'listas')}
+			<a class="csv" href="/origenes?nuevo={encodeURIComponent(data.ip)}">Es mío</a>
+		{/if}
 		<a class="csv" href="/eventos?origen={encodeURIComponent(data.ip)}">Ver en la lista →</a>
 		{#if !data.oculta && puede(roles, 'listas')}
 			<form class="bloquear" method="POST" action="?/bloquear" use:enhance>
@@ -50,6 +53,14 @@
 
 {#if data.oculta}
 	<p class="aviso">{AVISO_IP_MOTOR}</p>
+{/if}
+
+{#if data.conocido}
+	<p class="hecho" role="status">
+		Origen conocido: <b>{data.conocido.nombre}</b> (<span class="mono">{data.conocido.patron}</span>).
+		Sus eventos se guardan sin avisar{data.conocido.conHorario ? ', dentro de su horario' : ''}.
+		<a href="/origenes">Ver Orígenes conocidos</a>
+	</p>
 {/if}
 
 {#if form?.bloqueada}

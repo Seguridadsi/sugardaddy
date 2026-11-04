@@ -11,6 +11,7 @@ import {
 	reglasTriaje,
 	type EstadoTriaje
 } from '$lib/server/consultas';
+import { migrados } from '$lib/server/origenes-comun';
 import { CRITERIOS_TRIAJE, type CriterioTriaje } from '$lib/server/triaje-auto';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -34,8 +35,13 @@ export const load = async ({ url, locals }) => {
 		? (criterioPedido as CriterioTriaje)
 		: 'ip';
 	const valor = (url.searchParams.get('valor') ?? '').trim().slice(0, 200);
+	/* Las reglas por IP que pasaron a Orígenes conocidos ya no se aplican ni se enseñan aquí. */
+	const m = await migrados();
+	const pasadas = new Set(m?.triaje ?? []);
 	return {
-		reglas: await reglasTriaje(),
+		reglas: (await reglasTriaje()).filter((r) => !pasadas.has(r.id)),
+		origenes: !!m,
+		pasadas: pasadas.size,
 		nombres,
 		trampas: Object.entries(nombres).map(([id, nombre]) => ({ id, nombre })),
 		criterios: CRITERIOS_TRIAJE,
@@ -59,6 +65,13 @@ export const actions = {
 			return fail(400, { error: 'Criterio no válido.' });
 		if (!(ESTADOS_TRIAJE as readonly string[]).includes(estado))
 			return fail(400, { error: 'Estado no válido.' });
+		/* «Esta IP es mía» no es un triaje: es un origen conocido (tampoco avisa ni se bloquea). */
+		if (criterio === 'ip' && estado !== 'interesante' && (await migrados()))
+			return fail(400, {
+				error: 'Una IP o red tuya que no hay que mirar es un origen conocido: se da de alta allí.',
+				aOrigenes: valor.trim(),
+				nota: nota.trim()
+			});
 		const nombres = await nombresTrampas();
 		const mal = valorMal(criterio as CriterioTriaje, valor, nombres);
 		if (mal) return fail(400, { error: mal });

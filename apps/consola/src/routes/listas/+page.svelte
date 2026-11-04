@@ -8,6 +8,13 @@
 	let { data, form } = $props();
 	const blanca = $derived(data.lista === 'blanca');
 	const roles = $derived(page.data.usuario?.roles ?? []);
+	/* Una IP o red de confianza: el alta en Orígenes conocidos, ya rellena. */
+	const alta = $derived.by(() => {
+		const f = form as { aOrigenes?: string; motivo?: string } | null;
+		return f?.aOrigenes
+			? `/origenes?nuevo=${encodeURIComponent(f.aOrigenes)}&nombre=${encodeURIComponent(f.motivo ?? '')}`
+			: null;
+	});
 </script>
 
 <svelte:head>
@@ -68,6 +75,16 @@
 		</div>
 	</div>
 {:else}
+	{#if blanca && data.origenes}
+		<p class="nota-origenes">
+			Las IP y redes de confianza (escáneres, monitorización, administradores) están en
+			<a href="/origenes">Orígenes conocidos</a>{data.pasadas === 1
+				? ', con la que había aquí'
+				: data.pasadas
+					? `, con las ${data.pasadas} que había aquí`
+					: ''}. En la lista blanca quedan los dominios.
+		</p>
+	{/if}
 	<div class="rejilla">
 		<section class="panel">
 			<table>
@@ -112,12 +129,14 @@
 					<h2>Añadir a la lista {data.lista} local</h2>
 					{#if blanca}
 						<p class="cuidado">
-							Lo que entra aquí se vuelve invisible: ni alertas ni respuestas. Queda auditado con tu
-							nombre.
+							{data.origenes
+								? 'Un dominio de aquí no lo bloquea nunca Respuesta ni entra en la lista de tus firewalls.'
+								: 'Lo que entra aquí se vuelve invisible: ni alertas ni respuestas.'} Queda auditado con
+							tu nombre.
 						</p>
 					{/if}
 					<input type="hidden" name="lista" value={data.lista} />
-					<label for="valor">IP, red o dominio</label>
+					<label for="valor">{blanca && data.origenes ? 'Dominio' : 'IP, red o dominio'}</label>
 					<input
 						id="valor"
 						name="valor"
@@ -135,7 +154,12 @@
 						<option value="7" selected={!blanca}>7 días</option>
 						<option value="30">30 días</option>
 					</select>
-					{#if form?.error}<p class="error" role="alert">{form.error}</p>{/if}
+					{#if form?.error}
+						<p class="error" role="alert">
+							{form.error}
+							{#if alta}<a href={alta}>Darla de alta allí</a>{/if}
+						</p>
+					{/if}
 					<button class="boton principal">Añadir</button>
 				</form>
 			{/if}
@@ -152,6 +176,13 @@
 		font-size: clamp(24px, 5vw, 32px);
 		font-weight: 700;
 		margin-top: 3px;
+	}
+
+	.nota-origenes {
+		font-size: 13.5px;
+		color: var(--ink-2);
+		margin: 0 0 12px;
+		max-width: 80ch;
 	}
 
 	.pestanas {

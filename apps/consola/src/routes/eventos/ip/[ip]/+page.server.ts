@@ -2,6 +2,7 @@ import { error, fail } from '@sveltejs/kit';
 import { isIP } from 'node:net';
 import { exigir } from '$lib/server/auth/permisos';
 import { anadirALista, etiquetasModulos, nombresTrampas, perfilDeIp } from '$lib/server/consultas';
+import { migrados, origenDe } from '$lib/server/origenes-comun';
 
 export const load = async ({ params }) => {
 	/* SvelteKit ya entrega el parámetro decodificado; no se vuelve a decodificar. */
@@ -13,7 +14,10 @@ export const load = async ({ params }) => {
 		ip,
 		...perfil,
 		nombres: await nombresTrampas(),
-		modulos: etiquetasModulos()
+		modulos: etiquetasModulos(),
+		/* «Es mío» solo donde hay Orígenes conocidos (no en community). */
+		origenes: !!(await migrados()),
+		conocido: isIP(ip) ? await origenDe(ip) : null
 	};
 };
 

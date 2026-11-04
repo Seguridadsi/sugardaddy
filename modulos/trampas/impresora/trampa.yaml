@@ -13,6 +13,9 @@ descripcion: >-
   una web de administración, pero no imprime ni ejecuta nada. Registra el reconocimiento y el
   robo de ficheros por PJL (PRET), los trabajos (solo huella y tamaño), los intentos de
   inicio de sesión y el cambio del servidor LDAP/SMTP por el del atacante (passback).
+# El descubrimiento no avisa; solo acciones concretas (entrar, escribir, bajar algo).
+alerta:
+  fidelidad: ruidosa
 ficha:
   detecta: >-
     Quien busca impresoras en la red y trata de aprovecharlas: comandos PJL de reconocimiento

@@ -180,6 +180,20 @@ func (c *Cliente) Relevo(ctx context.Context) (*relevo.Oferta, error) {
 	return o, json.NewDecoder(resp.Body).Decode(&o)
 }
 
+// InformarToque dice a la consola cómo ha ido un toque de prueba.
+func (c *Cliente) InformarToque(ctx context.Context, id string, ok bool, detalle string) error {
+	b, _ := json.Marshal(map[string]any{"id": id, "ok": ok, "detalle": detalle})
+	resp, err := c.peticion(ctx, http.MethodPost, "/api/sensor/toques", "application/json", b)
+	if err != nil {
+		return err
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("toque: %d", resp.StatusCode)
+	}
+	return nil
+}
+
 // InformarRelevo dice a la consola cómo va el relevo (aplicando o fallida).
 func (c *Cliente) InformarRelevo(ctx context.Context, estado, detalle string) error {
 	b, _ := json.Marshal(map[string]string{"estado": estado, "detalle": detalle})

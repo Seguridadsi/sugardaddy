@@ -328,23 +328,8 @@ export const eventos: Evento[] = [
 	)
 ];
 
+/* Solo contención: avisar (Sentinel, la guardia…) es de Avisos y SIEM, no de Respuesta. */
 export const reglas: Regla[] = [
-	{
-		id: 'todo-a-sentinel',
-		nombre: 'Todo a Sentinel',
-		severidadMinima: 'baja',
-		trampas: 'todos',
-		respuestas: [{ modulo: 'sentinel', modo: 'automatica' }],
-		activa: true
-	},
-	{
-		id: 'avisar-guardia',
-		nombre: 'Avisar a la guardia',
-		severidadMinima: 'alta',
-		trampas: 'todos',
-		respuestas: [{ modulo: 'webhook', modo: 'automatica' }],
-		activa: true
-	},
 	{
 		id: 'bloquear-interno',
 		nombre: 'Cortar movimiento lateral',

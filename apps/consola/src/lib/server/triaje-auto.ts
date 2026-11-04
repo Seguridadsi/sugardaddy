@@ -18,6 +18,7 @@ import { asc, eq } from 'drizzle-orm';
 import { contenidaEn } from '@sugardaddy/canal';
 import type { Evento } from '@sugardaddy/contrato';
 import { db, schema as s } from './db';
+import { migrados } from './origenes-comun';
 
 export type ReglaTriaje = typeof s.reglasTriaje.$inferSelect;
 export const CRITERIOS_TRIAJE = ['ip', 'usuario', 'comando', 'trampa'] as const;
@@ -102,9 +103,13 @@ export async function aplicarTriajeAutoAhora(eventos: readonly Evento[]): Promis
 		.where(eq(s.reglasTriaje.activa, true))
 		.orderBy(asc(s.reglasTriaje.creado));
 	if (!reglas.length) return;
+	/* Las reglas por IP que pasaron a Orígenes conocidos (origenes.ts) ya no se aplican desde aquí. */
+	const fuera = new Set((await migrados())?.triaje ?? []);
+	const vigentes = reglas.filter((r) => !fuera.has(r.id));
+	if (!vigentes.length) return;
 	const filas = [];
 	for (const e of eventos) {
-		const t = triajeDeReglas(reglas, e);
+		const t = triajeDeReglas(vigentes, e);
 		if (t)
 			filas.push({ evento: e.id, estado: t.estado, nota: t.nota, quien: 'triaje automático' });
 	}

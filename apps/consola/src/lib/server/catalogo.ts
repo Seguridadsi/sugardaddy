@@ -177,8 +177,18 @@ export function fichaDe(h: Honeycosa): ManifiestoTrampa['ficha'] {
 	};
 }
 
+/*
+ * El catálogo de Respuesta: solo lo que actúa contra el atacante (riesgo
+ * contencion). Avisar a personas o a sistemas es de Avisos y SIEM (las
+ * salidas): un manifiesto informativo no entra, así que ni se ofrece ni se
+ * ejecuta (y el motor no tiene camino para él).
+ */
 export const catalogoRespuestas = () =>
-	cargar<ManifiestoRespuesta>('respuestas', 'respuesta.yaml', leerRespuesta);
+	cargar<ManifiestoRespuesta>('respuestas', 'respuesta.yaml', leerRespuesta).filter((m) => {
+		if (m.riesgo === 'contencion') return true;
+		console.warn(`módulo respuestas/${m.id} descartado: es informativo y eso va por Avisos y SIEM`);
+		return false;
+	});
 
 /*
  * Las trampas GRATIS (y, con ellas, qué es de pago) viven en modulos-gratis.ts,
@@ -219,11 +229,19 @@ export async function catalogoConSuscripcion() {
 	});
 }
 
-/* Por qué una trampa del catálogo no se puede desplegar, en pocas palabras; null si se puede. */
-export function porQueNo(m: { incluida: boolean; licencia: Cobertura }) {
-	if (!m.incluida) return 'No incluida en tu suscripción';
-	if (m.licencia === 'licencia.caducada') return 'De pago: tu licencia ha caducado';
-	if (m.licencia === 'licencia.sin') return 'De pago: no está en tu licencia';
+/*
+ * Por qué una trampa del catálogo no se puede desplegar, en pocas palabras; null
+ * si se puede. Lo de pago se nombra por su edición, Cloud (Kino, 2026-11-03):
+ * en un nodo Community una trampa de pago no está en ninguna suscripción, viene
+ * en Cloud.
+ */
+export function porQueNo(m: { id: string; incluida: boolean; licencia: Cobertura }) {
+	if (!m.incluida)
+		return esCommunity() && esDePago(m.id)
+			? 'Viene en Sugardaddy Cloud'
+			: 'No incluida en tu suscripción';
+	if (m.licencia === 'licencia.caducada') return 'Tu licencia de Cloud ha caducado';
+	if (m.licencia === 'licencia.sin') return 'No está en tu licencia de Cloud';
 	return null;
 }
 

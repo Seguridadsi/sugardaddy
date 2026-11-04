@@ -1,7 +1,5 @@
 <script lang="ts">
-	import FormularioParametros, {
-		type SalidasParaElegir
-	} from '$lib/components/FormularioParametros.svelte';
+	import FormularioParametros from '$lib/components/FormularioParametros.svelte';
 	import type { EsquemaParametros } from '@sugardaddy/contrato';
 
 	/*
@@ -19,8 +17,7 @@
 		configuracion,
 		guardados = [],
 		claveLista,
-		secretoIlegible = null,
-		salidas = {}
+		secretoIlegible = null
 	}: {
 		parametros: EsquemaParametros;
 		secretos: readonly Secreto[];
@@ -28,15 +25,13 @@
 		guardados?: Guardado[];
 		claveLista: boolean;
 		secretoIlegible?: string | null;
-		/* Las salidas de Avisos de cada parámetro x-salida (enviar-correo…), que da el servidor. */
-		salidas?: SalidasParaElegir;
 	} = $props();
 
 	const guardado = (id: string) => guardados.find((g) => g.id === id);
 </script>
 
 {#if Object.keys(parametros.properties).length}
-	<FormularioParametros esquema={parametros} valores={configuracion} {salidas} />
+	<FormularioParametros esquema={parametros} valores={configuracion} />
 {/if}
 
 {#if secretos.length}
