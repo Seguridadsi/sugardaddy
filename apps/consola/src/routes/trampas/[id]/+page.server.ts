@@ -1,4 +1,5 @@
 import { error, fail, redirect } from '@sveltejs/kit';
+import { esDeRegistro } from '@sugardaddy/canal';
 import { proyectarParaSensor, validarParametros, viaDe } from '@sugardaddy/contrato';
 import { esEntorno } from '$lib/entorno';
 import { recibeSenalDe } from '$lib/formato';
@@ -8,6 +9,7 @@ import { trampasAutorizadas } from '$lib/server/catalogo';
 import { estadosVisibles } from '$lib/server/colocacion';
 import { entornoDeTrampa, trampa } from '$lib/server/consultas';
 import { destinoDeTrampa, trampasDelCliente } from '$lib/server/destinos';
+import { esCommunity } from '$lib/server/edicion';
 import {
 	cambiarEntornoTrampa,
 	retirarTrampa,
@@ -33,6 +35,8 @@ async function cargarContenedor(id: string) {
 	const t = await trampa(id);
 	if (!t) error(404, 'Esa trampa no existe.');
 	const h = (await trampasAutorizadas()).find((x) => x.id === t.modulo);
+	/* Una de registro sin registrarse: lo que hace falta está en Ajustes. */
+	if (!h && esCommunity() && esDeRegistro(t.modulo)) redirect(303, '/ajustes#registro');
 	if (!h) error(404, 'El módulo de esta trampa ya no está autorizado para este cliente.');
 	const via = t.ejecutor === 'contenedor@1' ? viaDe(h, t.via) : undefined;
 	if (via?.ejecutor !== 'contenedor@1')

@@ -32,6 +32,8 @@ export const load = async ({ params }) => {
 			disponible: m.disponible,
 			instaladas: await contarTrampasDe(m.id),
 			porQueNo: porQueNo(m),
+			activarConRegistro: !m.disponible && m.conRegistro,
+			registroCaducado: m.licencia === 'registro.caducado',
 			desplegable: desplegable(m),
 			ficha: fichaDe(m) ?? null,
 			procedencia: m.procedencia ?? null,

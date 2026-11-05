@@ -508,6 +508,22 @@ describe('estado visible (§8.2)', () => {
 		).toMatch(/se ven entre sí/);
 	});
 
+	it.each([
+		['registro.sin', 'esta trampa se activa gratis con tu registro, en Ajustes'],
+		['registro.caducado', 'tu registro ha caducado: renuévalo en Ajustes'],
+		['licencia.sin', 'esta trampa de Cloud no está en tu licencia'],
+		['licencia.caducada', 'tu licencia de Cloud ha caducado']
+	])('fuera del plan por %s dice qué hacer, no que falla su sensor', (codigo, texto) => {
+		const e = c.estadoVisible(
+			trampa({
+				id: 'x',
+				...fila('por-colocar', { colocacionMotivo: codigo, donde: `en espera: ${texto}` })
+			}),
+			contexto()
+		);
+		expect(e.motivo).toBe(`${texto[0].toUpperCase()}${texto.slice(1)}.`);
+	});
+
 	it('lo guardado: por colocar fuera del plan dice lo mismo que el plan', () => {
 		const e = c.estadoVisible(
 			trampa({

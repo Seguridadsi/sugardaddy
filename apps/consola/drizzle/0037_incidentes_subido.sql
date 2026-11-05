@@ -1,0 +1,1 @@
+ALTER TABLE "incidentes_motor" ADD COLUMN "subido" timestamp with time zone;

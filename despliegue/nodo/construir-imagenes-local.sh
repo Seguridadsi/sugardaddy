@@ -52,19 +52,9 @@ if ! verificar_sha "$COMPOSE_SHA" "$COMPOSE_BIN"; then
 	chmod +x "$COMPOSE_BIN"
 fi
 
-echo "==> Imagen de la consola (base + el catálogo de trampas dentro)"
+echo "==> Imagen de la consola (con el catálogo de trampas dentro)"
 docker build --platform "$PLAT" --build-arg "VERSION=$V" \
-	-f "$RAIZ/apps/consola/Dockerfile" -t "sugardaddy-consola-base:$V" "$RAIZ"
-# El catálogo (modulos/) va DENTRO de la imagen de la consola, igual que en el
-# flujo oficial: se añade sobre la imagen base.
-docker build --platform "$PLAT" --build-arg "BASE=sugardaddy-consola-base:$V" \
-	-t "sugardaddy-consola:$V" -f - "$RAIZ" <<'DOCKER'
-ARG BASE
-FROM ${BASE}
-USER root
-COPY modulos /app/modulos
-USER node
-DOCKER
+	-f "$RAIZ/apps/consola/Dockerfile" -t "sugardaddy-consola:$V" "$RAIZ"
 
 echo "==> Imagen del sensor"
 docker build --platform "$PLAT" --build-arg BINARIO=sensor --build-arg "VERSION=$V" \

@@ -94,7 +94,12 @@ describe('triajeDeReglas', () => {
 		const e = evento({ origen: { ip: '10.0.0.5', usuario: 'root' } });
 		const reglas = [
 			regla({ criterio: 'usuario', valor: 'nadie', estado: 'interesante' }),
-			regla({ criterio: 'ip', valor: '10.0.0.0/24', estado: 'falso-positivo', nota: 'rango propio' }),
+			regla({
+				criterio: 'ip',
+				valor: '10.0.0.0/24',
+				estado: 'falso-positivo',
+				nota: 'rango propio'
+			}),
 			regla({ criterio: 'usuario', valor: 'root', estado: 'revisado' })
 		];
 		expect(triajeDeReglas(reglas, e)).toEqual({ estado: 'falso-positivo', nota: 'rango propio' });

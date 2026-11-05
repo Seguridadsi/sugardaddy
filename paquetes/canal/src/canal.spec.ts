@@ -52,6 +52,23 @@ describe('peticiones del nodo', () => {
 		expect(verificar(c, '{"v":1}', vistas)).toEqual({ ok: false, motivo: 'petición repetida' });
 	});
 
+	it('tampoco escribiendo la misma firma de otra forma', () => {
+		const c = firmar();
+		const vistas = new Map();
+		expect(verificar(c, '{"v":1}', vistas)).toEqual({ ok: true });
+		const firma = c['x-firma'] as string;
+		for (const otra of [
+			firma.replace(/=+$/, ''),
+			`${firma}=`,
+			firma.replace(/\+/g, '-').replace(/\//g, '_'),
+			` ${firma}`
+		])
+			expect(verificar({ ...c, 'x-firma': otra }, '{"v":1}', vistas), otra).toEqual({
+				ok: false,
+				motivo: 'petición repetida'
+			});
+	});
+
 	it('una petición vieja no vale', () => {
 		const c = firmar('{"v":1}', Date.now() - 10 * 60_000);
 		expect(verificar(c)).toEqual({ ok: false, motivo: 'fecha fuera de margen' });

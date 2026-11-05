@@ -298,7 +298,7 @@
 			{#if !p.integros}
 				<p class="error" role="alert">
 					Los pasos guardados ya no cuadran con su huella, así que no se descargan. Avisa a
-					SeguridadSI.
+					{data.operador}.
 				</p>
 			{:else if opera}
 				<div class="descargas">

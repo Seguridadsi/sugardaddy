@@ -177,9 +177,15 @@ export async function plan(sensor: string, registroPrivado: boolean, versionSens
 			descartar(f.id, 'agente.version', { minimo: via.sensorMinimo });
 			continue;
 		}
-		/* Si SeguridadSI retira un módulo, sus trampas dejan de desplegarse. */
+		const cobertura = cubre(h.id);
+		/*
+		 * Si SeguridadSI retira un módulo, sus trampas dejan de desplegarse. Una de
+		 * registro sin registrarse tampoco está autorizada, pero lo que le falta es
+		 * registrarse, y eso es lo que se dice.
+		 */
 		if (!permitidos.has(h.id)) {
-			descartar(f.id, 'modulo.no-autorizado', { modulo: f.modulo, nombre: h.nombre });
+			if (cobertura === 'registro.sin') descartar(f.id, cobertura);
+			else descartar(f.id, 'modulo.no-autorizado', { modulo: f.modulo, nombre: h.nombre });
 			continue;
 		}
 		/*
@@ -188,7 +194,6 @@ export async function plan(sensor: string, registroPrivado: boolean, versionSens
 		 * no incluye → licencia.sin; con licencia caducada → licencia.caducada. Si
 		 * no hay clave para cotejar, no se descarta aquí (la trampa lo hará sola).
 		 */
-		const cobertura = cubre(h.id);
 		if (cobertura !== 'cubierta') {
 			descartar(f.id, cobertura);
 			continue;

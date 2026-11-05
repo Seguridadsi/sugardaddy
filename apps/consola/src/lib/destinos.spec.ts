@@ -4,20 +4,21 @@
  * de plataforma de las listas. Sin BD ni red: todo con Hecho en memoria.
  */
 import { describe, expect, it } from 'vitest';
-import {
-	camposDe,
-	camposDelSensor,
-	plataformaDe,
-	sistemasDe,
-	versionesWindows
-} from './destinos';
+import { camposDe, camposDelSensor, plataformaDe, sistemasDe, versionesWindows } from './destinos';
 
 type Fuente = 'sensor' | 'consola' | 'formulario';
 const hecho = (valor: string, fuente?: Fuente) => ({ valor, ...(fuente ? { fuente } : {}) });
 
 describe('camposDe', () => {
 	it('da los campos del tipo y [] para lo que no tiene o no existe', () => {
-		expect(camposDe('maquina')).toEqual(['direccion', 'so', 'edicion', 'version', 'powershell', 'posix']);
+		expect(camposDe('maquina')).toEqual([
+			'direccion',
+			'so',
+			'edicion',
+			'version',
+			'powershell',
+			'posix'
+		]);
 		expect(camposDe('otro')).toEqual(['so', 'nota']);
 		expect(camposDe('paas-web')).toEqual([]);
 		expect(camposDe('no-existe')).toEqual([]);
@@ -27,7 +28,9 @@ describe('camposDe', () => {
 describe('sistemasDe', () => {
 	it('un servidor de ficheros ofrece NAS (no macOS); los demás, macOS', () => {
 		expect(sistemasDe('fileserver').map((x) => x.valor)).toEqual(['windows', 'linux', 'nas']);
-		expect(sistemasDe('fileserver').find((x) => x.valor === 'linux')?.texto).toBe('Linux con Samba');
+		expect(sistemasDe('fileserver').find((x) => x.valor === 'linux')?.texto).toBe(
+			'Linux con Samba'
+		);
 		expect(sistemasDe('maquina').map((x) => x.valor)).toEqual(['windows', 'linux', 'macos']);
 	});
 });
@@ -39,10 +42,14 @@ describe('versionesWindows', () => {
 			'10.0.19045',
 			'10.0.22000'
 		]);
-		expect(versionesWindows('maquina', 'servidor').every((x) => x.edicion === 'servidor')).toBe(true);
+		expect(versionesWindows('maquina', 'servidor').every((x) => x.edicion === 'servidor')).toBe(
+			true
+		);
 		expect(versionesWindows('maquina', 'servidor')).toHaveLength(4);
 		/* fileserver ignora la edición pasada y solo da ediciones de servidor. */
-		expect(versionesWindows('fileserver', 'puesto').every((x) => x.edicion === 'servidor')).toBe(true);
+		expect(versionesWindows('fileserver', 'puesto').every((x) => x.edicion === 'servidor')).toBe(
+			true
+		);
 		expect(versionesWindows('fileserver', 'puesto')).toHaveLength(4);
 	});
 });
@@ -73,7 +80,10 @@ describe('plataformaDe', () => {
 	});
 	it('con el sistema del sensor vacío, cae al nombre del SO', () => {
 		expect(
-			plataformaDe({ 'plataforma.so': hecho('linux', 'sensor'), 'motor.sistema': hecho('', 'sensor') })
+			plataformaDe({
+				'plataforma.so': hecho('linux', 'sensor'),
+				'motor.sistema': hecho('', 'sensor')
+			})
 		).toBe('Linux');
 	});
 	it('sin datos es null; un SO suelto da su nombre', () => {

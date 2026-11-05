@@ -1,10 +1,3 @@
-# Impresora de red falsa (H69). Una impresora de oficina que responde creíble
-# en sus tres caras —9100 RAW/PJL, 631 IPP y una web de administración— y
-# registra a quien intenta aprovecharla: los comandos PJL de reconocimiento y
-# robo de ficheros (estilo PRET), los trabajos que manda (de los que guarda solo
-# la huella y el tamaño, nunca el contenido), los inicios de sesión de la web y,
-# sobre todo, el cambio del servidor LDAP/SMTP por el del atacante (passback de
-# credenciales). Código propio de SeguridadSI, sin dependencias.
 version: 1
 id: impresora
 nombre: Impresora de red
@@ -13,7 +6,6 @@ descripcion: >-
   una web de administración, pero no imprime ni ejecuta nada. Registra el reconocimiento y el
   robo de ficheros por PJL (PRET), los trabajos (solo huella y tamaño), los intentos de
   inicio de sesión y el cambio del servidor LDAP/SMTP por el del atacante (passback).
-# El descubrimiento no avisa; solo acciones concretas (entrar, escribir, bajar algo).
 alerta:
   fidelidad: ruidosa
 ficha:
@@ -40,21 +32,16 @@ tipo: contenedor
 procedencia:
   proyecto: Sugardaddy (SeguridadSI)
   url: https://github.com/kinomakino/sugardaddy
-  # Código propio; sin dependencias de terceros: solo la biblioteca estándar de Go.
   licencia: Código propio (SeguridadSI); biblioteca estándar de Go, BSD-3-Clause
 
 contenedor:
-  # Imagen propia, construida con imagen/preparar.sh (código propio en Go, base
-  # scratch, usuario no root). La construye y deja aquí su digest
-  # herramientas/publicar-trampa.sh impresora; el banco de pruebas usa la local.
-  imagen: ghcr.io/seguridadsi/sugardaddy-trampa-impresora:0.1.0@sha256:b41435978b466a79ca989d00a2c20c9f6cfcdc198fb5118e68ba918f89814b53
-  imagenPublica: ghcr.io/seguridadsi/sugardaddy-trampa-impresora:0.1.0@sha256:b41435978b466a79ca989d00a2c20c9f6cfcdc198fb5118e68ba918f89814b53
+  imagen: ghcr.io/seguridadsi/sugardaddy-registro-impresora:0.1.1@sha256:d0ec1bc22f6b6713f61e922e98f240a82e593024f802593ef2e49c2ba9d9b01f
+  imagenPublica: ghcr.io/seguridadsi/sugardaddy-registro-impresora:0.1.1@sha256:d0ec1bc22f6b6713f61e922e98f240a82e593024f802593ef2e49c2ba9d9b01f
   puertos:
     - { interno: 9100, expuesto: '${puertoRaw}', protocolo: tcp }
     - { interno: 1631, expuesto: '${puertoIpp}', protocolo: tcp, si: ipp }
     - { interno: 1080, expuesto: '${puertoWeb}', protocolo: tcp, si: web }
   entorno:
-    # La trampa lee su configuración de SD_IMPRESORA_*.
     SD_IMPRESORA_RAW: 'on'
     SD_IMPRESORA_RAW_LISTEN: ':9100'
     SD_IMPRESORA_IPP:
@@ -66,45 +53,21 @@ contenedor:
       valores: { 'yes': 'on', 'no': 'off' }
     SD_IMPRESORA_WEB_LISTEN: ':1080'
     SD_IMPRESORA_LOG: /registros/impresora.json
-    # Los puertos que anuncia la persona (URL de IPP y enlaces de la web): los
-    # que ve el atacante, no los internos del contenedor.
     SD_IMPRESORA_PUERTO_IPP: '${puertoIpp}'
     SD_IMPRESORA_PUERTO_WEB: '${puertoWeb}'
-    # Modelo que finge. "auto": uno realista derivado de la semilla, distinto en
-    # cada trampa. No se suplanta a ningún fabricante real (regla de tpot.md §5).
     SD_IMPRESORA_MODELO: ${modelo}
     SD_IMPRESORA_NOMBRE: ${nombreEquipo}
     SD_IMPRESORA_UBICACION: ${ubicacion}
-    # Identidad distinta y coherente por trampa (modelo, serie, firmware, MAC,
-    # UUID, IP): se deriva de esta semilla. Vacía: la trampa guarda una al azar
-    # junto al registro la primera vez y la mantiene entre reinicios (la imagen
-    # es la misma para todos; lo que cambia es el dato de arranque).
     SD_IMPRESORA_SEMILLA: ''
-    # Topes fijos (no los toca el cliente): acotan memoria, CPU y disco aunque
-    # miles de atacantes escriban. Las conexiones tienen cupo total y por IP; de
-    # cada trabajo solo se recorren MAX_JOB_BYTES para la huella y el resto se
-    # descarta (nunca se guarda el contenido); una petición HTTP/IPP se lee hasta
-    # MAX_REQ_BYTES. El registro rota a diario por renombrado, no pasa de
-    # MAX_LOG_BYTES por día y lo reparte por horas, por IP y en bolsas (lo grave,
-    # las contraseñas y los avisos aparte): una sola IP no puede cegar la trampa
-    # para las demás, dejando pasar siempre los primeros de cada tipo.
     SD_IMPRESORA_MAX_CONN: '256'
     SD_IMPRESORA_MAX_CONN_IP: '16'
     SD_IMPRESORA_MAX_LINE_BYTES: '8192'
     SD_IMPRESORA_MAX_REQ_BYTES: '262144'
-    # Bytes de un cuerpo HTTP/IPP que se RETIENEN en memoria a la vez por
-    # conexión (los atributos IPP y los formularios caben de sobra). El resto se
-    # pasa en flujo a la huella y se descarta: así maxConex × este tope queda muy
-    # por debajo de memoriaMb y unos cuerpos lentos no tumban la trampa por OOM.
     SD_IMPRESORA_MAX_BODY_MEM: '32768'
     SD_IMPRESORA_MAX_JOB_BYTES: '4194304'
     SD_IMPRESORA_MAX_LOG_BYTES: '67108864'
     SD_IMPRESORA_RESUMEN_S: '300'
-    # El recolector de Go aprieta antes del límite del contenedor (defensa en
-    # profundidad; el Dockerfile ya lo fija).
     GOMEMLIMIT: 48MiB
-  # La trampa solo escribe su registro (y, junto a él, la semilla de su
-  # identidad) en esta carpeta; no hay otro estado en disco.
   registros: /registros
 
 aislamiento:
@@ -162,6 +125,7 @@ parametros:
       default: 'auto'
     nombreEquipo:
       type: string
+      x-camuflaje: 'host:prn'
       title: Nombre del equipo
       description: >-
         El nombre de red de la impresora (el que muestra la web y anuncia IPP). Que encaje
@@ -214,34 +178,22 @@ eventos:
       lectura: media
       escritura: media
     porValor:
-      # Lo grave y lo leve van codificados en el propio eventid: así basta
-      # porValor y no hace falta tocar el contrato ni el adaptador.
       impresora.session.connect: baja
       impresora.pjl.info: media
       impresora.pjl.fs: media
-      # Robo de ficheros de la impresora con recorrido de rutas (PRET).
       impresora.pjl.traversal: critica
-      # Escritura/borrado en los ficheros de la impresora.
       impresora.pjl.escritura: alta
-      # Desfiguración del panel o bloqueo (RDYMSG, contraseña de trabajo).
       impresora.pjl.control: alta
-      # Operadores PostScript peligrosos por el 9100 (robo/borrado de ficheros o
-      # control del servidor, estilo PRET en modo ps).
       impresora.ps.peligroso: critica
       impresora.ipp.peticion: baja
       impresora.web.get: baja
-      # Cambio del servidor LDAP/SMTP al del atacante: robo de la cuenta de servicio.
       impresora.web.passback: critica
       impresora.web.config: alta
-      # Conexiones rechazadas por tope: un atacante aporrea la trampa.
       impresora.session.rechazos: alta
       impresora.session.tope: alta
-      # El registro va lleno y se calla parte: avisos que la consola ve.
       impresora.log.tope: alta
       impresora.log.omitidos: alta
       impresora.log.error: alta
-  # Todos los servicios son TCP: el origen no está falseado. (Sin SNMP/UDP; por
-  # eso no hace falta conexionPorCampo ni, por tanto, sensorMinimo.)
   conexionEstablecida: true
   detalle:
     - eventid

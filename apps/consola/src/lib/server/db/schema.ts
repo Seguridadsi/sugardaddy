@@ -425,6 +425,8 @@ export const balizas = pgTable(
 		nonce: text('nonce'),
 		nonceHasta: timestamp('nonce_hasta', { withTimezone: true }),
 		nonceUsado: timestamp('nonce_usado', { withTimezone: true }),
+		/* Clase «vigia»: el último «sigo vivo» de la tarea del servidor vigilado. */
+		ultimoVivo: timestamp('ultimo_vivo', { withTimezone: true }),
 		creado: creado()
 	},
 	(t) => [uniqueIndex('balizas_trampa').on(t.trampa), index('balizas_sensor').on(t.sensor)]
@@ -567,6 +569,22 @@ export const ejecuciones = pgTable(
  * contra el manifiesto) y sus secretos, cifrados con la clave del nodo. Los
  * secretos no salen nunca de aquí.
  */
+/*
+ * Hasta cuándo dura un bloqueo, para los sistemas donde no se puede anotar junto
+ * a él: una ubicación con nombre de Entra solo guarda rangos, sin comentarios
+ * (en un Fortigate o un NSG la fecha va en el propio objeto). Solo hay fila de
+ * lo que ha puesto el nodo: lo que puso otra persona no caduca nunca.
+ */
+export const respuestasPlazos = pgTable(
+	'respuestas_plazos',
+	{
+		modulo: text('modulo').notNull(),
+		objetivo: text('objetivo').notNull(),
+		caduca: timestamp('caduca', { withTimezone: true }).notNull()
+	},
+	(t) => [primaryKey({ columns: [t.modulo, t.objetivo] })]
+);
+
 export const respuestasConfig = pgTable('respuestas_config', {
 	modulo: text('modulo').primaryKey(),
 	parametros: jsonb('parametros').$type<Record<string, unknown>>().notNull().default({}),
@@ -1041,6 +1059,8 @@ export const incidentesAbiertos = pgTable(
 		atendido: timestamp('atendido', { withTimezone: true }),
 		atendidoPor: text('atendido_por'),
 		atendidoComo: text('atendido_como'),
+		/* Hasta qué cambio lo tiene el panel, si el cliente comparte sus incidentes (vigilancia.ts). */
+		subido: timestamp('subido', { withTimezone: true }),
 		/* La última vez que se escaló por falta de respuesta, y cuántas van. */
 		escalado: timestamp('escalado', { withTimezone: true }),
 		escalados: integer('escalados').notNull().default(0)

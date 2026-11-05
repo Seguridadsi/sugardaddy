@@ -1,0 +1,1 @@
+ALTER TABLE "balizas" ADD COLUMN "ultimo_vivo" timestamp with time zone;

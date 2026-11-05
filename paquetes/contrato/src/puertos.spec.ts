@@ -50,10 +50,9 @@ describe('puertosPublicados', () => {
 
 	it('«si»: solo se enciende con true / «yes» / «true»', () => {
 		const con = (v: unknown) =>
-			puertosPublicados(
-				m([{ interno: 23, expuesto: 23, protocolo: 'tcp', si: 't' }] as Puertos),
-				{ t: v }
-			).map((x) => x.puerto);
+			puertosPublicados(m([{ interno: 23, expuesto: 23, protocolo: 'tcp', si: 't' }] as Puertos), {
+				t: v
+			}).map((x) => x.puerto);
 		expect(con(true)).toEqual([23]);
 		expect(con('yes')).toEqual([23]);
 		expect(con('true')).toEqual([23]);

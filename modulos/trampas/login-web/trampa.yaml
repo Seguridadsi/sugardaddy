@@ -1,12 +1,3 @@
-# Trampa de portal de login web (H04). Un formulario de login HTTP que finge
-# una web interna (intranet, panel de administración o portal del empleado) en
-# el 8080: sirve el formulario en /login, responde con una página de error
-# verosímil a cada credencial probada y ACEPTA la credencial cebo configurada,
-# mostrando contenido falso plausible. Registra cada usuario y contraseña
-# probados ENTEROS, con su User-Agent, ruta y método; detecta inyección SQL y
-# Path Traversal en los campos y en la ruta, y las sondas (nmap -sV,
-# http-title, escáneres) salen con severidad baja. Código propio de
-# SeguridadSI, sin dependencias. No ejecuta nada de lo que le piden.
 version: 1
 id: login-web
 nombre: Portal de login web con credencial cebo
@@ -18,7 +9,6 @@ descripcion: >-
   contraseña probados completos con IP, User-Agent, ruta y método; marca las
   inyecciones SQL y los Path Traversal; y sube a alta la entrada con la
   credencial cebo, que solo puede venir de un robo de credenciales.
-# Ataque si está en la red interna (abre incidente al primer toque); fuera, por puntos.
 alerta:
   fidelidad: interno
 ficha:
@@ -44,70 +34,31 @@ ficha:
   instalacion:
     automatica: true
 versionModulo: 0.1.0
-# Sin sensorMinimo: la hora va en RFC 3339 y el puerto como número, lo que
-# entienden también los sensores 0.12; y no usa nada del manifiesto que ellos
-# no sepan desplegar.
 tipo: contenedor
 procedencia:
   proyecto: Sugardaddy (SeguridadSI)
   url: https://github.com/kinomakino/sugardaddy
-  # Código propio, sin dependencias de terceros: solo la biblioteca estándar
-  # de Go. Escrito desde el comportamiento observable de un portal web de
-  # login (formulario GET + POST con credenciales, páginas de error, 404
-  # plausibles). Los honeypots web existentes (OpenCanary BSD-3, h0neytr4p
-  # Apache-2.0, wordpot ISC) solo sirvieron de idea; no se reutilizó código.
   licencia: Código propio (SeguridadSI); biblioteca estándar de Go, BSD-3-Clause
 
 contenedor:
-  # Imagen propia, construida con imagen/preparar.sh (código propio en Go, base
-  # scratch, usuario no root). La construye y deja aquí su digest
-  # herramientas/publicar-trampa.sh login-web; el banco de pruebas usa la local.
-  imagen: ghcr.io/seguridadsi/sugardaddy-trampa-login-web:0.1.0@sha256:63e7052e03d634bb6ddd0c6f613c564f3e54af30fe7dd90f29d2ab7d5e56400c
-  imagenPublica: ghcr.io/seguridadsi/sugardaddy-trampa-login-web:0.1.0@sha256:63e7052e03d634bb6ddd0c6f613c564f3e54af30fe7dd90f29d2ab7d5e56400c
+  imagen: ghcr.io/seguridadsi/sugardaddy-registro-login-web:0.1.1@sha256:6a06e98f7df39ad212b493791e4f2f874a95c9a09403bb350cf8712b64e5ee60
+  imagenPublica: ghcr.io/seguridadsi/sugardaddy-registro-login-web:0.1.1@sha256:6a06e98f7df39ad212b493791e4f2f874a95c9a09403bb350cf8712b64e5ee60
   puertos:
     - { interno: 8080, expuesto: '${puertoWeb}', protocolo: tcp }
   entorno:
-    # La trampa lee su configuración de SD_LOGINWEB_*.
     SD_LOGINWEB_LISTEN: ':8080'
     SD_LOGINWEB_LOG: /registros/login-web.json
-    # Portal que finge ser: cambia el aspecto del formulario y el contenido
-    # falso que se enseña tras el login cebo (título y textos coherentes).
     SD_LOGINWEB_PLANTILLA: ${plantilla}
-    # Credencial cebo: usuario y contraseña que, si se usan, se aceptan y
-    # abren el contenido falso. Contraseña vacía = no se acepta ningún login
-    # (solo se detecta y guarda cada intento).
     SD_LOGINWEB_USUARIO: ${usuarioCebo}
     SD_LOGINWEB_PASSWORD: ${contrasenaCebo}
-    # El puerto que ve el atacante, para el pie de las páginas de error del
-    # servidor (finge estar en la máquina y no en un contenedor).
     SD_LOGINWEB_PUERTO: '${puertoWeb}'
-    # Identidad distinta y coherente por trampa (el token de la cookie de
-    # sesión que se planta tras el login cebo): se deriva de esta semilla.
-    # Vacía: la trampa guarda una al azar junto al registro la primera vez y
-    # la mantiene entre reinicios (la imagen es la misma para todos; lo que
-    # cambia es el dato de arranque).
     SD_LOGINWEB_SEMILLA: ''
-    # Topes fijos (no los toca el cliente): acotan memoria, CPU y disco aunque
-    # miles de atacantes escriban. El cuerpo de un POST está topado en tamaño
-    # (más allá del tope se responde 413 sin leerlo entero y queda apuntado);
-    # las cabeceras tienen su propio tope; las conexiones a la vez están
-    # topadas en total y por IP de origen, y el rechazo queda resumido por
-    # periodo, no una línea por rechazo. El registro rota a diario por
-    # renombrado, no pasa de SD_LOGINWEB_MAX_LOG_BYTES por día y reparte ese
-    # tope por horas, por IP y en bolsas (el login cebo y las credenciales
-    # probadas aparte): una sola IP no puede cegar la trampa para las demás
-    # ni tapar con ruido las credenciales de otro; lo que no cabe se resume en
-    # una línea.
     SD_LOGINWEB_MAX_CONN: '512'
     SD_LOGINWEB_MAX_CONN_IP: '32'
     SD_LOGINWEB_MAX_CUERPO_BYTES: '8192'
     SD_LOGINWEB_MAX_LOG_BYTES: '67108864'
     SD_LOGINWEB_RESUMEN_S: '300'
-    # El recolector de Go aprieta antes del límite de memoria del contenedor
-    # (defensa en profundidad; el Dockerfile ya lo fija).
     GOMEMLIMIT: 48MiB
-  # La trampa solo escribe su registro (y, junto a él, la semilla de su
-  # identidad) en esta carpeta; no hay otro estado en disco.
   registros: /registros
 
 aislamiento:
@@ -180,10 +131,6 @@ eventos:
   severidad:
     porDefecto: media
     porValor:
-      # La entrada con la credencial cebo sube a ALTA: esa credencial solo
-      # puede haber salido de un robo de datos. Lo grave va codificado en el
-      # propio eventid: así basta porValor y no hace falta tocar el contrato
-      # ni el adaptador.
       web.login.cebo: alta
       web.comando: alta
       web.session.rechazos: alta
@@ -191,13 +138,9 @@ eventos:
       web.log.tope: alta
       web.log.omitidos: alta
       web.log.error: alta
-      # Un barrido nmap -sV o http-title son muchas peticiones sin valor de
-      # alerta: baja, para no llenar la consola en cada barrido de versiones.
       web.sondeo: baja
       web.session.connect: baja
       web.session.closed: baja
-  # La trampa responde solo tras aceptar la conexión TCP: el origen no está
-  # falseado.
   conexionEstablecida: true
   detalle:
     - eventid
@@ -226,7 +169,6 @@ eventos:
     - aviso
     - tope_bytes
   sesion: session
-  # Campo del registro que lleva la contraseña probada (completa).
   contrasena: password
   resumen:
     [

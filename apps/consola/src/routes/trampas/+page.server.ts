@@ -47,6 +47,8 @@ export const load = async ({ url }) => {
 				disponible: m.disponible,
 				instaladas: instaladas.get(m.id) ?? 0,
 				porQueNo: porQueNo(m),
+				activarConRegistro: !m.disponible && m.conRegistro,
+				registroCaducado: m.licencia === 'registro.caducado',
 				/* Tiene alguna vía que esta consola sabe poner (en un sensor o a mano). */
 				desplegable: desplegable(m),
 				resumen: m.ficha?.detecta ?? m.descripcion,

@@ -150,7 +150,7 @@
 				</ul>
 			{:else}
 				<p class="ayuda">
-					Tu suscripción aún no incluye ninguna trampa. Cuando SeguridadSI te las autorice, verás
+					Tu suscripción aún no incluye ninguna trampa. Cuando {data.operador} te las autorice, verás
 					aquí cuáles valen en este destino.
 				</p>
 			{/if}

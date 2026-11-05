@@ -2,14 +2,16 @@
  * Acceso de soporte de SeguridadSI, decidido por el cliente.
  *
  * La petición llega firmada dentro del estado deseado. El administrador del
- * cliente la acepta (con un rol y una duración) o la rechaza. Mientras está
- * abierta, el personal del grupo de soporte de SeguridadSI puede entrar con
- * ese rol; al caducar o al cerrarla el cliente, sus sesiones se cierran.
+ * cliente la acepta (con un rol y una duración, o hasta que lo cierre) o la
+ * rechaza. Mientras está abierta, el personal del grupo de soporte de SeguridadSI
+ * puede entrar con ese rol; al caducar o al cerrarla el cliente, sus sesiones se
+ * cierran. Sin plazo (hasta nulo) es para quien le vigila de forma continua.
  */
 import { and, eq } from 'drizzle-orm';
 import type { SolicitudSoporte } from '@sugardaddy/canal';
 import { db, schema as s } from './db';
 import { auditar } from './consultas';
+import { operador } from './operador';
 
 export type RolSoporte = 'lector' | 'operador';
 
@@ -62,16 +64,16 @@ export async function recibirSolicitud(sol: SolicitudSoporte | null) {
 	const v = await soporte();
 	if (v.solicitud?.cuando === sol.cuando || v.estado === 'abierto') return;
 	await guardar({ estado: 'solicitado', solicitud: sol, hasta: null, rol: null });
-	await auditar('panel central', 'SeguridadSI pide acceso de soporte', {
+	await auditar('panel central', `${await operador()} pide acceso de soporte`, {
 		por: sol.por,
 		motivo: sol.motivo
 	});
 }
 
-export async function aceptar(quien: string, horas: number, rol: RolSoporte) {
+export async function aceptar(quien: string, horas: number | null, rol: RolSoporte) {
 	const v = await soporte();
 	if (v.estado !== 'solicitado') return false;
-	const hasta = new Date(Date.now() + horas * 3600_000).toISOString();
+	const hasta = horas === null ? null : new Date(Date.now() + horas * 3600_000).toISOString();
 	await guardar({ ...v, estado: 'abierto', hasta, rol });
 	await auditar(quien, 'acceso de soporte abierto', { hasta, rol, motivo: v.solicitud?.motivo });
 	return true;

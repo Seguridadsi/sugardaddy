@@ -16,6 +16,8 @@ export type CodigoMotivo =
 	| 'modulo.via-desaparecida'
 	| 'licencia.sin'
 	| 'licencia.caducada'
+	| 'registro.sin'
+	| 'registro.caducado'
 	| 'parametros.invalidos'
 	| 'ejecutor.desconocido'
 	| 'destino.inactivo'
@@ -71,6 +73,9 @@ export const MOTIVOS: Readonly<Record<CodigoMotivo, { texto: string; remedio?: s
 		/* Trampas de pago cuyo candado (la licencia) no las deja arrancar (docs/diseno/licencias-de-pago.md). */
 		'licencia.sin': { texto: 'Esta trampa de Cloud no está en tu licencia.' },
 		'licencia.caducada': { texto: 'Tu licencia de Cloud ha caducado.' },
+		/* Las que Community activa con el registro gratuito (docs/diseno/registro-community.md). */
+		'registro.sin': { texto: 'Esta trampa se activa gratis con tu registro, en Ajustes.' },
+		'registro.caducado': { texto: 'Tu registro ha caducado: renuévalo en Ajustes.' },
 		'parametros.invalidos': { texto: '{errores}' },
 		'ejecutor.desconocido': {
 			texto: 'Esta forma ({ejecutor}) llegará con una versión más nueva de Sugardaddy.'

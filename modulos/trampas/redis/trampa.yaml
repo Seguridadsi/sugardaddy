@@ -1,7 +1,3 @@
-# Redis falso (H12). Un servidor Redis abierto —o con contraseña— que responde
-# creíble y registra a quien intenta aprovecharlo: los comandos que lanza, si
-# intenta persistir, replicar hacia su servidor o cargar un módulo, y las
-# contraseñas que prueba. Código propio de SeguridadSI, sin dependencias.
 version: 1
 id: redis
 nombre: Redis abierto o con contraseña
@@ -10,7 +6,6 @@ descripcion: >-
   nada de lo que le piden. Registra cada comando, marca como crítico lo que hacen los
   gusanos (persistencia, réplica, carga de módulo, borrado de la base) y guarda cada
   contraseña que se prueba.
-# Ataque si está en la red interna (abre incidente al primer toque); fuera, por puntos.
 alerta:
   fidelidad: interno
 ficha:
@@ -31,44 +26,20 @@ tipo: contenedor
 procedencia:
   proyecto: Sugardaddy (SeguridadSI)
   url: https://github.com/kinomakino/sugardaddy
-  # Código propio; sin dependencias de terceros: solo la biblioteca estándar de Go.
   licencia: Código propio (SeguridadSI); biblioteca estándar de Go, BSD-3-Clause
 
 contenedor:
-  # Imagen propia, construida con imagen/preparar.sh (código propio en Go, base
-  # scratch, usuario no root). La construye y deja aquí su digest
-  # herramientas/publicar-trampa.sh redis; el banco de pruebas usa la local.
-  imagen: ghcr.io/seguridadsi/sugardaddy-trampa-redis:7.2.4-sd4@sha256:36191ed2c9f1d339f092d3a7f0de0f2243743ecd1fe61d86f81af88619bbd47e
-  imagenPublica: ghcr.io/seguridadsi/sugardaddy-trampa-redis:7.2.4-sd4@sha256:36191ed2c9f1d339f092d3a7f0de0f2243743ecd1fe61d86f81af88619bbd47e
+  imagen: ghcr.io/seguridadsi/sugardaddy-registro-redis:7.2.4-sd5@sha256:f5860e76e9e66aa8df4e0b2674ec2ea126480ca10daf2498f68b88e92824bc93
+  imagenPublica: ghcr.io/seguridadsi/sugardaddy-registro-redis:7.2.4-sd5@sha256:f5860e76e9e66aa8df4e0b2674ec2ea126480ca10daf2498f68b88e92824bc93
   puertos:
     - { interno: 6379, expuesto: '${puertoRedis}', protocolo: tcp }
   entorno:
-    # La trampa lee su configuración de SD_REDIS_*.
     SD_REDIS_LISTEN: ':6379'
     SD_REDIS_LOG: /registros/redis.json
-    # Versión que anuncian INFO y HELLO (lo que mira el gusano). Solo cambia el texto.
     SD_REDIS_VERSION: ${version}
-    # El puerto que anuncia INFO (tcp_port) y CONFIG: el que ve el atacante, no
-    # el interno del contenedor, para que cuadre con el servidor que finge.
     SD_REDIS_PUERTO: '${puertoRedis}'
-    # Contraseña: vacía = Redis "abierto" (lo que más atacan los gusanos); con
-    # valor, la trampa exige AUTH y guarda cada contraseña que se prueba.
     SD_REDIS_PASSWORD: ${contrasena}
-    # Identidad distinta y coherente por trampa (run_id, build id, sistema,
-    # rutas, memoria): se deriva de esta semilla. Vacía: la trampa guarda una al
-    # azar junto al registro la primera vez y la mantiene entre reinicios (la
-    # imagen es la misma para todos; lo que cambia es el dato de arranque).
     SD_REDIS_SEMILLA: ''
-    # Topes fijos (no los toca el cliente): acotan memoria, CPU y disco aunque
-    # miles de atacantes escriban. El keyspace (claves y CONFIG SET) es memoria
-    # pura, topada en total y por IP de origen, y se desaloja lo más antiguo en
-    # vez de dar OOM. Lo que los clientes retienen al mandar (órdenes a medio
-    # leer, colas de MULTI) tiene su propio tope total, una octava parte por
-    # IP: quien se pasa ve cortada su conexión, como en Redis, y queda
-    # apuntado. El registro rota a diario por renombrado, no pasa de
-    # SD_REDIS_MAX_LOG_BYTES por día y reparte ese tope por horas, por IP y en
-    # bolsas (lo grave, las contraseñas y los avisos aparte): una sola IP no
-    # puede cegar la trampa para las demás; lo que no cabe se resume en una línea.
     SD_REDIS_MAX_CONN: '512'
     SD_REDIS_MAX_CONN_IP: '8'
     SD_REDIS_MAX_CMD_BYTES: '65536'
@@ -80,11 +51,7 @@ contenedor:
     SD_REDIS_KEY_LIFE_MIN: '30'
     SD_REDIS_MAX_LOG_BYTES: '67108864'
     SD_REDIS_RESUMEN_S: '300'
-    # El recolector de Go aprieta antes del límite del contenedor (defensa en
-    # profundidad; el Dockerfile ya lo fija).
     GOMEMLIMIT: 48MiB
-  # La trampa solo escribe su registro (y, junto a él, la semilla de su
-  # identidad) en esta carpeta; no hay otro estado en disco.
   registros: /registros
 
 aislamiento:
@@ -147,22 +114,14 @@ eventos:
       autenticacion: alta
       comando: media
     porValor:
-      # Lo grave va codificado en el propio eventid: así basta porValor y no
-      # hace falta tocar el contrato ni el adaptador.
       redis.command.grave: critica
-      # Conexiones rechazadas por tope (resumen por periodo): un atacante está
-      # aporreando la trampa, la consola tiene que verlo.
       redis.session.rechazos: alta
-      # Conexión cortada por pasarse del tope de memoria de clientes (cola de
-      # MULTI u orden enorme): alguien intenta tumbar la trampa.
       redis.session.tope: alta
-      # El registro va lleno y se está callando parte: avisos que la consola ve.
       redis.log.tope: alta
       redis.log.omitidos: alta
       redis.log.error: alta
       redis.session.connect: baja
       redis.session.closed: baja
-  # Redis responde solo tras completar el saludo TCP: el origen no está falseado.
   conexionEstablecida: true
   detalle:
     - eventid

@@ -64,7 +64,11 @@
 
 	{#if data.configurado}
 		{#if data.local}<p class="o">o</p>{/if}
-		<a class="boton principal" href="/auth/login?volverA={encodeURIComponent(data.volverA)}">
+		<a
+			class="boton principal"
+			data-sveltekit-reload
+			href="/auth/login?volverA={encodeURIComponent(data.volverA)}"
+		>
 			Entrar con Microsoft
 		</a>
 	{:else if !data.local}

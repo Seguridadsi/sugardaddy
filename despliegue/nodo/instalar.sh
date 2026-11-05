@@ -19,7 +19,7 @@
 set -Eeuo pipefail
 # Si algo falla, se dice en qué paso: quien instala no tiene a nadie al lado.
 PASO="preparar"
-trap 'echo "Sugardaddy: falló el paso «$PASO». Revisa el mensaje de arriba y vuelve a lanzar la línea; si no se arregla, avisa a SeguridadSI." >&2' ERR
+trap 'echo "Sugardaddy: falló el paso «$PASO». Revisa el mensaje de arriba y vuelve a lanzar la línea; si no se arregla, avisa a quien te dio esta línea." >&2' ERR
 
 DIR="${1:?Uso: instalar.sh <carpeta> <id-del-nodo> \"Nombre del cliente\" <url-de-la-consola>}"
 NODO_ID="${2:?Falta el id del nodo (p. ej. nodo-mad01)}"
@@ -51,7 +51,7 @@ elif command -v dpkg >/dev/null; then
 	plataforma="linux/$(dpkg --print-architecture 2>/dev/null || true)"
 fi
 if [[ "$plataforma" =~ ^[a-z0-9]+/[a-z0-9_]+$ && "$plataforma" != linux/amd64 ]]; then
-	echo "Sugardaddy: este nodo necesita un motor Docker de Linux amd64 (x86_64) y el de esta máquina es $plataforma, donde sus contenedores no arrancarían. Instálalo en una máquina o VM x86_64. No se ha cambiado nada en esta, pero si lo has lanzado con la línea de instalación, esa línea ya se ha gastado: para la otra máquina, pide una nueva a SeguridadSI. (código instalar.arquitectura)" >&2
+	echo "Sugardaddy: este nodo necesita un motor Docker de Linux amd64 (x86_64) y el de esta máquina es $plataforma, donde sus contenedores no arrancarían. Instálalo en una máquina o VM x86_64. No se ha cambiado nada en esta, pero si lo has lanzado con la línea de instalación, esa línea ya se ha gastado: para la otra máquina, pide una nueva a quien te la dio. (código instalar.arquitectura)" >&2
 	exit 1
 fi
 PASO="instalar Docker"
@@ -92,7 +92,7 @@ semver='^[0-9]+\.[0-9]+\.[0-9]+$'
 if [[ -f "$DIR/versiones.env" ]]; then
 	actual="$(grep '^SUGARDADDY_VERSION=' "$DIR/versiones.env" | cut -d= -f2- || true)"
 	if [[ "$actual" =~ $semver && "$nueva" =~ $semver && "$actual" != "$nueva" && "$(printf '%s\n' "$actual" "$nueva" | sort -V | tail -1)" == "$actual" ]]; then
-		echo "Este nodo ya tiene la versión $actual, más nueva que la de este instalador ($nueva). Pide una línea nueva a SeguridadSI."
+		echo "Este nodo ya tiene la versión $actual, más nueva que la de este instalador ($nueva). Pide una línea nueva a quien te dio esta."
 		exit 1
 	fi
 fi

@@ -12,6 +12,7 @@ import {
 import { soporte } from '$lib/server/soporte';
 import { abrir } from '$lib/server/auth/sesion';
 import { auditar } from '$lib/server/consultas';
+import { operador } from '$lib/server/operador';
 
 export const GET = async ({ url, cookies, request, locals }) => {
 	const guardado = cookies.get(COOKIE_OIDC);
@@ -91,7 +92,7 @@ export const GET = async ({ url, cookies, request, locals }) => {
 	}
 
 	await abrir(cookies, r, url.protocol === 'https:');
-	await auditar(r.correo, r.soporte ? 'entrada de soporte de SeguridadSI' : 'entrada', {
+	await auditar(r.correo, r.soporte ? `entrada de soporte de ${await operador()}` : 'entrada', {
 		roles: r.roles
 	});
 	redirect(303, volverSeguro(volverA));

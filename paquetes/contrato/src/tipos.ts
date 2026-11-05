@@ -284,6 +284,11 @@ export interface ManifiestoRespuesta {
 	 */
 	acepta?: ClaseIoc[];
 	/*
+	 * El sistema en el que actúa solo ve direcciones públicas (Entra, Cloudflare):
+	 * una IP privada se queda en la guarda, sin pedir aprobación para nada.
+	 */
+	soloIpPublicas?: boolean;
+	/*
 	 * `obligatorio` por defecto true: si el módulo lo declara, hace falta. Se
 	 * pone en false cuando el módulo tiene varios canales y cada secreto solo lo
 	 * usa uno (p. ej. abrir-ticket: `autorizacion` por API o `contrasena` por

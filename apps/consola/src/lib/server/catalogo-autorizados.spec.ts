@@ -25,7 +25,7 @@ describe('autorizados (sin panel / con panel)', () => {
 		delete env.EDICION;
 	});
 
-	it('community sin panel: autoriza todas las trampas gratis', async () => {
+	it('community sin panel y sin registro: autoriza solo las gratis', async () => {
 		env.EDICION = 'community';
 		expect(new Set(await autorizados())).toEqual(new Set(MODULOS_GRATIS));
 	});
@@ -54,6 +54,17 @@ describe('porQueNo: lo de pago se nombra por su edición, Cloud', () => {
 		expect(porQueNo({ id: 'cowrie', incluida: false, licencia: 'cubierta' })).toBe(
 			'No incluida en tu suscripción'
 		);
+	});
+
+	it('en community, una de registro lleva a registrarse y dice si ha caducado', () => {
+		env.EDICION = 'community';
+		expect(porQueNo({ id: 'smb', incluida: false, licencia: 'registro.sin' })).toBe(
+			'Gratis con tu registro'
+		);
+		expect(porQueNo({ id: 'smb', incluida: true, licencia: 'registro.caducado' })).toBe(
+			'Tu registro ha caducado'
+		);
+		expect(porQueNo({ id: 'smb', incluida: true, licencia: 'cubierta' })).toBeNull();
 	});
 
 	it('en Cloud: fuera de la suscripción, fuera de la licencia o con la licencia caducada', () => {

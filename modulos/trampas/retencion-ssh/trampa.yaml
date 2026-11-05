@@ -1,9 +1,3 @@
-# Retención SSH (H68) o de banner TCP (H18) con reten, código propio. En modo
-# ssh usa la técnica de Endlessh: antes de su versión, un servidor SSH puede
-# mandar líneas de texto, y reten manda una cada pocos segundos (a ritmo
-# variable) sin llegar nunca a la versión: un aviso legal propio de cada
-# trampa, no las letras al azar que delatan a Endlessh. En modo banner manda
-# un saludo fijo y se calla.
 version: 1
 id: retencion-ssh
 nombre: Retención SSH o de banner (tarpit)
@@ -11,7 +5,6 @@ descripcion: >-
   Un puerto que parece un SSH, o el servicio que anuncie su saludo, y que nunca pasa de la
   bienvenida: quien conecta se queda esperando horas, sin llegar ni a autenticarse. Registra
   quién conecta, con qué cliente llega y cuánto tiempo pierde.
-# De cara a internet: solo estadística, salvo credencial cebo o si está dentro de la red.
 alerta:
   fidelidad: internet
 ficha:
@@ -30,59 +23,33 @@ ficha:
   instalacion:
     automatica: true
 versionModulo: 0.1.0
-# Sin sensorMinimo: la hora va en RFC 3339 y el puerto como número, lo que
-# entienden también los sensores 0.12 (comprobado en TestFormatoCompatible012),
-# y no usa nada del manifiesto que ellos no sepan desplegar.
 tipo: contenedor
 procedencia:
   proyecto: Sugardaddy (SeguridadSI)
   url: https://github.com/kinomakino/sugardaddy
-  # Código propio; sin dependencias de terceros: solo la biblioteca estándar de
-  # Go. De Endlessh (dominio público) solo se toma la técnica, no el código.
   licencia: Código propio (SeguridadSI); biblioteca estándar de Go, BSD-3-Clause
 
 contenedor:
-  # Imagen propia, construida con imagen/preparar.sh (código propio en Go, base
-  # scratch, usuario no root). Los ceros los cambia por el digest de verdad
-  # herramientas/publicar-trampa.sh retencion-ssh; el banco de pruebas
-  # (herramientas/probar-trampa.sh) la sustituye por la que construye en local.
-  imagen: ghcr.io/seguridadsi/sugardaddy-trampa-retencion-ssh:0.2.0@sha256:01ef732b791e76d030b8d4e7ecf37f75499a9b04def61a25b8e63999c04f9276
-  imagenPublica: ghcr.io/seguridadsi/sugardaddy-trampa-retencion-ssh:0.2.0@sha256:01ef732b791e76d030b8d4e7ecf37f75499a9b04def61a25b8e63999c04f9276
+  imagen: ghcr.io/seguridadsi/sugardaddy-registro-retencion-ssh:0.2.1@sha256:9c1b3696abd91cea03616e30393af5d5a90a32a1cafbca6254faacb98c53de66
+  imagenPublica: ghcr.io/seguridadsi/sugardaddy-registro-retencion-ssh:0.2.1@sha256:9c1b3696abd91cea03616e30393af5d5a90a32a1cafbca6254faacb98c53de66
   puertos:
     - { interno: 2222, expuesto: '${puerto}', protocolo: tcp }
   entorno:
-    # reten lee su configuración de RETEN_*.
     RETEN_PUERTO: '2222'
     RETEN_MODO: ${modo}
     RETEN_BANNER: ${banner}
     RETEN_RETARDO_S: ${retardo}
     RETEN_DURACION_MAX_H: ${duracionMaxHoras}
     RETEN_REGISTRO: /registros/reten.json
-    # Topes fijos (no los toca el cliente): acotan memoria, CPU y disco aunque
-    # le ataquen sin parar. 1024 conexiones retenidas a la vez y 32 por IP; las
-    # demás se cierran al momento y salen en un resumen por minuto, no una
-    # línea por cada una. El registro rota a diario por renombrado
-    # (reten.json.AAAA_MM_DD) y no pasa de 60 MiB por día, de los que cada IP
-    # puede gastar 1/16 (3,6 MiB, unas 7.000 conexiones): un solo atacante no
-    # lo llena. Lo que no se apunta (por el cupo de su IP o porque el día está
-    # lleno) sale en un resumen por minuto, de una reserva de 1/32 del día:
-    # nunca se queda mudo hasta medianoche. Con los 7 días que guarda el
-    # sensor, menos de 480 MiB: por debajo de su cuota de 512 MiB por trampa.
-    # En la misma carpeta guarda .semilla, propia de cada trampa: de ella sale
-    # el aviso que manda en modo ssh, distinto en cada una.
     RETEN_MAX_CONEXIONES: '1024'
     RETEN_MAX_POR_IP: '32'
     RETEN_RESUMEN_S: '60'
     RETEN_TOPE_DIA_MB: '60'
-  # reten no guarda estado en disco: lo único que escribe es su registro.
   registros: /registros
 
 aislamiento:
   salida: false
   soloLectura: true
-  # Medido: 4 MiB en reposo; con 1.000 conexiones, 21 MiB, 1 % de un núcleo,
-  # 8,3 KB/s de salida y 100 paquetes por segundo. El reparto del registro por
-  # IP es una tabla fija de 256 KiB.
   cpu: 0.25
   memoriaMb: 64
 
@@ -120,9 +87,6 @@ parametros:
         200 caracteres.
       pattern: '^[\x20-\x7e]{1,200}$'
       maxLength: 200
-      # El saludo de vsftpd 3.0.5 de verdad, el mismo que dan miles de
-      # servidores (el de antes, con nombre de equipo y «ready», no lo da
-      # ningún vsftpd y era igual en toda la flota).
       default: 220 (vsFTPd 3.0.5)
     retardo:
       type: integer
@@ -162,11 +126,8 @@ eventos:
     porValor:
       cliente: baja
       fin: baja
-      # Le están dando sin parar: lo de una IP, o de todas, deja de apuntarse
-      # una a una y sale resumido.
       callados: alta
       tope: alta
-  # TCP con saludo completo antes de cualquier línea: el origen no está falseado.
   conexionEstablecida: true
   sesion: id
   detalle:

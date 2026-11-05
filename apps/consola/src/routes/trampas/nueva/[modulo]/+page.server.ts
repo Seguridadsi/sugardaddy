@@ -6,6 +6,7 @@ import { exigir } from '$lib/server/auth/permisos';
 import { coberturaLicencia } from '$lib/server/candado';
 import { trampasAutorizadas } from '$lib/server/catalogo';
 import { existeTrampa } from '$lib/server/consultas';
+import { propuestasDeAlta } from '$lib/server/identidad';
 
 /*
  * Poner una trampa (docs/diseno/modulo-despliegue.md §7.3, pasos 9 y 11). Sin
@@ -41,7 +42,9 @@ export const load = async ({ params, url }) => {
 			procedencia: h.procedencia ?? null
 		},
 		donde: forma ? null : await dondePoner(h),
-		forma
+		forma,
+		/* Los nombres que tocan según el dominio del cliente, listos en el formulario. */
+		propuestas: destino !== null && forma ? await propuestasDeAlta(h, destino) : {}
 	};
 };
 

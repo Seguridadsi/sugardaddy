@@ -29,6 +29,10 @@ export const DESCARTES_PLAN: readonly string[] = [
 	'modulo.no-autorizado',
 	'modulo.via-desaparecida',
 	'agente.version',
+	'licencia.sin',
+	'licencia.caducada',
+	'registro.sin',
+	'registro.caducado',
 	'carga.imagen-sin-publicar',
 	'carga.sin-credencial',
 	'parametros.invalidos'
@@ -250,6 +254,8 @@ export interface ContextoVisible {
 	/* La dirección del destino de cada trampa (destino.direccion), si la tiene. */
 	direcciones: ReadonlyMap<string, string>;
 	honeycosas: ReadonlyMap<string, Honeycosa>;
+	/* Las trampas con ficheros vigilados, con su último «sigo vivo». */
+	vigias?: ReadonlyMap<string, Date | null>;
 }
 
 /* El mismo plazo que en Sensores: un sensor que no late en 5 minutos se da por caído. */
@@ -416,6 +422,26 @@ function visible(
 	};
 }
 
+/* Sin «sigo vivo» en estos días, un fichero vigilado ya no se da por vigilado. */
+export const DIAS_SIN_VIVO = 3;
+
+/*
+ * El aviso de un fichero vigilado cuya tarea ha dejado de dar señales: se apagó el
+ * equipo, ya no llega al receptor o alguien la ha borrado. null si sigue viva. Se
+ * cuenta desde su último «sigo vivo» o, si aún no ha mandado ninguno, desde que se
+ * comprobó. Pura.
+ */
+export function avisoDeVigia(
+	ultimoVivo: Date | null,
+	comprobada: Date,
+	ahora: number
+): string | null {
+	const desde = Math.max(ultimoVivo?.getTime() ?? 0, comprobada.getTime());
+	const dias = Math.floor((ahora - desde) / 86_400_000);
+	if (dias < DIAS_SIN_VIVO) return null;
+	return `El equipo vigilado no da señales desde hace ${dias} días: sin esa señal no se puede asegurar que siga avisando.`;
+}
+
 /*
  * Lo que ve el cliente de una trampa (§8.2), por este orden:
  * 1. retirando;
@@ -451,6 +477,15 @@ export function estadoVisible(
 
 	const puesta = t.colocacion === 'colocada' || t.colocacion === 'comprobada';
 	const avisos: AvisoVisible[] = [];
+	if (t.colocacion === 'comprobada' && t.comprobada && c.vigias?.has(t.id)) {
+		const motivo = avisoDeVigia(c.vigias.get(t.id) ?? null, t.comprobada, c.ahora);
+		if (motivo)
+			return visible('degradada', {
+				codigo: 'vigia.sin-senal',
+				motivo,
+				remedio: 'Comprueba que el equipo está encendido, llega al receptor y conserva la tarea.'
+			});
+	}
 	if (senal && conSenal) {
 		const p = problemaDeSenal(t, c);
 		if (p && puesta)
@@ -584,12 +619,17 @@ export async function estadosVisibles(ahora = Date.now()): Promise<Map<string, E
 			if (v !== undefined) direcciones.set(f.id, v);
 		}
 	}
+	const vigias = await db
+		.select({ trampa: s.balizas.trampa, ultimoVivo: s.balizas.ultimoVivo })
+		.from(s.balizas)
+		.where(eq(s.balizas.clase, 'vigia'));
 	const contexto: ContextoVisible = {
 		ahora,
 		sensores: new Map(sensores.map((x) => [x.id, x])),
 		trampas,
 		direcciones,
-		honeycosas: catalogo
+		honeycosas: catalogo,
+		vigias: new Map(vigias.map((v) => [v.trampa, v.ultimoVivo]))
 	};
 	return new Map(filas.map((f) => [f.id, estadoVisible(f, contexto)]));
 }

@@ -44,7 +44,7 @@
 				<p class="tor-cabecera">
 					<b class="mono">{data.tor.ips.length}</b> nodos de salida de Tor, de la lista pública del
 					<a href={data.tor.fuente} rel="noreferrer noopener" target="_blank">Tor Project</a>.
-					Actualizada {haceCuanto(data.tor.emitida, Date.now())}; SeguridadSI la renueva cada día.
+					Actualizada {haceCuanto(data.tor.emitida, Date.now())}; {data.operador} la renueva cada día.
 				</p>
 				<ul class="ips mono">
 					{#each data.tor.ips as ip (ip)}<li>{ip}</li>{/each}

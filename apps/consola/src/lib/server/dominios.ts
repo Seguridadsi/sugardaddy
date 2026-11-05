@@ -10,8 +10,7 @@
  */
 
 /* Etiqueta de dominio: 1-63, alfanumérica, con guiones dentro (no al borde). */
-const DOMINIO =
-	/^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
+const DOMINIO = /^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
 
 /*
  * Normaliza y valida un dominio. Quita espacios, un punto final (FQDN) y
@@ -20,11 +19,7 @@ const DOMINIO =
  * una IP (eso se decide antes, por isIP). Devuelve null si no vale.
  */
 export function normalizarDominio(valor: string): string | null {
-	const d = valor
-		.trim()
-		.toLowerCase()
-		.replace(/^\*\./, '')
-		.replace(/\.$/, '');
+	const d = valor.trim().toLowerCase().replace(/^\*\./, '').replace(/\.$/, '');
 	if (!d || !DOMINIO.test(d)) return null;
 	return d;
 }

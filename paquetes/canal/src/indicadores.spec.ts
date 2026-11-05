@@ -36,10 +36,15 @@ describe('qué se puede compartir', () => {
 		'no-es-ip'
 	])('%s no sale nunca del nodo', (ip) => expect(esIpPublica(ip)).toBe(false));
 
-	it.each(['185.220.101.34', '8.8.8.8', '45.155.205.11', '2a01:4f8::1', '2000::', '3fff::1', '2606:4700::1'])(
-		'%s es pública',
-		(ip) => expect(esIpPublica(ip)).toBe(true)
-	);
+	it.each([
+		'185.220.101.34',
+		'8.8.8.8',
+		'45.155.205.11',
+		'2a01:4f8::1',
+		'2000::',
+		'3fff::1',
+		'2606:4700::1'
+	])('%s es pública', (ip) => expect(esIpPublica(ip)).toBe(true));
 
 	it('2:: y 0002:: son la misma dirección reservada: ninguna sale', () => {
 		expect(esIpPublica('2::')).toBe(false);

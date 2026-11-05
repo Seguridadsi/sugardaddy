@@ -1,0 +1,11 @@
+{
+	"clavePublicacion": "MCowBQYDK2VwAyEAC9T88WCl3oA2QEg3+eqQietUFBXSLINSy/g9uzEJDHU=",
+	"firmada": {
+		"licencia": "{\"tipo\":\"licencia\",\"version\":1,\"cliente\":\"vector\",\"nodo\":\"vector-nodo-1\",\"nodoClave\":\"MCowBQYDK2VwAyEAHfig3Pexbmr+LoCTRF3f/MBytogpoj6hRZoN7RAr0Qs=\",\"modulos\":[\"mysql\",\"mssql\"],\"marca\":\"vector-7f3a\",\"emitida\":\"2026-11-04T10:00:00.000Z\",\"caduca\":\"2099-01-01T00:00:00.000Z\"}",
+		"firma": "MeIpywis5tMocxFNL/P3AHfemeO65Oe0D/xA1lYlFJSzkF5DRwk44gLyAOSqg3vTM2SeZj/sh44JvXzKCg0tAg==",
+		"delegacion": {
+			"delegacion": "{\"tipo\":\"delegacion-licencias\",\"version\":1,\"msp\":\"msp-vector\",\"clavePublica\":\"MCowBQYDK2VwAyEAkjDCgLPKeBQdPO58Ryl/K7YVMuOGF1aM51LlWmq0TDU=\",\"modulos\":[\"mysql\",\"mssql\",\"postgresql\"],\"emitida\":\"2026-11-04T10:00:00.000Z\",\"caduca\":\"2099-01-01T00:00:00.000Z\"}",
+			"firma": "FJU6T9xFHEHhF49LURX2eLDDqZV6Ft7vsVTjXxvK4NosK5DFVzwmQJm1PXc3LkA/m/rMGgDb5hOqy4A82TJvAw=="
+		}
+	}
+}

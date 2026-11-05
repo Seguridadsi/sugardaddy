@@ -3,10 +3,11 @@
 Esta guía te lleva de cero a tener Sugardaddy funcionando en tu red: un **nodo**
 con tu consola, su sensor y el actualizador. Desde la consola siembras trampas
 (servicios falsos que parecen de verdad) y, cuando alguien las toca, lo ves ahí
-mismo. Todo ocurre en tu máquina; **nada sale a SeguridadSI**.
+mismo. Todo ocurre en tu máquina; **ningún evento sale a SeguridadSI**.
 
-> Sugardaddy Community es gratis y de código libre. Trae la consola, el sensor,
-> el actualizador y un conjunto de trampas básicas. Los avisos a tu correo,
+> Sugardaddy Community es gratis. Trae, con código libre y sin registro, la consola, el
+> sensor, el actualizador y la trampa SSH. Con tu correo confirmado activas más trampas,
+> cerradas, y las actualizaciones automáticas. Los avisos a tu correo,
 > Teams, Slack o SIEM, las trampas avanzadas, el panel de flota y la máquina
 > virtual ya montada son de Sugardaddy Cloud (ver [el modelo](#qué-incluye-y-qué-no)).
 
@@ -209,9 +210,16 @@ Después instala de nuevo como en el paso 4.
 
 ## Qué incluye y qué no
 
-**Incluido (gratis):** la consola, el sensor, el actualizador, un conjunto de
-trampas básicas (SSH, Redis, login web, DNS/NTP, impresora, retención)
-y ver los eventos en la web de tu consola.
+**Incluido sin registro (código libre):** la consola, el sensor, el actualizador, la
+trampa SSH y ver los eventos en la web de tu consola.
+
+**Con tu registro gratuito:** además, SMB, RDP, Redis, login web, DNS/NTP, impresora,
+retención por SSH y retención web, y las actualizaciones automáticas. Son trampas
+cerradas: no están en el repositorio y no arrancan sin una licencia firmada. Se activan
+en **Ajustes → Registro gratuito**: das tu correo, abres el enlace que te llega, recibes
+un código de activación y lo pegas ahí. La licencia dura un año y el nodo la renueva solo.
+Si dejara de renovarse, esas trampas se paran y la consola te dice cómo arreglarlo; la
+trampa SSH y el resto del nodo siguen igual.
 
 **En Sugardaddy Cloud (no está en esta edición):** los avisos a tu correo, Teams, Slack,
 webhook o SIEM (syslog CEF/LEEF, Microsoft Sentinel); las trampas avanzadas
@@ -224,9 +232,9 @@ te llegan a donde trabajas. [Habla con SeguridadSI](https://www.seguridadsi.com)
 
 Todo es **reconstruible** desde la fuente del repositorio, sin depender de ningún
 registro ni de ninguna infraestructura de SeguridadSI. Las tres imágenes del nodo
-las construye `despliegue/nodo/construir-imagenes-local.sh` (es el paso 4). Cada
-trampa básica también se construye desde su fuente
-(`modulos/trampas/<trampa>/imagen/`), que viene en el repositorio.
+las construye `despliegue/nodo/construir-imagenes-local.sh` (es el paso 4). La trampa
+SSH también se construye desde su fuente (`modulos/trampas/cowrie/imagen/`). Las
+trampas de registro son imágenes cerradas: se descargan de ghcr.io.
 
 ## Si algo falla
 

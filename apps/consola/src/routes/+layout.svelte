@@ -89,22 +89,28 @@
 	{#if data.soporte?.estado === 'abierto'}
 		<p class="soporte">
 			{#if data.usuario.soporte}
-				Estás dentro con el acceso de soporte que abrió {data.cliente.nombre}, como {data.soporte
-					.rol}, hasta las {new Date(data.soporte.hasta ?? '').toLocaleTimeString('es-ES', {
-					hour: '2-digit',
-					minute: '2-digit'
-				})}.
+				Estás dentro con el acceso de soporte que abrió {data.cliente.nombre}, como
+				{data.soporte.rol}{#if data.soporte.hasta}, hasta las
+					{new Date(data.soporte.hasta).toLocaleTimeString('es-ES', {
+						hour: '2-digit',
+						minute: '2-digit'
+					})}{/if}.
 			{:else}
-				SeguridadSI tiene acceso de soporte ({data.soporte.rol}) hasta las
-				{new Date(data.soporte.hasta ?? '').toLocaleTimeString('es-ES', {
-					hour: '2-digit',
-					minute: '2-digit'
-				})}.
+				{data.operador} tiene acceso de soporte ({data.soporte.rol})
+				{#if data.soporte.hasta}
+					hasta las
+					{new Date(data.soporte.hasta).toLocaleTimeString('es-ES', {
+						hour: '2-digit',
+						minute: '2-digit'
+					})}.
+				{:else}
+					hasta que lo cierres.
+				{/if}
 				<a href="/ajustes">Gestionar</a>
 			{/if}
 		</p>
 	{:else if data.soporte?.estado === 'solicitado' && puede(data.usuario.roles, 'ajustes')}
-		<p class="soporte">SeguridadSI pide acceso de soporte. <a href="/ajustes">Revisar</a></p>
+		<p class="soporte">{data.operador} pide acceso de soporte. <a href="/ajustes">Revisar</a></p>
 	{/if}
 
 	{#if data.modoDesarrollo}
@@ -113,11 +119,35 @@
 		</p>
 	{/if}
 
-	{#if !data.gestionado && !data.autoActualizar.decidido && puede(data.usuario.roles, 'ajustes')}
+	{#if !data.identidad.decidido && puede(data.usuario.roles, 'ajustes')}
+		<div class="actualizacion oferta dominio">
+			<form class="pregunta" method="POST" action="/ajustes?/identidad">
+				<label for="dominio-empresa">
+					¿Cuál es el dominio de tu empresa? Las trampas tomarán nombres parecidos a los de tu red.
+				</label>
+				<input
+					id="dominio-empresa"
+					name="dominio"
+					required
+					value={data.dominioSugerido}
+					placeholder="empresa.es"
+					autocomplete="off"
+					spellcheck="false"
+				/>
+				<button type="submit">Guardar</button>
+			</form>
+			<form method="POST" action="/ajustes?/identidad" use:enhance>
+				<input type="hidden" name="omitir" value="si" />
+				<button type="submit">Ahora no</button>
+			</form>
+		</div>
+	{/if}
+
+	{#if data.community && !data.gestionado && !data.autoActualizar.decidido && puede(data.usuario.roles, 'ajustes')}
 		<div class="actualizacion oferta">
 			<span>
-				¿Quieres que tu nodo se actualice solo cuando saquemos una versión nueva, a cambio de tu
-				correo? <a href="/ajustes#actualizaciones">Activar</a>
+				Registra tu correo, sin coste, y tendrás más trampas y actualizaciones automáticas.
+				<a href="/ajustes#registro">Registrarme</a>
 			</span>
 			<form method="POST" action="/ajustes?/autoActualizar" use:enhance>
 				<button type="submit">Ahora no</button>
@@ -135,7 +165,8 @@
 					href="https://github.com/Seguridadsi/sugardaddy/blob/main/docs/INSTALACION.md#actualizar"
 					rel="noopener noreferrer">Cómo actualizar</a
 				>
-				o <a href="/ajustes#actualizaciones">actívala sola</a>.
+				{#if data.community}o <a href="/ajustes#registro">regístrate para que se instale sola</a
+					>{/if}.
 			{/if}
 		</p>
 	{/if}
@@ -255,6 +286,23 @@
 
 	.actualizacion.oferta form {
 		margin: 0;
+	}
+
+	.actualizacion.dominio .pregunta {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 8px;
+	}
+
+	.actualizacion.dominio input {
+		width: 180px;
+		padding: 3px 7px;
+		font: inherit;
+		color: var(--ink-1);
+		background: var(--surface);
+		border: 1px solid currentColor;
+		border-radius: var(--r-sm);
 	}
 
 	.actualizacion.oferta button {

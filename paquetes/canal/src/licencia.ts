@@ -17,6 +17,13 @@
  * que se firmó, sin depender de cómo se serialice. El gemelo en Go
  * (modulos/comun/licencia/licencia.go) verifica ese mismo texto y lo parsea; no
  * vuelve a serializar, así que no hay que canonicalizar nada entre lenguajes.
+ *
+ * Certificado de MSP (docs/diseno/msp.md): la clave de publicación no sale de
+ * donde está, y firma un certificado que autoriza a la clave de un MSP a firmar
+ * licencias de unos módulos hasta una fecha. La licencia lleva ese certificado
+ * adjunto, y quien verifica sigue la cadena desde la clave de publicación. Sirve
+ * solo para licencias: las versiones se siguen verificando únicamente con la
+ * clave de publicación, así que un MSP nunca puede firmar una versión.
  */
 import { createPrivateKey, createPublicKey, sign, verify } from 'node:crypto';
 
@@ -37,7 +44,24 @@ export type Licencia = {
 	caduca: string;
 };
 
-export type LicenciaFirmada = { licencia: string; firma: string };
+/* Autoriza a la clave de un MSP a firmar licencias de esos módulos hasta esa fecha. */
+export type Delegacion = {
+	tipo: 'delegacion-licencias';
+	version: 1;
+	/* Quién es el MSP (el id que le da la central de SeguridadSI). */
+	msp: string;
+	/* Su clave pública (spki DER en base64): la que firma sus licencias. */
+	clavePublica: string;
+	/* Los módulos de pago que puede licenciar. */
+	modulos: string[];
+	emitida: string;
+	caduca: string;
+};
+
+export type DelegacionFirmada = { delegacion: string; firma: string };
+
+/* Sin delegacion, firmada con la clave de publicación; con ella, con la del MSP. */
+export type LicenciaFirmada = { licencia: string; firma: string; delegacion?: DelegacionFirmada };
 
 const ID = /^[a-z0-9][a-z0-9-]{0,62}$/;
 const MODULO = /^[a-z0-9][a-z0-9-]{0,62}$/;
@@ -56,6 +80,81 @@ export function firmarLicencia(clavePrivada: string, l: Licencia): LicenciaFirma
 	};
 }
 
+/* El certificado de un MSP, firmado con la clave de publicación. */
+export function firmarDelegacion(clavePrivada: string, d: Delegacion): DelegacionFirmada {
+	const texto = JSON.stringify(d);
+	return {
+		delegacion: texto,
+		firma: sign(null, Buffer.from(texto), privada(clavePrivada)).toString('base64')
+	};
+}
+
+/* Una licencia firmada por un MSP, con su certificado adjunto. */
+export function firmarLicenciaDelegada(
+	clavePrivadaMsp: string,
+	l: Licencia,
+	delegacion: DelegacionFirmada
+): LicenciaFirmada {
+	return { ...firmarLicencia(clavePrivadaMsp, l), delegacion };
+}
+
+/* Con hora y zona (RFC 3339): las trampas, en Go, no admiten otra cosa. */
+const RFC3339 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
+const fechaValida = (v: unknown) =>
+	typeof v === 'string' && RFC3339.test(v) && Number.isFinite(Date.parse(v));
+
+function motivoDelegacion(x: unknown): string | null {
+	const d = x as Delegacion;
+	if (!d || typeof d !== 'object' || d.tipo !== 'delegacion-licencias')
+		return 'no es un certificado de MSP';
+	if (d.version !== 1) return 'versión de certificado desconocida';
+	if (typeof d.msp !== 'string' || !ID.test(d.msp)) return 'MSP mal formado';
+	if (typeof d.clavePublica !== 'string' || !B64.test(d.clavePublica))
+		return 'clave del MSP mal formada';
+	if (!Array.isArray(d.modulos) || d.modulos.some((m) => typeof m !== 'string' || !MODULO.test(m)))
+		return 'lista de módulos del certificado mal formada';
+	if (!fechaValida(d.emitida)) return 'fecha de emisión del certificado mal formada';
+	if (!fechaValida(d.caduca)) return 'fecha de caducidad del certificado mal formada';
+	return null;
+}
+
+/* Firma (de la clave de publicación), forma y caducidad del certificado de un MSP. */
+export function verificarDelegacion(
+	clavePublicaPublicacion: string,
+	f: unknown,
+	ahora: number = Date.now()
+): { ok: true; delegacion: Delegacion } | { ok: false; motivo: string } {
+	const x = f as DelegacionFirmada;
+	if (
+		!x ||
+		typeof x !== 'object' ||
+		typeof x.delegacion !== 'string' ||
+		typeof x.firma !== 'string'
+	)
+		return { ok: false, motivo: 'no tiene la forma de un certificado firmado' };
+	if (!firmaValida(clavePublicaPublicacion, x.delegacion, x.firma))
+		return { ok: false, motivo: 'el certificado no está firmado por SeguridadSI' };
+	let d: unknown;
+	try {
+		d = JSON.parse(x.delegacion);
+	} catch {
+		return { ok: false, motivo: 'lo firmado no es JSON' };
+	}
+	const m = motivoDelegacion(d);
+	if (m) return { ok: false, motivo: m };
+	if (Date.parse((d as Delegacion).caduca) < ahora)
+		return { ok: false, motivo: 'el certificado del MSP ha caducado' };
+	return { ok: true, delegacion: d as Delegacion };
+}
+
+const firmaValida = (clave: string, texto: string, firma: string) => {
+	try {
+		return verify(null, Buffer.from(texto), publica(clave), Buffer.from(firma, 'base64'));
+	} catch {
+		return false;
+	}
+};
+
 /* Qué falla en una licencia ya parseada, o null si su forma vale. No mira firma ni reloj. */
 export function motivoLicencia(x: unknown): string | null {
 	const l = x as Licencia;
@@ -69,38 +168,40 @@ export function motivoLicencia(x: unknown): string | null {
 		return 'lista de módulos mal formada';
 	if (typeof l.marca !== 'string' || l.marca.length === 0 || l.marca.length > 128)
 		return 'marca mal formada';
-	if (typeof l.emitida !== 'string' || !Number.isFinite(Date.parse(l.emitida)))
-		return 'fecha de emisión mal formada';
-	if (typeof l.caduca !== 'string' || !Number.isFinite(Date.parse(l.caduca)))
-		return 'fecha de caducidad mal formada';
+	if (!fechaValida(l.emitida)) return 'fecha de emisión mal formada';
+	if (!fechaValida(l.caduca)) return 'fecha de caducidad mal formada';
 	return null;
 }
 
 /*
  * Verifica firma, forma y que no esté caducada. No comprueba el módulo ni el
  * nodo: eso lo decide quien llama (la trampa, con su propio id; el panel, al
- * cotejar el nodo). Devuelve la licencia parseada si todo cuadra.
+ * cotejar el nodo). Devuelve la licencia parseada si todo cuadra. Con un
+ * certificado de MSP adjunto, sigue la cadena: el certificado tiene que valer
+ * con la clave de publicación, y la licencia, estar firmada por la clave del
+ * certificado y no pasar de sus módulos. msp: de quién es, si es de un MSP.
  */
 export function verificarLicencia(
 	clavePublicaPublicacion: string,
 	f: unknown,
 	ahora: number = Date.now()
-): { ok: true; licencia: Licencia } | { ok: false; motivo: string } {
+): { ok: true; licencia: Licencia; msp?: string } | { ok: false; motivo: string } {
 	const x = f as LicenciaFirmada;
 	if (!x || typeof x !== 'object' || typeof x.licencia !== 'string' || typeof x.firma !== 'string')
 		return { ok: false, motivo: 'no tiene la forma de una licencia firmada' };
-	let valida = false;
-	try {
-		valida = verify(
-			null,
-			Buffer.from(x.licencia),
-			publica(clavePublicaPublicacion),
-			Buffer.from(x.firma, 'base64')
-		);
-	} catch {
-		valida = false;
+	let clave = clavePublicaPublicacion;
+	let delegada: Delegacion | null = null;
+	if (x.delegacion !== undefined) {
+		const d = verificarDelegacion(clavePublicaPublicacion, x.delegacion, ahora);
+		if (!d.ok) return { ok: false, motivo: d.motivo };
+		delegada = d.delegacion;
+		clave = delegada.clavePublica;
 	}
-	if (!valida) return { ok: false, motivo: 'no está firmada por SeguridadSI' };
+	if (!firmaValida(clave, x.licencia, x.firma))
+		return {
+			ok: false,
+			motivo: delegada ? 'no está firmada por la clave del MSP' : 'no está firmada por SeguridadSI'
+		};
 	let l: unknown;
 	try {
 		l = JSON.parse(x.licencia);
@@ -110,6 +211,12 @@ export function verificarLicencia(
 	const m = motivoLicencia(l);
 	if (m) return { ok: false, motivo: m };
 	if (Date.parse((l as Licencia).caduca) < ahora) return { ok: false, motivo: 'licencia caducada' };
+	if (delegada) {
+		const permitidos = new Set(delegada.modulos);
+		const fuera = (l as Licencia).modulos.find((n) => !permitidos.has(n));
+		if (fuera) return { ok: false, motivo: `el certificado del MSP no incluye «${fuera}»` };
+		return { ok: true, licencia: l as Licencia, msp: delegada.msp };
+	}
 	return { ok: true, licencia: l as Licencia };
 }
 

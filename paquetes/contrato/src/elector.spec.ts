@@ -1602,6 +1602,8 @@ describe('elector: lo demás', () => {
 			'modulo.via-desaparecida',
 			'licencia.sin',
 			'licencia.caducada',
+			'registro.sin',
+			'registro.caducado',
 			'senal.objetivo-retirado',
 			'senal.objetivo-parado',
 			'senal.objetivo-cambiado'

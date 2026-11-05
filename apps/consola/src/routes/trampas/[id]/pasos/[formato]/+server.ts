@@ -1,3 +1,4 @@
+import { operador } from '$lib/server/operador';
 import { error } from '@sveltejs/kit';
 import type { FormatoPasos, PartePasos } from '@sugardaddy/contrato';
 import { exigir } from '$lib/server/auth/permisos';
@@ -27,7 +28,7 @@ export const GET = async ({ params, url, locals }) => {
 	if (r === 'no-cuadran')
 		error(
 			409,
-			'Los pasos guardados ya no cuadran con su huella: no se descargan. Avisa a SeguridadSI.'
+			`Los pasos guardados ya no cuadran con su huella: no se descargan. Avisa a ${await operador()}.`
 		);
 	return new Response(Buffer.from(r.contenido), {
 		headers: {

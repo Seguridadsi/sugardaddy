@@ -18,6 +18,9 @@
 					? (n / 1e3).toFixed(0) + ' KB'
 					: n + ' B';
 	const miles = (n: number) => n.toLocaleString('es-ES');
+	const fechaLarga = (iso: string) =>
+		new Date(iso).toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' });
+	const reg = $derived(data.registro);
 </script>
 
 <svelte:head>
@@ -30,6 +33,128 @@
 
 {#if form?.mensaje}<p class="mensaje" role="status">{form.mensaje}</p>{/if}
 {#if form?.error}<p class="error" role="alert">{form.error}</p>{/if}
+
+<section class="panel bloque" id="dominio">
+	<h2>Dominio de tu empresa</h2>
+	<p class="ayuda">
+		Con él, las trampas nuevas proponen nombres parecidos a los de tu red, en lugar de los de
+		fábrica. Puedes cambiarlos en cada trampa.
+	</p>
+	<form method="POST" action="?/identidad" use:enhance class="dominio">
+		<input
+			name="dominio"
+			required
+			value={data.dominioSugerido}
+			placeholder="empresa.es"
+			autocomplete="off"
+			spellcheck="false"
+			aria-label="Dominio de tu empresa"
+		/>
+		<button class="boton">Guardar</button>
+	</form>
+	{#if data.ejemplosDominio.length}
+		<p class="ayuda">
+			Por ejemplo: {#each data.ejemplosDominio as e, i (e)}{i ? ', ' : ''}<code>{e}</code>{/each}.
+		</p>
+	{/if}
+	{#if data.trampasDeFabrica.length}
+		<form method="POST" action="?/aplicarIdentidad" use:enhance>
+			<p class="ayuda">
+				Puedes aplicarlo a las que ya tienes. Se reinician unos segundos. Lo que hayas cambiado a
+				mano no se toca, ni las trampas marcadas como Externo, que no anuncian el nombre de tu
+				empresa.
+			</p>
+			<ul class="cambios">
+				{#each data.trampasDeFabrica as t (t.nombre)}
+					<li>
+						<strong>{t.nombre}</strong>:
+						{#each t.cambios as c, i (c.campo)}{i ? '; ' : ''}{c.campo}: {c.antes || '(vacío)'} →
+							<code>{c.despues}</code>{/each}
+					</li>
+				{/each}
+			</ul>
+			<button class="boton">Aplicar el dominio a esas trampas</button>
+		</form>
+	{/if}
+</section>
+
+{#if reg}
+	<section class="panel bloque" id="registro">
+		<h2>Registro gratuito</h2>
+		{#if !reg.verificable}
+			<p class="ayuda">
+				El registro no está disponible en este nodo: le falta la clave para comprobar los códigos de
+				activación. El resto de Sugardaddy funciona con normalidad.
+			</p>
+		{:else if reg.estado === 'vigente' && reg.caduca}
+			<p>
+				Registrado con <strong>{reg.correo}</strong>. Tienes las trampas de registro y las
+				actualizaciones automáticas. La licencia vale hasta el {fechaLarga(reg.caduca)} y se renueva sola.
+			</p>
+			{#if reg.fallo}<p class="aviso">Última renovación: {reg.fallo}</p>{/if}
+			<form method="POST" action="?/autoActualizar" use:enhance class="fila-registro">
+				{#if data.autoActualizar.activo}
+					<span>Actualizaciones automáticas activadas.</span>
+					<button class="boton" type="submit">Desactivar</button>
+				{:else}
+					<input type="hidden" name="activar" value="on" />
+					<span>Actualizaciones automáticas desactivadas.</span>
+					<button class="boton" type="submit">Activar</button>
+				{/if}
+			</form>
+		{:else}
+			{#if reg.estado === 'caducada' && reg.caduca}
+				<p class="aviso">
+					Tu registro caducó el {fechaLarga(reg.caduca)} y las trampas de registro se han parado. El resto
+					del nodo no se ve afectado. Se renueva solo si el nodo tiene salida a internet; si no, pega
+					un código nuevo.
+				</p>
+				{#if reg.fallo}<p class="ayuda">Última renovación: {reg.fallo}</p>{/if}
+				<form method="POST" action="?/renovarRegistro" use:enhance>
+					<button class="boton">Renovar ahora</button>
+				</form>
+			{:else if reg.estado === 'invalida'}
+				<p class="aviso">La licencia guardada no es válida. Pega un código de activación nuevo.</p>
+			{:else}
+				<p class="ayuda">
+					Registra tu correo y tendrás, sin coste, las actualizaciones automáticas y estas trampas:
+					{reg.trampas.join(', ')}.
+				</p>
+			{/if}
+			<form method="POST" action="?/pedirRegistro" use:enhance class="dominio">
+				<input
+					type="email"
+					name="correo"
+					required
+					maxlength="254"
+					value={form?.correoRegistro ?? reg.correo ?? ''}
+					placeholder="tu@empresa.com"
+					autocomplete="email"
+					aria-label="Tu correo"
+				/>
+				<button class="boton principal">Solicitar código</button>
+			</form>
+			<p class="ayuda">
+				Se envían a SeguridadSI tu correo y el nombre y la versión de este nodo. Recibirás un enlace
+				para confirmar el correo; al confirmarlo obtendrás el código de activación.
+			</p>
+			<form method="POST" action="?/activarRegistro" use:enhance class="codigo-registro">
+				<label>
+					Código de activación
+					<textarea
+						name="codigo"
+						rows="3"
+						required
+						class="mono"
+						spellcheck="false"
+						autocomplete="off"
+						placeholder="SDR1.…"></textarea>
+				</label>
+				<button class="boton">Activar</button>
+			</form>
+		{/if}
+	</section>
+{/if}
 
 <section class="panel bloque" id="actualizaciones">
 	<h2>Versión y actualizaciones</h2>
@@ -53,51 +178,10 @@
 
 	{#if data.gestionado}
 		<p class="ayuda">
-			Este nodo está dado de alta en el panel de SeguridadSI: las versiones nuevas llegan firmadas
-			por él y se instalan solas.
+			Este nodo está dado de alta en el panel de {data.operador}: las versiones nuevas llegan
+			firmadas por él y se instalan solas.
 		</p>
 	{:else}
-		<h3>Actualizarse solo</h3>
-		{#if data.autoActualizar.activo}
-			<p>
-				Activada: cuando salga una versión nueva, tu nodo se pondrá al día solo. Avisos, soporte y
-				novedades al correo <strong>{data.autoActualizar.correo}</strong>.
-			</p>
-			<form method="POST" action="?/autoActualizar" use:enhance>
-				<button class="boton" type="submit">Desactivar</button>
-			</form>
-		{:else}
-			<p>
-				Que tu nodo se actualice solo cuando saquemos una versión nueva, sin reconstruir a mano. A
-				cambio das tu correo a SeguridadSI, que te avisará de versiones, te dará soporte y te
-				contará novedades del producto.
-			</p>
-			<form method="POST" action="?/autoActualizar" use:enhance>
-				<input type="hidden" name="activar" value="on" />
-				<label>
-					Correo
-					<input
-						type="email"
-						name="correo"
-						required
-						value={data.autoActualizar.correo ?? ''}
-						placeholder="tu@empresa.com"
-					/>
-				</label>
-				<label class="interruptor">
-					<input type="checkbox" name="consentimiento" required />
-					<span>
-						<small
-							>Acepto que mi correo, con el nombre y la versión de mi nodo, se envíe a SeguridadSI y
-							que me escriba para avisarme de versiones, darme soporte y contarme novedades del
-							producto.</small
-						>
-					</span>
-				</label>
-				<button class="boton principal" type="submit">Activar</button>
-			</form>
-		{/if}
-
 		<h3>Solo avisarme</h3>
 		<p>
 			Sin actualizarse sola: la consola mira de vez en cuando si hay una versión más nueva publicada
@@ -297,7 +381,7 @@
 </section>
 
 <section class="panel bloque">
-	<h2>Acceso de soporte de SeguridadSI</h2>
+	<h2>Acceso de soporte de {data.operador}</h2>
 	{#if data.soporte.estado === 'solicitado' && data.soporte.solicitud}
 		<p class="peticion">
 			<b>{data.soporte.solicitud.por}</b> pide entrar:
@@ -316,6 +400,7 @@
 				<select id="horas" name="horas">
 					<option value="2">2 horas</option>
 					<option value="8">8 horas</option>
+					<option value="continuo">Hasta que lo cierre</option>
 				</select>
 			</div>
 			<button class="boton principal">Abrir acceso</button>
@@ -325,16 +410,20 @@
 		</form>
 	{:else if data.soporte.estado === 'abierto'}
 		<p class="ayuda">
-			Abierto como <b>{data.soporte.rol}</b> hasta las
-			{new Date(data.soporte.hasta ?? '').toLocaleString('es-ES')}. Todo lo que hagan queda en los
-			logs.
+			Abierto como <b>{data.soporte.rol}</b>
+			{#if data.soporte.hasta}
+				hasta las {new Date(data.soporte.hasta).toLocaleString('es-ES')}.
+			{:else}
+				hasta que lo cierres.
+			{/if}
+			Todo lo que hagan queda en los logs.
 		</p>
 		<form method="POST" action="?/soporteCerrar" use:enhance>
 			<button class="boton peligro">Cerrar ya</button>
 		</form>
 	{:else}
 		<p class="ayuda">
-			Cerrado. SeguridadSI solo puede pedir acceso; abrirlo, cuánto tiempo y con qué rol lo decides
+			Cerrado. {data.operador} solo puede pedir acceso; abrirlo, cuánto tiempo y con qué rol lo decides
 			tú.
 		</p>
 	{/if}
@@ -381,13 +470,14 @@
 
 
 <section class="panel bloque">
-	<h2>Panel central de SeguridadSI</h2>
+	<h2>Panel central de {data.operador}</h2>
 
 	{#if !c}
 		<p class="ayuda">
 			Este nodo funciona solo. Si lo das de alta, enviará cada minuto un latido con su versión y sus
-			cifras (nunca eventos, IPs ni secretos) y recibirá las actualizaciones firmadas por
-			SeguridadSI. Pide a SeguridadSI un código de alta.
+			cifras (nunca eventos ni secretos, y tus incidentes solo si decides compartirlos) y recibirá
+			las actualizaciones firmadas por
+			{data.operador}. Pide a {data.operador} un código de alta.
 		</p>
 		<form method="POST" action="?/alta" use:enhance>
 			<label for="panel">Dirección del panel</label>
@@ -471,13 +561,14 @@
 					<button class="boton">Latir ahora</button>
 				</form>
 				<form method="POST" action="?/cortar" use:enhance>
-					<button class="boton peligro">Cortar el canal con SeguridadSI</button>
+					<button class="boton peligro">Cortar el canal con {data.operador}</button>
 				</form>
 			{/if}
 		</div>
 		<p class="ayuda">
 			Cortar no apaga nada: las trampas siguen detectando y las respuestas siguen funcionando aquí.
-			Solo deja de llegar información al panel y de aceptarse lo que mande.
+			Solo deja de llegar información al panel y de aceptarse lo que mande. También cierra el acceso
+			de soporte y borra del panel tus incidentes, si los compartías.
 		</p>
 	{/if}
 </section>
@@ -485,8 +576,8 @@
 <section class="panel bloque">
 	<h2>Compartir con otros clientes</h2>
 	<p class="ayuda">
-		Inteligencia compartida a través del panel central de SeguridadSI: lo que te ataca a ti avisa a
-		los demás, y al revés.
+		Inteligencia compartida a través del panel central de {data.operador}: lo que te ataca a ti
+		avisa a los demás, y al revés.
 		{#if !c}Hace falta dar de alta este nodo en el panel (arriba) para que tenga efecto.{/if}
 	</p>
 	<form method="POST" action="?/comparticion" use:enhance>
@@ -503,7 +594,7 @@
 			<input type="checkbox" name="recibir" checked={data.comparticion.recibir} />
 			<span>
 				<b>Recibir la lista global</b>
-				<small>Indicadores vistos por varios clientes o aprobados por SeguridadSI.</small>
+				<small>Indicadores vistos por varios clientes o aprobados por {data.operador}.</small>
 			</span>
 		</label>
 		<button class="boton">Guardar</button>
@@ -546,6 +637,24 @@
 	.bloque h2 {
 		font-size: 16px;
 		font-weight: 600;
+	}
+
+	.fila-registro {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 12px;
+	}
+
+	.codigo-registro {
+		display: grid;
+		gap: 10px;
+		justify-items: start;
+	}
+
+	.codigo-registro label,
+	.codigo-registro textarea {
+		width: 100%;
 	}
 
 	.interruptor {
@@ -738,5 +847,23 @@
 		width: 100%;
 		resize: vertical;
 		margin-bottom: 10px;
+	}
+
+	form.dominio {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 8px;
+		margin: 8px 0;
+	}
+
+	form.dominio input {
+		flex: 0 1 280px;
+	}
+
+	ul.cambios {
+		margin: 6px 0 10px;
+		padding-left: 18px;
+		font-size: 13px;
+		line-height: 1.6;
 	}
 </style>

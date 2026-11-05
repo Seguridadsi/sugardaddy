@@ -92,22 +92,25 @@ export function verificarPeticion(
 	const t = Date.parse(fecha);
 	if (!Number.isFinite(t) || Math.abs(ahora - t) > MARGEN_RELOJ_MS)
 		return { ok: false, motivo: 'fecha fuera de margen' };
+	const bytes = Buffer.from(firma, 'base64');
 	let valida = false;
 	try {
 		valida = verify(
 			null,
 			Buffer.from(canonica(metodo, ruta, fecha, cuerpo)),
 			publica(clavePublica),
-			Buffer.from(firma, 'base64')
+			bytes
 		);
 	} catch {
 		valida = false;
 	}
 	if (!valida) return { ok: false, motivo: 'firma no válida' };
 
+	/* Por sus bytes, no por el texto: Buffer.from admite la misma firma escrita de varias formas. */
+	const huella = bytes.toString('base64');
 	for (const [f, cuando] of vistas) if (ahora - cuando > 2 * MARGEN_RELOJ_MS) vistas.delete(f);
-	if (vistas.has(firma)) return { ok: false, motivo: 'petición repetida' };
-	vistas.set(firma, ahora);
+	if (vistas.has(huella)) return { ok: false, motivo: 'petición repetida' };
+	vistas.set(huella, ahora);
 	return { ok: true };
 }
 
@@ -166,8 +169,45 @@ export type EstadoDeseado = {
 	 * se canjea en /entrar/recuperar. Opcional: los nodos anteriores lo ignoran.
 	 */
 	recuperacion?: RecuperacionPanel | null;
+	/*
+	 * Quién lleva este panel, si no es SeguridadSI: el nombre del MSP, para los
+	 * textos de la consola (docs/diseno/msp.md). Opcional: los nodos anteriores lo
+	 * ignoran, y el panel de SeguridadSI no lo manda.
+	 */
+	operador?: string;
+	/*
+	 * Incidentes que alguien del panel atiende y el nodo aún no lo sabe: al aplicarlos dejan
+	 * de escalarse (docs/diseno/vista-soc.md). Opcional: los nodos anteriores lo ignoran.
+	 */
+	atenciones?: AtencionIncidente[];
 	emitido: string;
 	caduca: string;
+};
+
+export type AtencionIncidente = { id: string; por: string };
+
+/*
+ * Un incidente, tal como lo sube un nodo cuyo cliente ha decidido compartirlos
+ * (docs/diseno/vista-soc.md). Nada de lo que escribió el atacante.
+ */
+export type IncidenteSubido = {
+	id: string;
+	origen: string;
+	estado: 'abierto' | 'cerrado';
+	motivo: string;
+	severidad: 'baja' | 'media' | 'alta' | 'critica';
+	puntos: number;
+	eventos: number;
+	/* El nombre de las trampas tocadas, acotado. */
+	trampas: string[];
+	primero: string;
+	ultimo: string;
+	abierto: string;
+	cerrado: string | null;
+	/* Si alguien lo atiende y cómo, sin su nombre: es un empleado del cliente. */
+	atendido: string | null;
+	atendidoComo: string | null;
+	escalados: number;
 };
 
 export type RecuperacionPanel = { id: string; usuario: string; codigoHash: string; caduca: string };
@@ -391,9 +431,16 @@ export type Latido = {
 		estado: 'aplicando' | 'aplicada' | 'fallida';
 		detalle: string | null;
 	};
+	/*
+	 * Solo si el cliente comparte sus incidentes o tiene abierto el soporte: lo que el panel
+	 * necesita para vigilarle. Sin eso no sube nada, ni la dirección de la consola.
+	 */
+	vigilancia?: { incidentes: boolean; consola: string | null };
 };
 
 export type { KeyObject };
 
 export * from './indicadores.ts';
 export * from './licencia.ts';
+export * from './planes.ts';
+export * from './registro.ts';

@@ -57,8 +57,8 @@
 
 {#if data.conocido}
 	<p class="hecho" role="status">
-		Origen conocido: <b>{data.conocido.nombre}</b> (<span class="mono">{data.conocido.patron}</span>).
-		Sus eventos se guardan sin avisar{data.conocido.conHorario ? ', dentro de su horario' : ''}.
+		Origen conocido: <b>{data.conocido.nombre}</b> (<span class="mono">{data.conocido.patron}</span
+		>). Sus eventos se guardan sin avisar{data.conocido.conHorario ? ', dentro de su horario' : ''}.
 		<a href="/origenes">Ver Orígenes conocidos</a>
 	</p>
 {/if}
@@ -120,7 +120,11 @@
 </div>
 
 <section class="panel">
-	<h2 class="conborde">Últimos eventos{#if data.total > data.recientes.length}<small> · {data.recientes.length} de {data.total}</small>{/if}</h2>
+	<h2 class="conborde">
+		Últimos eventos{#if data.total > data.recientes.length}<small>
+				· {data.recientes.length} de {data.total}</small
+			>{/if}
+	</h2>
 	<ListaEventos
 		eventos={data.recientes}
 		nombres={data.nombres}

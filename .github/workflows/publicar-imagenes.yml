@@ -1,6 +1,6 @@
 # Construye desde su fuente y publica en el registro de contenedores de GitHub
-# (ghcr.io/<org>): las 9 trampas gratis (y fija su digest real en los manifiestos)
-# y las 3 imágenes del nodo (consola, sensor, actualizador), etiquetadas con la
+# (ghcr.io/<org>): cowrie, la trampa de código libre (y fija su digest real en su
+# manifiesto) y las 3 imágenes del nodo (consola, sensor, actualizador), etiquetadas con la
 # versión de despliegue/nodo/VERSION. Usa el GITHUB_TOKEN propio del repositorio:
 # no hace falta ningún token ni secreto aparte. Se lanza a mano (workflow_dispatch)
 # para no entrar en bucle con el commit de los digests.
@@ -29,7 +29,8 @@ jobs:
         run: |
           set -euo pipefail
           org=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-          for t in cowrie redis login-web dns-ntp impresora retencion-ssh retencion-web smb rdp; do
+          # Las trampas de registro son cerradas: no se construyen aquí.
+          for t in cowrie; do
             etq=$(tr -d '[:space:]' < "modulos/trampas/$t/imagen/etiqueta")
             repo="ghcr.io/$org/sugardaddy-trampa-$t"
             echo "::group::$t -> $repo:$etq"
@@ -49,7 +50,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add modulos/trampas/*/trampa.yaml
-          git commit -m "Fijar el digest real de ghcr de las imágenes de las trampas gratis" || echo "sin cambios que confirmar"
+          git commit -m "Fijar el digest real de ghcr de la imagen de cowrie" || echo "sin cambios que confirmar"
           git push
 
   nodo:

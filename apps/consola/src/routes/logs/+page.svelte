@@ -36,7 +36,7 @@
 	</ul>
 </section>
 <p class="nota">
-	Los logs solo crecen: nadie, tampoco SeguridadSI, puede borrar líneas desde la consola.
+	Los logs solo crecen: nadie, tampoco {data.operador}, puede borrar líneas desde la consola.
 </p>
 
 <style>

@@ -1,11 +1,3 @@
-# Carpeta compartida (SMB) falsa (H08). Un servidor de ficheros Windows (SMB1 y
-# SMB2) que negocia, acepta cualquier inicio de sesión y deja "conectar" a sus
-# recursos, pero no sirve ni un byte de verdad: registra quién entra (usuario,
-# dominio, equipo y el hash NetNTLMv2 que llega), a qué recurso se conecta, qué
-# ficheros abre o intenta escribir (solo nombre, huella y tamaño) y las sondas
-# de gusanos tipo EternalBlue/DoublePulsar, que marca como críticas. Construida
-# sobre la base común de glutton (MIT); nunca ejecuta nada, nunca sale a la red
-# y nunca guarda el contenido que suba el atacante.
 version: 1
 id: smb
 nombre: Carpeta compartida (SMB)
@@ -15,7 +7,6 @@ descripcion: >-
   cada negociación, el usuario, dominio y equipo que se autentican (con el hash NetNTLMv2 si
   llega), el recurso al que se conectan, los ficheros que abren o intentan escribir (solo nombre,
   huella y tamaño) y las sondas de gusanos como EternalBlue y DoublePulsar, marcadas como críticas.
-# Ataque si está en la red interna (abre incidente al primer toque); fuera, por puntos.
 alerta:
   fidelidad: interno
 ficha:
@@ -39,64 +30,35 @@ tipo: contenedor
 procedencia:
   proyecto: glutton
   url: https://github.com/mushorg/glutton
-  # Base común glutton (MIT), con sugardaddy.patch. Enlaza golang.org/x/crypto
-  # (BSD-3-Clause) y la biblioteca estándar de Go (BSD-3-Clause); avisos en
-  # /licencias de la imagen. Sin dependencias GPL/AGPL ni sin licencia (se quita
-  # hpfeeds y la capa TPROXY/pcap del upstream).
   licencia: MIT AND BSD-3-Clause
 
 contenedor:
-  # Imagen propia, construida con imagen/preparar.sh (que llama a la base común
-  # modulos/comun/glutton) desde el commit fijado de glutton y con
-  # sugardaddy.patch. Los ceros los cambia por el digest de verdad
-  # herramientas/publicar-trampa.sh smb; el banco de pruebas usa la local.
-  imagen: ghcr.io/seguridadsi/sugardaddy-trampa-smb:1.0.1-sd1@sha256:4860e74ad985e1223aef63f7825fe36a685e9f2141c0eb84711cfec6c59cc7f8
-  imagenPublica: ghcr.io/seguridadsi/sugardaddy-trampa-smb:1.0.1-sd1@sha256:4860e74ad985e1223aef63f7825fe36a685e9f2141c0eb84711cfec6c59cc7f8
+  imagen: ghcr.io/seguridadsi/sugardaddy-registro-smb:1.0.1-sd2@sha256:2396284960015fa5f12e6b98b5a5677eeaea65b68114288a496510b7bdcac317
+  imagenPublica: ghcr.io/seguridadsi/sugardaddy-registro-smb:1.0.1-sd2@sha256:2396284960015fa5f12e6b98b5a5677eeaea65b68114288a496510b7bdcac317
   puertos:
     - { interno: 1445, expuesto: '${puertoSmb}', protocolo: tcp }
   entorno:
-    # El binario escucha SIEMPRE en el 1445 interno (el contrato pide 1024 o más); el puerto que ve el atacante
-    # lo mapea Docker (puertos.expuesto). El protocolo y el módulo los fija la
-    # imagen; aquí se repiten para que se vean al revisar el módulo.
     SD_GLUTTON_PROTO: smb
     SD_GLUTTON_MODULE: smb
     SD_GLUTTON_LISTEN: ':1445'
     SD_GLUTTON_LOG_DIR: /registros
-    # Identidad que anuncia (nombre NetBIOS y dominio/grupo): que cuadre con tu red.
     SD_GLUTTON_EQUIPO: ${nombreEquipo}
     SD_GLUTTON_DOMINIO: ${dominio}
-    # Recursos compartidos creíbles que se ofrecen (a efectos de credibilidad y
-    # registro; la trampa acepta la conexión a cualquiera y nunca sirve datos).
     SD_GLUTTON_RECURSOS: ${recursos}
-    # Topes (no los toca el cliente): acotan memoria, CPU y disco aunque miles de
-    # atacantes se conecten a la vez. Conexiones totales y por IP; inactividad;
-    # tope del registro por día (64 MB), con pase libre a los primeros de cada
-    # tipo por si una IP intenta cegarlo; y el prefijo que se captura de lo que
-    # suben o inyectan (el contenido no se guarda: solo huella y tamaño), para
-    # que la RAM vaya holgada en 128 MB.
     SD_GLUTTON_MAX_CONN: '128'
     SD_GLUTTON_MAX_CONN_IP: '8'
     SD_GLUTTON_IDLE_S: '30'
-    # Vida máxima absoluta de una conexión: aunque el atacante mande keepalives
-    # para no caer por inactividad, se cierra a los 120 s y se vuelca lo
-    # capturado (si no, los eventos tardaban minutos o se perdían al parar).
     SD_GLUTTON_VIDA_S: '120'
     SD_GLUTTON_MAX_LOG_BYTES: '67108864'
     SD_GLUTTON_LIBRES_TIPO: '64'
-    # Eventos que nunca deben silenciarse del todo: cada IP tiene su propia bolsa
-    # garantizada para exploits e inicios de sesión, aunque otras IP llenen el día.
     SD_GLUTTON_PRIORITARIOS: 'smb.exploit,smb.session.auth'
     SD_GLUTTON_LIBRES_PRIO: '128'
     SD_GLUTTON_RESUMEN_S: '300'
     SD_GLUTTON_MAX_IPS: '4096'
     SD_GLUTTON_MAX_FILE_BYTES: '1048576'
     SD_GLUTTON_MAX_TX_BYTES: '1048576'
-    # Presupuesto de bytes leídos por conexión: superado, se corta (acota memoria
-    # y CPU aunque una IP mande muchos marcos).
     SD_GLUTTON_MAX_CONN_BYTES: '4194304'
-    # El recolector de Go aprieta antes del límite del contenedor.
     GOMEMLIMIT: 96MiB
-  # Lo único que escribe es su registro, aquí.
   registros: /registros
 
 aislamiento:
@@ -118,12 +80,14 @@ parametros:
       default: 445
     nombreEquipo:
       type: string
+      x-camuflaje: 'equipo:fs'
       title: Nombre del equipo
       description: El nombre NetBIOS que anuncia en la negociación y en el reto NTLM. Que encaje con los servidores de ficheros de la red (FS01, NAS01).
       pattern: '^[A-Za-z0-9-]{1,15}$'
       default: FS01
     dominio:
       type: string
+      x-camuflaje: 'netbios'
       title: Dominio o grupo de trabajo
       description: El dominio/grupo que anuncia. Pon el de tu red para que parezca un servidor más.
       pattern: '^[A-Za-z0-9-]{1,15}$'
@@ -168,21 +132,14 @@ eventos:
       smb.session.connect: baja
       smb.session.negotiate: baja
       smb.session.auth: alta
-      # Sesión nula o de invitado (un barrido rutinario tipo nmap -sC): media, no
-      # alta, para no tapar los inicios de sesión con credenciales de verdad.
       smb.session.anonymous: media
       smb.tree.connect: media
       smb.file.open: media
       smb.file.write: alta
       smb.rpc.call: media
-      # EternalBlue/DoublePulsar: el vector de WannaCry y NotPetya.
       smb.exploit: critica
-      # El registro va lleno y se está callando parte: la consola tiene que verlo.
       smb.log.omitidos: alta
-      # Conexiones rechazadas por tope (global o por IP): un atacante intentando
-      # dejar la trampa muda.
       smb.session.rechazos: alta
-  # SMB es TCP: el saludo se completó, el origen no está falseado.
   conexionEstablecida: true
   detalle:
     - eventid

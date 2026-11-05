@@ -110,8 +110,7 @@ export async function aplicarTriajeAutoAhora(eventos: readonly Evento[]): Promis
 	const filas = [];
 	for (const e of eventos) {
 		const t = triajeDeReglas(vigentes, e);
-		if (t)
-			filas.push({ evento: e.id, estado: t.estado, nota: t.nota, quien: 'triaje automático' });
+		if (t) filas.push({ evento: e.id, estado: t.estado, nota: t.nota, quien: 'triaje automático' });
 	}
 	if (!filas.length) return;
 	/* No pisa un triaje ya puesto (a mano o por una regla anterior): el de la persona manda. */

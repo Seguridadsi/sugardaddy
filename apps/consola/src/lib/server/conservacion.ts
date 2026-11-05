@@ -221,8 +221,7 @@ export async function purgar(ahora = new Date()) {
 	/* Las entradas de lista caducadas se van cada hora, con su propio TTL, al
 	 * margen del plazo de conservación de eventos (y de su aviso de 30 días). */
 	const listas = await borrarListasVencidasAntesDe(ahora);
-	if (listas)
-		await auditar('nodo', 'entradas de lista caducadas borradas', { entradas: listas });
+	if (listas) await auditar('nodo', 'entradas de lista caducadas borradas', { entradas: listas });
 	const c = await conservacion(ahora);
 	const limite = limiteDeBorrado(c, ahora);
 	const limiteAuditoria = limiteDeAuditoria(c, ahora);

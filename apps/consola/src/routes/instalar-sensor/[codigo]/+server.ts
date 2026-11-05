@@ -23,7 +23,7 @@ export const GET = async ({ params }) => {
 		if (e instanceof ErrorCliente) return fallo(e.message);
 		console.error('[instalar-sensor]', e);
 		return fallo(
-			'la consola no ha podido preparar la instalación. Inténtalo de nuevo en unos minutos; si sigue, avisa a SeguridadSI.'
+			'la consola no ha podido preparar la instalación. Inténtalo de nuevo en unos minutos; si sigue, avisa a quien te da soporte.'
 		);
 	}
 };

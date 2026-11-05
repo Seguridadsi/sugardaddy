@@ -122,6 +122,8 @@ const TIPO_DE_TRAMPA: Record<string, TipoDeServicio> = {
 	'fichero-excel': 'ficheros',
 	'fichero-pdf': 'ficheros',
 	'imagen-svg': 'ficheros',
+	'centinela-ransomware': 'ficheros',
+	'keepass-cebo': 'ficheros',
 	/* El receptor que recoge las balizas de esos ficheros */
 	'receptor-balizas': 'ficheros',
 	/* Retención: las que hacen perder el tiempo al intruso */

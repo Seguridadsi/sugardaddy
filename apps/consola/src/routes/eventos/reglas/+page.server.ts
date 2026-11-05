@@ -17,7 +17,11 @@ import { CRITERIOS_TRIAJE, type CriterioTriaje } from '$lib/server/triaje-auto';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /* El valor de una regla, validado según su criterio. Devuelve el error o null. */
-function valorMal(criterio: CriterioTriaje, valor: string, trampas: Record<string, string>): string | null {
+function valorMal(
+	criterio: CriterioTriaje,
+	valor: string,
+	trampas: Record<string, string>
+): string | null {
 	const v = valor.trim();
 	if (!v) return 'Pon un valor para la regla.';
 	if (v.length > 200) return 'El valor es demasiado largo.';

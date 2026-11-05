@@ -1,12 +1,3 @@
-# Escritorio remoto (RDP) falso (H06). Un servidor RDP de Windows que negocia
-# X.224 (con la cookie mstshash), termina TLS con un certificado con la forma
-# del de un Windows real y completa CredSSP/NLA: captura usuario, dominio,
-# equipo y el hash NetNTLMv2 de cada intento, y —si se prueba una contraseña
-# que la trampa reconoce— la contraseña en claro. A los que fallan les devuelve
-# "logon failure" (creíble, no corta), así el atacante sigue probando y
-# nosotros capturando. Construido sobre la base común de glutton (MIT); nunca
-# ejecuta nada, nunca sale a la red y nunca guarda sin límite lo que suba el
-# atacante (de cada marco, solo un prefijo acotado).
 version: 1
 id: rdp
 nombre: Escritorio remoto (RDP)
@@ -16,7 +7,6 @@ descripcion: >-
   Registra cada conexión y negociación (con la cookie mstshash), el usuario, dominio y equipo de
   cada intento de inicio de sesión y el hash NetNTLMv2 que llega; si pones una contraseña sembrada
   y alguien la prueba, la captura en claro. Objetivo número uno de fuerza bruta y movimiento lateral.
-# Ataque si está en la red interna (abre incidente al primer toque); fuera, por puntos.
 alerta:
   fidelidad: interno
 ficha:
@@ -40,73 +30,32 @@ tipo: contenedor
 procedencia:
   proyecto: glutton
   url: https://github.com/mushorg/glutton
-  # Base común glutton (MIT), con sugardaddy-rdp.patch (se quita hpfeeds y la
-  # capa TPROXY/pcap, se sustituye viper por configuración por entorno y se
-  # corrige el sellado CredSSP/NLA para interoperar con clientes reales). El
-  # binario enlaza golang.org/x/crypto (BSD-3-Clause) y la biblioteca estándar
-  # de Go (BSD-3-Clause); avisos en /licencias de la imagen. Sin dependencias
-  # GPL/AGPL ni sin licencia.
   licencia: MIT AND BSD-3-Clause
 
 contenedor:
-  # Imagen propia, construida con imagen/preparar.sh (que llama a la base común
-  # modulos/comun/glutton) desde el commit fijado de glutton y con
-  # sugardaddy-rdp.patch. Los ceros los cambia por el digest de verdad
-  # herramientas/publicar-trampa.sh rdp; el banco de pruebas usa la local.
-  imagen: ghcr.io/seguridadsi/sugardaddy-trampa-rdp:1.0.1-sd1@sha256:9a82335129c74186c1dc3ca7846e843e34f6065b798d39884ebec19fd02401b9
-  imagenPublica: ghcr.io/seguridadsi/sugardaddy-trampa-rdp:1.0.1-sd1@sha256:9a82335129c74186c1dc3ca7846e843e34f6065b798d39884ebec19fd02401b9
+  imagen: ghcr.io/seguridadsi/sugardaddy-registro-rdp:1.0.1-sd2@sha256:5a8f1a81fd073a90773ede88e1127c1f0a60be590ee9ea5da1f820416755be36
+  imagenPublica: ghcr.io/seguridadsi/sugardaddy-registro-rdp:1.0.1-sd2@sha256:5a8f1a81fd073a90773ede88e1127c1f0a60be590ee9ea5da1f820416755be36
   puertos:
     - { interno: 3389, expuesto: '${puertoRdp}', protocolo: tcp }
   entorno:
-    # El binario escucha SIEMPRE en el 3389 interno; el puerto que ve el atacante
-    # lo mapea Docker (puertos.expuesto). El protocolo y el módulo los fija la
-    # imagen; aquí se repiten para que se vean al revisar el módulo.
     SD_GLUTTON_PROTO: rdp
     SD_GLUTTON_MODULE: rdp
     SD_GLUTTON_LISTEN: ':3389'
     SD_GLUTTON_LOG_DIR: /registros
-    # Identidad que anuncia (nombre de equipo y dominio): aparece en el
-    # certificado TLS (CN) y en el reto NTLM, para que cuadre con tu red y con
-    # lo que lee un escáner (nmap -sV, rdp-ntlm-info).
     SD_GLUTTON_EQUIPO: ${nombreEquipo}
     SD_GLUTTON_DOMINIO: ${dominio}
-    # Dominio DNS (FQDN) opcional: si lo pones, el reto NTLM anuncia ese
-    # DnsDomainName y el DnsComputerName equipo.FQDN, como un equipo de dominio
-    # real. Vacío: en grupo de trabajo se anuncia el propio equipo (como un
-    # Windows standalone); con dominio NetBIOS, ese mismo nombre.
     SD_RDP_DOMINIO_DNS: ${dominioDns}
-    # Seguridad que exige: "nla" (por defecto) completa CredSSP/NLA como un
-    # Windows Server moderno y captura el NetNTLMv2 (y la contraseña en claro si
-    # se acepta); además rechaza con RDP_NEG_FAILURE (HYBRID_REQUIRED_BY_SERVER)
-    # a quien pide seguridad X.224 sin CredSSP, como un servidor con NLA
-    # obligatorio; "tls" deja que la contraseña llegue en claro en el Client Info.
     SD_RDP_SEGURIDAD: ${seguridad}
-    # Contraseña sembrada que la trampa ACEPTA por NLA (p. ej. una credencial
-    # trampa colocada en otra parte): quien la pruebe "entra" y la trampa captura
-    # su contraseña en claro. Vacía: ningún login se acepta (todos "logon failure").
     SD_RDP_ACEPTA: ${contrasenaSembrada}
-    # Topes (no los toca el cliente): acotan memoria, CPU y disco aunque miles de
-    # atacantes se conecten a la vez. Conexiones totales y por IP; inactividad;
-    # tope del registro por día (64 MB) con pase libre a los primeros de cada
-    # tipo por si una IP intenta cegarlo. De cada marco solo se guarda un prefijo
-    # (el contenido no se registra), para que la RAM vaya holgada en 128 MB.
     SD_GLUTTON_MAX_CONN: '128'
     SD_GLUTTON_MAX_CONN_IP: '8'
     SD_GLUTTON_IDLE_S: '30'
-    # Vida máxima absoluta de una conexión: aunque el atacante mande un byte cada
-    # pocos segundos para no caer por inactividad (slowloris), a los 120 s se
-    # corta y el manejador vacía lo capturado. Sin esto, unas pocas IP podían
-    # ocupar todos los huecos para siempre. Las conexiones rechazadas por tope se
-    # resumen en rdp.session.rechazos (alta).
     SD_GLUTTON_VIDA_S: '120'
     SD_GLUTTON_MAX_LOG_BYTES: '67108864'
     SD_GLUTTON_LIBRES_TIPO: '64'
     SD_GLUTTON_RESUMEN_S: '300'
     SD_GLUTTON_MAX_IPS: '4096'
-    # El recolector de Go aprieta antes del límite del contenedor.
     GOMEMLIMIT: 96MiB
-  # Lo único que escribe es su registro y, junto a él, el certificado TLS de la
-  # instancia (para que no cambie en cada reinicio, como un Windows real).
   registros: /registros
 
 aislamiento:
@@ -128,12 +77,14 @@ parametros:
       default: 3389
     nombreEquipo:
       type: string
+      x-camuflaje: 'equipo:ts'
       title: Nombre del equipo
       description: El nombre que anuncia en el certificado TLS y en el reto NTLM. Que encaje con los servidores de la red (TS01, RDS01).
       pattern: '^[A-Za-z0-9-]{1,15}$'
       default: TS01
     dominio:
       type: string
+      x-camuflaje: 'netbios'
       title: Dominio o grupo de trabajo
       description: >-
         El dominio o grupo de trabajo NetBIOS que anuncia en el reto NTLM. Pon el de tu red para que
@@ -143,6 +94,7 @@ parametros:
       default: WORKGROUP
     dominioDns:
       type: string
+      x-camuflaje: 'dominio'
       title: Dominio DNS (FQDN, opcional)
       description: >-
         FQDN del dominio (p. ej. corp.example.com) para que el reto NTLM anuncie ese DnsDomainName y
@@ -196,21 +148,12 @@ eventos:
     porValor:
       rdp.session.connect: baja
       rdp.session.negotiate: baja
-      # Un intento de login (fuerza bruta, captura de NetNTLMv2): alto.
       rdp.auth: alta
-      # Un login ACEPTADO (alguien usó una credencial sembrada): crítico.
       rdp.auth.aceptado: critica
-      # Una herramienta de explotación (canal MS_T120 de BlueKeep/MS12-020): crítico.
       rdp.exploit: critica
-      # El registro va lleno y se está callando parte: la consola tiene que verlo.
       rdp.log.omitidos: alta
-      # Resumen de conexiones rechazadas por tope (global o por IP): alto, para
-      # que la consola vea que alguien intenta cegar la trampa.
       rdp.session.rechazos: alta
-      # Una conexión se cortó por un fallo interno (red de seguridad del
-      # manejador): la consola tiene que verlo.
       rdp.error: alta
-  # RDP es TCP: el saludo se completó, el origen no está falseado.
   conexionEstablecida: true
   detalle:
     - eventid

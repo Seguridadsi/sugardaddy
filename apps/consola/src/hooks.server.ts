@@ -4,6 +4,7 @@ import { env } from '$env/dynamic/private';
 import { configuradoEnEntorno } from '$lib/server/auth/entra';
 import { leer } from '$lib/server/auth/sesion';
 import { altaAutomatica, considerarCommunity, latir } from '$lib/server/canal';
+import { renovar } from '$lib/server/registro';
 import { purgar } from '$lib/server/conservacion';
 import { rellenarSiHaceFalta } from '$lib/server/credenciales';
 import { comprobarActualizacion } from '$lib/server/actualizaciones';
@@ -39,6 +40,8 @@ export const init: ServerInit = () => {
 		void comprobarActualizacion().catch((e) => console.error('[actualizaciones]', e));
 		/* Community opted-in: baja la release firmada y, si toca, la deja pendiente. */
 		void considerarCommunity().catch((e) => console.error('[auto-actualización]', e));
+		/* Registro de Community: renueva su licencia cuando le toca. Falla cerrado y aparte. */
+		void renovar().catch((e) => console.error('[registro]', e));
 	};
 	const a = globalThis as { __actualizaciones?: ReturnType<typeof setInterval> };
 	if (a.__actualizaciones) clearInterval(a.__actualizaciones);

@@ -1,4 +1,12 @@
+import { operador } from '$lib/server/operador';
 import { fail, redirect } from '@sveltejs/kit';
+import { leerDominio, proponer, sugerirDominio } from '$lib/camuflaje';
+import {
+	aplicarIdentidad,
+	guardarIdentidad,
+	identidad,
+	trampasDeFabrica
+} from '$lib/server/identidad';
 import { exigir } from '$lib/server/auth/permisos';
 import { loginLocalHabilitado } from '$lib/server/auth/local';
 import { configuradoEnEntorno } from '$lib/server/auth/entra';
@@ -33,7 +41,15 @@ import {
 	webhook
 } from '$lib/server/consultas';
 import { gestionado } from '$lib/server/actualizaciones';
-import { enviarLead } from '$lib/server/lead';
+import {
+	activar,
+	estadoRegistro,
+	pedirRegistro,
+	puedeRegistrarse,
+	renovar
+} from '$lib/server/registro';
+import { honeycosas } from '$lib/server/catalogo';
+import { MODULOS_REGISTRO } from '$lib/server/modulos-gratis';
 import { db, schema as s } from '$lib/server/db';
 import { aceptar, cerrarYa, rechazar, soporte } from '$lib/server/soporte';
 import {
@@ -57,6 +73,7 @@ const DIA_MS = 86_400_000;
 
 export const load = async ({ locals, url }) => {
 	exigir(locals, 'ajustes');
+	const empresa = await identidad();
 	const a = await actualizacion();
 	const cons = await conservacion();
 	const esp = await estadoEspacio();
@@ -66,6 +83,21 @@ export const load = async ({ locals, url }) => {
 		gestionado: await gestionado(),
 		buscarActualizaciones: await buscarActualizaciones(),
 		autoActualizar: await autoActualizar(),
+		registro: (await puedeRegistrarse())
+			? {
+					...(await estadoRegistro()),
+					trampas: honeycosas()
+						.filter((h) => MODULOS_REGISTRO.has(h.id))
+						.map((h) => h.nombre)
+				}
+			: null,
+		dominioSugerido: empresa.dominio ?? sugerirDominio(url.hostname),
+		ejemplosDominio: empresa.dominio
+			? ['equipo:fs', 'equipo:sql', 'host:bak', 'fqdn:mail'].flatMap(
+					(t) => proponer(t, empresa.dominio!, { semilla: empresa.semilla }) ?? []
+				)
+			: [],
+		trampasDeFabrica: await trampasDeFabrica(),
 		webhook: await webhook(),
 		espacio: esp,
 		estimacion: estimacion(esp, cons.dias),
@@ -109,40 +141,87 @@ export const actions = {
 		await guardarBuscarActualizaciones(u.correo, (await request.formData()).get('buscar') === 'on');
 		return { mensaje: 'Guardado.' };
 	},
+	identidad: async ({ request, locals }) => {
+		const u = exigir(locals, 'ajustes');
+		const form = await request.formData();
+		const antes = await identidad();
+		if (form.get('omitir') === 'si') {
+			await guardarIdentidad(u.correo, { decidido: true, dominio: antes.dominio });
+			return { mensaje: 'De acuerdo. Puedes ponerlo cuando quieras en Ajustes.' };
+		}
+		const texto = String(form.get('dominio') ?? '');
+		const dominio = leerDominio(texto);
+		if (!dominio)
+			return fail(400, { error: `«${texto.trim()}» no es un dominio: escríbelo como empresa.es.` });
+		await guardarIdentidad(u.correo, { decidido: true, dominio });
+		return { mensaje: `Guardado: ${dominio}. Las trampas nuevas tomarán nombres de ese dominio.` };
+	},
+	aplicarIdentidad: async ({ locals }) => {
+		const u = exigir(locals, 'ajustes');
+		const { cambiadas, sinCambiar } = await aplicarIdentidad(u.correo);
+		const partes = [
+			cambiadas.length === 1
+				? '1 trampa actualizada: el sensor la vuelve a poner en su siguiente consulta.'
+				: `${cambiadas.length} trampas actualizadas: el sensor las vuelve a poner en su siguiente consulta.`,
+			...sinCambiar.map((x) => `«${x.nombre}» se queda como está: ${x.motivo}.`)
+		];
+		return { mensaje: partes.join(' ') };
+	},
+	pedirRegistro: async ({ request, locals }) => {
+		exigir(locals, 'ajustes');
+		if (!(await puedeRegistrarse())) return fail(400, { error: 'Este nodo no necesita registro.' });
+		const correo = String((await request.formData()).get('correo') ?? '').trim();
+		if (correo.length > 254 || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(correo))
+			return fail(400, { error: 'Escribe un correo válido.', correoRegistro: correo });
+		const r = await pedirRegistro(correo);
+		if (r === 'enviado')
+			return {
+				mensaje: `Si el correo es correcto, recibirás en ${correo} un enlace para confirmarlo. Al confirmar obtendrás el código de activación.`,
+				correoRegistro: correo
+			};
+		const textos = {
+			'no-disponible':
+				'El registro no está disponible en este momento. El resto de Sugardaddy sigue funcionando con normalidad.',
+			demasiados:
+				'Se han hecho demasiadas solicitudes seguidas. Inténtalo de nuevo dentro de un rato.',
+			'correo-invalido': 'Escribe un correo válido.',
+			'sin-conexion':
+				'No se ha podido contactar con el panel de SeguridadSI. Comprueba que el nodo tiene salida a internet.'
+		} as const;
+		return fail(400, { error: textos[r], correoRegistro: correo });
+	},
+	activarRegistro: async ({ request, locals }) => {
+		const u = exigir(locals, 'ajustes');
+		const codigo = String((await request.formData()).get('codigo') ?? '');
+		const r = await activar(u.correo, codigo);
+		if (!r.ok) return fail(400, { error: r.error });
+		return { mensaje: 'Registro activado. Ya puedes desplegar las trampas de registro.' };
+	},
+	renovarRegistro: async ({ locals }) => {
+		exigir(locals, 'ajustes');
+		const r = await renovar(Date.now(), true);
+		if (r === 'renovada') return { mensaje: 'Registro renovado.' };
+		const { fallo } = await estadoRegistro();
+		return fail(400, { error: fallo ?? 'No se ha podido renovar el registro.' });
+	},
 	autoActualizar: async ({ request, locals }) => {
 		const u = exigir(locals, 'ajustes');
 		if (await gestionado())
 			return fail(400, {
 				error: 'Este nodo lo gestiona un panel; la auto-actualización se controla desde ahí.'
 			});
-		const form = await request.formData();
-		const activar = form.get('activar') === 'on';
-		const correo = String(form.get('correo') ?? '').trim();
-		if (activar) {
-			if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(correo))
-				return fail(400, { error: 'Pon un correo válido para activar la auto-actualización.' });
-			if (form.get('consentimiento') !== 'on')
-				return fail(400, { error: 'Marca el consentimiento para activar la auto-actualización.' });
-		}
-		const anterior = await autoActualizar();
+		const activo = (await request.formData()).get('activar') === 'on';
+		const { estado, correo } = await estadoRegistro();
+		if (activo && (estado === 'sin' || estado === 'invalida'))
+			return fail(400, { error: 'Las actualizaciones automáticas se activan con el registro.' });
 		await guardarAutoActualizar(u.correo, {
 			decidido: true,
-			activo: activar,
-			correo: activar ? correo : null,
-			consentimiento: activar ? new Date().toISOString() : null
+			activo,
+			correo,
+			consentimiento: activo ? new Date().toISOString() : null
 		});
-		/*
-		 * Lead a SeguridadSI (solo nodos community: enviarLead corta solo si hay
-		 * panel). El mismo consentimiento de la casilla cubre recibir novedades.
-		 * No se espera (void): el guardado local ya está hecho y el envío es
-		 * best-effort con su propio timeout; así el toggle responde al instante
-		 * aunque el panel esté caído o lento.
-		 */
-		if (activar) void enviarLead('alta', correo).catch(() => {});
-		else if (anterior.activo && anterior.correo)
-			void enviarLead('baja', anterior.correo).catch(() => {});
 		return {
-			mensaje: activar ? 'Auto-actualización activada.' : 'Auto-actualización desactivada.'
+			mensaje: activo ? 'Auto-actualización activada.' : 'Auto-actualización desactivada.'
 		};
 	},
 	webhook: async ({ request, locals }) => {
@@ -283,22 +362,28 @@ export const actions = {
 	soporteAceptar: async ({ locals, request }) => {
 		const u = exigir(locals, 'ajustes');
 		const f = await request.formData();
-		const horas = f.get('horas') === '8' ? 8 : 2;
+		const pedido = f.get('horas');
+		const horas = pedido === 'continuo' ? null : pedido === '8' ? 8 : 2;
 		const rol = f.get('rol') === 'operador' ? 'operador' : 'lector';
 		return (await aceptar(u.correo, horas, rol))
-			? { mensaje: `Soporte abierto ${horas} horas como ${rol}.` }
+			? {
+					mensaje:
+						horas === null
+							? `Soporte abierto como ${rol}, hasta que lo cierres.`
+							: `Soporte abierto ${horas} horas como ${rol}.`
+				}
 			: fail(400, { error: 'No hay ninguna petición pendiente.' });
 	},
 	soporteRechazar: async ({ locals }) => {
 		const u = exigir(locals, 'ajustes');
 		return (await rechazar(u.correo))
-			? { mensaje: 'Petición rechazada. SeguridadSI lo verá en el panel.' }
+			? { mensaje: `Petición rechazada. ${await operador()} lo verá en el panel.` }
 			: fail(400, { error: 'No hay ninguna petición pendiente.' });
 	},
 	soporteCerrar: async ({ locals }) => {
 		const u = exigir(locals, 'ajustes');
 		return (await cerrarYa(u.correo))
-			? { mensaje: 'Soporte cerrado. Las sesiones de SeguridadSI se han cortado.' }
+			? { mensaje: `Soporte cerrado. Las sesiones de ${await operador()} se han cortado.` }
 			: fail(400, { error: 'El soporte no estaba abierto.' });
 	},
 	reanudar: async ({ locals }) => {

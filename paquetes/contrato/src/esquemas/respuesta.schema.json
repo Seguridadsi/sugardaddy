@@ -86,6 +86,10 @@
 				"enum": ["ip", "red", "dominio", "url", "hash", "usuario", "equipo", "comando"]
 			}
 		},
+		"soloIpPublicas": {
+			"description": "El sistema en el que actúa solo ve direcciones públicas (Entra, Cloudflare): una IP privada no llega a la respuesta ni pide aprobación.",
+			"type": "boolean"
+		},
 		"secretos": {
 			"description": "Secretos que necesita. Se guardan cifrados en el nodo del cliente y nunca suben al panel central.",
 			"type": "array",

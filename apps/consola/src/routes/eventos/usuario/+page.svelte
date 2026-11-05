@@ -86,11 +86,11 @@
 </div>
 
 <section class="panel">
-	<h2 class="conborde"
-		>Últimos eventos{#if data.total > data.recientes.length}<small>
+	<h2 class="conborde">
+		Últimos eventos{#if data.total > data.recientes.length}<small>
 				· {data.recientes.length} de {data.total}</small
-			>{/if}</h2
-	>
+			>{/if}
+	</h2>
 	<ListaEventos
 		eventos={data.recientes}
 		nombres={data.nombres}

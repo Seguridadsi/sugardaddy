@@ -893,11 +893,10 @@ export async function guardarActualizacionDisponible(version: string | null) {
 }
 
 /*
- * Opt-in de auto-actualización (solo nodos sin gestión). La persona puede
- * activarla en el primer arranque, en Ajustes, o cuando el banner de versión
- * nueva se la vuelve a ofrecer: siempre disponible. A cambio deja su correo
- * (dato personal: se guarda con la fecha del consentimiento). `decidido` marca
- * que ya se le preguntó, para no insistir con el aviso de primer arranque.
+ * Auto-actualización (solo nodos sin gestión). Se activa con el registro
+ * gratuito (registro.ts), con el correo que se confirmó allí: no hay otro. Luego se
+ * puede apagar y encender aquí, en local. `decidido` marca que ya se le preguntó,
+ * para no insistir con el aviso de primer arranque.
  */
 export type AutoActualizar = {
 	decidido: boolean;

@@ -9,6 +9,7 @@
 	let { data } = $props();
 	const m = $derived(data.modulo);
 	const opera = $derived(puede(page.data.usuario?.roles ?? [], 'desplegar'));
+	const administra = $derived(puede(page.data.usuario?.roles ?? [], 'ajustes'));
 	/* Si lleva el logotipo de un proyecto, el reconocimiento que pide su licencia. */
 	const credito = $derived(iconoTrampa(m.procedencia).credito);
 </script>
@@ -84,10 +85,19 @@
 					{/if}
 				{/if}
 				{#if !m.disponible}
-					<p class="nota">
-						{m.porQueNo}: puedes ver cómo funciona, pero no desplegarla. Habla con SeguridadSI si te
-						interesa.
-					</p>
+					{#if m.activarConRegistro}
+						<p class="nota">
+							{m.porQueNo}: {m.registroCaducado ? 'renuévalo' : 'registra tu correo'} en
+							{#if administra}<a href="{resolve('/ajustes')}#registro">Ajustes</a
+								>{:else}Ajustes{/if}
+							y podrás desplegarla, sin coste.
+						</p>
+					{:else}
+						<p class="nota">
+							{m.porQueNo}: puedes ver cómo funciona, pero no desplegarla. Habla con {data.operador} si
+							te interesa.
+						</p>
+					{/if}
 				{/if}
 			</section>
 		{:else}

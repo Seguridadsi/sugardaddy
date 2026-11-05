@@ -49,7 +49,16 @@ const IP_OTRA = '198.51.100.244';
 const USUARIO = 'zzperfiluser';
 const ID = (n: number) => `cccccccc-0000-4000-8000-${String(n).padStart(12, '0')}`;
 
-function fila(n: number, v: Partial<{ ip: string; trampa: string; accion: string; sev: 'baja' | 'media' | 'alta' | 'critica'; input: string }> = {}) {
+function fila(
+	n: number,
+	v: Partial<{
+		ip: string;
+		trampa: string;
+		accion: string;
+		sev: 'baja' | 'media' | 'alta' | 'critica';
+		input: string;
+	}> = {}
+) {
 	const id = ID(n);
 	const ip = v.ip ?? IP;
 	const trampa = v.trampa ?? TRAMPA;
@@ -100,15 +109,31 @@ describe.skipIf(!hayBase)('perfil de IP, reglas y triaje automático', () => {
 		await limpiar();
 		await db.insert(s.sensores).values({ id: SENSOR, nombre: SENSOR, claveHash: `x-${SENSOR}` });
 		await db.insert(s.trampas).values([
-			{ id: TRAMPA, nombre: 'SSH falso', modulo: 'cowrie', tipo: 'contenedor', sensor: SENSOR, donde: 'ya' },
-			{ id: TRAMPA2, nombre: 'Web falsa', modulo: 'cowrie', tipo: 'contenedor', sensor: SENSOR, donde: 'ya' }
+			{
+				id: TRAMPA,
+				nombre: 'SSH falso',
+				modulo: 'cowrie',
+				tipo: 'contenedor',
+				sensor: SENSOR,
+				donde: 'ya'
+			},
+			{
+				id: TRAMPA2,
+				nombre: 'Web falsa',
+				modulo: 'cowrie',
+				tipo: 'contenedor',
+				sensor: SENSOR,
+				donde: 'ya'
+			}
 		]);
-		await db.insert(s.eventos).values([
-			fila(1, { sev: 'alta', accion: 'comando' }),
-			fila(2, { sev: 'critica', accion: 'comando' }),
-			fila(3, { sev: 'media', accion: 'login', trampa: TRAMPA2 }),
-			fila(4, { ip: IP_OTRA, sev: 'baja' })
-		]);
+		await db
+			.insert(s.eventos)
+			.values([
+				fila(1, { sev: 'alta', accion: 'comando' }),
+				fila(2, { sev: 'critica', accion: 'comando' }),
+				fila(3, { sev: 'media', accion: 'login', trampa: TRAMPA2 }),
+				fila(4, { ip: IP_OTRA, sev: 'baja' })
+			]);
 	});
 	afterAll(async () => {
 		if (hayBase && !process.env.CONSERVAR) await limpiar();
@@ -194,7 +219,12 @@ describe.skipIf(!hayBase)('perfil de IP, reglas y triaje automático', () => {
 		await aplicarTriajeAutoAhora([evento(1), evento(2), evento(3)]);
 
 		const triajeDe = async (n: number) =>
-			(await db.select().from(s.triaje).where(eq(s.triaje.evento, ID(n))))[0] ?? null;
+			(
+				await db
+					.select()
+					.from(s.triaje)
+					.where(eq(s.triaje.evento, ID(n)))
+			)[0] ?? null;
 		/* El 1 conserva el de la persona. */
 		expect((await triajeDe(1))?.estado).toBe('interesante');
 		expect((await triajeDe(1))?.nota).toBe('a mano');
@@ -208,7 +238,12 @@ describe.skipIf(!hayBase)('perfil de IP, reglas y triaje automático', () => {
 		await db.delete(s.triaje).where(eq(s.triaje.evento, ID(4)));
 		await db.delete(s.reglasTriaje).where(eq(s.reglasTriaje.quien, QUIEN));
 		await aplicarTriajeAutoAhora([evento(4, { ip: IP_OTRA })]);
-		const t = (await db.select().from(s.triaje).where(eq(s.triaje.evento, ID(4))))[0];
+		const t = (
+			await db
+				.select()
+				.from(s.triaje)
+				.where(eq(s.triaje.evento, ID(4)))
+		)[0];
 		expect(t).toBeUndefined();
 	});
 });

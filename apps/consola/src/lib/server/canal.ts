@@ -29,6 +29,16 @@ import {
 } from '@sugardaddy/canal';
 import { recibirBalizasRele, type BalizaRele } from './balizas-rele';
 import { cuentaActivas } from './colocacion';
+import {
+	aplicarAtenciones,
+	borradoEnElPanel,
+	corteSinAvisar,
+	incidentesPorSubir,
+	marcarIncidentesSubidos,
+	paraLatido as vigilanciaParaLatido,
+	vigilancia,
+	volverASubir
+} from './vigilancia';
 import { db, schema as s } from './db';
 import { auditar, autoActualizar, cabecera, comparticion } from './consultas';
 import {
@@ -37,7 +47,7 @@ import {
 	marcarSubidos,
 	retirarListaGlobal
 } from './inteligencia';
-import { paraLatido, recibirSolicitud } from './soporte';
+import { cerrarYa, paraLatido, recibirSolicitud } from './soporte';
 import { guardarTor, huellaTor, quitarTor } from './tor';
 
 type Canal = {
@@ -506,6 +516,7 @@ async function latido(): Promise<Latido> {
 		.from(s.eventos)
 		.where(gte(s.eventos.cuando, new Date(ahora - 86_400_000)));
 	const cab = await cabecera();
+	const soporteLatido = await paraLatido();
 	return {
 		version: cab.cliente.version,
 		sensores: {
@@ -522,7 +533,8 @@ async function latido(): Promise<Latido> {
 			estado: (await actualizacion()).estado,
 			version: (await actualizacion()).version
 		},
-		soporte: await paraLatido(),
+		soporte: soporteLatido,
+		...(await vigilanciaParaLatido(soporteLatido.estado === 'abierto')),
 		...(await (async () => {
 			const c = await configuracion();
 			return c
@@ -595,7 +607,11 @@ export async function escalarAlPanel(d: Escalado): Promise<boolean> {
 /* Un latido. Lo llama el reloj de hooks.server.ts; los fallos se guardan, no se lanzan. */
 export async function latir() {
 	const c = await leer();
-	if (!c || c.cortado) return;
+	if (!c) return;
+	if (c.cortado) {
+		await avisarDelCorte(c);
+		return;
+	}
 	try {
 		const r = await enviar(c, '/api/nodo/latido', JSON.stringify(await latido()));
 		if (!r.ok) throw new Error(`el panel responde ${r.status}`);
@@ -611,6 +627,14 @@ export async function latir() {
 			ultimoContacto: new Date().toISOString(),
 			error: null
 		});
+		/*
+		 * Antes que el resto, y sin depender de él: apagar la compartición y lo que atiende el
+		 * panel no pueden esperar a que vaya bien otra cosa. Su fallo se apunta al final.
+		 */
+		let falloVigilancia: unknown = null;
+		await aplicarAtenciones(v.estado.atenciones)
+			.then(() => subirIncidentes(c))
+			.catch((e) => (falloVigilancia = e));
 		await considerar(v.estado, c.nodo);
 		await recibirSolicitud(v.estado.soporte);
 		await guardarAutorizados(v.estado.modulos);
@@ -621,9 +645,41 @@ export async function latir() {
 		await publicarBalizasRele(c);
 		if (v.estado.releBalizas) await drenarBalizasRele(c);
 		await guardarRecuperacionPanel(v.estado.recuperacion);
+		if (falloVigilancia) throw falloVigilancia;
 	} catch (e) {
-		await guardar({ ...c, error: (e as Error).message });
+		/* Sobre lo último guardado: un fallo aquí no deshace el contacto, que sí ha habido. */
+		await guardar({ ...((await leer()) ?? c), error: (e as Error).message });
 	}
+}
+
+/*
+ * Los incidentes, si el cliente los comparte (vigilancia.ts): lo que el panel no tiene. Si
+ * los ha dejado de compartir, antes que nada que los borre. Lo que no llegue, al siguiente.
+ */
+async function subirIncidentes(c: Canal) {
+	const v = await vigilancia();
+	if (v.borrar) {
+		const r = await enviar(c, '/api/nodo/incidentes', JSON.stringify({ borrar: true }));
+		if (!r.ok) throw new Error(`el panel no borra los incidentes: ${r.status}`);
+		await borradoEnElPanel();
+	}
+	if (!v.incidentes) return;
+	const { incidentes, marcas } = await incidentesPorSubir(v);
+	if (!incidentes.length) return;
+	const r = await enviar(c, '/api/nodo/incidentes', JSON.stringify({ incidentes }));
+	if (!r.ok) throw new Error(`el panel no acepta los incidentes: ${r.status}`);
+	await marcarIncidentesSubidos(marcas);
+	/* Fila a fila: lo que no acepta no bloquea lo demás, y aquí queda constancia. */
+	const { descartadas } = (await r.json().catch(() => ({}))) as { descartadas?: number };
+	if (descartadas)
+		await auditar(`nodo ${c.nodo}`, 'el panel ha descartado incidentes', { descartadas });
+}
+
+/* Se cortó sin que el panel se enterase: tiene que borrar sus incidentes igualmente. */
+async function avisarDelCorte(c: Canal) {
+	if (!(await vigilancia()).corte) return;
+	const r = await enviar(c, '/api/nodo/corte', '{}').catch(() => null);
+	if (r?.ok) await corteSinAvisar(false);
 }
 
 /* ---------- balizas que vuelven por el relé público (docs/diseno/rele-balizas.md) ---------- */
@@ -786,8 +842,11 @@ export async function altaAutomatica() {
 export async function cortar(quien: string) {
 	const c = await leer();
 	if (!c || c.cortado) return;
-	await enviar(c, '/api/nodo/corte', '{}').catch(() => null);
+	const r = await enviar(c, '/api/nodo/corte', '{}').catch(() => null);
 	await guardar({ ...c, cortado: true });
+	await corteSinAvisar(!r?.ok);
+	/* Quien corta deja de confiar en el panel: el soporte no se queda abierto. */
+	await cerrarYa(quien);
 	await auditar(quien, 'canal con el panel central cortado');
 }
 
@@ -796,6 +855,9 @@ export async function reanudar(quien: string) {
 	if (!c || !c.cortado) return;
 	await guardar({ ...c, cortado: false });
 	await auditar(quien, 'canal con el panel central reanudado');
+	/* Al cortar, el panel borró sus incidentes. */
+	await corteSinAvisar(false);
+	await volverASubir();
 	await latir();
 }
 

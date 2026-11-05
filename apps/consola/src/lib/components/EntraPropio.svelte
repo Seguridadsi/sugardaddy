@@ -128,8 +128,8 @@ echo "Cliente:   $APP"; echo "Secreto:   $SECRETO"`);
 		</p>
 	{:else if seguridadsi}
 		<p>
-			Hoy esta consola entra con Microsoft a través del Entra de SeguridadSI. Si conectas el tuyo,
-			pasa a usarse el tuyo (y el acceso de soporte de SeguridadSI ya no entra con Microsoft).
+			Hoy esta consola entra con Microsoft a través del Entra de {page.data.operador}. Si conectas
+			el tuyo, pasa a usarse el tuyo (y el acceso de soporte de {page.data.operador} ya no entra con Microsoft).
 		</p>
 	{/if}
 

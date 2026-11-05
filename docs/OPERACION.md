@@ -44,8 +44,8 @@ toque es señal.
 Desde **otro equipo de tu red** (no desde la máquina del nodo, que falsea la IP):
 
 - **SSH (Cowrie):** `ssh -p <puerto> root@<ip-del-nodo>` y prueba una contraseña.
-- **Redis:** `redis-cli -h <ip-del-nodo> -p <puerto> CONFIG SET dir /tmp`
-- **Login web:** abre `https://<ip-del-nodo>:<puerto>/` en el navegador.
+- **Redis** (con tu registro): `redis-cli -h <ip-del-nodo> -p <puerto> CONFIG SET dir /tmp`
+- **Login web** (con tu registro): abre `https://<ip-del-nodo>:<puerto>/` en el navegador.
 
 En la consola, **Eventos** tiene que mostrar lo que hiciste, con la IP de origen
 y la acción. Las trampas casi no dan falsas alarmas: nadie de tu empresa las usa,
@@ -120,7 +120,8 @@ Deja el nodo como estaba: trampas, eventos y secretos.
 
 ## 6. Pasar a Cloud o ampliarlo
 
-Tu catálogo enseña **todo**, también lo de Cloud, marcado. Cuando quieras avisos a
+Tu catálogo enseña las trampas de Community y marca las que se activan con tu registro
+gratuito, en **Ajustes → Registro gratuito**. Cuando quieras avisos a
 tu correo/Teams/Slack/SIEM, trampas avanzadas, varias sedes desde un panel o
 soporte, [habla con SeguridadSI](https://www.seguridadsi.com): se activa lo
 contratado y se enciende en tu consola, sin reinstalar nada.

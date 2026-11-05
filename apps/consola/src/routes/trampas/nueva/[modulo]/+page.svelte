@@ -141,7 +141,7 @@
 					<h2>Parámetros del módulo</h2>
 					<FormularioParametros
 						esquema={m.parametros}
-						valores={form?.valores}
+						valores={form?.valores ?? data.propuestas}
 						objetivos={f.objetivos}
 					/>
 

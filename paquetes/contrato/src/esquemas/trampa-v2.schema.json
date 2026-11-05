@@ -203,6 +203,11 @@
 						}
 					}
 				},
+				"x-camuflaje": {
+					"description": "Qué nombre toma este parámetro del dominio del cliente: dominio, parecido (uno parecido, que no es el real), netbios, equipo:<rol>, host:<rol>, fqdn:<rol> o correo:<buzón>. Lo propone la consola, y el cliente lo puede cambiar.",
+					"type": "string",
+					"pattern": "^(dominio|parecido|netbios|(equipo|host|fqdn|correo):[a-z0-9-]{1,20})$"
+				},
 				"x-aleatorio": {
 					"description": "La consola propone una base al azar con un sufijo aleatorio, distinto en cada trampa (solo en parámetros de texto sin default).",
 					"type": "object",

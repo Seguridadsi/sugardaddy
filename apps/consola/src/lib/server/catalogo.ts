@@ -12,10 +12,10 @@ import type {
 	Traductor,
 	Via
 } from '@sugardaddy/contrato';
-import { coberturaLicencia, type Cobertura } from './candado';
+import { coberturaLicencia, modulosDeRegistro, type Cobertura } from './candado';
 import { db, schema } from './db';
 import { esCommunity } from './edicion';
-import { MODULOS_GRATIS, esDePago } from './modulos-gratis';
+import { MODULOS_GRATIS, esDePago, esDeRegistro } from './modulos-gratis';
 
 /*
  * El catálogo son los manifiestos de modulos/, validados contra el contrato.
@@ -197,7 +197,7 @@ export const catalogoRespuestas = () =>
  * publicar una trampa de pago sin candado). Se reexporta para no cambiar a quien
  * ya lo importa desde aquí (p. ej. sensor.ts).
  */
-export { MODULOS_GRATIS, esDePago };
+export { MODULOS_GRATIS, esDePago, esDeRegistro };
 
 /*
  * Módulos que este cliente tiene autorizados. Llegan firmados del panel en
@@ -210,7 +210,8 @@ export const MODULOS_DE_SERIE: string[] = [];
 export async function autorizados(): Promise<string[]> {
 	const [f] = await db.select().from(schema.ajustes).where(eq(schema.ajustes.clave, 'modulos'));
 	if (f?.valor) return f.valor as string[];
-	return esCommunity() ? [...MODULOS_GRATIS] : MODULOS_DE_SERIE;
+	if (esCommunity()) return [...MODULOS_GRATIS, ...(await modulosDeRegistro())];
+	return MODULOS_DE_SERIE;
 }
 
 /*
@@ -225,21 +226,31 @@ export async function catalogoConSuscripcion() {
 	return honeycosas().map((h) => {
 		const incluida = permitidos.has(h.id);
 		const licencia = cubre(h.id);
-		return { ...h, incluida, licencia, disponible: incluida && licencia === 'cubierta' };
+		return {
+			...h,
+			incluida,
+			licencia,
+			disponible: incluida && licencia === 'cubierta',
+			/* En Community: el catálogo la enseña y lleva a registrarse. */
+			conRegistro: esCommunity() && esDeRegistro(h.id)
+		};
 	});
 }
 
 /*
  * Por qué una trampa del catálogo no se puede desplegar, en pocas palabras; null
- * si se puede. Lo de pago se nombra por su edición, Cloud (Kino, 2026-11-03):
- * en un nodo Community una trampa de pago no está en ninguna suscripción, viene
- * en Cloud.
+ * si se puede. Lo de pago se nombra por su edición, Cloud (Kino, 2026-11-03): en
+ * un nodo Community una trampa de pago no está en ninguna suscripción, viene en
+ * Cloud. Las de registro se activan gratis (docs/diseno/registro-community.md).
  */
 export function porQueNo(m: { id: string; incluida: boolean; licencia: Cobertura }) {
-	if (!m.incluida)
-		return esCommunity() && esDePago(m.id)
-			? 'Viene en Sugardaddy Cloud'
-			: 'No incluida en tu suscripción';
+	if (m.licencia === 'registro.caducado') return 'Tu registro ha caducado';
+	if (m.licencia === 'registro.sin') return 'Gratis con tu registro';
+	if (!m.incluida) {
+		if (!esCommunity()) return 'No incluida en tu suscripción';
+		if (esDeRegistro(m.id)) return 'Gratis con tu registro';
+		return esDePago(m.id) ? 'Viene en Sugardaddy Cloud' : 'No incluida en tu suscripción';
+	}
 	if (m.licencia === 'licencia.caducada') return 'Tu licencia de Cloud ha caducado';
 	if (m.licencia === 'licencia.sin') return 'No está en tu licencia de Cloud';
 	return null;

@@ -114,6 +114,7 @@ parametros:
   properties:
     nombreEquipo:
       type: string
+      x-camuflaje: 'host:bak'
       title: Nombre del equipo
       description: El que verá el atacante en el prompt. Que encaje con los nombres de la red.
       pattern: '^[a-zA-Z0-9-]{1,63}$'

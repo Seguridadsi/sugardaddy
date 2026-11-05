@@ -3,7 +3,13 @@ import { SIN_IDENTIFICADOR, identificador } from '$lib/identificador';
 import { esEntorno } from '$lib/entorno';
 import { exigir } from '$lib/server/auth/permisos';
 import { redDelFormulario } from '$lib/red';
-import { cambiarEntorno, cambiarRed, retirarSensor, sensores, ultimaCuarentena } from '$lib/server/gestion';
+import {
+	cambiarEntorno,
+	cambiarRed,
+	retirarSensor,
+	sensores,
+	ultimaCuarentena
+} from '$lib/server/gestion';
 import { listaDestinos } from '$lib/server/destinos';
 import { esCommunity } from '$lib/server/edicion';
 import { altaSensorRemoto, lineaSensorRemoto } from '$lib/server/sensores-remotos';

@@ -20,7 +20,7 @@ const MENSAJES: Record<string, string> = {
 	sin_rol:
 		'Tu cuenta no tiene ningún rol en Sugardaddy. Pide uno al administrador de tu organización.',
 	demasiados_grupos:
-		'Tu cuenta está en demasiados grupos para comprobar el acceso. Avisa a SeguridadSI.',
+		'Tu cuenta está en demasiados grupos para comprobar el acceso. Avisa a quien te da soporte.',
 	sin_correo: 'Tu cuenta no tiene dirección de correo.',
 	sin_oid: 'El token de Microsoft no identifica tu cuenta.'
 };

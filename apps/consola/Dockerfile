@@ -10,7 +10,9 @@ COPY apps/consola/package.json apps/consola/
 # Solo la consola y sus paquetes: el panel central no viaja en esta imagen.
 RUN npm ci --workspace apps/consola --include-workspace-root --ignore-scripts --no-audit --no-fund
 COPY apps/consola ./apps/consola
+# Los mapas de fuentes llevan dentro el código original y nadie los usa al ejecutar.
 RUN cd apps/consola && npx svelte-kit sync && npx vite build \
+	&& find build -name '*.map' -delete \
 	&& cd /src && npm prune --omit=dev --workspace apps/consola --include-workspace-root
 
 # Geolocalización de IP: DB-IP Lite (CC BY 4.0, gratuita y redistribuible con
@@ -34,6 +36,13 @@ RUN set -e; for mes in "$(date +%Y-%m)" "$(date -d "@$(( $(date +%s) - 2592000 )
 	done; \
 	[ -s espana.bin ]
 
+# Del catálogo solo viajan los manifiestos y las plantillas de los ficheros cebo.
+# El código de las trampas no entra en esta imagen. Se filtra en una etapa aparte
+# porque un rm en la imagen final lo dejaría igualmente en una capa anterior.
+FROM node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402 AS catalogo
+COPY modulos /modulos
+RUN sh /modulos/catalogo-de-imagen.sh /modulos /catalogo
+
 FROM node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402
 ARG VERSION=0.0.0
 ENV NODE_ENV=production \
@@ -48,7 +57,7 @@ COPY --from=construccion /src/apps/consola/build ./build
 COPY --from=construccion /src/apps/consola/package.json ./
 COPY apps/consola/drizzle ./drizzle
 COPY apps/consola/scripts/arrancar.mjs apps/consola/scripts/preparar-base.mjs apps/consola/scripts/destinos.mjs apps/consola/scripts/emergencia.mjs apps/consola/scripts/clave.mjs apps/consola/scripts/codigo-emergencia.mjs apps/consola/scripts/red.mjs ./scripts/
-COPY modulos /app/modulos
+COPY --from=catalogo /catalogo /app/modulos
 COPY --from=geo /geo /app/geo
 # Sin root y sin nada que escribir: el contenedor puede ir en solo lectura.
 USER node

@@ -15,6 +15,7 @@ import {
 import { db, schema as s } from './db';
 import { listaTor, usoTor } from './tor';
 import { auditar } from './consultas';
+import { operador } from './operador';
 import { cubreDominio } from './dominios';
 import { migrados } from './origenes-comun';
 
@@ -108,6 +109,7 @@ export async function aplicarLista(clavePublicaPanel: string, f: ListaFirmada, n
 		await auditar(`nodo ${nodo}`, 'lista global rechazada', { motivo: v.motivo });
 		return false;
 	}
+	const quien = await operador();
 	await db.transaction(async (tx) => {
 		await tx
 			.delete(s.listas)
@@ -121,7 +123,7 @@ export async function aplicarLista(clavePublicaPanel: string, f: ListaFirmada, n
 					ambito: 'global' as const,
 					motivo: i.motivo,
 					caduca: new Date(i.caduca),
-					quien: 'SeguridadSI'
+					quien
 				}))
 			);
 	});

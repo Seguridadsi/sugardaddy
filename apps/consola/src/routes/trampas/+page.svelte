@@ -9,6 +9,7 @@
 
 	let { data, form } = $props();
 	const opera = $derived(puede(page.data.usuario?.roles ?? [], 'desplegar'));
+	const administra = $derived(puede(page.data.usuario?.roles ?? [], 'ajustes'));
 
 	/* El catálogo: todas, las disponibles o las instaladas, y lo que se escriba en el buscador. */
 	let ver = $state<'todas' | 'disponibles' | 'instaladas'>('todas');
@@ -18,12 +19,17 @@
 	const instaladas = $derived(data.catalogo.filter((m) => m.instaladas > 0).length);
 	const visibles = $derived.by(() => {
 		const q = llano(buscar.trim());
-		return data.catalogo.filter(
-			(m) =>
-				(ver !== 'disponibles' || m.disponible) &&
-				(ver !== 'instaladas' || m.instaladas > 0) &&
-				(!q || llano(`${m.nombre} ${m.id} ${nombreTipo[m.tipo]} ${m.resumen}`).includes(q))
-		);
+		/* Primero lo que se puede usar y luego lo que se activa gratis; lo demás, al final. */
+		const puesto = (m: (typeof data.catalogo)[number]) =>
+			m.disponible ? 0 : m.activarConRegistro ? 1 : 2;
+		return data.catalogo
+			.filter(
+				(m) =>
+					(ver !== 'disponibles' || m.disponible) &&
+					(ver !== 'instaladas' || m.instaladas > 0) &&
+					(!q || llano(`${m.nombre} ${m.id} ${nombreTipo[m.tipo]} ${m.resumen}`).includes(q))
+			)
+			.toSorted((a, b) => puesto(a) - puesto(b));
 	});
 </script>
 
@@ -178,6 +184,11 @@
 				{#if m.disponible && m.desplegable && opera}
 					<a class="boton principal" href={resolve('/trampas/nueva/[modulo]', { modulo: m.id })}
 						>Desplegar</a
+					>
+				{/if}
+				{#if m.activarConRegistro && administra}
+					<a class="boton principal" href="{resolve('/ajustes')}#registro"
+						>{m.registroCaducado ? 'Renovar' : 'Activar gratis'}</a
 					>
 				{/if}
 			</div>
