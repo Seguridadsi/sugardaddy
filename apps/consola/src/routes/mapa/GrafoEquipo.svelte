@@ -1,18 +1,15 @@
 <!--
-	El grafo de un sensor (o de la salida a internet): el centro, sus trampas
-	conectadas y sus sistemas sin sensor, unidos a la trampa que recibe su señal.
-	Cada nodo es un botón: al pincharlo se abre su detalle y se resalta lo que
-	tiene unido. La colocación sale de lib/mapa-despliegue-grafo.ts.
+	Un sitio del mapa: su centro (la máquina de un sensor, un servidor, una web) y
+	sus trampas conectadas. Cada nodo es un botón: al pincharlo se abre su detalle
+	y se resalta lo que tiene unido. La colocación sale de lib/mapa-despliegue-grafo.ts.
 -->
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 	import LogoTrampa from '$lib/components/LogoTrampa.svelte';
 	import { etiquetaTrampa } from '$lib/mapa-despliegue';
 	import {
-		CENTRO,
 		FAMILIA,
 		HOJA,
-		SISTEMA,
 		extremos,
 		vecinosDe,
 		type AristaGrafo,
@@ -20,7 +17,6 @@
 		type NodoGrafo
 	} from '$lib/mapa-despliegue-grafo';
 	import GlifoEstado from './GlifoEstado.svelte';
-	import IconoEquipo from './IconoEquipo.svelte';
 
 	type Props = {
 		grafo: Grafo;
@@ -110,10 +106,11 @@
 				class="nodo centro {claseCentro}"
 				class:elegido={elegido === n.id}
 				class:apagado={apagado(n.id)}
-				style:left="{n.x - CENTRO.ancho / 2}px"
-				style:top="{n.y - CENTRO.alto / 2}px"
-				style:width="{CENTRO.ancho}px"
-				style:height="{CENTRO.alto}px"
+				style:left="{n.x - grafo.tamano.ancho / 2}px"
+				style:top="{n.y - grafo.tamano.alto / 2}px"
+				style:width="{grafo.tamano.ancho}px"
+				style:height="{grafo.tamano.alto}px"
+				data-centro
 				data-rama={rama}
 				data-pildora={pildora}
 				onclick={(e) => {
@@ -138,34 +135,6 @@
 			>
 				<span class="disco-familia"><LogoTrampa pictograma={n.familia} /></span>
 				{#if n.conNombre}<span class="nombre-familia">{n.nombre}</span>{/if}
-			</button>
-		{:else if n.tipo === 'sistema'}
-			<button
-				class="nodo sistema"
-				class:elegido={elegido === n.id}
-				class:apagado={apagado(n.id)}
-				style:left="{n.x - SISTEMA.ancho / 2}px"
-				style:top="{n.y - SISTEMA.alto / 2}px"
-				style:width="{SISTEMA.ancho}px"
-				style:height="{SISTEMA.alto}px"
-				title={n.sistema.nombre}
-				onclick={(e) => {
-					e.stopPropagation();
-					onelegir(n.id);
-				}}
-			>
-				<span class="fila">
-					<span class="chip sin">SIN SENSOR</span>
-					<IconoEquipo icono={n.sistema.icono} />
-				</span>
-				<span class="nom">{n.sistema.nombre}</span>
-				{#if n.sistema.direccion}
-					<span class="ip">{n.sistema.direccion}</span>
-				{:else if n.sistema.faltaDireccion}
-					<span class="ip falta">IP sin indicar</span>
-				{:else}
-					<span class="tipo">{n.sistema.tipo}</span>
-				{/if}
 			</button>
 		{:else}
 			{@const e = etiquetaTrampa(n.trampa)}
@@ -325,13 +294,15 @@
 		border-color: var(--s-media);
 	}
 
-	.nodo.centro:hover,
-	.nodo.sistema:hover {
+	.nodo.centro.de-sitio {
+		border: 1px solid var(--line-strong);
+	}
+
+	.nodo.centro:hover {
 		background: var(--surface-2);
 	}
 
-	.nodo.centro.elegido,
-	.nodo.sistema.elegido {
+	.nodo.centro.elegido {
 		box-shadow: 0 0 0 3px var(--accent);
 	}
 
@@ -366,67 +337,11 @@
 		margin-top: 2px;
 		padding: 0 5px;
 		border-radius: 5px;
-		background: var(--sunk);
+		background: var(--bg);
 		font-size: 11px;
 		font-weight: 600;
 		color: var(--ink-2);
 		white-space: nowrap;
-	}
-
-	/* Un sistema sin sensor */
-	.nodo.sistema {
-		display: flex;
-		flex-direction: column;
-		justify-content: center;
-		gap: 1px;
-		padding: 6px 10px;
-		border: 1px solid var(--line-strong);
-		border-radius: 11px;
-		background: var(--surface);
-		text-align: left;
-	}
-
-	.fila {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 8px;
-	}
-
-	.fila :global(.icono) {
-		width: 16px;
-		height: 16px;
-	}
-
-	.chip.sin {
-		padding: 0 6px;
-		border: 1px solid var(--line-strong);
-		border-radius: 5px;
-		font: 700 10px/1.5 var(--font-display);
-		letter-spacing: 0.05em;
-		color: var(--ink-2);
-		white-space: nowrap;
-	}
-
-	.nom {
-		overflow: hidden;
-		font: 600 13px/1.2 var(--font-display);
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
-	.ip {
-		font: 600 15px/1.15 var(--font-mono);
-	}
-
-	.ip.falta {
-		font: 600 13px/1.2 var(--font-body);
-		color: var(--warn);
-	}
-
-	.tipo {
-		font-size: 12px;
-		color: var(--ink-2);
 	}
 
 	/* Una trampa */
@@ -500,12 +415,12 @@
 		background: var(--bg);
 	}
 
-	/* Con el fondo de la red: las líneas pasan por detrás y el texto se sigue leyendo. */
+	/* Con el fondo del sitio: las líneas pasan por detrás y el texto se sigue leyendo. */
 	.arriba,
 	.abajo {
 		padding: 0 3px;
 		border-radius: 3px;
-		background: var(--sunk);
+		background: var(--bg);
 	}
 
 	.arriba {

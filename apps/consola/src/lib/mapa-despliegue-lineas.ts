@@ -137,11 +137,11 @@ export function trazarLineas(e: {
 }
 
 export interface RamaFila {
-	/* El nodo del sensor, su grafo y su red. */
+	/* Lo que recibe la línea, el grafo donde está y la caja que lo contiene. */
 	caja: Caja;
 	cuadro: Caja;
 	zona: Caja;
-	clase: Exclude<ClaseLinea, 'senal'>;
+	clase: ClaseLinea;
 	pildora: string | null;
 	/* Su grafo es de la primera fila de su red: baja directo. */
 	primeraDeZona: boolean;
@@ -156,12 +156,24 @@ const PILDORA_FILA = 20;
  * su barra en el hueco de encima, y un tronco a la izquierda las une a la consola.
  * Así ninguna línea atraviesa una red ajena.
  */
-export function trazarFilas(e: { consola: Caja; ramas: RamaFila[] }): Trazado {
+export function trazarFilas(e: {
+	/* De dónde salen: la consola o, para los sitios de un sensor, la caja de ese sensor. */
+	consola: Caja;
+	ramas: RamaFila[];
+	/* Lo que se separa de las cajas el tronco que une las filas. */
+	margen?: number;
+}): Trazado {
 	const r: Trazado = { trazos: [], flechas: [], pildoras: [] };
 	if (!e.ramas.length) return r;
 	const centro = (e.consola.l + e.consola.r) / 2;
 	const clases = e.ramas.map((m) => m.clase);
-	const clase: ClaseLinea = clases.includes('ok') ? 'ok' : clases.includes('mal') ? 'mal' : 'rele';
+	const clase: ClaseLinea = clases.includes('ok')
+		? 'ok'
+		: clases.includes('mal')
+			? 'mal'
+			: clases.includes('senal')
+				? 'senal'
+				: 'rele';
 
 	const filas = new Map<number, RamaFila[]>();
 	for (const m of e.ramas) {
@@ -169,7 +181,7 @@ export function trazarFilas(e: { consola: Caja; ramas: RamaFila[] }): Trazado {
 		filas.set(k, [...(filas.get(k) ?? []), m]);
 	}
 	const orden = [...filas.keys()].toSorted((a, b) => a - b);
-	const izquierda = Math.min(...e.ramas.map((m) => m.zona.l)) - 16;
+	const izquierda = Math.min(...e.ramas.map((m) => m.zona.l)) - (e.margen ?? 16);
 	const xDe = (m: RamaFila) => (m.caja.l + m.caja.r) / 2;
 	const barras: { y: number; xs: number[] }[] = orden.map((k) => ({
 		y: k - SOBRE_FILA,

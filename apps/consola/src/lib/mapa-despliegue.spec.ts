@@ -4,6 +4,7 @@ import {
 	enRed,
 	enumerar,
 	etiquetaTrampa,
+	rutaCorta,
 	esPrivada,
 	estadoEnPlural,
 	filtrarMapa,
@@ -326,6 +327,11 @@ describe('detalleNodo', () => {
 		expect(detalleNodo(base, 's:fs')).toMatchObject({ tipo: 'sistema', recibe: { id: 'n' } });
 		expect(detalleNodo(base, 's:nube')).toMatchObject({ tipo: 'sistema', recibe: null });
 		expect(detalleNodo(base, 'f:c:n:web')).toMatchObject({ tipo: 'familia', nombre: 'Web' });
+		expect(detalleNodo(base, 'f:s:fs:null')).toMatchObject({ tipo: 'familia', nombre: 'Otras' });
+		expect(detalleNodo(base, 'f:s:nube:null')).toMatchObject({
+			tipo: 'familia',
+			trampas: [lejana]
+		});
 	});
 
 	it('una trampa dice en qué equipo está y con qué IP', () => {
@@ -336,5 +342,28 @@ describe('detalleNodo', () => {
 
 	it('lo que ya no está no se encuentra', () => {
 		expect(detalleNodo(base, 't:nada')).toBeNull();
+	});
+});
+
+describe('rutaCorta', () => {
+	const con = (texto: string) => trampa({ ruta: { texto, destino: null, rele: false } });
+	it('dice cómo llega la señal, sin la coletilla', () => {
+		expect(rutaCorta({ trampas: [con('Auditoría de Windows, hacia')] })).toBe(
+			'Auditoría de Windows'
+		);
+		expect(rutaCorta({ trampas: [con('Quien use lo sembrado entra en')] })).toBe(
+			'Quien use lo sembrado'
+		);
+	});
+	it('varias trampas por el mismo camino son una sola señal; por varios, lo dice', () => {
+		const a = con('Baliza del documento, hacia');
+		expect(rutaCorta({ trampas: [a, a] })).toBe('Baliza del documento');
+		expect(rutaCorta({ trampas: [a, con('Auditoría de Windows, hacia')] })).toBe(
+			'2 señales distintas'
+		);
+	});
+	it('sin trampas o sin ruta, también lo dice', () => {
+		expect(rutaCorta({ trampas: [] })).toBe('Sin señal todavía');
+		expect(rutaCorta({ trampas: [trampa()] })).toBe('Señal sin ruta');
 	});
 });

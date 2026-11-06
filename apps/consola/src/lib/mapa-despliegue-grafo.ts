@@ -1,41 +1,43 @@
 /*
- * La colocación del grafo del mapa del despliegue: de un sensor y lo suyo, a
- * nodos con posición y aristas. El sensor va en el centro y sus trampas en
- * anillos alrededor, agrupadas por tipo de servicio cuando son muchas; debajo,
- * cada sistema sin sensor con las suyas, unido a la trampa que recibe su señal.
+ * La colocación de un sitio del mapa del despliegue: un sitio es donde están las
+ * trampas (la máquina de un sensor, un servidor, una web, una cuenta de nube), y
+ * aquí se decide dónde va cada una dentro de él. El sitio va en el centro y sus
+ * trampas alrededor, agrupadas por tipo de servicio cuando son muchas: cada tipo
+ * tiene su sector, para que las líneas de un grupo no crucen las de otro.
  *
- * Cada anillo se reparte en huecos fijos, separados lo que ocupa una trampa, y
- * cada trampa ocupa uno: así dos nodos no pueden pisarse, sean cuantos sean. El
- * resultado no depende de nada más que de los datos: el mismo despliegue se ve
- * siempre igual, y no se mueve al actualizarse la página.
+ * Cada anillo se recorre dejando una trampa en cuanto cabe sin pisar nada, así que
+ * dos nodos no pueden pisarse, sean cuantos sean. El resultado depende solo de los
+ * datos: el mismo sitio se ve siempre igual y no se mueve al actualizarse la página.
  */
 import type { TipoDeServicio } from '@sugardaddy/estilo/pictogramas';
 import { FAMILIAS, type SensorMapa, type SistemaMapa, type TrampaMapa } from './mapa-despliegue';
 
 /* Lo que ocupa cada nodo. Una trampa: su círculo, y debajo su servicio y su puerto. */
 export const HOJA = { ancho: 92, circulo: 46, debajo: 64 };
-export const CENTRO = { ancho: 254, alto: 112 };
-export const SISTEMA = { ancho: 196, alto: 76 };
+export const CENTRO_SENSOR = { ancho: 254, alto: 112 };
+export const CENTRO_SITIO = { ancho: 232, alto: 92 };
 export const FAMILIA = { circulo: 36 };
+
+type Tamano = { ancho: number; alto: number };
 
 /* De un anillo al siguiente. */
 const PASO_X = 102;
 const PASO_Y = 94;
-/* Con hasta tantas trampas no hace falta agruparlas: una estrella alrededor del sensor. */
+/* Con hasta tantas trampas no hace falta agruparlas: una estrella alrededor del sitio. */
 const MAX_ESTRELLA = 9;
 const ESTRELLA = { x: 208, y: 152 };
 const ANILLO_FAMILIAS = { x: 196, y: 120 };
-const PRIMER_ANILLO = { x: 304, y: 226 };
-/* Lo que se deja libre arriba, en grados a cada lado: por ahí entra la línea de la consola. */
+/* Lo que hay del anillo de los grupos al primero de sus trampas. */
+const SALTO_HOJAS = { x: 108, y: 106 };
+/* El sitio que necesita de un grupo, como mínimo, en su anillo: su icono y su nombre. */
+const SITIO_FAMILIA = 110;
+/* Lo que se deja libre arriba, en grados a cada lado: por ahí entra la línea que le llega. */
 const HUECO_ARRIBA = 17;
-/* Las trampas de un sistema se abren hacia abajo, en este arco. */
-const ARCO_SISTEMA = { desde: 118, hasta: 242 };
-const SISTEMA_PRIMERO = { x: 132, y: 112 };
+/* Un sitio pequeño abre sus trampas hacia abajo, en este arco, y queda compacto. */
+const MAX_ABANICO = 5;
+const ARCO_ABANICO = { desde: 118, hasta: 242 };
+const ABANICO = { x: 132, y: 112 };
 const MARGEN = 14;
-const ENTRE_SISTEMAS = 26;
-/* Lo que baja del último anillo a la fila de sistemas, para que se vea su línea. */
-const BAJADA_SISTEMAS = 66;
-const ANCHO_FILA = 760;
 
 export type NodoGrafo = { id: string; x: number; y: number } & (
 	| { tipo: 'centro' }
@@ -47,7 +49,6 @@ export type NodoGrafo = { id: string; x: number; y: number } & (
 			trampas: TrampaMapa[];
 			conNombre: boolean;
 	  }
-	| { tipo: 'sistema'; sistema: SistemaMapa }
 );
 
 export type ClaseArista = 'estructura' | 'ok' | 'pendiente' | 'aviso' | 'mal' | 'senal' | 'rele';
@@ -56,7 +57,7 @@ export interface AristaGrafo {
 	de: string;
 	a: string;
 	clase: ClaseArista;
-	/* Es una señal: lleva flecha hacia quien la recibe y dice cómo llega. */
+	/* Lo sembrado que apunta a otra trampa del mismo sitio: lleva flecha y dice cómo llega. */
 	relacion?: { texto: string; destino: string | null };
 }
 
@@ -65,8 +66,9 @@ export interface Grafo {
 	alto: number;
 	nodos: NodoGrafo[];
 	aristas: AristaGrafo[];
-	/* El centro, si lo hay: por él entra la línea de la consola. */
-	centro: { x: number; y: number } | null;
+	/* El centro, y lo que mide: por él entra la línea que llega al sitio. */
+	centro: { x: number; y: number };
+	tamano: Tamano;
 }
 
 /* El color de la línea que une una trampa con lo suyo. */
@@ -95,7 +97,7 @@ const cajaHoja = (x: number, y: number): Caja => ({
 	t: y - HOJA.circulo / 2,
 	b: y + HOJA.debajo
 });
-const cajaCentrada = (c: { ancho: number; alto: number }, holgura = 8): Caja => ({
+const cajaCentrada = (c: Tamano, holgura = 8): Caja => ({
 	l: -c.ancho / 2 - holgura,
 	r: c.ancho / 2 + holgura,
 	t: -c.alto / 2 - holgura,
@@ -118,11 +120,11 @@ function recorrer(rx: number, ry: number, desde: number, hasta: number, ocupado:
 }
 
 /*
- * Los huecos de un anillo: recorre la elipse y deja una trampa en cuanto cabe
- * sin pisar a la anterior ni a nada de lo ya colocado. Lo que sobra al final se
- * reparte a los dos lados, para que el anillo quede simétrico.
+ * Los huecos de un arco: lo recorre y deja una trampa en cuanto cabe sin pisar a la
+ * anterior ni a nada de lo ya colocado. Lo que sobra al final se reparte a los dos
+ * lados, para que quede simétrico.
  */
-function huecosDeAnillo(rx: number, ry: number, desde: number, hasta: number, ocupado: Caja[]) {
+function huecosDeArco(rx: number, ry: number, desde: number, hasta: number, ocupado: Caja[]) {
 	const primera = recorrer(rx, ry, desde, hasta, ocupado);
 	if (!primera.length) return primera;
 	const sobra = hasta - primera[primera.length - 1].grados;
@@ -130,24 +132,18 @@ function huecosDeAnillo(rx: number, ry: number, desde: number, hasta: number, oc
 	return centrada.length >= primera.length ? centrada : primera;
 }
 
-/* n de esos huecos, repartidos por todo el anillo. */
+/* n de esos huecos, repartidos por todo el arco. */
 const repartir = <T>(lista: T[], n: number) =>
 	Array.from({ length: n }, (_, k) => lista[Math.floor(((k + 0.5) * lista.length) / n)]);
+
+const perimetro = (rx: number, ry: number) => 2 * Math.PI * Math.sqrt((rx ** 2 + ry ** 2) / 2);
 
 const DESDE = HUECO_ARRIBA;
 const HASTA = 360 - HUECO_ARRIBA;
 
-/* Las trampas que reciben una señal van abajo, cerca de los sistemas que les llegan. */
-function conObjetivosAbajo<T>(lista: T[], esObjetivo: (x: T) => boolean): T[] {
-	const objetivos = lista.filter(esObjetivo);
-	const resto = lista.filter((x) => !esObjetivo(x));
-	const mitad = Math.ceil(resto.length / 2);
-	return [...resto.slice(0, mitad), ...objetivos, ...resto.slice(mitad)];
-}
-
 type Colocada = { trampa: TrampaMapa; x: number; y: number; caja: Caja };
 
-interface Radial {
+interface Reparto {
 	hojas: Colocada[];
 	familias: {
 		familia: TipoDeServicio | null;
@@ -158,296 +154,205 @@ interface Radial {
 	}[];
 }
 
-/* Hasta MAX_ESTRELLA, todas alrededor del sensor, en el anillo más pequeño donde quepan. */
-function estrella(trampas: TrampaMapa[], objetivos: Set<string>): Radial {
-	const orden = conObjetivosAbajo(trampas, (t) => objetivos.has(t.id));
-	const ocupado = [cajaCentrada(CENTRO)];
+/* Pocas en un sitio pequeño: abiertas hacia abajo, con el sitio arriba. */
+function abanico(trampas: TrampaMapa[], centro: Tamano): Reparto {
+	const ocupado = [cajaCentrada(centro, 4)];
+	const hojas: Colocada[] = [];
+	let cuenta = 0;
+	for (let i = 0; cuenta < trampas.length; i++) {
+		const lista = huecosDeArco(
+			ABANICO.x + i * PASO_X,
+			ABANICO.y + i * PASO_Y,
+			ARCO_ABANICO.desde,
+			ARCO_ABANICO.hasta,
+			ocupado
+		);
+		ocupado.push(...lista.map((x) => x.caja));
+		const n = Math.min(lista.length, trampas.length - cuenta);
+		for (const hueco of repartir(lista, n)) hojas.push({ trampa: trampas[cuenta++], ...hueco });
+	}
+	return { hojas, familias: [] };
+}
+
+/* Hasta MAX_ESTRELLA, todas alrededor del sitio, en el anillo más pequeño donde quepan. */
+function estrella(trampas: TrampaMapa[], centro: Tamano): Reparto {
+	const ocupado = [cajaCentrada(centro)];
 	let h: Hueco[] = [];
-	for (let i = 0; h.length < orden.length; i++)
-		h = huecosDeAnillo(ESTRELLA.x + i * 20, ESTRELLA.y + i * 20, DESDE, HASTA, ocupado);
-	const elegidos = repartir(h, orden.length);
-	return {
-		hojas: orden.map((trampa, i) => ({ trampa, ...elegidos[i] })),
-		familias: []
-	};
+	for (let i = 0; h.length < trampas.length; i++)
+		h = huecosDeArco(ESTRELLA.x + i * 20, ESTRELLA.y + i * 20, DESDE, HASTA, ocupado);
+	const elegidos = repartir(h, trampas.length);
+	return { hojas: trampas.map((trampa, i) => ({ trampa, ...elegidos[i] })), familias: [] };
 }
 
 /*
- * Con más: agrupadas por su tipo de servicio. Cada tipo tiene un trozo de la
- * vuelta según cuántas trampas lleva, y cada trampa va al hueco libre más cerca
- * del centro de su trozo, prefiriendo los anillos interiores.
+ * Con más: cada tipo de servicio tiene su sector, de un ancho según cuántas trampas
+ * lleva. El grupo va en el centro de su sector y sus trampas no salen de él: si no
+ * caben en un anillo, siguen en el siguiente.
  */
-function porFamilias(trampas: TrampaMapa[], objetivos: Set<string>): Radial {
+function porSectores(trampas: TrampaMapa[], centro: Tamano): Reparto {
 	const grupos = new Map<TipoDeServicio | null, TrampaMapa[]>();
 	for (const t of trampas) grupos.set(t.pictograma, [...(grupos.get(t.pictograma) ?? []), t]);
-	const orden = conObjetivosAbajo(
-		[...grupos.entries()].toSorted(
-			(a, b) => b[1].length - a[1].length || String(a[0]).localeCompare(String(b[0]))
-		),
-		([, ts]) => ts.some((t) => objetivos.has(t.id))
+	const orden = [...grupos.entries()].toSorted(
+		(a, b) => b[1].length - a[1].length || String(a[0]).localeCompare(String(b[0]))
 	);
 
+	/* El anillo de los grupos crece para que quepan todos con su nombre. */
+	const conNodo = orden.filter(([, ts]) => ts.length > 1).length;
+	const escala = Math.max(
+		1,
+		(conNodo * SITIO_FAMILIA) / perimetro(ANILLO_FAMILIAS.x, ANILLO_FAMILIAS.y)
+	);
+	const rf = { x: ANILLO_FAMILIAS.x * escala, y: ANILLO_FAMILIAS.y * escala };
+
 	const total = HASTA - DESDE;
-	const pesos = orden.map(([, ts]) => ts.length + 0.5);
+	const pesos = orden.map(([, ts]) => ts.length + 1);
 	const suma = pesos.reduce((a, b) => a + b, 0);
 	let acumulado = DESDE;
-	const centros = pesos.map((p) => {
-		const ancho = (total * p) / suma;
-		const c = acumulado + ancho / 2;
-		acumulado += ancho;
-		return c;
+	const sectores = pesos.map((p) => {
+		const desde = acumulado;
+		acumulado += (total * p) / suma;
+		return { desde, hasta: acumulado, medio: (desde + acumulado) / 2 };
 	});
 
-	/* Los círculos de los tipos no se pisan aunque un trozo sea muy estrecho. */
-	const largoFamilias =
-		2 * Math.PI * Math.sqrt((ANILLO_FAMILIAS.x ** 2 + ANILLO_FAMILIAS.y ** 2) / 2);
-	const minimo = (48 / largoFamilias) * 360;
-	for (let i = 1; i < centros.length; i++)
-		centros[i] = Math.max(centros[i], centros[i - 1] + minimo);
-	if (centros.length && centros[centros.length - 1] > HASTA) {
-		centros[centros.length - 1] = HASTA;
-		for (let i = centros.length - 2; i >= 0; i--)
-			centros[i] = Math.min(centros[i], centros[i + 1] - minimo);
+	/* Dos grupos seguidos, si se quedan demasiado cerca, se separan sin pisarse. */
+	const medios = sectores.map((s) => s.medio);
+	const minimo = (48 / perimetro(rf.x, rf.y)) * 360;
+	for (let i = 1; i < medios.length; i++) medios[i] = Math.max(medios[i], medios[i - 1] + minimo);
+	if (medios.length && medios[medios.length - 1] > HASTA) {
+		medios[medios.length - 1] = HASTA;
+		for (let i = medios.length - 2; i >= 0; i--)
+			medios[i] = Math.min(medios[i], medios[i + 1] - minimo);
 	}
 
 	const familias = orden.map(([familia, ts], i) => {
-		const p = enElipse(ANILLO_FAMILIAS.x, ANILLO_FAMILIAS.y, centros[i]);
-		/* Su nombre, solo si cabe entre sus vecinos. */
-		const separacion = Math.min(
-			i > 0 ? centros[i] - centros[i - 1] : Infinity,
-			i < centros.length - 1 ? centros[i + 1] - centros[i] : Infinity
-		);
+		const p = enElipse(rf.x, rf.y, medios[i]);
+		/* Su nombre, solo si cabe entre sus vecinos con nodo. */
+		const distancias = medios
+			.filter((_, k) => k !== i && orden[k][1].length > 1)
+			.map((m) => Math.abs(m - medios[i]));
+		const separacion = Math.min(Infinity, ...distancias);
 		return {
 			familia,
 			trampas: ts,
 			x: p.x,
 			y: p.y,
-			conNombre: (separacion / 360) * largoFamilias >= 96
+			conNombre: (separacion / 360) * perimetro(rf.x, rf.y) >= 92
 		};
 	});
 
 	const ocupado: Caja[] = [
-		cajaCentrada(CENTRO),
+		cajaCentrada(centro),
 		...familias
 			.filter((f) => f.trampas.length > 1)
 			.map((f) => ({ l: f.x - 50, r: f.x + 50, t: f.y - 22, b: f.y + 36 }))
 	];
 
-	/* Los anillos que hagan falta, con holgura para que cada grupo quepa cerca de su centro. */
-	const anillos: { rx: number; huecos: Hueco[]; libre: boolean[] }[] = [];
-	let plazas = 0;
-	for (let i = 0; plazas < trampas.length * 1.2; i++) {
-		const rx = PRIMER_ANILLO.x + i * PASO_X;
-		const ry = PRIMER_ANILLO.y + i * PASO_Y;
-		const lista = huecosDeAnillo(rx, ry, DESDE, HASTA, ocupado);
-		ocupado.push(...lista.map((x) => x.caja));
-		anillos.push({ rx, huecos: lista, libre: lista.map(() => true) });
-		plazas += lista.length;
-	}
-
 	const hojas: Colocada[] = [];
-	orden.forEach(([, ts], f) => {
-		for (const trampa of ts) {
-			let mejor: { a: number; p: number; coste: number } | null = null;
-			anillos.forEach((anillo, a) => {
-				anillo.huecos.forEach((hueco, p) => {
-					if (!anillo.libre[p]) return;
-					/* Lo que se aleja del centro de su trozo, medido sobre el anillo, más lo que sube de anillo. */
-					const lejos = (Math.abs(hueco.grados - centros[f]) / 360) * 2 * Math.PI * anillo.rx;
-					const coste = lejos + a * 70;
-					if (!mejor || coste < mejor.coste) mejor = { a, p, coste };
-				});
-			});
-			const { a, p } = mejor!;
-			anillos[a].libre[p] = false;
-			hojas.push({ trampa, ...anillos[a].huecos[p] });
-		}
-	});
+	const pendientes = orden.map(([, ts]) => [...ts]);
+	for (let i = 0; pendientes.some((p) => p.length); i++) {
+		const rx = rf.x + SALTO_HOJAS.x + i * PASO_X;
+		const ry = rf.y + SALTO_HOJAS.y + i * PASO_Y;
+		pendientes.forEach((p, f) => {
+			if (!p.length) return;
+			const lista = huecosDeArco(rx, ry, sectores[f].desde + 0.5, sectores[f].hasta - 0.5, ocupado);
+			const n = Math.min(lista.length, p.length);
+			for (const hueco of repartir(lista, n)) {
+				hojas.push({ trampa: p.shift()!, ...hueco });
+				ocupado.push(hueco.caja);
+			}
+		});
+	}
 	return { hojas, familias };
 }
 
-/* Un sistema sin sensor con sus trampas abiertas hacia abajo, con el sistema en el origen. */
-function subgrafoSistema(sistema: SistemaMapa) {
-	const ocupado = [cajaCentrada(SISTEMA, 4)];
-	const hojas: Colocada[] = [];
-	let cuenta = 0;
-	for (let i = 0; cuenta < sistema.trampas.length; i++) {
-		const lista = huecosDeAnillo(
-			SISTEMA_PRIMERO.x + i * PASO_X,
-			SISTEMA_PRIMERO.y + i * PASO_Y,
-			ARCO_SISTEMA.desde,
-			ARCO_SISTEMA.hasta,
-			ocupado
-		);
-		ocupado.push(...lista.map((x) => x.caja));
-		const n = Math.min(lista.length, sistema.trampas.length - cuenta);
-		for (const hueco of repartir(lista, n))
-			hojas.push({ trampa: sistema.trampas[cuenta++], ...hueco });
-	}
-	const mitad = Math.max(SISTEMA.ancho / 2, ...hojas.map((h) => Math.max(-h.caja.l, h.caja.r)));
-	const alto = SISTEMA.alto / 2 + Math.max(SISTEMA.alto / 2, ...hojas.map((h) => h.caja.b));
-	return { hojas, ancho: mitad * 2, alto };
-}
-
-/* Lo que une un sistema con quien recibe su señal: una arista por cada destino distinto. */
-function relacionesDeSistema(
-	sistema: SistemaMapa,
-	idCentro: string | null,
-	enEsteGrafo: Set<string>
-): AristaGrafo[] {
-	const vistos = new Set<string>();
-	const r: AristaGrafo[] = [];
-	const de = `s:${sistema.id}`;
-	for (const t of sistema.trampas) {
-		const objetivo = t.objetivo && enEsteGrafo.has(t.objetivo) ? `t:${t.objetivo}` : idCentro;
-		if (!objetivo || vistos.has(objetivo)) continue;
-		vistos.add(objetivo);
-		r.push({
-			de,
-			a: objetivo,
-			clase: t.ruta?.rele || sistema.linea === 'rele' ? 'rele' : 'senal',
-			relacion: {
-				texto: (t.ruta?.texto ?? 'Señal').replace(/,? (hacia|entra en)$/, ''),
-				destino: t.ruta?.destino ?? null
-			}
-		});
-	}
-	/* Sin trampas que lo digan, sigue colgando de su sensor. */
-	if (!r.length && idCentro)
-		r.push({
-			de,
-			a: idCentro,
-			clase: sistema.linea === 'rele' ? 'rele' : 'senal',
-			relacion: { texto: 'Sin señal todavía', destino: null }
-		});
-	return r;
-}
-
-/*
- * Un centro (un sensor o la salida a internet), sus trampas y sus sistemas. idCentro
- * nulo: solo sistemas, sin línea que los una a nada (los que aún no tienen trampas).
- */
+/* Un sitio con sus trampas. idCentro: el nodo del propio sitio. */
 export function armarGrafo(v: {
-	idCentro: string | null;
+	idCentro: string;
 	trampas: TrampaMapa[];
-	sistemas: SistemaMapa[];
+	centro: Tamano;
+	/* Si con pocas trampas puede quedarse compacto, con ellas debajo. */
+	compacto?: boolean;
 }): Grafo {
-	const { idCentro, trampas, sistemas } = v;
+	const { idCentro, trampas, centro } = v;
 	const aquiEstan = new Set(trampas.map((t) => t.id));
-	const objetivos = new Set(
-		[...trampas, ...sistemas.flatMap((s) => s.trampas)]
-			.map((t) => t.objetivo)
-			.filter((o): o is string => !!o && aquiEstan.has(o))
-	);
+	const reparto: Reparto = !trampas.length
+		? { hojas: [], familias: [] }
+		: v.compacto && trampas.length <= MAX_ABANICO
+			? abanico(trampas, centro)
+			: trampas.length <= MAX_ESTRELLA
+				? estrella(trampas, centro)
+				: porSectores(trampas, centro);
 
-	const radial: Radial | null = !trampas.length
-		? null
-		: trampas.length <= MAX_ESTRELLA
-			? estrella(trampas, objetivos)
-			: porFamilias(trampas, objetivos);
-
-	/* Lo que ocupa la parte de arriba, medido desde el centro. */
-	const cajas = radial?.hojas.map((h) => h.caja) ?? [];
-	const izquierda = Math.max(
-		idCentro ? CENTRO.ancho / 2 : 0,
-		...cajas.map((c) => Math.max(-c.l, c.r))
-	);
-	const arriba = Math.max(idCentro ? CENTRO.alto / 2 : 0, ...cajas.map((c) => -c.t));
-	const abajo = Math.max(idCentro ? CENTRO.alto / 2 : 0, ...cajas.map((c) => c.b));
-
-	const subgrafos = sistemas.map((s) => ({ sistema: s, ...subgrafoSistema(s) }));
-	const limite = Math.max(ANCHO_FILA, izquierda * 2);
-	const filas: (typeof subgrafos)[] = [];
-	for (const g of subgrafos) {
-		const fila = filas[filas.length - 1];
-		const ancho = fila ? fila.reduce((n, x) => n + x.ancho + ENTRE_SISTEMAS, 0) + g.ancho : 0;
-		if (fila && ancho <= limite) fila.push(g);
-		else filas.push([g]);
-	}
-	const anchoFila = (f: typeof subgrafos) =>
-		f.reduce((n, x) => n + x.ancho, 0) + ENTRE_SISTEMAS * (f.length - 1);
-	const ancho =
-		Math.max(idCentro || radial ? izquierda * 2 : 0, ...filas.map(anchoFila), 0) + MARGEN * 2;
-
+	/* Lo que ocupa, medido desde el centro. Simétrico a los lados: el sitio queda en medio. */
+	const cajas = reparto.hojas.map((h) => h.caja);
+	const lado = Math.max(centro.ancho / 2, ...cajas.map((c) => Math.max(-c.l, c.r)));
+	const arriba = Math.max(centro.alto / 2, ...cajas.map((c) => -c.t));
+	const abajo = Math.max(centro.alto / 2, ...cajas.map((c) => c.b));
+	const ancho = lado * 2 + MARGEN * 2;
 	const cx = ancho / 2;
 	const cy = MARGEN + arriba;
-	const nodos: NodoGrafo[] = [];
+
+	const nodos: NodoGrafo[] = [{ id: idCentro, tipo: 'centro', x: cx, y: cy }];
 	const aristas: AristaGrafo[] = [];
-
-	if (idCentro) nodos.push({ id: idCentro, tipo: 'centro', x: cx, y: cy });
-
-	if (radial) {
-		const padreDe = new Map<string, string>();
-		for (const f of radial.familias) {
-			/* Un tipo con una sola trampa no necesita nodo propio: va directa al sensor. */
-			if (f.trampas.length < 2) continue;
-			const id = `f:${idCentro}:${f.familia}`;
-			nodos.push({
-				id,
-				tipo: 'familia',
-				familia: f.familia,
-				nombre: f.familia ? FAMILIAS[f.familia] : 'Otras',
-				trampas: f.trampas,
-				conNombre: f.conNombre,
-				x: cx + f.x,
-				y: cy + f.y
+	const padreDe = new Map<string, string>();
+	for (const f of reparto.familias) {
+		/* Un tipo con una sola trampa no necesita nodo propio: va directa al sitio. */
+		if (f.trampas.length < 2) continue;
+		const id = `f:${idCentro}:${f.familia}`;
+		nodos.push({
+			id,
+			tipo: 'familia',
+			familia: f.familia,
+			nombre: f.familia ? FAMILIAS[f.familia] : 'Otras',
+			trampas: f.trampas,
+			conNombre: f.conNombre,
+			x: cx + f.x,
+			y: cy + f.y
+		});
+		aristas.push({ de: idCentro, a: id, clase: 'estructura' });
+		for (const t of f.trampas) padreDe.set(t.id, id);
+	}
+	for (const h of reparto.hojas) {
+		const id = `t:${h.trampa.id}`;
+		nodos.push({ id, tipo: 'trampa', trampa: h.trampa, x: cx + h.x, y: cy + h.y });
+		aristas.push({
+			de: padreDe.get(h.trampa.id) ?? idCentro,
+			a: id,
+			clase: claseDeEstado(h.trampa)
+		});
+		/* Lo sembrado en este mismo sitio que apunta a otra de sus trampas. */
+		if (h.trampa.objetivo && aquiEstan.has(h.trampa.objetivo))
+			aristas.push({
+				de: id,
+				a: `t:${h.trampa.objetivo}`,
+				clase: h.trampa.ruta?.rele ? 'rele' : 'senal',
+				relacion: {
+					texto: (h.trampa.ruta?.texto ?? 'Señal').replace(/,? (hacia|entra en)$/, ''),
+					destino: h.trampa.ruta?.destino ?? null
+				}
 			});
-			if (idCentro) aristas.push({ de: idCentro, a: id, clase: 'estructura' });
-			for (const t of f.trampas) padreDe.set(t.id, id);
-		}
-		for (const h of radial.hojas) {
-			const id = `t:${h.trampa.id}`;
-			nodos.push({ id, tipo: 'trampa', trampa: h.trampa, x: cx + h.x, y: cy + h.y });
-			const padre = padreDe.get(h.trampa.id) ?? idCentro;
-			if (padre) aristas.push({ de: padre, a: id, clase: claseDeEstado(h.trampa) });
-			/* Lo sembrado en la máquina del sensor que apunta a otra trampa suya. */
-			if (h.trampa.objetivo && aquiEstan.has(h.trampa.objetivo))
-				aristas.push({
-					de: id,
-					a: `t:${h.trampa.objetivo}`,
-					clase: h.trampa.ruta?.rele ? 'rele' : 'senal',
-					relacion: {
-						texto: (h.trampa.ruta?.texto ?? 'Señal').replace(/,? (hacia|entra en)$/, ''),
-						destino: h.trampa.ruta?.destino ?? null
-					}
-				});
-		}
 	}
 
-	let y = idCentro || radial ? cy + abajo + BAJADA_SISTEMAS : MARGEN;
-	for (const fila of filas) {
-		let x = cx - anchoFila(fila) / 2;
-		let altoFila = 0;
-		for (const g of fila) {
-			const sx = x + g.ancho / 2;
-			const sy = y + SISTEMA.alto / 2;
-			const id = `s:${g.sistema.id}`;
-			nodos.push({ id, tipo: 'sistema', sistema: g.sistema, x: sx, y: sy });
-			aristas.push(...relacionesDeSistema(g.sistema, idCentro, aquiEstan));
-			for (const h of g.hojas) {
-				const idHoja = `t:${h.trampa.id}`;
-				nodos.push({ id: idHoja, tipo: 'trampa', trampa: h.trampa, x: sx + h.x, y: sy + h.y });
-				aristas.push({ de: id, a: idHoja, clase: claseDeEstado(h.trampa) });
-			}
-			x += g.ancho + ENTRE_SISTEMAS;
-			altoFila = Math.max(altoFila, g.alto);
-		}
-		y += altoFila + ENTRE_SISTEMAS;
-	}
-
-	const alto = filas.length ? y - ENTRE_SISTEMAS + MARGEN : cy + abajo + MARGEN;
 	return {
 		ancho: Math.round(ancho),
-		alto: Math.round(alto),
+		alto: Math.round(cy + abajo + MARGEN),
 		nodos: nodos.map((n) => ({ ...n, x: Math.round(n.x), y: Math.round(n.y) })),
 		aristas,
-		centro: idCentro ? { x: Math.round(cx), y: Math.round(cy) } : null
+		centro: { x: Math.round(cx), y: Math.round(cy) },
+		tamano: centro
 	};
 }
 
-/* El grafo de un sensor. */
+export const idSensor = (x: Pick<SensorMapa, 'id'>) => `c:${x.id}`;
+export const idSistema = (x: Pick<SistemaMapa, 'id'>) => `s:${x.id}`;
+
+/* El sitio de un sensor: su máquina y las trampas que tiene. */
 export const grafoDeSensor = (x: SensorMapa) =>
-	armarGrafo({ idCentro: `c:${x.id}`, trampas: x.trampas, sistemas: x.sistemas });
+	armarGrafo({ idCentro: idSensor(x), trampas: x.trampas, centro: CENTRO_SENSOR });
+
+/* Un sitio sin sensor: un servidor, una web, una cuenta de nube. */
+export const grafoDeSistema = (x: SistemaMapa) =>
+	armarGrafo({ idCentro: idSistema(x), trampas: x.trampas, centro: CENTRO_SITIO, compacto: true });
 
 /* Los nodos unidos a uno: lo que se resalta al pinchar en él. */
 export function vecinosDe(g: Grafo, id: string): Set<string> {
@@ -476,14 +381,13 @@ export function extremos(g: Grafo, a: AristaGrafo) {
 			);
 			return { x: n.x + dx * k, y: n.y + dy * k };
 		}
-		const caja = n.tipo === 'centro' ? CENTRO : n.tipo === 'sistema' ? SISTEMA : null;
-		if (!caja) {
+		if (n.tipo === 'familia') {
 			const r = FAMILIA.circulo / 2 + 5;
 			return { x: n.x + (dx / d) * r, y: n.y + (dy / d) * r };
 		}
 		const k = Math.min(
-			dx ? (caja.ancho / 2 + 5) / Math.abs(dx) : Infinity,
-			dy ? (caja.alto / 2 + 5) / Math.abs(dy) : Infinity
+			dx ? (g.tamano.ancho / 2 + 5) / Math.abs(dx) : Infinity,
+			dy ? (g.tamano.alto / 2 + 5) / Math.abs(dy) : Infinity
 		);
 		return { x: n.x + dx * k, y: n.y + dy * k };
 	};

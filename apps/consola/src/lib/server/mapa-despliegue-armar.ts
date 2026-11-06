@@ -95,7 +95,7 @@ const SERVICIOS: Readonly<Record<string, string>> = {
 	'clima:puertoClima': 'BACnet',
 	'consola-copias:puerto': 'HTTPS',
 	'darknet:puertoSonda': 'Testigo',
-	'elasticsearch:puerto': 'HTTP',
+	'elasticsearch:puerto': 'Elastic',
 	'envenenador:puertoDetector': 'Detector',
 	'envenenador:puertoEscucha': 'Escucha',
 	'escaneo:': 'Testigo',

@@ -230,7 +230,7 @@ export const tituloZona = (z: Pick<ZonaMapa, 'tipo' | 'nombre' | 'red'>) =>
 	z.tipo === 'fuera'
 		? 'Fuera de tu red'
 		: z.tipo === 'sin-senal'
-			? 'Sistemas sin trampas'
+			? 'Sitios sin trampas'
 			: (z.nombre ?? z.red ?? 'Red sin indicar');
 
 /*
@@ -263,6 +263,17 @@ export function etiquetaTrampa(t: TrampaMapa): {
 	};
 }
 
+/* Cómo llega la señal de un sitio, en pocas palabras: lo que se lee sobre su línea. */
+export function rutaCorta(x: Pick<SistemaMapa, 'trampas'>): string {
+	const textos = [
+		...new Set(
+			x.trampas.flatMap((t) => (t.ruta ? [t.ruta.texto.replace(/,? (hacia|entra en)$/, '')] : []))
+		)
+	];
+	if (!textos.length) return x.trampas.length ? 'Señal sin ruta' : 'Sin señal todavía';
+	return textos.length === 1 ? textos[0] : `${textos.length} señales distintas`;
+}
+
 /* Lo que se enseña al pinchar en un nodo. */
 export type DetalleNodo =
 	| { tipo: 'sensor'; sensor: SensorMapa; zona: ZonaMapa }
@@ -273,32 +284,38 @@ export type DetalleNodo =
 
 /* De un id del grafo a lo que hay que enseñar; null si ya no está (se ha actualizado la página). */
 export function detalleNodo(mapa: Mapa, id: string): DetalleNodo | null {
+	const familia = (prefijo: string, trampas: TrampaMapa[]): DetalleNodo | null => {
+		if (!id.startsWith(prefijo)) return null;
+		const clave = id.slice(prefijo.length);
+		const tipo = clave === 'null' ? null : (clave as TipoDeServicio);
+		return {
+			tipo: 'familia',
+			familia: tipo,
+			nombre: tipo ? FAMILIAS[tipo] : 'Otras',
+			trampas: trampas.filter((x) => x.pictograma === tipo)
+		};
+	};
 	for (const zona of mapa.zonas) {
 		if (id === `c:zona:${zona.clave}`) return { tipo: 'puerta', zona };
 		for (const y of zona.sistemas) {
 			if (id === `s:${y.id}`) return { tipo: 'sistema', sistema: y, recibe: null };
 			const t = y.trampas.find((x) => id === `t:${x.id}`);
 			if (t) return { tipo: 'trampa', trampa: t, equipo: y.nombre, ip: y.direccion };
+			const f = familia(`f:s:${y.id}:`, y.trampas);
+			if (f) return f;
 		}
 		for (const sensor of zona.sensores) {
 			if (id === `c:${sensor.id}`) return { tipo: 'sensor', sensor, zona };
 			const propia = sensor.trampas.find((x) => id === `t:${x.id}`);
 			if (propia) return { tipo: 'trampa', trampa: propia, equipo: sensor.nombre, ip: sensor.ip };
-			const prefijo = `f:c:${sensor.id}:`;
-			if (id.startsWith(prefijo)) {
-				const clave = id.slice(prefijo.length);
-				const familia = clave === 'null' ? null : (clave as TipoDeServicio);
-				return {
-					tipo: 'familia',
-					familia,
-					nombre: familia ? FAMILIAS[familia] : 'Otras',
-					trampas: sensor.trampas.filter((x) => x.pictograma === familia)
-				};
-			}
+			const f = familia(`f:c:${sensor.id}:`, sensor.trampas);
+			if (f) return f;
 			for (const y of sensor.sistemas) {
 				if (id === `s:${y.id}`) return { tipo: 'sistema', sistema: y, recibe: sensor };
 				const t = y.trampas.find((x) => id === `t:${x.id}`);
 				if (t) return { tipo: 'trampa', trampa: t, equipo: y.nombre, ip: y.direccion };
+				const g = familia(`f:s:${y.id}:`, y.trampas);
+				if (g) return g;
 			}
 		}
 	}

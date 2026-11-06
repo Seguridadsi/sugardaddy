@@ -49,13 +49,13 @@
 
 		<h3>Dónde está</h3>
 		<dl>
-			<dt>Equipo</dt>
+			<dt>Sitio</dt>
 			<dd>{detalle.equipo}</dd>
 			{#if t.conIpPropia}
 				<dt>IP propia</dt>
 				<dd class="mono">{t.ipPropia ?? 'Sin asignar todavía'}</dd>
 			{:else if detalle.ip}
-				<dt>IP del equipo</dt>
+				<dt>IP del sitio</dt>
 				<dd class="mono">{detalle.ip}</dd>
 			{/if}
 			{#if t.ubicacion}
@@ -158,7 +158,7 @@
 			<dt>Trampas</dt>
 			<dd>
 				{x.trampas.length} aquí, {x.sistemas.length}
-				{x.sistemas.length === 1 ? 'sistema enlazado' : 'sistemas enlazados'}
+				{x.sistemas.length === 1 ? 'sitio enlazado' : 'sitios enlazados'}
 			</dd>
 		</dl>
 		<div class="acciones">
@@ -171,9 +171,9 @@
 		{@const y = detalle.sistema}
 		<header>
 			<div>
-				<span class="chip sin">SIN SENSOR</span>
+				<span class="chip sin">{y.tipo}</span>
 				<h2>{y.nombre}</h2>
-				<p class="sub">{y.tipo}</p>
+				<p class="sub">Sitio sin sensor</p>
 			</div>
 		</header>
 		{#if y.direccion}

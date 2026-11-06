@@ -100,8 +100,6 @@ const TIPO_DE_TRAMPA: Record<string, TipoDeServicio> = {
 	'api-docker': 'contenedores',
 	/* Kubeconfig sembrado (H32): no corre servicio, su clúster es una baliza del relé */
 	'kubeconfig-cebo': 'contenedores',
-	/* Secret y cuenta de servicio de Kubernetes sembrados (H108): token cebo, baliza del relé */
-	'secreto-k8s-cebo': 'contenedores',
 	/* Impresoras, cámaras, IoT e industria */
 	impresora: 'impresoras',
 	'camara-ip': 'camaras',
@@ -126,13 +124,7 @@ const TIPO_DE_TRAMPA: Record<string, TipoDeServicio> = {
 	svn: 'codigo',
 	/* Secretos en el código (.env) sembrados (H94): no corre servicio, apunta a una trampa */
 	'secretos-env': 'codigo',
-	/* Registro de paquetes privado falso (H105): npm, PyPI y OCI/Docker en un contenedor */
-	'registro-paquetes': 'codigo',
 	/* Ficheros cebo con baliza */
-	/* Paquete de botín con baliza (H104): archivo con un acceso de despliegue que apunta al relé */
-	'paquete-cifrado-cebo': 'ficheros',
-	/* Fichero técnico sembrado (H100-H102): tfstate, HAR o config con endpoint baliza del relé */
-	'fichero-tecnico-cebo': 'ficheros',
 	'fichero-word': 'ficheros',
 	'fichero-excel': 'ficheros',
 	'fichero-pdf': 'ficheros',

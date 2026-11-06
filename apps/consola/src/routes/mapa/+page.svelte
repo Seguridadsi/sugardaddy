@@ -15,12 +15,18 @@
 		detalleNodo,
 		estadoEnPlural,
 		filtrarMapa,
+		rutaCorta,
 		tituloZona,
 		type SensorMapa,
 		type SistemaMapa,
 		type ZonaMapa
 	} from '$lib/mapa-despliegue';
-	import { armarGrafo, grafoDeSensor } from '$lib/mapa-despliegue-grafo';
+	import {
+		CENTRO_SITIO,
+		armarGrafo,
+		grafoDeSensor,
+		grafoDeSistema
+	} from '$lib/mapa-despliegue-grafo';
 	import {
 		trazarFilas,
 		trazarLineas,
@@ -185,7 +191,30 @@
 				};
 			});
 		});
-		trazado = trazarFilas({ consola: caja(elConsola), ramas: filas });
+		const r = trazarFilas({ consola: caja(elConsola), ramas: filas });
+		/* Y cada sitio, desde la barra que tiene encima hasta la caja de su sensor. */
+		for (const grupo of lienzo.querySelectorAll('[data-grupo-sitios]')) {
+			const principal = grupo.querySelector('[data-sitio-principal]');
+			const sitios = [...grupo.querySelectorAll<HTMLElement>('[data-sitio]')];
+			const centro = (s: Element) => s.querySelector('[data-centro]') ?? s;
+			if (!principal || !sitios.length) continue;
+			const t = trazarFilas({
+				consola: caja(principal),
+				margen: 8,
+				ramas: sitios.map((s) => ({
+					caja: caja(centro(s)),
+					cuadro: caja(s),
+					zona: caja(s),
+					clase: s.dataset.sitio as RamaFila['clase'],
+					pildora: s.dataset.pildora ?? null,
+					primeraDeZona: true
+				}))
+			});
+			r.trazos.push(...t.trazos);
+			r.flechas.push(...t.flechas);
+			r.pildoras.push(...t.pildoras);
+		}
+		trazado = r;
 	}
 
 	function cambiarVista(v: 'grafo' | 'lista') {
@@ -248,6 +277,38 @@
 	}}
 />
 
+{#snippet sitio(y: SistemaMapa, conLinea: boolean)}
+	<div
+		class="sitio"
+		data-sitio={conLinea ? y.linea : undefined}
+		data-pildora={conLinea ? rutaCorta(y) : undefined}
+	>
+		<GrafoEquipo
+			grafo={grafoDeSistema(y)}
+			{elegido}
+			onelegir={alternarElegido}
+			claseCentro="de-sitio"
+		>
+			{#snippet centro()}
+				<span class="centro-l1 entre">
+					<span class="chip tipo-sitio">{y.tipo}</span>
+					<IconoEquipo icono={y.icono} />
+				</span>
+				<span class="nom">{y.nombre}</span>
+				{#if y.direccion}
+					<span class="centro-ip chica">{y.direccion}</span>
+				{:else if y.faltaDireccion}
+					<span class="centro-ip chica falta">IP sin indicar</span>
+				{:else}
+					<span class="centro-meta sin-color"
+						>{y.linea === 'rele' ? 'Sin IP privada' : 'IP sin indicar'}</span
+					>
+				{/if}
+			{/snippet}
+		</GrafoEquipo>
+	</div>
+{/snippet}
+
 {#snippet tarjetaSistema(x: SistemaMapa, conLinea: boolean)}
 	<div class="sistema">
 		{#if x.ruta}
@@ -291,7 +352,7 @@
 				<span><b>{resumen.sensores}</b> {resumen.sensores === 1 ? 'sensor' : 'sensores'}</span>
 				<span
 					><b>{resumen.sistemas}</b>
-					{resumen.sistemas === 1 ? 'sistema sin sensor' : 'sistemas sin sensor'}</span
+					{resumen.sistemas === 1 ? 'sitio sin sensor' : 'sitios sin sensor'}</span
 				>
 				<span><b>{resumen.trampas}</b> {resumen.trampas === 1 ? 'trampa' : 'trampas'}</span>
 				{#each estados as e (e)}
@@ -442,54 +503,78 @@
 					{:else if vista === 'grafo'}
 						<div class="cuadros">
 							{#if z.tipo === 'fuera'}
-								<GrafoEquipo
-									grafo={armarGrafo({
-										idCentro: `c:zona:${z.clave}`,
-										trampas: [],
-										sistemas: z.sistemas
-									})}
-									{elegido}
-									onelegir={alternarElegido}
-									rama="rele"
-									pildora={z.rele ? `${consola.puerto}/tcp · latido de la consola` : 'Por internet'}
-									claseCentro="puerta"
-								>
-									{#snippet centro()}
-										<span class="centro-l1">
-											<span class="chip de-rele">{z.rele ? 'RELÉ' : 'INTERNET'}</span>
-										</span>
-										<span class="nom"
-											>{z.rele ? 'Relé público y panel central' : 'Salida a internet'}</span
+								<div class="grupo-sitios" data-grupo-sitios>
+									<div class="sitio" data-sitio-principal>
+										<GrafoEquipo
+											grafo={armarGrafo({
+												idCentro: `c:zona:${z.clave}`,
+												trampas: [],
+												centro: CENTRO_SITIO
+											})}
+											{elegido}
+											onelegir={alternarElegido}
+											rama="rele"
+											pildora={z.rele
+												? `${consola.puerto}/tcp · latido de la consola`
+												: 'Por internet'}
+											claseCentro="puerta"
 										>
-										<span class="centro-meta">Sin IP privada</span>
-									{/snippet}
-								</GrafoEquipo>
+											{#snippet centro()}
+												<span class="centro-l1">
+													<span class="chip de-rele">{z.rele ? 'RELÉ' : 'INTERNET'}</span>
+												</span>
+												<span class="nom"
+													>{z.rele ? 'Relé público y panel central' : 'Salida a internet'}</span
+												>
+												<span class="centro-meta">Sin IP privada</span>
+											{/snippet}
+										</GrafoEquipo>
+									</div>
+									<div class="sitios">
+										{#each z.sistemas as y (y.id)}
+											{@render sitio(y, true)}
+										{/each}
+									</div>
+								</div>
 							{:else if z.tipo === 'sin-senal'}
-								<GrafoEquipo
-									grafo={armarGrafo({ idCentro: null, trampas: [], sistemas: z.sistemas })}
-									{elegido}
-									onelegir={alternarElegido}
-								/>
+								<div class="sitios sueltos-grafo">
+									{#each z.sistemas as y (y.id)}
+										{@render sitio(y, false)}
+									{/each}
+								</div>
 							{/if}
 							{#each z.sensores as x (x.id)}
-								<GrafoEquipo
-									grafo={grafoDeSensor(x)}
-									{elegido}
-									onelegir={alternarElegido}
-									rama={x.vivo ? 'ok' : 'mal'}
-									pildora={pildoraDe(x)}
-									claseCentro={x.vivo ? '' : 'caido'}
-								>
-									{#snippet centro()}
-										<span class="centro-l1">
-											<span class="chip sensor">SENSOR</span>
-											<span class="nom">{x.nombre}</span>
-											<span class="tipo">{x.local ? 'Local' : 'Remoto'}</span>
-										</span>
-										<span class="centro-ip" class:falta={!x.ip}>{x.ip ?? 'IP sin informar'}</span>
-										<span class="centro-meta" class:mal={!x.vivo}>{latido(x)}</span>
-									{/snippet}
-								</GrafoEquipo>
+								<div class="grupo-sitios" data-grupo-sitios>
+									<div class="sitio" data-sitio-principal>
+										<GrafoEquipo
+											grafo={grafoDeSensor(x)}
+											{elegido}
+											onelegir={alternarElegido}
+											rama={x.vivo ? 'ok' : 'mal'}
+											pildora={pildoraDe(x)}
+											claseCentro={x.vivo ? '' : 'caido'}
+										>
+											{#snippet centro()}
+												<span class="centro-l1">
+													<span class="chip sensor">SENSOR</span>
+													<span class="nom">{x.nombre}</span>
+													<span class="tipo">{x.local ? 'Local' : 'Remoto'}</span>
+												</span>
+												<span class="centro-ip" class:falta={!x.ip}
+													>{x.ip ?? 'IP sin informar'}</span
+												>
+												<span class="centro-meta" class:mal={!x.vivo}>{latido(x)}</span>
+											{/snippet}
+										</GrafoEquipo>
+									</div>
+									{#if x.sistemas.length}
+										<div class="sitios">
+											{#each x.sistemas as y (y.id)}
+												{@render sitio(y, true)}
+											{/each}
+										</div>
+									{/if}
+								</div>
 							{/each}
 						</div>
 					{:else}
@@ -520,7 +605,7 @@
 								</div>
 							</div>
 						{:else if z.tipo === 'sin-senal'}
-							<p class="vacio">Da de alta una trampa en estos sistemas para conectarlos al mapa.</p>
+							<p class="vacio">Pon una trampa en estos sitios para conectarlos al mapa.</p>
 							<div class="sueltos">
 								{#each z.sistemas as x (x.id)}
 									{@render tarjetaSistema(x, false)}
@@ -615,7 +700,7 @@
 				<span
 					><svg class="muestra" width="34" height="10"
 						><line class="linea senal" x1="1" y1="5" x2="33" y2="5" /></svg
-					>Señal de una trampa en otro sistema</span
+					>Señal de un sitio hacia su sensor</span
 				>
 			{/if}
 			{#if hayRele}
@@ -924,8 +1009,67 @@
 		display: flex;
 		flex-wrap: wrap;
 		justify-content: center;
+		align-items: flex-start;
 		gap: 16px;
 		overflow-x: auto;
+	}
+
+	/* Un sensor con su sitio y, debajo, los sitios cuya señal recibe. */
+	.grupo-sitios {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+	}
+
+	.sitio {
+		flex: none;
+		border: 1px solid var(--line);
+		border-radius: var(--r);
+		background: var(--bg);
+	}
+
+	.sitios {
+		display: flex;
+		flex-wrap: wrap;
+		justify-content: center;
+		align-items: flex-start;
+		gap: 64px 20px;
+		margin-top: 64px;
+	}
+
+	.sueltos-grafo {
+		margin-top: 0;
+	}
+
+	.centro-l1.entre {
+		justify-content: space-between;
+	}
+
+	.centro-l1 :global(.icono) {
+		width: 16px;
+		height: 16px;
+	}
+
+	.chip.tipo-sitio {
+		padding: 1px 7px;
+		overflow: hidden;
+		border: 1px solid var(--line-strong);
+		font-size: 10px;
+		text-overflow: ellipsis;
+		text-transform: uppercase;
+		color: var(--ink-2);
+	}
+
+	.centro-ip.chica {
+		font-size: 19px;
+	}
+
+	.centro-ip.chica.falta {
+		font-size: 14px;
+	}
+
+	.centro-meta.sin-color {
+		color: var(--ink-2);
 	}
 
 	.centro-l1 {
