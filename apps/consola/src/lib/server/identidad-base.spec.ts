@@ -100,6 +100,31 @@ describe.skipIf(!process.env.DATABASE_URL)('identidad', async () => {
 		expect((await identidad()).semilla).toBe(semilla);
 	});
 
+	it('lo que el módulo pide al azar se propone haya dominio o no, y cada vez uno distinto', async () => {
+		const CENTINELA = {
+			id: 'zz-identidad-centinela',
+			parametros: {
+				type: 'object',
+				properties: {
+					carpetas: { type: 'string' },
+					servicio: {
+						type: 'string',
+						'x-aleatorio': { bases: ['RevisionDiscos'], sufijo: 6, alfabeto: 'digitos' }
+					}
+				}
+			}
+		} as unknown as Honeycosa;
+		const una = await propuestasDeAlta(CENTINELA, DESTINO);
+		expect(Object.keys(una)).toEqual(['servicio']);
+		expect(una.servicio).toMatch(/^RevisionDiscos\d{6}$/);
+		const otras = new Set(
+			await Promise.all(
+				Array.from({ length: 8 }, async () => (await propuestasDeAlta(CENTINELA, DESTINO)).servicio)
+			)
+		);
+		expect(otras.size).toBeGreaterThan(1);
+	});
+
 	it('sin dominio no se propone nada, ni hay nada que aplicar', async () => {
 		await trampa('a', { nombreEquipo: 'FS01' });
 		expect(await propuestasDeAlta(SMB, DESTINO)).toEqual({});

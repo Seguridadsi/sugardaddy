@@ -151,7 +151,7 @@ export function leerTrampa(yaml: string): Resultado<ManifiestoTrampa> {
  */
 
 type DefParametro = Record<string, unknown>;
-type XAleatorio = { bases: string[]; sufijo: number; alfabeto?: keyof typeof ALFABETOS };
+export type XAleatorio = { bases: string[]; sufijo: number; alfabeto?: keyof typeof ALFABETOS };
 
 const ALFABETOS = {
 	'minusculas-digitos': 'abcdefghijklmnopqrstuvwxyz0123456789',
@@ -360,6 +360,16 @@ export function variablesDeVia(
 		else resueltos.push({ ...u, variable: r.variable });
 	}
 	return { usos: resueltos, fallos };
+}
+
+/*
+ * Lo que propone x-aleatorio: una base y su sufijo al azar. El azar lo pone quien llama
+ * (node:crypto en la consola): este paquete también corre en el navegador.
+ */
+export function valorAleatorio(xa: XAleatorio, azar: (hasta: number) => number): string {
+	const alfabeto = [...ALFABETOS[xa.alfabeto ?? 'minusculas-digitos']];
+	const sufijo = Array.from({ length: xa.sufijo }, () => alfabeto[azar(alfabeto.length)]);
+	return xa.bases[azar(xa.bases.length)] + sufijo.join('');
 }
 
 /*

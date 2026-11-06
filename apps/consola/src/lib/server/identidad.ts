@@ -10,9 +10,9 @@
  * Las trampas de cara a internet no toman el dominio: un RDP en una IP pública que
  * anuncia el nombre de la empresa la señala ante quien rastrea internet.
  */
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomInt } from 'node:crypto';
 import { eq } from 'drizzle-orm';
-import type { Honeycosa } from '@sugardaddy/contrato';
+import { valorAleatorio, type Honeycosa, type XAleatorio } from '@sugardaddy/contrato';
 import { cambiosDeFabrica, propuestas, tituloDe } from '$lib/camuflaje';
 import { modificarConElector } from './alta';
 import { honeycosas } from './catalogo';
@@ -59,23 +59,35 @@ const nombresDe = (filas: { parametros: Record<string, unknown> }[]) =>
 	);
 
 /*
- * Lo que se propone para una trampa nueva de ese módulo en ese destino. Vacío si no hay
- * dominio, o si el sensor de ese destino está de cara a internet.
+ * Lo que se propone para una trampa nueva de ese módulo en ese destino: lo que el módulo
+ * pide al azar y, si hay dominio y el sensor no está de cara a internet, los nombres del dominio.
  */
 export async function propuestasDeAlta(
 	h: Honeycosa,
 	destino: string
 ): Promise<Record<string, string>> {
+	const azar = propuestasAlAzar(h);
 	const { dominio, semilla } = await identidad();
-	if (!dominio) return {};
+	if (!dominio) return azar;
 	const [d] = await db
 		.select({ entorno: s.sensores.entorno })
 		.from(s.destinos)
 		.leftJoin(s.sensores, eq(s.sensores.id, s.destinos.sensor))
 		.where(eq(s.destinos.id, destino));
-	if (d?.entorno === 'perimetro-web') return {};
+	if (d?.entorno === 'perimetro-web') return azar;
 	const filas = await db.select({ parametros: s.trampas.parametros }).from(s.trampas);
-	return propuestas(h.parametros, dominio, { semilla, usados: nombresDe(filas) });
+	return { ...azar, ...propuestas(h.parametros, dominio, { semilla, usados: nombresDe(filas) }) };
+}
+
+/* Los parámetros con x-aleatorio: la consola propone un valor distinto en cada trampa. */
+function propuestasAlAzar(h: Honeycosa): Record<string, string> {
+	const props = h.parametros.properties as Record<string, { 'x-aleatorio'?: XAleatorio }>;
+	return Object.fromEntries(
+		Object.entries(props).flatMap(([nombre, def]) => {
+			const xa = def['x-aleatorio'];
+			return xa ? [[nombre, valorAleatorio(xa, randomInt)]] : [];
+		})
+	);
 }
 
 type Aplicable = {

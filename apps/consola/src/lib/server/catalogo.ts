@@ -139,6 +139,7 @@ export function textoDeFicha(texto: string, h: Honeycosa): string {
 	return texto
 		.replace(/\$\{([^}]*)\}/g, (hueco, x: string) => {
 			if (Object.hasOwn(props, x)) return nombre(x);
+			if (x === 'baliza_url') return 'la dirección de la baliza';
 			const [de, campo, ...mas] = x.split('.');
 			if (mas.length) return hueco;
 			if (de === 'destino')
