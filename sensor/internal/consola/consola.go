@@ -91,14 +91,14 @@ func (c *Cliente) Informar(ctx context.Context, estados, motor any, hechos map[s
 	}
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("estado: %d", resp.StatusCode)
+		return fmt.Errorf("state: %d", resp.StatusCode)
 	}
 	return nil
 }
 
 // ErrDemasiadoGrande: la consola no admite una entrega de ese tamaño. Se
 // reintenta con menos líneas, nunca con las mismas.
-var ErrDemasiadoGrande = errors.New("entrega demasiado grande para la consola")
+var ErrDemasiadoGrande = errors.New("delivery too large for the console")
 
 type Recepcion struct {
 	OK         bool   `json:"ok"`
@@ -123,7 +123,7 @@ func (c *Cliente) Entregar(ctx context.Context, lineas [][]byte) (Recepcion, err
 	}
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusConflict {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return r, fmt.Errorf("eventos: %d %s", resp.StatusCode, b)
+		return r, fmt.Errorf("events: %d %s", resp.StatusCode, b)
 	}
 	return r, json.NewDecoder(resp.Body).Decode(&r)
 }
@@ -131,11 +131,11 @@ func (c *Cliente) Entregar(ctx context.Context, lineas [][]byte) (Recepcion, err
 // ErrArtefactoRechazado: la consola no quiere esta copia y NO hay que
 // reintentar — la captura está apagada (403), es demasiado grande (413) o el
 // contenido no cuadra (400). El sensor la descarta.
-var ErrArtefactoRechazado = errors.New("la consola rechaza la copia del artefacto")
+var ErrArtefactoRechazado = errors.New("the console rejects the artifact copy")
 
 // ErrEventoNoVisto: la consola aún no conoce el evento del artefacto (404).
 // Es transitorio: el evento llega en una entrega posterior; se reintenta.
-var ErrEventoNoVisto = errors.New("la consola no conoce aún el evento del artefacto")
+var ErrEventoNoVisto = errors.New("the console does not know the artifact event yet")
 
 // SubirArtefacto sube la COPIA de un fichero que capturó una trampa (el binario
 // que el atacante mandó traer o dejó). Los metadatos van en la query y el
@@ -161,7 +161,7 @@ func (c *Cliente) SubirArtefacto(ctx context.Context, evento, tipo, sha256, nomb
 		return fmt.Errorf("%w: %d %s", ErrArtefactoRechazado, resp.StatusCode, b)
 	default:
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
-		return fmt.Errorf("artefactos: %d %s", resp.StatusCode, b)
+		return fmt.Errorf("artifacts: %d %s", resp.StatusCode, b)
 	}
 }
 
@@ -174,7 +174,7 @@ func (c *Cliente) Relevo(ctx context.Context) (*relevo.Oferta, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("relevo: %d", resp.StatusCode)
+		return nil, fmt.Errorf("handover: %d", resp.StatusCode)
 	}
 	var o *relevo.Oferta
 	return o, json.NewDecoder(resp.Body).Decode(&o)
@@ -189,7 +189,7 @@ func (c *Cliente) InformarToque(ctx context.Context, id string, ok bool, detalle
 	}
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("toque: %d", resp.StatusCode)
+		return fmt.Errorf("touch: %d", resp.StatusCode)
 	}
 	return nil
 }
@@ -204,7 +204,7 @@ func (c *Cliente) InformarRelevo(ctx context.Context, estado, detalle string) er
 	resp.Body.Close()
 	// 409: la consola no da el cerrojo (otro relevo en curso, o ya no toca).
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("relevo: %d", resp.StatusCode)
+		return fmt.Errorf("handover: %d", resp.StatusCode)
 	}
 	return nil
 }

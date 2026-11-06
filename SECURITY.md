@@ -1,53 +1,53 @@
-# Política de seguridad
+# Security policy
 
-## Cómo avisar de una vulnerabilidad
+## How to report a vulnerability
 
-Si encuentras una vulnerabilidad en Sugardaddy, **no abras una incidencia
-pública**. Avísanos en privado por una de estas dos vías:
+If you find a vulnerability in Sugardaddy, **do not open a public
+issue**. Tell us privately through one of these two channels:
 
-- **El formulario privado de GitHub:** pestaña **Security** de este repositorio
+- **GitHub's private form:** the **Security** tab of this repository
   → **Report a vulnerability**.
-- **Correo a contacto@seguridadsi.com**, con «Vulnerabilidad Sugardaddy» en el
-  asunto.
+- **Email to contacto@seguridadsi.com**, with "Sugardaddy vulnerability" in the
+  subject.
 
-Si puedes, cuéntanos:
+If you can, tell us:
 
-- la versión (`cat versiones.env` en el nodo) y la pieza: consola, sensor,
-  actualizador o una trampa;
-- cómo reproducirlo, paso a paso;
-- qué impacto crees que tiene.
+- the version (`cat versiones.env` on the node) and the component: console, sensor,
+  updater or a decoy;
+- how to reproduce it, step by step;
+- what impact you think it has.
 
-Aceptamos avisos en español y en inglés.
+We accept reports in Spanish and English.
 
-## Qué hacemos después
+## What we do next
 
-- **Acuse de recibo** en un máximo de 5 días laborables.
-- **Valoración:** te decimos si lo reproducimos y qué gravedad le damos.
-- **Arreglo:** sale en una versión firmada nueva, que el actualizador de cada
-  nodo aplica solo.
-- **Publicación coordinada:** acordamos contigo cuándo se hace público. Por
-  defecto, cuando el arreglo esté publicado o, como tarde, a los 90 días del
-  aviso.
-- **Crédito:** si quieres, te citamos en el aviso de seguridad.
+- **Acknowledgment** within 5 business days at most.
+- **Assessment:** we tell you whether we reproduced it and what severity we give it.
+- **Fix:** it ships in a new signed version, which each node's updater
+  applies on its own.
+- **Coordinated disclosure:** we agree with you when it becomes public. By
+  default, once the fix is published or, at the latest, 90 days after the
+  report.
+- **Credit:** if you want, we name you in the security advisory.
 
-## Qué versiones reciben arreglos
+## Which versions receive fixes
 
-Solo la **última versión publicada**. Deja el actualizador encendido para
-recibirlos.
+Only the **latest published version**. Leave the updater on to
+receive them.
 
-## Qué no es una vulnerabilidad
+## What is not a vulnerability
 
-Las trampas están hechas para parecer vulnerables: que una trampa acepte
-contraseñas débiles, enseñe un banner antiguo o deje «entrar» es su trabajo.
+The decoys are built to look vulnerable: a decoy accepting weak
+passwords, showing an old banner or letting someone "in" is its job.
 
-Sí lo es, por ejemplo:
+These are vulnerabilities, for example:
 
-- salir de una trampa al sensor, a la consola o a la máquina;
-- saltarse el login de la consola;
-- conseguir que un nodo aplique una versión o una configuración sin firma
-  válida.
+- escaping from a decoy to the sensor, the console or the machine;
+- bypassing the console login;
+- getting a node to apply a version or a configuration without a valid
+  signature.
 
-## Lo que te pedimos
+## What we ask of you
 
-Prueba solo en tu propio nodo. No ataques sistemas que no sean tuyos, no
-accedas a datos de terceros y no hagas pruebas de denegación de servicio.
+Test only on your own node. Do not attack systems that are not yours, do not
+access third-party data and do not run denial-of-service tests.

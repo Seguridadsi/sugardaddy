@@ -19,7 +19,7 @@ import (
 // tiene que elegir la IP de antemano (y el que corre en Linux nunca llega
 // aquí, que es donde de verdad se despliega).
 func Libre(interfaz string, ip netip.Addr, espera time.Duration) (bool, error) {
-	return false, fmt.Errorf("el sondeo ARP necesita Linux (AF_PACKET); aquí no hay")
+	return false, fmt.Errorf("the ARP probe needs Linux (AF_PACKET); it is not available here")
 }
 
 // Reclamo y Vigilar: igual que Libre, solo existen en Linux.
@@ -29,5 +29,5 @@ type Reclamo struct {
 }
 
 func Vigilar(ctx context.Context, interfaz string, macPropia func([6]byte) bool, reclamos chan<- Reclamo) (func(netip.Addr), error) {
-	return nil, fmt.Errorf("el vigilante ARP necesita Linux (AF_PACKET); aquí no hay")
+	return nil, fmt.Errorf("the ARP watcher needs Linux (AF_PACKET); it is not available here")
 }

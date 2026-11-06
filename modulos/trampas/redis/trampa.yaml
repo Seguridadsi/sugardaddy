@@ -1,24 +1,26 @@
 version: 1
 id: redis
-nombre: Redis abierto o con contraseña
+nombre: Redis open or with password
 descripcion: >-
-  Un servidor Redis que acepta conexiones y responde como uno real, pero no ejecuta
-  nada de lo que le piden. Registra cada comando, marca como crítico lo que hacen los
-  gusanos (persistencia, réplica, carga de módulo, borrado de la base) y guarda cada
-  contraseña que se prueba.
+  A Redis server that accepts connections and answers like a real one, but
+  executes nothing it is asked. It records every command, marks as critical what
+  worms do (persistence, replication, module loading, database wipe) and stores
+  every password tried.
 alerta:
   fidelidad: interno
 ficha:
   detecta: >-
-    Quien busca servidores Redis sin protección: los comandos que lanza, si intenta minar
-    o persistir (cron, claves SSH), si intenta convertir el servidor en réplica del suyo
-    (SLAVEOF) o cargar un módulo para ejecutar código, y las contraseñas que prueba si pones una.
+    Anyone looking for unprotected Redis servers: the commands they issue,
+    whether they try to mine or persist (cron, SSH keys), whether they try to
+    turn the server into a replica of theirs (SLAVEOF) or load a module to
+    execute code, and the passwords they try if you set one.
   donde: >-
-    Donde un atacante esperaría una caché o base en memoria expuesta: la red de servidores,
-    el backend de una aplicación o una DMZ. Con el puerto 6379, el más buscado.
+    Where an attacker would expect an exposed cache or in-memory database: the
+    server network, an application's backend or a DMZ. With port 6379, the most
+    sought after.
   requisitos:
-    - Un sensor Linux con Docker (el del nodo o uno instalado en otra máquina).
-    - Abrir en el cortafuegos de esa máquina el puerto que elijas.
+    - A Linux sensor with Docker (the node's own or one installed on another machine).
+    - Open in that machine's firewall the port you choose.
   instalacion:
     automatica: true
 versionModulo: 0.3.0
@@ -66,15 +68,15 @@ parametros:
   properties:
     puertoRedis:
       type: integer
-      title: Puerto Redis
-      description: El 6379 es el estándar, el más creíble y el más atacado. Solo si la máquina no lo usa ya para su Redis de verdad.
+      title: Redis port
+      description: 6379 is the standard, the most believable and the most attacked. Only if the machine does not already use it for its real Redis.
       minimum: 1
       maximum: 65535
       default: 6379
     version:
       type: string
-      title: Versión que finge ser
-      description: La versión que anuncian INFO y HELLO. Cambia solo el texto, no el comportamiento.
+      title: Version it pretends to be
+      description: The version that INFO and HELLO announce. It only changes the text, not the behavior.
       enum: ['7.2.4', '7.0.15', '6.2.14']
       x-opciones:
         '7.2.4': Redis 7.2.4
@@ -83,10 +85,11 @@ parametros:
       default: '7.2.4'
     contrasena:
       type: string
-      title: Contraseña
+      title: Password
       description: >-
-        Si la dejas vacía, la trampa finge un Redis abierto (sin AUTH), que es lo que más
-        atacan los gusanos. Si pones una, exige AUTH y guarda cada contraseña que se prueba.
+        If you leave it empty, the decoy pretends to be an open Redis (no AUTH),
+        which is what worms attack most. If you set one, it requires AUTH and
+        stores every password tried.
       pattern: '^[\x21-\x7e]{0,128}$'
       maxLength: 128
       default: ''
@@ -152,36 +155,36 @@ eventos:
   sesion: session
   resumen: [comando, args, grave, password, rechazadas, omitidos, motivo, aviso, duration]
   etiquetas:
-    comando: Comando
-    args: Argumentos
-    usuario: Usuario
-    password: Contraseña
-    grave: Por qué es grave
-    session: Sesión
-    duration: Duración (s)
-    motivo: Se calla por
-    omitidos: Eventos no apuntados
-    omitidos_graves: De ellos, graves
-    omitidos_auth: De ellos, contraseñas
-    rechazadas: Conexiones rechazadas
-    de_su_ip: De esta IP
-    por_tope_global: Por el tope total
-    por_tope_ip: Por el tope de su IP
-    ips_distintas: IP distintas
-    ips_sin_contar: Rechazos de otras IP sin contar
-    activas: Conexiones a la vez
-    periodo_s: En los últimos (s)
-    perdidos: Eventos perdidos (disco)
-    error: Error del registro
-    aviso: Aviso
-    tope_bytes: Tope diario (bytes)
-    redis.session.connect: Conexión
-    redis.session.rechazos: Conexiones rechazadas (resumen)
-    redis.session.tope: Conexión cortada por tope de memoria
-    redis.auth: Prueba contraseña
-    redis.command.input: Comando
-    redis.command.grave: Comando peligroso
-    redis.session.closed: Se va
-    redis.log.tope: Registro de hoy lleno, no se apunta más hasta mañana
-    redis.log.omitidos: Eventos que no caben (resumen)
-    redis.log.error: Fallo al escribir el registro
+    comando: Command
+    args: Arguments
+    usuario: User
+    password: Password
+    grave: Why it is critical
+    session: Session
+    duration: Duration (s)
+    motivo: Muted because
+    omitidos: Events not recorded
+    omitidos_graves: Of which, critical
+    omitidos_auth: Of which, passwords
+    rechazadas: Connections rejected
+    de_su_ip: From this IP
+    por_tope_global: By the total limit
+    por_tope_ip: By its IP's limit
+    ips_distintas: Distinct IPs
+    ips_sin_contar: Rejections from other IPs not counted
+    activas: Simultaneous connections
+    periodo_s: In the last (s)
+    perdidos: Events lost (disk)
+    error: Log error
+    aviso: Alert
+    tope_bytes: Daily limit (bytes)
+    redis.session.connect: Connection
+    redis.session.rechazos: Connections rejected (summary)
+    redis.session.tope: Connection cut off by memory limit
+    redis.auth: Password test
+    redis.command.input: Command
+    redis.command.grave: Dangerous command
+    redis.session.closed: Leaves
+    redis.log.tope: Today's log is full; nothing more is recorded until tomorrow
+    redis.log.omitidos: Events that do not fit (summary)
+    redis.log.error: Failed to write the log

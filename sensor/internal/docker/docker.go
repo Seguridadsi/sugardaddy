@@ -189,10 +189,10 @@ func (c *Cliente) olvidar() {
 func negociar(m Motor) (Negociado, error) {
 	api := m.APIVersion
 	if !esVersion(api) {
-		return Negociado{}, &ErrMotor{Codigo: MotorAPI, Texto: "el motor de contenedores no dice qué versión de su API habla; puede que no sea Docker ni Podman"}
+		return Negociado{}, &ErrMotor{Codigo: MotorAPI, Texto: "the container engine does not report which API version it speaks; it may not be Docker or Podman"}
 	}
 	antiguo := func(que string) error {
-		return &ErrMotor{Codigo: MotorAntiguo, Texto: fmt.Sprintf("el motor de contenedores es demasiado antiguo (%s): Sugardaddy necesita Docker %s o posterior, o Podman 4 o posterior", que, DockerMinimo)}
+		return &ErrMotor{Codigo: MotorAntiguo, Texto: fmt.Sprintf("the container engine is too old (%s): Sugardaddy needs Docker %s or later, or Podman 4 or later", que, DockerMinimo)}
 	}
 	if CompararVersiones(api, APIMinima) < 0 {
 		return Negociado{}, antiguo(fmt.Sprintf("%s %s, API %s", m.Nombre(), m.Version, api))
@@ -254,17 +254,17 @@ func (c *Cliente) Clasificar(err error) *ErrMotor {
 	var ea *ErrAPI
 	switch {
 	case errors.Is(err, syscall.EACCES), errors.Is(err, syscall.EPERM), errors.Is(err, os.ErrPermission):
-		return &ErrMotor{Codigo: MotorPermiso, Causa: err, Texto: fmt.Sprintf("el sensor no tiene permiso para usar el motor de contenedores por %s: revisa los permisos del socket y si SELinux o AppArmor lo impiden", c.socket)}
+		return &ErrMotor{Codigo: MotorPermiso, Causa: err, Texto: fmt.Sprintf("the sensor does not have permission to use the container engine through %s: check the socket permissions and whether SELinux or AppArmor block it", c.socket)}
 	case errors.As(err, &ea) && (ea.Codigo == http.StatusUnauthorized || ea.Codigo == http.StatusForbidden):
-		return &ErrMotor{Codigo: MotorPermiso, Causa: err, Texto: fmt.Sprintf("el motor de contenedores no deja al sensor ver ni crear contenedores (%s): revisa si tiene un complemento de autorización", recortar(ea.Mensaje, 200))}
+		return &ErrMotor{Codigo: MotorPermiso, Causa: err, Texto: fmt.Sprintf("the container engine does not let the sensor see or create containers (%s): check whether it has an authorization plugin", recortar(ea.Mensaje, 200))}
 	case errors.As(err, &ea):
-		return &ErrMotor{Codigo: MotorAPI, Causa: err, Texto: fmt.Sprintf("el motor de contenedores contesta con un error (%d: %s)", ea.Codigo, recortar(ea.Mensaje, 200))}
+		return &ErrMotor{Codigo: MotorAPI, Causa: err, Texto: fmt.Sprintf("the container engine replied with an error (%d: %s)", ea.Codigo, recortar(ea.Mensaje, 200))}
 	case errors.Is(err, syscall.ENOENT), errors.Is(err, os.ErrNotExist), errors.Is(err, syscall.ECONNREFUSED),
 		errors.Is(err, syscall.ECONNRESET), errors.Is(err, io.EOF), errors.Is(err, io.ErrUnexpectedEOF),
 		errors.Is(err, context.DeadlineExceeded), esEspera(err):
-		return &ErrMotor{Codigo: MotorInalcanzable, Causa: err, Texto: fmt.Sprintf("no se puede hablar con el motor de contenedores por %s: está parado, no responde o el socket no está montado en el sensor", c.socket)}
+		return &ErrMotor{Codigo: MotorInalcanzable, Causa: err, Texto: fmt.Sprintf("cannot talk to the container engine through %s: it is stopped, not responding, or the socket is not mounted in the sensor", c.socket)}
 	default:
-		return &ErrMotor{Codigo: MotorAPI, Causa: err, Texto: "el motor de contenedores contesta algo que no se entiende (" + recortar(err.Error(), 200) + ")"}
+		return &ErrMotor{Codigo: MotorAPI, Causa: err, Texto: "the container engine replied with something that cannot be understood (" + recortar(err.Error(), 200) + ")"}
 	}
 }
 
@@ -378,7 +378,7 @@ func (c *Cliente) Descargar(ctx context.Context, imagen string) error {
 	}
 	// Un fallo de descarga llega dentro del flujo con estado 200: solo cuenta si la imagen está.
 	if err := c.llamar(ctx, http.MethodGet, "/images/"+url.PathEscape(imagen)+"/json", nil, nil); err != nil {
-		return fmt.Errorf("no se pudo descargar %s (¿credencial del registro?)", imagen)
+		return fmt.Errorf("could not download %s (registry credential?)", imagen)
 	}
 	return nil
 }
@@ -497,7 +497,7 @@ func (c *Cliente) AsegurarRed(ctx context.Context, nombre string, salida bool) (
 			return todas, nil
 		}
 		if len(r.Containers) > 0 {
-			return false, fmt.Errorf("la red %s existe sin aislar sus contenedores y está en uso", nombre)
+			return false, fmt.Errorf("network %s exists without isolating its containers and is in use", nombre)
 		}
 		if err := c.BorrarRed(ctx, nombre); err != nil {
 			return false, err
@@ -564,7 +564,7 @@ func (c *Cliente) AsegurarRedPropia(ctx context.Context, nombre, interfaz string
 			return true, nil
 		}
 		if len(r.Containers) > 0 {
-			return false, fmt.Errorf("la red %s existe con otra interfaz o subred y está en uso", nombre)
+			return false, fmt.Errorf("network %s exists with a different interface or subnet and is in use", nombre)
 		}
 		if err := c.BorrarRed(ctx, nombre); err != nil {
 			return false, err
@@ -594,7 +594,7 @@ func (c *Cliente) AsegurarRedBanco(ctx context.Context, nombre string, subred ne
 			return nil
 		}
 		if len(r.Containers) > 0 {
-			return fmt.Errorf("la red de banco %s existe con otra subred y está en uso", nombre)
+			return fmt.Errorf("bench network %s exists with a different subnet and is in use", nombre)
 		}
 		if err := c.BorrarRed(ctx, nombre); err != nil {
 			return err
@@ -797,7 +797,7 @@ func primerFicheroTar(r io.Reader, tope int64) ([]byte, error) {
 	for {
 		h, err := tr.Next()
 		if errors.Is(err, io.EOF) {
-			return nil, errors.New("el contenedor no devolvió ningún fichero")
+			return nil, errors.New("the container returned no file")
 		}
 		if err != nil {
 			return nil, err
@@ -806,14 +806,14 @@ func primerFicheroTar(r io.Reader, tope int64) ([]byte, error) {
 			continue
 		}
 		if h.Size > tope {
-			return nil, fmt.Errorf("el fichero del contenedor pasa del tope (%d > %d bytes)", h.Size, tope)
+			return nil, fmt.Errorf("the container file exceeds the limit (%d > %d bytes)", h.Size, tope)
 		}
 		b, err := io.ReadAll(io.LimitReader(tr, tope+1))
 		if err != nil {
 			return nil, err
 		}
 		if int64(len(b)) > tope {
-			return nil, fmt.Errorf("el fichero del contenedor pasa del tope (%d bytes)", tope)
+			return nil, fmt.Errorf("the container file exceeds the limit (%d bytes)", tope)
 		}
 		return b, nil
 	}

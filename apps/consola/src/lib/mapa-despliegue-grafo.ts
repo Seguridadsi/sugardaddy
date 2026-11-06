@@ -303,7 +303,7 @@ export function armarGrafo(v: {
 			id,
 			tipo: 'familia',
 			familia: f.familia,
-			nombre: f.familia ? FAMILIAS[f.familia] : 'Otras',
+			nombre: f.familia ? FAMILIAS[f.familia] : 'Other',
 			trampas: f.trampas,
 			conNombre: f.conNombre,
 			x: cx + f.x,
@@ -327,7 +327,7 @@ export function armarGrafo(v: {
 				a: `t:${h.trampa.objetivo}`,
 				clase: h.trampa.ruta?.rele ? 'rele' : 'senal',
 				relacion: {
-					texto: (h.trampa.ruta?.texto ?? 'Señal').replace(/,? (hacia|entra en)$/, ''),
+					texto: (h.trampa.ruta?.texto ?? 'Signal').replace(/,? (to|land on)$/, ''),
 					destino: h.trampa.ruta?.destino ?? null
 				}
 			});

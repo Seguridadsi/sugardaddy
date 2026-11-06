@@ -47,8 +47,8 @@ export function alertaPara(
 ): string | null {
 	for (const p of lista) {
 		const n = normalizar(p);
-		if (contrasena && normalizar(contrasena).includes(n)) return `La contraseña contiene «${p}»`;
-		if (usuario && normalizar(usuario).includes(n)) return `El usuario contiene «${p}»`;
+		if (contrasena && normalizar(contrasena).includes(n)) return `Password contains "${p}"`;
+		if (usuario && normalizar(usuario).includes(n)) return `Username contains "${p}"`;
 	}
 	return null;
 }
@@ -149,17 +149,17 @@ export async function guardarPalabras(quien: string, texto: string) {
 	if (cortas.length)
 		return {
 			ok: false as const,
-			error: `Cada palabra necesita al menos ${MINIMO_PALABRA} letras (${cortas.join(', ')}): con menos salta con cualquier cosa.`
+			error: `Each word needs at least ${MINIMO_PALABRA} letters (${cortas.join(', ')}): shorter ones match almost anything.`
 		};
 	if (lista.length > MAXIMO_PALABRAS)
-		return { ok: false as const, error: `Como mucho ${MAXIMO_PALABRAS} palabras.` };
+		return { ok: false as const, error: `At most ${MAXIMO_PALABRAS} words.` };
 	await db
 		.insert(s.ajustes)
 		.values({ clave: 'detonadores', valor: lista })
 		.onConflictDoUpdate({ target: s.ajustes.clave, set: { valor: lista } });
 	await db
 		.insert(s.auditoria)
-		.values({ quien, accion: 'palabras de alerta cambiadas', detalle: { palabras: lista } });
+		.values({ quien, accion: 'alert words changed', detalle: { palabras: lista } });
 	return { ok: true as const, cambiados: await recalcular() };
 }
 

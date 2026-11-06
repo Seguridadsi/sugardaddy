@@ -79,7 +79,7 @@ describe.skipIf(!hayBase)('trampa en espera, con la base de verdad', () => {
 		const p = await plan(SENSOR, false, '0.12.0');
 		expect(p.trampas).toEqual([]);
 		expect(await donde()).toBe(
-			'en espera: este sensor aún no tiene la credencial del registro; se pondrá al día con su próxima versión'
+			'en espera: this sensor does not have the registry credential yet; it will catch up with its next version'
 		);
 		const [t] = (await trampasConEventos()).filter((x) => x.id === TRAMPA);
 		expect(t.activo && enEspera(t.donde)).toBe(true);

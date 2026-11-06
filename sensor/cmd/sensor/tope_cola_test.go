@@ -249,7 +249,7 @@ func TestConLaConsolaCaidaLaColaNoPasaDeSuTopeYDejaSuResumen(t *testing.T) {
 	if r.Detalle["codigo"] != "cola.llena" || r.Trampa.ID != "t1" || r.Accion != "otra" {
 		t.Fatalf("tras lo que había, el resumen de lo descartado: %+v", r)
 	}
-	if aviso, _ := r.Detalle["aviso"].(string); !strings.Contains(aviso, "consola") {
+	if aviso, _ := r.Detalle["aviso"].(string); !strings.Contains(aviso, "console") {
 		t.Fatalf("con la consola caída, el aviso habla de la consola: %q", aviso)
 	}
 	descartados := int(r.Detalle["descartados"].(float64))
@@ -297,7 +297,7 @@ func TestSinDiscoParaLaColaLaLecturaSigue(t *testing.T) {
 	if len(es) != 4 || es[0].Detalle["codigo"] != "cola.sin-disco" || es[0].Detalle["descartados"].(float64) != 2000 {
 		t.Fatalf("el resumen, que dice que faltaba disco, va antes que lo nuevo: %d eventos", len(es))
 	}
-	if aviso, _ := es[0].Detalle["aviso"].(string); !strings.Contains(aviso, "disco") {
+	if aviso, _ := es[0].Detalle["aviso"].(string); !strings.Contains(aviso, "disk") {
 		t.Fatalf("el aviso dice que faltaba disco, no que la consola no recogía: %q", aviso)
 	}
 }
@@ -435,7 +435,7 @@ func TestConPocoDiscoYLaConsolaSanaLoQueNoCabeEsCulpaDelDisco(t *testing.T) {
 		t.Fatal("la consola recibe el resumen de lo descartado")
 	}
 	aviso, _ := r.Detalle["aviso"].(string)
-	if r.Detalle["codigo"] != "cola.poco-disco" || !strings.Contains(aviso, "liberar espacio") || strings.Contains(aviso, "no recogió") {
+	if r.Detalle["codigo"] != "cola.poco-disco" || !strings.Contains(aviso, "Free up space") || strings.Contains(aviso, "did not collect") {
 		t.Fatalf("el resumen dice que faltaba disco, no que la consola no recogía: %v %q", r.Detalle["codigo"], aviso)
 	}
 	if len(es) != 2600-int(r.Detalle["descartados"].(float64))+1+3 {

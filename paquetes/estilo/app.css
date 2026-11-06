@@ -275,18 +275,7 @@ label {
 	background: color-mix(in oklab, var(--crit) 10%, var(--surface));
 }
 
-/* barra superior, la misma en la consola y en el panel central */
-
-.barra {
-	display: flex;
-	align-items: center;
-	gap: 18px;
-	flex-wrap: wrap;
-	padding: 10px 20px;
-	padding-top: calc(10px + env(safe-area-inset-top, 0px));
-	background: var(--surface);
-	border-bottom: 1px solid var(--line);
-}
+/* la marca, en el menú y en las pantallas sin sesión */
 
 .marca {
 	display: flex;
@@ -317,32 +306,325 @@ label {
 	letter-spacing: -0.02em;
 }
 
-.barra nav {
-	display: flex;
-	gap: 4px;
-	margin-right: auto;
-	flex-wrap: wrap;
+/*
+ * El armazón de la aplicación, el mismo en la consola y en el panel central:
+ * menú a la izquierda, fijo mientras la página corre, y el contenido al lado.
+ * En pantallas estrechas el menú se esconde y lo abre un botón.
+ */
+
+.armazon {
+	display: grid;
+	grid-template-columns: 248px minmax(0, 1fr);
+	min-height: 100dvh;
 }
 
-.barra nav a {
+.menu-lateral {
+	position: sticky;
+	top: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
+	height: 100dvh;
+	padding: calc(14px + env(safe-area-inset-top, 0px)) 12px 12px;
+	overflow: hidden;
+	background: var(--surface);
+	border-right: 1px solid var(--line);
+}
+
+.menu-lateral > .marca {
+	padding: 2px 8px;
+}
+
+.menu-nodo {
 	display: flex;
 	align-items: center;
+	gap: 7px;
+	min-width: 0;
+	margin: -6px 8px 0;
+	font-size: 12px;
+	color: var(--ink-2);
+}
+
+.menu-nodo span:last-child {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.menu-punto {
+	flex: none;
+	width: 7px;
+	height: 7px;
+	border-radius: 50%;
+	background: var(--ok);
+	box-shadow: 0 0 0 3px color-mix(in oklab, var(--ok) 25%, transparent);
+}
+
+.menu-botones {
+	display: flex;
+	flex: none;
 	gap: 6px;
-	padding: 6px 12px;
-	border-radius: 99px;
+}
+
+.menu-boton {
+	display: flex;
+	flex: 1 1 auto;
+	align-items: center;
+	justify-content: center;
+	gap: 6px;
+	padding: 6px 8px;
+	border: 1px solid var(--line);
+	border-radius: var(--r-sm);
+	font-size: 12.5px;
+	font-weight: 600;
+	white-space: nowrap;
+	text-decoration: none;
+	color: var(--ink-2);
+	background: var(--surface);
+}
+
+.menu-boton:hover {
+	background: var(--surface-2);
+	color: var(--ink);
+}
+
+.menu-boton.principal {
+	border-color: var(--accent);
+	background: var(--accent);
+	color: var(--accent-ink);
+}
+
+.menu-boton.principal:hover {
+	filter: brightness(1.05);
+	background: var(--accent);
+	color: var(--accent-ink);
+}
+
+/* Lo que no cabe corre aquí dentro: la cuenta y Sign out se ven siempre. */
+.menu-grupos {
+	display: flex;
+	flex: 1 1 0;
+	flex-direction: column;
+	gap: 8px;
+	min-height: 0;
+	overflow-y: auto;
+	scrollbar-width: thin;
+}
+
+.menu-grupo {
+	display: flex;
+	flex-direction: column;
+	gap: 1px;
+}
+
+.menu-grupo-titulo {
+	padding: 0 10px 3px;
+	font-size: 11px;
+	font-weight: 600;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	color: var(--ink-3);
+}
+
+.menu-grupo a {
+	display: flex;
+	align-items: center;
+	flex: none;
+	gap: 10px;
+	padding: 4px 10px;
+	border-radius: var(--r-sm);
 	font-size: 13.5px;
 	font-weight: 600;
 	color: var(--ink-2);
 	text-decoration: none;
 }
 
-.barra nav a:hover {
+.menu-grupo a:hover {
 	background: var(--surface-2);
+	color: var(--ink);
 }
 
-.barra nav a[aria-current='page'] {
+.menu-grupo a[aria-current='page'] {
 	background: var(--accent-soft);
 	color: var(--accent);
+}
+
+.menu-globo {
+	margin-left: auto;
+	min-width: 18px;
+	padding: 1px 5px;
+	border-radius: 99px;
+	font-size: 10.5px;
+	text-align: center;
+	background: var(--warn);
+	color: var(--accent-ink);
+}
+
+.menu-icono {
+	flex: none;
+	width: 17px;
+	height: 17px;
+	fill: none;
+	stroke: currentColor;
+	stroke-width: 1.8;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+}
+
+.menu-cuenta {
+	display: flex;
+	flex: none;
+	flex-direction: column;
+	gap: 8px;
+	padding: 10px;
+	border: 1px solid var(--line);
+	border-radius: var(--r-sm);
+	background: var(--sunk);
+}
+
+.menu-cuenta-titulo {
+	font-size: 11.5px;
+	color: var(--ink-3);
+}
+
+.menu-persona {
+	display: flex;
+	align-items: center;
+	gap: 9px;
+	min-width: 0;
+}
+
+.menu-inicial {
+	display: grid;
+	flex: none;
+	place-items: center;
+	width: 30px;
+	height: 30px;
+	border-radius: 50%;
+	font-size: 13px;
+	font-weight: 700;
+	background: var(--surface-2);
+	color: var(--ink);
+}
+
+.menu-persona > span:last-child {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+}
+
+.menu-persona b,
+.menu-persona small {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.menu-persona b {
+	font-size: 13px;
+	font-weight: 600;
+}
+
+.menu-persona small {
+	font-size: 11.5px;
+	color: var(--ink-2);
+}
+
+.menu-accion {
+	display: flex;
+	align-items: center;
+	gap: 9px;
+	width: 100%;
+	padding: 6px 8px;
+	border-radius: var(--r-sm);
+	font: inherit;
+	font-size: 13px;
+	font-weight: 600;
+	text-align: left;
+	text-decoration: none;
+	color: var(--ink-2);
+	background: var(--surface);
+	border: 1px solid var(--line);
+	cursor: pointer;
+}
+
+.menu-accion:hover {
+	background: var(--surface-2);
+	color: var(--ink);
+}
+
+.menu-cuenta form {
+	flex: 1;
+	margin: 0;
+}
+
+.menu-cuenta-acciones {
+	display: flex;
+	gap: 6px;
+}
+
+.menu-cuenta-acciones .menu-accion {
+	justify-content: center;
+	padding-inline: 6px;
+	white-space: nowrap;
+}
+
+.menu-movil {
+	display: none;
+}
+
+.menu-fondo {
+	display: none;
+}
+
+@media (max-width: 900px) {
+	.armazon {
+		display: block;
+	}
+
+	.menu-movil {
+		position: sticky;
+		top: 0;
+		z-index: 30;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 12px;
+		padding: calc(8px + env(safe-area-inset-top, 0px)) 16px 8px;
+		background: var(--surface);
+		border-bottom: 1px solid var(--line);
+	}
+
+	.menu-movil .menu-accion {
+		width: auto;
+	}
+
+	.menu-lateral {
+		position: fixed;
+		inset: 0 auto 0 0;
+		z-index: 50;
+		width: min(280px, 86vw);
+		transform: translateX(-100%);
+		visibility: hidden;
+		transition:
+			transform 0.18s ease,
+			visibility 0.18s;
+	}
+
+	.menu-lateral.abierto {
+		transform: none;
+		visibility: visible;
+	}
+
+	.menu-fondo.abierto {
+		position: fixed;
+		inset: 0;
+		z-index: 40;
+		display: block;
+		width: 100%;
+		border: 0;
+		background: color-mix(in oklab, var(--bg) 70%, transparent);
+	}
 }
 
 main.contenido {

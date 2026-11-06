@@ -232,7 +232,7 @@ func probar(rutaM, rutaP, imagen, atacante, socket, datos, licenciaRuta string) 
 			return fmt.Errorf("desplegar: %w", err)
 		}
 		donde = estados[0].Donde
-		if !strings.HasPrefix(donde, "error: descargando") && !strings.Contains(donde, "descargando la imagen") {
+		if !strings.HasPrefix(donde, "error: downloading") && !strings.Contains(donde, "downloading the new image") {
 			break
 		}
 		if i > 120 {

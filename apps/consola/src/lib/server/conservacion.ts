@@ -80,7 +80,7 @@ export async function conservacion(ahora = new Date()): Promise<Conservacion> {
 export async function cambiarPlazo(quien: string, dias: number) {
 	const antes = await conservacion();
 	await guardar({ ...antes, dias });
-	await auditar(quien, 'plazo de conservación cambiado', { antes: antes.dias, ahora: dias });
+	await auditar(quien, 'retention period changed', { antes: antes.dias, ahora: dias });
 }
 
 type Linea = { sensor: string; hash: string; anterior: string | null; recibido: Date };
@@ -221,20 +221,20 @@ export async function purgar(ahora = new Date()) {
 	/* Las entradas de lista caducadas se van cada hora, con su propio TTL, al
 	 * margen del plazo de conservación de eventos (y de su aviso de 30 días). */
 	const listas = await borrarListasVencidasAntesDe(ahora);
-	if (listas) await auditar('nodo', 'entradas de lista caducadas borradas', { entradas: listas });
+	if (listas) await auditar('node', 'expired list entries deleted', { entradas: listas });
 	const c = await conservacion(ahora);
 	const limite = limiteDeBorrado(c, ahora);
 	const limiteAuditoria = limiteDeAuditoria(c, ahora);
 	if (!limite || !limiteAuditoria) return { listas };
 	const r = await borrarAntesDe(limite);
 	if (r.eventos || r.cuarentena)
-		await auditar('nodo', `eventos de más de ${c.dias} días borrados`, {
+		await auditar('node', `events older than ${c.dias} days deleted`, {
 			antesDe: limite.toISOString(),
 			...r
 		});
 	const auditoria = await borrarAuditoriaAntesDe(limiteAuditoria);
 	if (auditoria)
-		await auditar('nodo', 'auditoría antigua borrada', {
+		await auditar('node', 'old audit log entries deleted', {
 			antesDe: limiteAuditoria.toISOString(),
 			entradas: auditoria
 		});

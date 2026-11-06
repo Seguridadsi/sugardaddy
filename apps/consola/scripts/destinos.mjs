@@ -102,7 +102,7 @@ export async function completarDestinos(sql) {
 					returning id`;
 				id = f?.id ?? null;
 			}
-			if (!id) throw new Error(`no hay un id libre para el destino del sensor ${sensor.id}`);
+			if (!id) throw new Error(`no free id for the target of sensor ${sensor.id}`);
 			destinos.push(id);
 		}
 		await tx`

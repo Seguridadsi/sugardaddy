@@ -76,7 +76,7 @@ export const HECHOS: Record<string, { tipo: TipoHecho; fuentes: FuenteHecho[] }>
 	'plataforma.version': { tipo: 'version', fuentes: ['formulario'] },
 	'shell.powershell': { tipo: 'version', fuentes: ['formulario'] },
 	'shell.posix': { tipo: 'texto', fuentes: ['formulario'] },
-	'destino.direccion': { tipo: 'texto', fuentes: ['formulario'] },
+	'destino.direccion': { tipo: 'texto', fuentes: ['formulario', 'consola'] },
 	'fileserver.protocolos': { tipo: 'lista', fuentes: ['formulario'] },
 	'recolector.canales': { tipo: 'lista', fuentes: ['sensor'] },
 	'canal.rele': { tipo: 'booleano', fuentes: ['consola'] },
@@ -101,37 +101,37 @@ export const HECHOS: Record<string, { tipo: TipoHecho; fuentes: FuenteHecho[] }>
  * enseña con su clave (contrato abierto).
  */
 export const NOMBRE_HECHO: Readonly<Record<string, string>> = Object.freeze({
-	'agente.version': 'Versión del sensor',
-	'agente.ejecutores': 'Qué sabe poner el sensor',
-	'agente.plataforma': 'Plataforma del sensor',
-	'registro.privado': 'Credencial del registro privado',
-	'motor.tipo': 'Motor de contenedores',
-	'motor.modo': 'Cómo corre el motor',
-	'motor.version': 'Versión del motor',
-	'motor.api': 'API del motor',
-	'motor.so': 'Sistema que ve el motor',
-	'motor.arquitectura': 'Arquitectura',
-	'motor.sistema': 'Sistema',
-	'motor.kernel': 'Núcleo',
-	'motor.memoria': 'Memoria',
-	'motor.cpus': 'Procesadores',
-	'motor.codigo': 'Fallo del motor',
-	'motor.error': 'Qué dice el fallo',
-	'motor.clone3': 'Deja crear hilos (clone3)',
-	'red.ipOrigenReal': 'Las trampas ven la IP real',
-	'red.capa2': 'Puede poner a una trampa con IP propia',
-	'puertos.ocupados': 'Puertos ya en uso',
-	'puertos.reservados': 'Puertos reservados',
-	'red.direcciones': 'Direcciones de la máquina',
-	'plataforma.so': 'Sistema operativo',
-	'plataforma.edicion': 'Edición',
-	'plataforma.version': 'Versión del sistema',
+	'agente.version': 'Sensor version',
+	'agente.ejecutores': 'What the sensor can deploy',
+	'agente.plataforma': 'Sensor platform',
+	'registro.privado': 'Private registry credential',
+	'motor.tipo': 'Container engine',
+	'motor.modo': 'How the engine runs',
+	'motor.version': 'Engine version',
+	'motor.api': 'Engine API',
+	'motor.so': 'System the engine sees',
+	'motor.arquitectura': 'Architecture',
+	'motor.sistema': 'System',
+	'motor.kernel': 'Kernel',
+	'motor.memoria': 'Memory',
+	'motor.cpus': 'Processors',
+	'motor.codigo': 'Engine failure',
+	'motor.error': 'Failure message',
+	'motor.clone3': 'Allows thread creation (clone3)',
+	'red.ipOrigenReal': 'Decoys see the real IP',
+	'red.capa2': 'Can give a decoy its own IP',
+	'puertos.ocupados': 'Ports already in use',
+	'puertos.reservados': 'Reserved ports',
+	'red.direcciones': 'Machine addresses',
+	'plataforma.so': 'Operating system',
+	'plataforma.edicion': 'Edition',
+	'plataforma.version': 'System version',
 	'shell.powershell': 'PowerShell',
 	'shell.posix': 'Shell',
-	'destino.direccion': 'Dirección',
-	'fileserver.protocolos': 'Protocolos',
-	'canal.rele': 'Recibe balizas (sensor con receptor)',
-	'alcance.consola': 'Alcance de la consola (publica, privada o buzón)'
+	'destino.direccion': 'Address',
+	'fileserver.protocolos': 'Protocols',
+	'canal.rele': 'Receives beacons (sensor with a receiver)',
+	'alcance.consola': 'Console reach (public, private or mailbox)'
 });
 
 export const nombreHecho = (clave: string): string =>
@@ -140,21 +140,21 @@ export const nombreHecho = (clave: string): string =>
 /* Los valores con nombre: el sistema y la edición como se eligen en el formulario, el modo del motor. */
 const NOMBRE_VALOR: Readonly<Record<string, Readonly<Record<string, string>>>> = {
 	'plataforma.so': { windows: 'Windows', linux: 'Linux', macos: 'macOS', nas: 'NAS' },
-	'plataforma.edicion': { servidor: 'Servidor', puesto: 'Puesto de trabajo' },
+	'plataforma.edicion': { servidor: 'Server', puesto: 'Workstation' },
 	'motor.modo': {
-		rootful: 'con root',
-		rootless: 'sin root',
+		rootful: 'with root',
+		rootless: 'without root',
 		desktop: 'Docker Desktop',
 		wsl: 'WSL2'
 	},
 	/* El alcance de la consola (ronda conectores-tanda1, §2.4), como se dice al cliente. */
-	'alcance.consola': { publica: 'pública', privada: 'privada', buzon: 'de buzón' }
+	'alcance.consola': { publica: 'public', privada: 'private', buzon: 'mailbox' }
 };
 
 /* El valor de un hecho en texto: sí o no, una lista separada por comas. */
 export function valorHecho(v: unknown): string {
-	if (typeof v === 'boolean') return v ? 'sí' : 'no';
-	if (Array.isArray(v)) return v.length ? v.map((x) => String(x)).join(', ') : 'ninguno';
+	if (typeof v === 'boolean') return v ? 'yes' : 'no';
+	if (Array.isArray(v)) return v.length ? v.map((x) => String(x)).join(', ') : 'none';
 	return String(v);
 }
 

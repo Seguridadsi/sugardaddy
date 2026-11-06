@@ -1009,7 +1009,7 @@ export const usuariosLocales = pgTable('usuarios_locales', {
 /*
  * Códigos para recuperar la contraseña de un usuario local (auth/recuperar.ts).
  * Solo el hash del código; caduca, aguanta pocos intentos y se cierra al usarlo
- * o al pedir otro. Origen «correo»: lo pidió alguien en /entrar/recuperar.
+ * o al pedir otro. Origen «correo»: lo pidió alguien en /sign-in/recover.
  */
 export const recuperacionesClave = pgTable(
 	'recuperaciones_clave',

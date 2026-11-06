@@ -29,7 +29,7 @@ func liberarLeido(ruta string, hasta int64) error {
 	}
 	defer f.Close()
 	if fi, err := f.Stat(); err != nil || !fi.Mode().IsRegular() {
-		return errors.New(ruta + " no es un fichero normal")
+		return errors.New(ruta + " is not a regular file")
 	}
 	const perforar, mismoTamano = 0x02, 0x01
 	return syscall.Fallocate(int(f.Fd()), perforar|mismoTamano, bloque, fin-bloque)

@@ -207,7 +207,7 @@ func TestConUnMotorAntiguoNoTocaNada(t *testing.T) {
 	n.app.Docker = docker.Nuevo(dockerFalsoComo(t, n.dir, motorfalso.Docker19))
 	antes := leer(t, n.dir, "compose.yml")
 	r := n.app.Aplicar(context.Background(), n.firmada(t, releaseConConfiguracion("services: {}\n")))
-	if r.Estado != "fallida" || !strings.Contains(r.Detalle, docker.MotorAntiguo) || !strings.Contains(r.Detalle, "Docker 20.10 o posterior") {
+	if r.Estado != "fallida" || !strings.Contains(r.Detalle, docker.MotorAntiguo) || !strings.Contains(r.Detalle, "Docker 20.10 or later") {
 		t.Fatalf("resultado: %+v", r)
 	}
 	if leer(t, n.dir, ".llamadas") != "" || leer(t, n.dir, "compose.yml") != antes {
@@ -239,7 +239,7 @@ func TestSiFallaVuelveExactamenteALoAnterior(t *testing.T) {
 func TestNoCambiaLaVersionMayorDePostgres(t *testing.T) {
 	n := nuevoNodo(t)
 	r := n.app.Aplicar(context.Background(), n.firmada(t, releaseConConfiguracion("services:\n  postgres:\n    image: postgres:18-alpine@sha256:z\n")))
-	if r.Estado != "fallida" || !strings.Contains(r.Detalle, "Postgres de 17 a 18") {
+	if r.Estado != "fallida" || !strings.Contains(r.Detalle, "Postgres from 17 to 18") {
 		t.Fatalf("resultado: %+v", r)
 	}
 	if !strings.Contains(leer(t, n.dir, "compose.yml"), "postgres:17") {
@@ -252,7 +252,7 @@ func TestSinFirmaValidaNoSeTocaNada(t *testing.T) {
 	f := n.firmada(t, releaseConConfiguracion("services: {}\n"))
 	f.Release = strings.Replace(f.Release, "0.12.0", "0.12.1", 1)
 	r := n.app.Aplicar(context.Background(), f)
-	if r.Estado != "fallida" || !strings.Contains(r.Detalle, "no está firmada") {
+	if r.Estado != "fallida" || !strings.Contains(r.Detalle, "not signed") {
 		t.Fatalf("resultado: %+v", r)
 	}
 	if _, err := os.Stat(filepath.Join(n.dir, ".llamadas")); err == nil {
@@ -265,7 +265,7 @@ func TestConfiguracionNoPermitida(t *testing.T) {
 	r := releaseConConfiguracion("services: {}\n")
 	r.Nodo.Ficheros[".env"] = "PUBLICACION_CLAVE_PUBLICA=otra\n"
 	res := n.app.Aplicar(context.Background(), n.firmada(t, r))
-	if res.Estado != "fallida" || !strings.Contains(res.Detalle, "fichero no permitido") {
+	if res.Estado != "fallida" || !strings.Contains(res.Detalle, "file not allowed") {
 		t.Fatalf("una versión no puede escribir .env entero: %+v", res)
 	}
 }
@@ -274,7 +274,7 @@ func TestCaddyfileQueCaddyNoAceptaNoSeLevanta(t *testing.T) {
 	n := nuevoNodo(t)
 	_ = os.WriteFile(filepath.Join(n.dir, "CADDY_MALO"), nil, 0o644)
 	r := n.app.Aplicar(context.Background(), n.firmada(t, releaseConConfiguracion("services: {}\n")))
-	if r.Estado != "fallida" || !strings.Contains(r.Detalle, "Caddy no acepta el Caddyfile") {
+	if r.Estado != "fallida" || !strings.Contains(r.Detalle, "Caddy does not accept the Caddyfile") {
 		t.Fatalf("resultado: %+v", r)
 	}
 	if leer(t, n.dir, "Caddyfile") != "viejo\n" {
@@ -293,7 +293,7 @@ func TestHttpsQueSeCaeVuelveAtras(t *testing.T) {
 	n := nuevoNodo(t)
 	_ = os.WriteFile(filepath.Join(n.dir, "CAE"), nil, 0o644)
 	r := n.app.Aplicar(context.Background(), n.firmada(t, releaseConConfiguracion("services: {}\n")))
-	if r.Estado != "fallida" || !strings.Contains(r.Detalle, "https no aguanta en marcha") {
+	if r.Estado != "fallida" || !strings.Contains(r.Detalle, "https does not stay up") {
 		t.Fatalf("un https en bucle de reinicios no es «aplicada»: %+v", r)
 	}
 	if leer(t, n.dir, "Caddyfile") != "viejo\n" {

@@ -141,7 +141,7 @@ const r4 = juntar(
 const r6 = juntar(v6, Buffer.compare, mas1v6);
 /* Sin filas (p. ej. la descarga del mes aún no existe): fallar sin escribir nada. */
 if (r4.length === 0) {
-	console.error('España: ningún rango en la entrada');
+	console.error('Spain: no ranges in the input');
 	process.exit(1);
 }
 
@@ -160,5 +160,5 @@ for (const [a, z, c] of r6) {
 	o = salida.writeUInt8(c, o);
 }
 writeFileSync(process.argv[2] ?? 'espana.bin', salida);
-console.log(`España: ${r4.length} rangos IPv4 y ${r6.length} IPv6`);
-if (sinComunidad.size) console.log('Sin comunidad conocida:', Object.fromEntries(sinComunidad));
+console.log(`Spain: ${r4.length} IPv4 ranges and ${r6.length} IPv6`);
+if (sinComunidad.size) console.log('No known region:', Object.fromEntries(sinComunidad));

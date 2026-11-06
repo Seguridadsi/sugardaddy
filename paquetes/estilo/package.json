@@ -5,6 +5,7 @@
 	"type": "module",
 	"exports": {
 		"./app.css": "./app.css",
+		"./iconos-menu": "./iconos-menu.ts",
 		"./pictogramas": "./pictogramas.ts"
 	},
 	"scripts": {

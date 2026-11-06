@@ -23,19 +23,19 @@ export const esEntorno = (v: unknown): v is Entorno =>
 
 /* El nombre corto para las pantallas: interno (en la red), externo (de cara a internet) o aislado. */
 export const ENTORNO_ETIQUETA: Record<Entorno, string> = {
-	dentro: 'Interno',
-	'perimetro-web': 'Externo',
-	aislada: 'Aislado'
+	dentro: 'Internal',
+	'perimetro-web': 'External',
+	aislada: 'Isolated'
 };
 
 /* Una frase que explica qué implica cada entorno para la respuesta. */
 export const ENTORNO_EXPLICACION: Record<Entorno, string> = {
 	dentro:
-		'El origen sería un equipo o una cuenta de tu red: tiene sentido contener (bloquear la IP, aislar el equipo, bloquear la cuenta).',
+		'The source would be a machine or an account on your network, so containment makes sense (block the IP, isolate the machine, block the account).',
 	'perimetro-web':
-		'Quien la toca viene de internet, no de tu red: no se contiene el origen (no se puede bloquear medio internet), solo se avisa y se recoge inteligencia.',
+		'Whoever touches it comes from the internet, not from your network: the source is not contained (you cannot block half the internet); it only raises an alert and gathers intelligence.',
 	aislada:
-		'Está en una red aislada, sin producción alrededor: se vigila y se avisa; contener el origen no suele aplicar.'
+		'It sits on an isolated network with no production systems around it: it is monitored and raises alerts; containing the source rarely applies.'
 };
 
 /*

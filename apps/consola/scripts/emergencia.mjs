@@ -18,9 +18,9 @@ const valor = {
 };
 await sql`insert into ajustes (clave, valor) values ('emergencia_alta', ${JSON.stringify(valor)}::text::jsonb)
 	on conflict (clave) do update set valor = excluded.valor`;
-await sql`insert into auditoria (quien, accion) values ('máquina del nodo', 'código de alta de emergencia generado')`;
+await sql`insert into auditoria (quien, accion) values ('node machine', 'emergency enrollment code generated')`;
 await sql.end();
 const base = process.env.ORIGIN ?? 'https://<consola>';
 console.log(
-	`Abre en un navegador, antes de 30 minutos:\n\n  ${base}/emergencia/alta?codigo=${codigo}\n`
+	`Open in a browser within 30 minutes:\n\n  ${base}/emergency/enroll?codigo=${codigo}\n`
 );

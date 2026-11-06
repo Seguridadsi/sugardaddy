@@ -40,21 +40,21 @@ function salir(mensaje, codigo = 1) {
 function imprimirClave(usuario, clave) {
 	const barra = '='.repeat(60);
 	console.log(
-		`\n${barra}\n  ACCESO RESTABLECIDO (login local)\n` +
-			`  Usuario:     ${usuario}\n  Contraseña:  ${clave}\n` +
-			`  De un solo uso: la consola te la hará cambiar al entrar.\n${barra}\n`
+		`\n${barra}\n  ACCESS RESTORED (local sign-in)\n` +
+			`  Username:    ${usuario}\n  Password:  ${clave}\n` +
+			`  Single use: the console will ask you to change it when you sign in.\n${barra}\n`
 	);
 }
 
 const [orden, arg2, arg3, arg4] = process.argv.slice(2);
 const USO =
-	'Uso:\n' +
+	'Usage:\n' +
 	'  node scripts/clave.mjs listar\n' +
-	'  node scripts/clave.mjs reset <usuario>\n' +
-	'  node scripts/clave.mjs crear-admin <usuario> [nombre] [correo]';
+	'  node scripts/clave.mjs reset <username>\n' +
+	'  node scripts/clave.mjs crear-admin <username> [name] [email]';
 
 if (!process.env.DATABASE_URL) {
-	salir('Falta DATABASE_URL en el entorno.');
+	salir('DATABASE_URL is missing from the environment.');
 } else if (!['listar', 'reset', 'crear-admin'].includes(orden)) {
 	salir(USO);
 } else {
@@ -65,22 +65,22 @@ if (!process.env.DATABASE_URL) {
 				ultimo_acceso from usuarios_locales order by usuario`;
 			if (filas.length === 0) {
 				console.log(
-					'No hay usuarios locales. Crea un admin: node scripts/clave.mjs crear-admin <usuario>'
+					'There are no local users. Create an admin: node scripts/clave.mjs crear-admin <username>'
 				);
 			} else {
 				for (const f of filas) {
 					/* postgres-js devuelve el jsonb `roles` como string JSON, no como array. */
 					const roles = Array.isArray(f.roles) ? f.roles : JSON.parse(f.roles);
 					const bloq =
-						f.bloqueado_hasta && new Date(f.bloqueado_hasta) > new Date() ? ' [BLOQUEADO]' : '';
-					const cambia = f.debe_cambiar ? ' [debe cambiar la clave]' : '';
+						f.bloqueado_hasta && new Date(f.bloqueado_hasta) > new Date() ? ' [LOCKED]' : '';
+					const cambia = f.debe_cambiar ? ' [must change password]' : '';
 					console.log(`  ${f.usuario}  (${f.nombre})  roles: ${roles.join(', ')}${bloq}${cambia}`);
 				}
 			}
 		} else if (orden === 'reset') {
 			const usuario = norma(arg2);
 			if (!usuario) {
-				salir('Falta el usuario. ' + USO);
+				salir('The username is missing. ' + USO);
 			} else {
 				const clave = randomBytes(12).toString('base64url');
 				const filas = await sql`update usuarios_locales
@@ -89,11 +89,11 @@ if (!process.env.DATABASE_URL) {
 					where usuario = ${usuario} returning usuario`;
 				if (filas.length === 0) {
 					salir(
-						`No hay ningún usuario local «${usuario}». Mira los que hay: node scripts/clave.mjs listar`
+						`There is no local user "${usuario}". See which ones exist: node scripts/clave.mjs listar`
 					);
 				} else {
 					await sql`insert into auditoria (quien, accion, detalle)
-						values ('máquina del nodo', 'contraseña local restablecida desde la máquina', ${JSON.stringify({ usuario })}::text::jsonb)`;
+						values ('node machine', 'local password reset from the machine', ${JSON.stringify({ usuario })}::text::jsonb)`;
 					imprimirClave(usuario, clave);
 				}
 			}
@@ -101,21 +101,21 @@ if (!process.env.DATABASE_URL) {
 			const usuario = norma(arg2);
 			if (!usuarioValido(usuario)) {
 				salir(
-					'El usuario lleva de 3 a 32 caracteres: letras, números, punto, guion o guion bajo, y empieza/acaba en letra o número.'
+					'A username has 3 to 32 characters: letters, digits, dot, hyphen or underscore, and starts and ends with a letter or digit.'
 				);
 			} else {
 				const [existe] = await sql`select 1 from usuarios_locales where usuario = ${usuario}`;
 				if (existe) {
 					salir(
-						`Ya hay un usuario «${usuario}». Para darle una clave nueva: node scripts/clave.mjs reset ${usuario}`
+						`User "${usuario}" already exists. To give it a new password: node scripts/clave.mjs reset ${usuario}`
 					);
 				} else {
 					const clave = randomBytes(12).toString('base64url');
 					await sql`insert into usuarios_locales (id, usuario, nombre, correo, clave_hash, roles, debe_cambiar, creada_por)
-						values (${randomUUID()}, ${usuario}, ${arg3?.trim() || 'Administrador'}, ${arg4?.trim() || `${usuario}@local`},
-							${hashClaveLocal(clave)}, ${JSON.stringify(['admin'])}::text::jsonb, true, 'máquina del nodo')`;
+						values (${randomUUID()}, ${usuario}, ${arg3?.trim() || 'Administrator'}, ${arg4?.trim() || `${usuario}@local`},
+							${hashClaveLocal(clave)}, ${JSON.stringify(['admin'])}::text::jsonb, true, 'node machine')`;
 					await sql`insert into auditoria (quien, accion, detalle)
-						values ('máquina del nodo', 'administrador local creado desde la máquina', ${JSON.stringify({ usuario })}::text::jsonb)`;
+						values ('node machine', 'local administrator created from the machine', ${JSON.stringify({ usuario })}::text::jsonb)`;
 					imprimirClave(usuario, clave);
 				}
 			}

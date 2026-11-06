@@ -1,6 +1,7 @@
 import { error, redirect, type Handle, type ServerInit } from '@sveltejs/kit';
 import { dev } from '$app/environment';
 import { env } from '$env/dynamic/private';
+import { rutaNueva } from '$lib/rutas-antiguas';
 import { configuradoEnEntorno } from '$lib/server/auth/entra';
 import { leer } from '$lib/server/auth/sesion';
 import { altaAutomatica, considerarCommunity, latir } from '$lib/server/canal';
@@ -64,9 +65,9 @@ export const init: ServerInit = () => {
  * cada una con su token.
  */
 const PUBLICO = [
-	'/entrar',
+	'/sign-in',
 	'/auth/',
-	'/emergencia',
+	'/emergency',
 	'/api/sensor/',
 	/* Lo pide curl desde la máquina de un sensor remoto; lo protege el código de un solo uso. */
 	'/instalar-sensor/',
@@ -78,6 +79,14 @@ const PUBLICO = [
 ];
 
 export const handle: Handle = async ({ event, resolve }) => {
+	/* 308: una ruta de antes del paso a inglés (rutas-antiguas.ts), con su método y su cuerpo. */
+	const nueva = rutaNueva(event.url.pathname);
+	if (nueva)
+		return new Response(null, {
+			status: 308,
+			headers: { location: nueva + event.url.search }
+		});
+
 	event.locals.usuario = null;
 	event.locals.modoDesarrollo = false;
 
@@ -97,14 +106,14 @@ export const handle: Handle = async ({ event, resolve }) => {
 		};
 	else if (!configuradoEnEntorno() && dev) {
 		/* Sin Entra y en desarrollo: un usuario con todos los roles, y la barra lo dice. */
-		event.locals.usuario = { nombre: 'Desarrollo', correo: 'dev@localhost', roles: ['admin'] };
+		event.locals.usuario = { nombre: 'Development', correo: 'dev@localhost', roles: ['admin'] };
 		event.locals.modoDesarrollo = true;
 	}
 
 	const publico = PUBLICO.some((p) => event.url.pathname === p || event.url.pathname.startsWith(p));
 	if (!publico && !event.locals.usuario) {
-		if (event.request.method !== 'GET') error(401, 'Hay que entrar primero');
-		redirect(303, `/entrar?volverA=${encodeURIComponent(event.url.pathname + event.url.search)}`);
+		if (event.request.method !== 'GET') error(401, 'Sign in first');
+		redirect(303, `/sign-in?volverA=${encodeURIComponent(event.url.pathname + event.url.search)}`);
 	}
 
 	const r = await resolve(event);

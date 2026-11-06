@@ -35,7 +35,7 @@ describe('construirCsvEventos', () => {
 	it('la cabecera lleva geo (pais, organizacion, asn, tor) justo tras ip', () => {
 		const cols = CABECERA_CSV_EVENTOS;
 		const i = cols.indexOf('ip');
-		expect(cols.slice(i, i + 5)).toEqual(['ip', 'pais', 'organizacion', 'asn', 'tor']);
+		expect(cols.slice(i, i + 5)).toEqual(['ip', 'country', 'organization', 'asn', 'tor']);
 		const csv = construirCsvEventos([], nombres, {}, new Set());
 		expect(csv.startsWith('﻿')).toBe(true);
 		expect(csv.split('\r\n')[0]).toBe('﻿' + cols.join(','));
@@ -54,19 +54,19 @@ describe('construirCsvEventos', () => {
 		const campos = csv.trim().split('\r\n')[1].split(',');
 		const c = CABECERA_CSV_EVENTOS;
 		expect(campos[c.indexOf('ip')]).toBe('8.8.8.8');
-		expect(campos[c.indexOf('pais')]).toBe('US');
-		expect(campos[c.indexOf('organizacion')]).toBe('Google LLC');
+		expect(campos[c.indexOf('country')]).toBe('US');
+		expect(campos[c.indexOf('organization')]).toBe('Google LLC');
 		expect(campos[c.indexOf('asn')]).toBe('15169');
-		expect(campos[c.indexOf('tor')]).toBe('sí');
-		expect(campos[c.indexOf('trampa')]).toBe('SSH de RRHH');
+		expect(campos[c.indexOf('tor')]).toBe('yes');
+		expect(campos[c.indexOf('decoy')]).toBe('SSH de RRHH');
 	});
 
 	it('una IP sin geo deja esas celdas vacías y tor en no', () => {
 		const csv = construirCsvEventos([fila({ ip: '203.0.113.9' })], nombres, {}, new Set());
 		const c = CABECERA_CSV_EVENTOS;
 		const campos = csv.trim().split('\r\n')[1].split(',');
-		expect(campos[c.indexOf('pais')]).toBe('');
-		expect(campos[c.indexOf('organizacion')]).toBe('');
+		expect(campos[c.indexOf('country')]).toBe('');
+		expect(campos[c.indexOf('organization')]).toBe('');
 		expect(campos[c.indexOf('asn')]).toBe('');
 		expect(campos[c.indexOf('tor')]).toBe('no');
 	});

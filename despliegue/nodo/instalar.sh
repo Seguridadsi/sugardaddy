@@ -18,23 +18,23 @@
 # y su credencial, la configuración de Entra y el código de alta en el panel.
 set -Eeuo pipefail
 # Si algo falla, se dice en qué paso: quien instala no tiene a nadie al lado.
-PASO="preparar"
-trap 'echo "Sugardaddy: falló el paso «$PASO». Revisa el mensaje de arriba y vuelve a lanzar la línea; si no se arregla, avisa a quien te dio esta línea." >&2' ERR
+PASO="prepare"
+trap 'echo "Sugardaddy: the step \"$PASO\" failed. Check the message above and run the line again; if it does not fix itself, tell whoever gave you this line." >&2' ERR
 
-DIR="${1:?Uso: instalar.sh <carpeta> <id-del-nodo> \"Nombre del cliente\" <url-de-la-consola>}"
-NODO_ID="${2:?Falta el id del nodo (p. ej. nodo-mad01)}"
-NOMBRE="${3:?Falta el nombre del cliente}"
-DOMINIO="${4:?Falta el nombre con el que se entra a la consola (p. ej. gestion.aldanza.local)}"
+DIR="${1:?Usage: instalar.sh <folder> <node-id> \"Customer name\" <console-url>}"
+NODO_ID="${2:?The node id is missing (e.g. nodo-mad01)}"
+NOMBRE="${3:?The customer name is missing}"
+DOMINIO="${4:?The name used to reach the console is missing (e.g. gestion.aldanza.local)}"
 TLS_MODO="${TLS_MODO:-interno}"
 PUERTO="${CONSOLA_PUERTO:-443}"
 URL="https://$DOMINIO$([[ $PUERTO == 443 ]] || echo ":$PUERTO")"
 AQUI="$(cd "$(dirname "$0")" && pwd)"
 
-[[ "$NODO_ID" =~ ^[a-z0-9][a-z0-9-]{0,62}$ ]] || { echo "Id de nodo no válido: $NODO_ID"; exit 1; }
-[[ "$DOMINIO" =~ ^[a-z0-9.-]+$ ]] || { echo "Nombre no válido: $DOMINIO"; exit 1; }
-[[ "$TLS_MODO" == interno || "$TLS_MODO" == ficheros ]] || { echo "TLS_MODO es interno o ficheros"; exit 1; }
-[[ "$(id -u)" == 0 ]] || { echo "Hay que ejecutarlo como root (sudo)"; exit 1; }
-PASO="comprobar la arquitectura"
+[[ "$NODO_ID" =~ ^[a-z0-9][a-z0-9-]{0,62}$ ]] || { echo "Invalid node id: $NODO_ID"; exit 1; }
+[[ "$DOMINIO" =~ ^[a-z0-9.-]+$ ]] || { echo "Invalid name: $DOMINIO"; exit 1; }
+[[ "$TLS_MODO" == interno || "$TLS_MODO" == ficheros ]] || { echo "TLS_MODO must be interno or ficheros"; exit 1; }
+[[ "$(id -u)" == 0 ]] || { echo "This must be run as root (sudo)"; exit 1; }
+PASO="check the architecture"
 # Las imágenes de Sugardaddy solo se publican para Linux amd64 (x86_64). En
 # otro motor (arm64: Graviton, Ampere, Raspberry Pi o un Mac con Apple
 # Silicon) sus contenedores no arrancan y se reinician sin fin con «exec
@@ -51,14 +51,14 @@ elif command -v dpkg >/dev/null; then
 	plataforma="linux/$(dpkg --print-architecture 2>/dev/null || true)"
 fi
 if [[ "$plataforma" =~ ^[a-z0-9]+/[a-z0-9_]+$ && "$plataforma" != linux/amd64 ]]; then
-	echo "Sugardaddy: este nodo necesita un motor Docker de Linux amd64 (x86_64) y el de esta máquina es $plataforma, donde sus contenedores no arrancarían. Instálalo en una máquina o VM x86_64. No se ha cambiado nada en esta, pero si lo has lanzado con la línea de instalación, esa línea ya se ha gastado: para la otra máquina, pide una nueva a quien te la dio. (código instalar.arquitectura)" >&2
+	echo "Sugardaddy: this node needs a Linux amd64 (x86_64) Docker engine, and this machine has $plataforma, where its containers would not start. Install it on an x86_64 machine or VM. Nothing was changed on this one, but this line has already been used: for the other machine, ask whoever gave it to you for a new one. (code instalar.arquitectura)" >&2
 	exit 1
 fi
-PASO="instalar Docker"
+PASO="install Docker"
 if ! command -v docker >/dev/null; then
 	# Docker desde su repositorio oficial, en Ubuntu o Debian.
-	command -v apt-get >/dev/null || { echo "Hace falta Docker (instalación automática solo en Ubuntu y Debian)"; exit 1; }
-	echo "==> Instalando Docker"
+	command -v apt-get >/dev/null || { echo "Docker is required (automatic installation only on Ubuntu and Debian)"; exit 1; }
+	echo "==> Installing Docker"
 	. /etc/os-release
 	apt-get update -qq && apt-get install -y -qq ca-certificates curl >/dev/null
 	install -m 0755 -d /etc/apt/keyrings
@@ -66,13 +66,13 @@ if ! command -v docker >/dev/null; then
 	echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/$ID $VERSION_CODENAME stable" > /etc/apt/sources.list.d/docker.list
 	apt-get update -qq && apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-compose-plugin >/dev/null
 fi
-[[ -f "$AQUI/imagenes.env" ]] || { echo "Falta $AQUI/imagenes.env con las imágenes de la versión"; exit 1; }
+[[ -f "$AQUI/imagenes.env" ]] || { echo "$AQUI/imagenes.env is missing; it holds the images of the version"; exit 1; }
 
 mkdir -p "$DIR/datos/sensor" "$DIR/certs"
 DIR="$(cd "$DIR" && pwd)"
 cp "$AQUI/compose.yml" "$AQUI/Caddyfile" "$AQUI/copia.sh" "$AQUI/restaurar.sh" "$DIR/"
 if [[ "$TLS_MODO" == ficheros && ! -f "$DIR/certs/certificado.pem" ]]; then
-	echo "Con TLS_MODO=ficheros, deja antes el certificado en $DIR/certs/certificado.pem y clave.pem"
+	echo "With TLS_MODO=ficheros, put the certificate in $DIR/certs/certificado.pem and clave.pem first"
 	exit 1
 fi
 # versiones.env lleva lo que cambian las versiones (consola, sensor y, desde
@@ -83,7 +83,7 @@ fi
 # Reinstalar encima: el compose de arriba es el de este instalador, así que
 # las imágenes también (las de un nodo 0.11 no arrancan con él). Nunca hacia
 # atrás: si el nodo ya tiene una versión más nueva, no se toca.
-PASO="preparar la carpeta"
+PASO="prepare the folder"
 nueva="$(grep '^SUGARDADDY_VERSION=' "$AQUI/imagenes.env" | cut -d= -f2- || true)"
 # Guard anti-retroceso: solo frena entre versiones SEMVER LIMPIAS (X.Y.Z). Si la
 # instalada es un build de desarrollo (p. ej. 9.9.9-local) no cuenta como «más
@@ -92,7 +92,7 @@ semver='^[0-9]+\.[0-9]+\.[0-9]+$'
 if [[ -f "$DIR/versiones.env" ]]; then
 	actual="$(grep '^SUGARDADDY_VERSION=' "$DIR/versiones.env" | cut -d= -f2- || true)"
 	if [[ "$actual" =~ $semver && "$nueva" =~ $semver && "$actual" != "$nueva" && "$(printf '%s\n' "$actual" "$nueva" | sort -V | tail -1)" == "$actual" ]]; then
-		echo "Este nodo ya tiene la versión $actual, más nueva que la de este instalador ($nueva). Pide una línea nueva a quien te dio esta."
+		echo "This node already has version $actual, which is newer than this installer ($nueva). Ask whoever gave you this line for a new one."
 		exit 1
 	fi
 fi
@@ -148,7 +148,7 @@ PANEL_ALTA_CODIGO=${PANEL_ALTA_CODIGO:-}
 # Solo para pruebas contra un panel de desarrollo sin TLS.
 PANEL_HTTP_PERMITIDO=${PANEL_HTTP_PERMITIDO:-}
 FIN
-	echo "Secretos generados en $DIR/.env"
+	echo "Secrets generated in $DIR/.env"
 fi
 # La dirección de entrada a la consola (nombre o IP, el 4º argumento) puede
 # cambiar entre reinstalaciones —por ejemplo pasar de un nombre a la IP de la
@@ -216,17 +216,17 @@ done
 grep -q '^CLAVE_SECRETOS=.' "$DIR/.env" || echo "CLAVE_SECRETOS=$(openssl rand -hex 32)" >> "$DIR/.env"
 if [[ ! -f "$DIR/clave-copias" ]]; then
 	(umask 077 && openssl rand -base64 48 > "$DIR/clave-copias")
-	echo "Clave de las copias en $DIR/clave-copias: guárdala también fuera de esta máquina."
+	echo "Backup key in $DIR/clave-copias: also store it outside this machine."
 fi
 
 cd "$DIR"
-PASO="descargar las imágenes"
+PASO="download the images"
 # Con imágenes privadas, docker necesita el token para la primera descarga.
 if grep -q '^REGISTRO_TOKEN=.' .env; then
 	grep '^REGISTRO_TOKEN=' .env | cut -d= -f2- | docker login "$(grep '^REGISTRO=' .env | cut -d= -f2-)" \
 		-u "$(grep '^REGISTRO_USUARIO=' .env | cut -d= -f2-)" --password-stdin >/dev/null
 fi
-PASO="arrancar el nodo"
+PASO="start the node"
 # La consola monta la raíz de la CA: tiene que existir, como fichero normal
 # (vacío hasta que Caddy la cree). Nunca un enlace.
 [[ -L ca-raiz.crt ]] && rm -f ca-raiz.crt
@@ -241,7 +241,7 @@ if [[ "$TLS_MODO" == interno ]]; then
 	# consola. Lo que sale de Caddy no se copia tal cual: se saca a una carpeta
 	# temporal y solo pasa un certificado de CA, escrito encima de ca-raiz.crt
 	# (el mismo fichero que la consola ya tiene montado).
-	PASO="exportar la raíz de la CA"
+	PASO="export the CA root"
 	tmp="$(mktemp -d)"
 	for _ in 1 2 3 4 5; do
 		rm -rf "$tmp/raiz.crt"
@@ -255,34 +255,34 @@ if [[ "$TLS_MODO" == interno ]]; then
 		sleep 2
 	done
 	rm -rf "$tmp"
-	[[ -s ca-raiz.crt ]] && echo "Raíz de la CA del nodo en $DIR/ca-raiz.crt (huella $(openssl x509 -in ca-raiz.crt -noout -fingerprint -sha256 | cut -d= -f2))"
+	[[ -s ca-raiz.crt ]] && echo "Node CA root in $DIR/ca-raiz.crt (fingerprint $(openssl x509 -in ca-raiz.crt -noout -fingerprint -sha256 | cut -d= -f2))"
 fi
-echo "Nodo en marcha. Consola en $URL"
+echo "Node running. Console at $URL"
 
 # Lo que el cliente tiene que guardar, junto y una sola vez: la contraseña del
 # primer administrador (si el nodo la acaba de crear, sale en el registro de la
 # consola) y el código de emergencia (solo se crea si el nodo aún no tiene uno:
 # al reinstalar encima, el que ya guardó sigue valiendo).
-PASO="crear el código de emergencia"
+PASO="create the emergency code"
 CLAVE_ADMIN="$(docker compose --env-file .env --env-file versiones.env logs --no-log-prefix consola 2>/dev/null \
-	| sed -n 's/^  Contraseña:  //p' | tail -1 || true)"
+	| sed -n -E 's/^  (Contraseña|Password):  //p' | tail -1 || true)"
 CODIGO_EMERGENCIA="$(docker compose --env-file .env --env-file versiones.env exec -T consola node scripts/codigo-emergencia.mjs --si-no-hay)"
 if [[ -n "$CLAVE_ADMIN" || -n "$CODIGO_EMERGENCIA" ]]; then
 	barra="$(printf '=%.0s' {1..64})"
 	echo
 	echo "$barra"
-	echo "  GUARDA ESTO FUERA DE ESTA MÁQUINA: no se vuelve a enseñar"
+	echo "  SAVE THIS OUTSIDE THIS MACHINE: it will not be shown again"
 	echo
 	if [[ -n "$CLAVE_ADMIN" ]]; then
-		echo "  Primer administrador:  admin"
-		echo "  Contraseña inicial:    $CLAVE_ADMIN   (si aún no la has cambiado)"
+		echo "  First administrator:   admin"
+		echo "  Initial password:      $CLAVE_ADMIN   (if you have not changed it yet)"
 		echo
 	fi
 	if [[ -n "$CODIGO_EMERGENCIA" ]]; then
-		echo "  Código de emergencia:  $CODIGO_EMERGENCIA"
-		echo "  Para entrar como administrador si pierdes la contraseña y el"
-		echo "  correo no llega: $URL/emergencia"
-		echo "  Vale una vez; al usarlo, la consola te da otro."
+		echo "  Emergency code:        $CODIGO_EMERGENCIA"
+		echo "  To sign in as administrator if you lose the password and"
+		echo "  email does not arrive: $URL/emergencia"
+		echo "  It works once; when you use it, the console gives you a new one."
 	fi
 	echo "$barra"
 fi

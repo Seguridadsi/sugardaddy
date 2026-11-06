@@ -47,7 +47,7 @@ export const usuarioValido = (u: string) => USUARIO_RE.test(norma(u));
 
 /*
  * Correo de recuperación: cada usuario local necesita uno de verdad, porque es
- * adonde va el código si pierde la contraseña (/entrar/recuperar). El primer
+ * adonde va el código si pierde la contraseña (/sign-in/recover). El primer
  * administrador nace con «admin@local» (el instalador no lo sabe), así que la
  * consola se lo pide al entrar. Basta con «algo@dominio.tld» sin espacios: si el
  * buzón existe ya lo dirá el correo que le llegue.
@@ -173,10 +173,10 @@ export async function verificar(usuario: string, clave: string): Promise<Resulta
 /*
  * Un reto de un solo uso para el cambio forzado: al entrar con una contraseña de
  * un solo uso, la consola no abre sesión todavía; guarda aquí el id del usuario
- * y manda a /entrar/cambiar. Vive en memoria y dura poco, como los retos de la
+ * y manda a /sign-in/change. Vive en memoria y dura poco, como los retos de la
  * entrada de emergencia; si el proceso se reinicia, se vuelve a entrar.
  */
-/* La cookie del cambio forzado vive solo bajo /entrar (la leen /entrar y /entrar/cambiar). */
+/* La cookie del cambio forzado vive solo bajo /sign-in (la leen /sign-in y /sign-in/change). */
 export const COOKIE_CAMBIO = 'sd_cambio';
 
 const VIDA_RETO = 10 * 60_000;
@@ -228,14 +228,14 @@ export async function cambiarCorreo(
 ): Promise<{ ok: true; identidad: Identidad } | { ok: false; error: string }> {
 	const limpio = correo.trim();
 	if (!correoValido(limpio))
-		return { ok: false, error: 'Pon un correo válido, del tipo nombre@empresa.com.' };
+		return { ok: false, error: 'Enter a valid email address, such as name@company.com.' };
 	const [u] = await db
 		.update(s.usuariosLocales)
 		.set({ correo: limpio })
 		.where(eq(s.usuariosLocales.id, id))
 		.returning();
-	if (!u) return { ok: false, error: 'El usuario ya no existe.' };
-	await auditar(quien, 'correo de recuperación cambiado', { usuario: u.usuario });
+	if (!u) return { ok: false, error: 'The user no longer exists.' };
+	await auditar(quien, 'recovery email changed', { usuario: u.usuario });
 	return { ok: true, identidad: identidadDe(u) };
 }
 
@@ -244,7 +244,7 @@ export async function cambiarClave(
 	nueva: string
 ): Promise<{ ok: true; identidad: Identidad } | { ok: false; error: string }> {
 	if (nueva.length < MIN_CLAVE)
-		return { ok: false, error: `La contraseña necesita al menos ${MIN_CLAVE} caracteres.` };
+		return { ok: false, error: `The password needs at least ${MIN_CLAVE} characters.` };
 	const [u] = await db
 		.update(s.usuariosLocales)
 		.set({
@@ -255,7 +255,7 @@ export async function cambiarClave(
 		})
 		.where(eq(s.usuariosLocales.id, id))
 		.returning();
-	if (!u) return { ok: false, error: 'El usuario ya no existe.' };
+	if (!u) return { ok: false, error: 'The user no longer exists.' };
 	return { ok: true, identidad: identidadDe(u) };
 }
 
@@ -273,22 +273,22 @@ export async function cambiarClavePropia(
 	nueva: string
 ): Promise<{ ok: true } | { ok: false; error: string }> {
 	if (nueva.length < MIN_CLAVE)
-		return { ok: false, error: `La contraseña necesita al menos ${MIN_CLAVE} caracteres.` };
+		return { ok: false, error: `The password needs at least ${MIN_CLAVE} characters.` };
 	if (nueva === actual)
-		return { ok: false, error: 'La contraseña nueva tiene que ser distinta de la actual.' };
+		return { ok: false, error: 'The new password must be different from the current one.' };
 	const [u] = await db
 		.select({ claveHash: s.usuariosLocales.claveHash })
 		.from(s.usuariosLocales)
 		.where(eq(s.usuariosLocales.id, id));
-	if (!u) return { ok: false, error: 'El usuario ya no existe.' };
+	if (!u) return { ok: false, error: 'The user no longer exists.' };
 	if (!comprobarClave(actual, u.claveHash))
-		return { ok: false, error: 'La contraseña actual no es correcta.' };
+		return { ok: false, error: 'The current password is incorrect.' };
 	await db
 		.update(s.usuariosLocales)
 		.set({ claveHash: hashClave(nueva), debeCambiar: false })
 		.where(eq(s.usuariosLocales.id, id));
 	/* En la auditoría no va la contraseña, claro: solo que la cambió él mismo. */
-	await auditar(quien, 'contraseña propia cambiada');
+	await auditar(quien, 'own password changed');
 	return { ok: true };
 }
 
@@ -299,15 +299,15 @@ export async function cambiarNombrePropio(
 	nombre: string
 ): Promise<{ ok: true; nombre: string } | { ok: false; error: string }> {
 	const limpio = nombre.trim();
-	if (!limpio) return { ok: false, error: 'El nombre no puede estar vacío.' };
-	if (limpio.length > 80) return { ok: false, error: 'El nombre es demasiado largo (máximo 80).' };
+	if (!limpio) return { ok: false, error: 'The name cannot be empty.' };
+	if (limpio.length > 80) return { ok: false, error: 'The name is too long (maximum 80).' };
 	const [u] = await db
 		.update(s.usuariosLocales)
 		.set({ nombre: limpio })
 		.where(eq(s.usuariosLocales.id, id))
 		.returning({ id: s.usuariosLocales.id });
-	if (!u) return { ok: false, error: 'El usuario ya no existe.' };
-	await auditar(quien, 'nombre propio cambiado');
+	if (!u) return { ok: false, error: 'The user no longer exists.' };
+	await auditar(quien, 'own name changed');
 	return { ok: true, nombre: limpio };
 }
 
@@ -344,18 +344,19 @@ export async function crear(
 	if (!usuarioValido(usuario))
 		return {
 			ok: false,
-			error: 'El usuario lleva de 3 a 32 caracteres: letras, números, punto, guion o guion bajo.'
+			error:
+				'The username must be 3 to 32 characters: letters, numbers, dots, hyphens or underscores.'
 		};
 	if (!correoValido(datos.correo))
 		return {
 			ok: false,
 			error:
-				'Hace falta su correo (nombre@empresa.com): es adonde le llega el código si pierde la contraseña.'
+				'An email address is required (name@company.com): the code is sent there if the password is lost.'
 		};
 	if (datos.clave.length < MIN_CLAVE)
-		return { ok: false, error: `La contraseña necesita al menos ${MIN_CLAVE} caracteres.` };
+		return { ok: false, error: `The password needs at least ${MIN_CLAVE} characters.` };
 	const roles = limpiarRoles(datos.roles);
-	if (roles.length === 0) return { ok: false, error: 'Hay que dar al menos un rol.' };
+	if (roles.length === 0) return { ok: false, error: 'Assign at least one role.' };
 	const id = randomUUID();
 	try {
 		await db.insert(s.usuariosLocales).values({
@@ -369,9 +370,9 @@ export async function crear(
 			creadaPor: quien
 		});
 	} catch {
-		return { ok: false, error: 'Ya hay un usuario con ese nombre.' };
+		return { ok: false, error: 'A user with that name already exists.' };
 	}
-	await auditar(quien, 'usuario local creado', { usuario, roles });
+	await auditar(quien, 'local user created', { usuario, roles });
 	return { ok: true, id };
 }
 
@@ -388,24 +389,25 @@ export async function fijarRoles(
 	roles: string[]
 ): Promise<{ ok: true } | { ok: false; error: string }> {
 	const limpios = limpiarRoles(roles);
-	if (limpios.length === 0) return { ok: false, error: 'Hay que dejar al menos un rol.' };
+	if (limpios.length === 0) return { ok: false, error: 'Leave at least one role.' };
 	const r = await db.transaction(async (tx) => {
 		const filas = await tx
 			.select({ id: s.usuariosLocales.id, roles: s.usuariosLocales.roles })
 			.from(s.usuariosLocales)
 			.for('update');
 		const actual = filas.find((f) => f.id === id);
-		if (!actual) return { ok: false as const, error: 'Ese usuario ya no existe.' };
+		if (!actual) return { ok: false as const, error: 'That user no longer exists.' };
 		const admins = filas.filter((f) => f.roles.includes('admin')).length;
 		if (actual.roles.includes('admin') && !limpios.includes('admin') && admins <= 1)
 			return {
 				ok: false as const,
-				error: 'Es el único administrador local: deja a otro antes de quitarle admin.'
+				error:
+					'This is the only local administrator: make someone else an administrator before removing admin.'
 			};
 		await tx.update(s.usuariosLocales).set({ roles: limpios }).where(eq(s.usuariosLocales.id, id));
 		return { ok: true as const };
 	});
-	if (r.ok) await auditar(quien, 'roles de usuario local cambiados', { id, roles: limpios });
+	if (r.ok) await auditar(quien, 'local user roles changed', { id, roles: limpios });
 	return r;
 }
 
@@ -415,7 +417,7 @@ export async function restablecer(
 	clave: string
 ): Promise<{ ok: true } | { ok: false; error: string }> {
 	if (clave.length < MIN_CLAVE)
-		return { ok: false, error: `La contraseña necesita al menos ${MIN_CLAVE} caracteres.` };
+		return { ok: false, error: `The password needs at least ${MIN_CLAVE} characters.` };
 	const [u] = await db
 		.update(s.usuariosLocales)
 		.set({
@@ -426,8 +428,8 @@ export async function restablecer(
 		})
 		.where(eq(s.usuariosLocales.id, id))
 		.returning({ usuario: s.usuariosLocales.usuario });
-	if (!u) return { ok: false, error: 'Ese usuario ya no existe.' };
-	await auditar(quien, 'contraseña de usuario local restablecida', { usuario: u.usuario });
+	if (!u) return { ok: false, error: 'That user no longer exists.' };
+	await auditar(quien, 'local user password reset', { usuario: u.usuario });
 	return { ok: true };
 }
 
@@ -445,13 +447,16 @@ export async function retirar(
 			.from(s.usuariosLocales)
 			.for('update');
 		const u = filas.find((f) => f.id === id);
-		if (!u) return { ok: false as const, error: 'Ese usuario ya no existe.' };
+		if (!u) return { ok: false as const, error: 'That user no longer exists.' };
 		const admins = filas.filter((f) => f.roles.includes('admin')).length;
 		if (u.roles.includes('admin') && admins <= 1)
-			return { ok: false as const, error: 'Es el único administrador local: no se puede retirar.' };
+			return {
+				ok: false as const,
+				error: 'This is the only local administrator: it cannot be removed.'
+			};
 		await tx.delete(s.usuariosLocales).where(eq(s.usuariosLocales.id, id));
 		return { ok: true as const, usuario: u.usuario };
 	});
-	if (r.ok) await auditar(quien, 'usuario local retirado', { usuario: r.usuario });
+	if (r.ok) await auditar(quien, 'local user removed', { usuario: r.usuario });
 	return r.ok ? { ok: true } : r;
 }

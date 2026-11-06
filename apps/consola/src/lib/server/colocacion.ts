@@ -46,13 +46,13 @@ export const DESCARTES_PLAN: readonly string[] = [
  * se guarda con ese código.
  */
 export const MOTIVOS_COLOCACION = {
-	'despliegue.error': 'Su sensor no la tiene en marcha.',
-	'despliegue.parada': 'El sensor la ha parado.',
+	'despliegue.error': 'Its sensor is not running it.',
+	'despliegue.parada': 'The sensor has stopped it.',
 	'aislamiento.se-ven':
-		'Las trampas de esta máquina se ven entre sí: el motor de contenedores no aplica el aislamiento entre ellas.',
-	'red.ip-oculta': 'Las trampas de esta máquina no ven la IP de quien se conecta.',
+		'The decoys on this machine can see each other: the container engine does not enforce isolation between them.',
+	'red.ip-oculta': 'The decoys on this machine do not see the IP of whoever connects.',
 	'retirada.pendiente':
-		'Falta quitarla del destino con sus pasos de retirada y decir aquí que ya está quitada.'
+		'It still has to be removed from the target using its removal steps, and marked as removed here.'
 } as const;
 export type CodigoColocacion = keyof typeof MOTIVOS_COLOCACION;
 
@@ -100,11 +100,12 @@ export function trasDescarte(f: FilaColocacion, codigo: string, ahora: Date): Ca
 }
 
 /*
- * Lo que dicen los sensores 0.12 a 0.13.1 mientras bajan la imagen de una
- * trampa que aún no corre: va como error, pero es lo normal en cada alta en
- * un sensor que aún no la tiene.
+ * Lo que dice un sensor mientras baja la imagen de una trampa que aún no
+ * corre: va como error, pero es lo normal en cada alta en un sensor que aún no
+ * la tiene. Los sensores de antes del paso a inglés lo dicen en español, y
+ * los dos siguen en la calle.
  */
-const DESCARGANDO = 'error: descargando la imagen';
+const DESCARGANDO = ['error: downloading the', 'error: descargando la imagen'];
 
 /* Lo que el sensor dice que ha parado él (la cuota de sus registros): cuenta como un error. */
 export const paradaPorSensor = (donde: string) => donde.startsWith('parada: ');
@@ -203,13 +204,13 @@ export type Visible =
 
 /* Cómo se llama cada estado en las listas y en la ficha. */
 export const ETIQUETAS: Readonly<Record<Visible, string>> = {
-	retirando: 'Retirando',
-	parada: 'Parada',
-	'sin-contacto': 'Sin contacto',
-	degradada: 'Degradada',
-	comprobada: 'Comprobada',
-	colocada: 'Puesta, sin comprobar',
-	'por-colocar': 'Pendiente de poner'
+	retirando: 'Removing',
+	parada: 'Paused',
+	'sin-contacto': 'Offline',
+	degradada: 'Degraded',
+	comprobada: 'Verified',
+	colocada: 'Deployed, not verified',
+	'por-colocar': 'Pending deployment'
 };
 
 export type AvisoVisible = { codigo: string; texto: string };
@@ -272,12 +273,12 @@ const DEGRADA_SIN_CORTAR = new Set(['red.ip-oculta', 'aislamiento.se-ven']);
 function frase(t: string): string {
 	const f = t.trim();
 	if (!f) return f;
-	return f.charAt(0).toLocaleUpperCase('es') + f.slice(1) + (/[.…!?]$/.test(f) ? '' : '.');
+	return f.charAt(0).toLocaleUpperCase('en') + f.slice(1) + (/[.…!?]$/.test(f) ? '' : '.');
 }
 
 /* «a», «a y b», «a, b y c». */
 const unaLista = (xs: string[]) =>
-	xs.length < 2 ? (xs[0] ?? '') : `${xs.slice(0, -1).join(', ')} y ${xs.at(-1)}`;
+	xs.length < 2 ? (xs[0] ?? '') : `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}`;
 
 /*
  * Lo que dijo el sensor de un fallo, sin el prefijo («error: », «error:
@@ -305,7 +306,7 @@ function textoDe(codigo: string, t: TrampaColocada, h: Honeycosa | undefined): s
 			modulo: t.modulo,
 			nombre: h?.nombre ?? t.modulo,
 			minimo: via?.sensorMinimo ?? '',
-			errores: 'Sus ajustes ya no valen para el módulo.'
+			errores: 'Its settings are no longer valid for the module.'
 		}).texto;
 	}
 	/* El código de un fallo del sensor (motor.permiso…): el detalle lo da su «donde». */
@@ -380,7 +381,7 @@ function datosCambiados(t: TrampaColocada, o: TrampaColocada, c: ContextoVisible
 	const cambiados: string[] = [];
 	for (const { campo, guardado } of datosDelObjetivo(t, c.honeycosas.get(t.modulo))) {
 		if (campo === 'direccion') {
-			if (c.direcciones.get(o.id) !== guardado) cambiados.push('la dirección de su destino');
+			if (c.direcciones.get(o.id) !== guardado) cambiados.push('the address of its target');
 			continue;
 		}
 		const actual = Object.hasOwn(actuales, campo) ? actuales[campo] : undefined;
@@ -398,7 +399,7 @@ function problemaDeSenal(t: TrampaColocada, c: ContextoVisible): Motivo | null {
 	if (!recibe(eo))
 		return motivo('senal.objetivo-parado', {
 			objetivo: o.nombre,
-			estado: eo.etiqueta.charAt(0).toLocaleLowerCase('es') + eo.etiqueta.slice(1)
+			estado: eo.etiqueta.charAt(0).toLocaleLowerCase('en') + eo.etiqueta.slice(1)
 		});
 	const cambiados = datosCambiados(t, o, c);
 	return cambiados.length
@@ -439,7 +440,7 @@ export function avisoDeVigia(
 	const desde = Math.max(ultimoVivo?.getTime() ?? 0, comprobada.getTime());
 	const dias = Math.floor((ahora - desde) / 86_400_000);
 	if (dias < DIAS_SIN_VIVO) return null;
-	return `El equipo vigilado no da señales desde hace ${dias} días: sin esa señal no se puede asegurar que siga avisando.`;
+	return `The watched machine has not sent a signal for ${dias} days: without that signal it cannot be guaranteed to keep alerting.`;
 }
 
 /*
@@ -467,12 +468,12 @@ export function estadoVisible(
 		const codigo = t.colocacionMotivo ?? 'retirada.pendiente';
 		return visible('retirando', { codigo, motivo: textoDe(codigo, t, h) });
 	}
-	if (!t.activo) return visible('parada', { motivo: 'La han parado desde la consola.' });
+	if (!t.activo) return visible('parada', { motivo: 'It was paused from the console.' });
 	const senal = porOtraTrampa(t);
 	const sensor = c.sensores.get(t.sensor);
 	if (!senal && !vivo(sensor?.ultimoLatido, c.ahora))
 		return visible('sin-contacto', {
-			motivo: 'Su sensor no contesta desde hace más de 5 minutos: no se sabe cómo está.'
+			motivo: 'Its sensor has not responded for more than 5 minutes, so its status is unknown.'
 		});
 
 	const puesta = t.colocacion === 'colocada' || t.colocacion === 'comprobada';
@@ -483,7 +484,8 @@ export function estadoVisible(
 			return visible('degradada', {
 				codigo: 'vigia.sin-senal',
 				motivo,
-				remedio: 'Comprueba que el equipo está encendido, llega al receptor y conserva la tarea.'
+				remedio:
+					'Check that the machine is powered on, can reach the receiver and still has the task.'
 			});
 	}
 	if (senal && conSenal) {
@@ -513,7 +515,7 @@ export function estadoVisible(
 			return visible('comprobada', { avisos });
 		case 'colocada':
 			return visible('colocada', {
-				motivo: 'Está puesta, pero aún no ha llegado ningún evento suyo.',
+				motivo: 'It is deployed, but no event from it has arrived yet.',
 				avisos
 			});
 		case 'degradada': {
@@ -533,10 +535,10 @@ export function estadoVisible(
 			 * espera es que ha vuelto al plan y su sensor la está poniendo.
 			 */
 			const codigo = t.colocacionMotivo;
-			if (codigo === 'despliegue.error' && t.donde.startsWith(DESCARGANDO))
+			if (codigo === 'despliegue.error' && DESCARGANDO.some((x) => t.donde.startsWith(x)))
 				return visible('por-colocar', {
 					codigo,
-					motivo: 'Su sensor la está poniendo: está descargando su imagen.',
+					motivo: 'Its sensor is deploying it: it is downloading its image.',
 					avisos
 				});
 			if (codigo && (!DESCARTES_PLAN.includes(codigo) || enEspera(t.donde)))
@@ -549,8 +551,8 @@ export function estadoVisible(
 			return visible('por-colocar', {
 				motivo:
 					EJECUTORES[t.ejecutor]?.corre === 'consola'
-						? 'Aún no se ha dicho que esté puesta.'
-						: 'Su sensor la está poniendo.',
+						? 'It has not been marked as deployed yet.'
+						: 'Its sensor is deploying it.',
 				avisos
 			});
 		}

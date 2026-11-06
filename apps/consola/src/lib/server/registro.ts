@@ -126,29 +126,33 @@ export async function activar(
 	codigo: string,
 	ahora = Date.now()
 ): Promise<Activacion> {
-	if (!esCommunity()) return { ok: false, error: 'El registro es de la edición Community.' };
+	if (!esCommunity()) return { ok: false, error: 'Registration is part of the Community edition.' };
 	if (await gestionadoPorPanel())
-		return { ok: false, error: 'Este nodo lo gestiona un panel; no necesita registro.' };
+		return {
+			ok: false,
+			error: 'This node is managed by a Central; it does not need registration.'
+		};
 	const clave = env.PUBLICACION_CLAVE_PUBLICA;
 	if (!clave)
 		return {
 			ok: false,
 			error:
-				'Este nodo no tiene la clave para comprobar el código, así que el registro no está disponible en él.'
+				'This node does not have the key to verify the code, so registration is not available on it.'
 		};
 	if (estadoClave() !== 'lista')
 		return {
 			ok: false,
 			error:
-				'Este nodo no tiene CLAVE_SECRETOS en su .env, y sin ella no se puede guardar el registro.'
+				'This node has no CLAVE_SECRETOS in its .env file, and without it the registration cannot be saved.'
 		};
 	const c = decodificarCodigo(codigo);
-	if (!c) return { ok: false, error: 'Eso no parece un código de activación. Cópialo entero.' };
+	if (!c)
+		return { ok: false, error: 'That does not look like an activation code. Copy the whole code.' };
 	const v = licenciaDeRegistro(clave, c.licencia, ahora);
 	if (!v.ok) {
-		const mensaje = /caducad/.test(v.motivo)
-			? 'Ese código ha caducado. Pide uno nuevo con tu correo.'
-			: 'Ese código no es válido.';
+		const mensaje = /caducad|expired/i.test(v.motivo)
+			? 'That code has expired. Request a new one with your email.'
+			: 'That code is not valid.';
 		return { ok: false, error: mensaje };
 	}
 	const momento = new Date(ahora).toISOString();
@@ -167,7 +171,7 @@ export async function activar(
 		correo: c.correo,
 		consentimiento: momento
 	});
-	await auditar(quien, 'registro activado', { hasta: v.licencia.caduca });
+	await auditar(quien, 'registration activated', { hasta: v.licencia.caduca });
 	return { ok: true, caduca: v.licencia.caduca };
 }
 
@@ -198,7 +202,7 @@ export async function renovar(ahora = Date.now(), forzar = false): Promise<Renov
 	if (!urlPanelValida(PANEL)) return 'no-disponible';
 	const d = descifrar(r.token, CONTEXTO);
 	if (!d.ok || typeof d.valores.token !== 'string') {
-		await escribir({ ...r, fallo: 'No se puede leer el token: pega un código nuevo.' });
+		await escribir({ ...r, fallo: 'The token cannot be read: paste a new code.' });
 		return 'invalida';
 	}
 	let res: Response;
@@ -210,29 +214,29 @@ export async function renovar(ahora = Date.now(), forzar = false): Promise<Renov
 			signal: AbortSignal.timeout(10_000)
 		});
 	} catch {
-		await escribir({ ...r, fallo: 'No se ha podido contactar con el panel de SeguridadSI.' });
+		await escribir({ ...r, fallo: 'Could not reach the SeguridadSI Central.' });
 		return 'sin-conexion';
 	}
 	if (res.status === 404) {
-		await escribir({ ...r, fallo: 'Este registro se ha retirado: pide un código nuevo.' });
+		await escribir({ ...r, fallo: 'This registration has been withdrawn: request a new code.' });
 		return 'retirado';
 	}
 	/* Ya se renovó hace poco: no es un fallo, y la que hay sigue valiendo. */
 	if (res.status === 429) return 'no-toca';
 	if (!res.ok) {
-		await escribir({ ...r, fallo: 'La renovación no está disponible ahora mismo.' });
+		await escribir({ ...r, fallo: 'Renewal is not available right now.' });
 		return 'no-disponible';
 	}
 	const cuerpo = (await res.json().catch(() => null)) as { licencia?: unknown } | null;
 	const nueva = licenciaDeRegistro(clave, cuerpo?.licencia, ahora);
 	if (!nueva.ok) {
-		await escribir({ ...r, fallo: 'El panel ha devuelto una licencia que no vale.' });
+		await escribir({ ...r, fallo: 'Central returned a license that is not valid.' });
 		return 'invalida';
 	}
 	/* Una que no alarga la vigencia no sustituye a la que hay (p. ej. certificado por renovar). */
 	if (Date.parse(nueva.licencia.caduca) <= Date.parse(autentica.licencia.caduca)) return 'no-toca';
 	await guardarLicencia(cuerpo!.licencia as LicenciaFirmada);
 	await escribir({ ...r, renovada: new Date(ahora).toISOString(), fallo: null });
-	await auditar('registro', 'registro renovado', { hasta: nueva.licencia.caduca });
+	await auditar('registration', 'registration renewed', { hasta: nueva.licencia.caduca });
 	return 'renovada';
 }

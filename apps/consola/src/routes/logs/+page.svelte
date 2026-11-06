@@ -9,15 +9,15 @@
 </script>
 
 <svelte:head>
-	<title>Logs — Sugardaddy</title>
+	<title>Audit logs — Sugardaddy</title>
 </svelte:head>
 
 <div class="cabecera">
 	<div>
-		<h1>Logs</h1>
+		<h1>Audit logs</h1>
 	</div>
 	<form method="GET">
-		<input name="q" value={data.q} placeholder="Buscar: correo, acción, IP…" />
+		<input name="q" value={data.q} placeholder="Search: email, action, IP…" />
 	</form>
 </div>
 
@@ -31,12 +31,13 @@
 				<span class="detalle mono" title={detalle(a.detalle)}>{detalle(a.detalle)}</span>
 			</li>
 		{:else}
-			<li class="vacio">Nada que coincida.</li>
+			<li class="vacio">No matches.</li>
 		{/each}
 	</ul>
 </section>
 <p class="nota">
-	Los logs solo crecen: nadie, tampoco {data.operador}, puede borrar líneas desde la consola.
+	Audit logs are append-only: nobody, including {data.operador}, can delete entries from the
+	console.
 </p>
 
 <style>
@@ -116,7 +117,7 @@
 		margin: 12px 2px 0;
 	}
 
-	@media (max-width: 760px) {
+	@media (max-width: 1008px) {
 		li {
 			grid-template-columns: minmax(0, 1fr);
 			gap: 2px;

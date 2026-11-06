@@ -62,7 +62,7 @@ func Clone3(ctx context.Context, d *docker.Cliente, imagen, sensor string) (*Hec
 	case SalidaClone3Bloqueado, salidaClone3Matado:
 		return &Hecho{false, Clone3Bloqueado}, nil
 	}
-	return nil, fmt.Errorf("la sonda de clone3 ha salido con %d: %s", codigo, strings.TrimSpace(salida))
+	return nil, fmt.Errorf("the clone3 probe exited with %d: %s", codigo, strings.TrimSpace(salida))
 }
 
 // PuertaEnlace mide la puerta de enlace IPv4 de la máquina donde corre el
@@ -77,14 +77,14 @@ func PuertaEnlace(ctx context.Context, d *docker.Cliente, imagen, sensor string)
 	}
 	linea := strings.TrimSpace(salida)
 	if codigo != 0 {
-		return "", fmt.Errorf("la sonda de la puerta de enlace ha salido con %d: %s", codigo, linea)
+		return "", fmt.Errorf("the gateway probe exited with %d: %s", codigo, linea)
 	}
 	if linea == "" {
 		return "", nil
 	}
 	a, err := netip.ParseAddr(linea)
 	if err != nil || !a.Is4() {
-		return "", fmt.Errorf("la sonda de la puerta de enlace no da una dirección: %q", linea)
+		return "", fmt.Errorf("the gateway probe returned no address: %q", linea)
 	}
 	return a.String(), nil
 }

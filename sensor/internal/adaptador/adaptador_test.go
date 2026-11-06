@@ -186,7 +186,7 @@ func TestResumenDeLoDescartadoConLaColaLlena(t *testing.T) {
 	if e.Detalle["codigo"] != CodigoColaLlena || e.Detalle["descartados"] != 2 || e.Detalle["omitidosEnResumenes"] != 2 {
 		t.Fatalf("detalle: %v", e.Detalle)
 	}
-	if aviso := e.Detalle["aviso"].(string); !strings.Contains(aviso, "comprobar que el sensor llega a la consola") {
+	if aviso := e.Detalle["aviso"].(string); !strings.Contains(aviso, "Check that the sensor can reach the console") {
 		t.Fatalf("con la cola llena, el aviso dice qué mirar: %q", aviso)
 	}
 	if e.Detalle["desde"] != "2026-10-01T10:01:00Z" || e.Cuando != "2026-10-01T10:05:00Z" {
@@ -207,12 +207,12 @@ func TestResumenDeLoDescartadoConLaColaLlena(t *testing.T) {
 	// resumen pide liberar disco: no es que la consola no recogiera.
 	d.PocoDisco = true
 	if e := Descartados("s1", s, d); e.Detalle["codigo"] != CodigoColaPocoDisco ||
-		!strings.Contains(e.Detalle["aviso"].(string), "liberar espacio") || strings.Contains(e.Detalle["aviso"].(string), "no recogió") {
+		!strings.Contains(e.Detalle["aviso"].(string), "Free up space") || strings.Contains(e.Detalle["aviso"].(string), "did not collect") {
 		t.Fatalf("poco disco: %v", e.Detalle)
 	}
 	// Sin disco, el resumen lo dice con su código, también si además faltaba sitio en la cola.
 	d.SinDisco = true
-	if e := Descartados("s1", s, d); e.Detalle["codigo"] != CodigoColaSinDisco || !strings.Contains(e.Detalle["aviso"].(string), "disco") {
+	if e := Descartados("s1", s, d); e.Detalle["codigo"] != CodigoColaSinDisco || !strings.Contains(e.Detalle["aviso"].(string), "disk") {
 		t.Fatalf("sin disco: %v", e.Detalle)
 	}
 	// Una línea nativa nunca pasa por un resumen de omitidos, ni con ese campo.

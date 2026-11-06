@@ -1,5 +1,5 @@
 /*
- * El CSV de la descarga de eventos (routes/eventos/csv), aparte para probarlo
+ * El CSV de la descarga de eventos (routes/events/csv), aparte para probarlo
  * sin base de datos ni red. Lleva las mismas columnas que la tabla de Eventos
  * y, además, la geolocalización que ya se ve en pantalla (país, operador, ASN y
  * Tor): quien exporta a una hoja de cálculo no pierde ese dato. La geo la
@@ -23,24 +23,24 @@ export function csvCampo(v: unknown): string {
 }
 
 export const CABECERA_CSV_EVENTOS = [
-	'cuando',
-	'severidad',
+	'when',
+	'severity',
 	'sensor',
-	'trampa',
-	'modulo',
-	'tipo',
-	'accion',
+	'decoy',
+	'module',
+	'type',
+	'action',
 	'ip',
-	'pais',
-	'organizacion',
+	'country',
+	'organization',
 	'asn',
 	'tor',
-	'usuario',
-	'contrasena',
-	'conexion_establecida',
-	'alerta',
-	'prueba',
-	'triaje'
+	'username',
+	'password',
+	'connection_established',
+	'alert',
+	'test',
+	'triage'
 ] as const;
 
 /*
@@ -71,12 +71,12 @@ export function construirCsvEventos(
 				g?.pais ?? '',
 				g?.organizacion ?? '',
 				g?.asn ?? '',
-				f.ip && tor.has(f.ip) ? 'sí' : 'no',
+				f.ip && tor.has(f.ip) ? 'yes' : 'no',
 				f.usuario ?? '',
 				f.contrasena ?? '',
-				f.conexionEstablecida ? 'sí' : 'no',
+				f.conexionEstablecida ? 'yes' : 'no',
 				f.alerta ?? '',
-				f.prueba ? 'sí' : 'no',
+				f.prueba ? 'yes' : 'no',
 				f.triaje ?? ''
 			]
 				.map(csvCampo)

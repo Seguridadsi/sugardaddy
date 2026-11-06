@@ -32,7 +32,7 @@ const (
 var perforar = liberarLeido
 
 // errSinPerforar: en esta plataforma el sensor no sabe perforar ficheros.
-var errSinPerforar = errors.New("perforar ficheros solo se hace en Linux")
+var errSinPerforar = errors.New("punching holes in files is only supported on Linux")
 
 // causaCuota clasifica el fallo al liberar lo leído del registro activo.
 func causaCuota(err error) string {
@@ -50,13 +50,13 @@ func causaCuota(err error) string {
 // consola guarda 200 caracteres de él).
 func avisoCuota(causa string) string {
 	porque := map[string]string{
-		causaSinPerforar: "este disco no deja liberar lo ya leído sin pararla",
-		causaSinPermiso:  "el sensor no tiene permiso para liberar lo ya leído",
+		causaSinPerforar: "this disk cannot free read data without stopping the decoy",
+		causaSinPermiso:  "the sensor lacks permission to free read data",
 	}[causa]
 	if porque == "" {
-		porque = "no se pudo liberar lo ya leído"
+		porque = "could not free read data"
 	}
-	return fmt.Sprintf("cuota superada (%s): sus registros pasan de %d MB y %s; vuelve sola cuando el sensor lo haya leído todo",
+	return fmt.Sprintf("quota exceeded (%s): its logs exceed %d MB and %s; it resumes once the sensor has read everything",
 		causa, cuotaRegistros>>20, porque)
 }
 
@@ -68,7 +68,7 @@ func (s *sensor) pararPorCuota(sp plan.TrampaPlan, err error) {
 		s.estado.Paradas = map[string]string{}
 	}
 	if _, ya := s.estado.Paradas[sp.ID]; !ya {
-		slog.Warn("trampa parada: sus registros pasan de su cuota y no se puede liberar lo ya leído",
+		slog.Warn("decoy stopped: its logs exceed its quota and what has been read cannot be freed",
 			"trampa", sp.ID, "codigo", causa, "err", err)
 	}
 	s.estado.Paradas[sp.ID] = avisoCuota(causa)
@@ -79,7 +79,7 @@ func (s *sensor) pararPorCuota(sp plan.TrampaPlan, err error) {
 	}
 	// Si no se puede ahora, la para el siguiente despliegue o el siguiente intento de reanudar.
 	if err := s.pararTrampa(sp.ID); err != nil {
-		slog.Warn("no se pudo parar la trampa; se reintenta", "trampa", sp.ID, "err", err)
+		slog.Warn("could not stop the decoy; retrying", "trampa", sp.ID, "err", err)
 	}
 }
 
@@ -93,7 +93,7 @@ func (s *sensor) reanudar(sp plan.TrampaPlan, ahora time.Time) {
 	// no hace nada si ya lo está.
 	if s.pararTrampa != nil {
 		if err := s.pararTrampa(sp.ID); err != nil {
-			slog.Warn("no se pudo confirmar que la trampa está parada; se reintenta", "trampa", sp.ID, "err", err)
+			slog.Warn("could not confirm that the decoy is stopped; retrying", "trampa", sp.ID, "err", err)
 			return
 		}
 	}
@@ -106,7 +106,7 @@ func (s *sensor) reanudar(sp plan.TrampaPlan, ahora time.Time) {
 	}
 	delete(s.estado.Paradas, sp.ID)
 	s.guardar()
-	slog.Info("la trampa vuelve: sus registros caben otra vez en su cuota", "trampa", sp.ID)
+	slog.Info("decoy resumed: its logs fit in its quota again", "trampa", sp.ID)
 }
 
 // quitarLeido borra el registro activo de una trampa parada si el sensor lo
@@ -124,7 +124,7 @@ func (s *sensor) quitarLeido(sp plan.TrampaPlan) int64 {
 		return 0
 	}
 	if err := os.Remove(activo); err != nil {
-		slog.Warn("no se pudo quitar el registro ya leído de la trampa parada", "trampa", sp.ID, "err", err)
+		slog.Warn("could not remove the already-read log of the stopped decoy", "trampa", sp.ID, "err", err)
 		return 0
 	}
 	delete(s.estado.Leido, sp.ID)
@@ -132,6 +132,6 @@ func (s *sensor) quitarLeido(sp plan.TrampaPlan) int64 {
 	delete(s.estado.Huellas, sp.ID)
 	delete(s.estado.Modifs, sp.ID)
 	s.guardar()
-	slog.Info("registro de la trampa parada quitado: ya estaba leído entero", "trampa", sp.ID, "bytes", ocupado(fi))
+	slog.Info("log of the stopped decoy removed: it had been read completely", "trampa", sp.ID, "bytes", ocupado(fi))
 	return ocupado(fi)
 }

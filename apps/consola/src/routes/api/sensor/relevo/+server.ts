@@ -16,9 +16,9 @@ export const POST = async ({ request }) => {
 	const sensor = await sensorDe(request);
 	const b = await request.json().catch(() => null);
 	if (!['aplicando', 'fallida', 'cancelado'].includes(b?.estado))
-		error(400, 'Se esperaba { estado, detalle }');
+		error(400, 'Expected { estado, detalle }');
 	// 409: sin cerrojo. El sensor no toca nada.
 	if (!(await informarRelevo(sensor, b.estado, String(b.detalle ?? ''))))
-		error(409, 'No toca: hay otro relevo en curso o ya no hace falta');
+		error(409, 'Not applicable: another handover is in progress or it is no longer needed');
 	return json({ ok: true });
 };

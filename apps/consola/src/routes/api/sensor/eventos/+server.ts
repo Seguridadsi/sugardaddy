@@ -8,11 +8,11 @@ import { LIMITE_ENTREGA, LIMITE_LINEAS, recibirEventos, sensorDe } from '$lib/se
 export const POST = async ({ request }) => {
 	const sensor = await sensorDe(request);
 	if (!request.headers.get('content-type')?.startsWith('application/x-ndjson'))
-		error(415, 'Se esperaba application/x-ndjson');
+		error(415, 'Expected application/x-ndjson');
 	const texto = await request.text();
-	if (texto.length > LIMITE_ENTREGA) error(413, 'Entrega demasiado grande');
+	if (texto.length > LIMITE_ENTREGA) error(413, 'Delivery too large');
 	const lineas = texto.split('\n').filter((l) => l.length > 0);
-	if (lineas.length > LIMITE_LINEAS) error(413, `Como mucho ${LIMITE_LINEAS} eventos por entrega`);
+	if (lineas.length > LIMITE_LINEAS) error(413, `At most ${LIMITE_LINEAS} events per delivery`);
 
 	return json(await recibirEventos(sensor.id, lineas));
 };

@@ -57,7 +57,7 @@ export async function cambiarUsoTor(quien: string, uso: Uso) {
 	await poner('tor-uso', uso);
 	await db.insert(s.auditoria).values({
 		quien,
-		accion: uso.edl ? 'lista de Tor a los firewalls' : 'lista de Tor fuera de los firewalls',
+		accion: uso.edl ? 'Tor list sent to firewalls' : 'Tor list removed from firewalls',
 		detalle: uso
 	});
 }

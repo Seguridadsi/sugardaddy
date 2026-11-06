@@ -29,7 +29,7 @@ describe('sistemasDe', () => {
 	it('un servidor de ficheros ofrece NAS (no macOS); los demás, macOS', () => {
 		expect(sistemasDe('fileserver').map((x) => x.valor)).toEqual(['windows', 'linux', 'nas']);
 		expect(sistemasDe('fileserver').find((x) => x.valor === 'linux')?.texto).toBe(
-			'Linux con Samba'
+			'Linux with Samba'
 		);
 		expect(sistemasDe('maquina').map((x) => x.valor)).toEqual(['windows', 'linux', 'macos']);
 	});

@@ -693,18 +693,18 @@ export function validarParametros(
 				errores: (validar.errors ?? []).map((e) => {
 					const p = e.params as { missingProperty?: string; additionalProperty?: string };
 					if (p.additionalProperty)
-						return `${p.additionalProperty}: el módulo no declara este parámetro`;
+						return `${p.additionalProperty}: the module does not declare this parameter`;
 					const clave = e.instancePath.slice(1) || p.missingProperty || '/';
 					const titulo =
 						(esquema.properties[clave] as { title?: string } | undefined)?.title ?? clave;
 					const motivo: Record<string, string> = {
-						required: 'es obligatorio',
-						pattern: 'no tiene el formato esperado',
-						minimum: `tiene que ser ${(e.params as { limit?: number }).limit} o más`,
-						maximum: `tiene que ser ${(e.params as { limit?: number }).limit} o menos`,
-						enum: 'no es una de las opciones',
-						type: 'no es del tipo esperado',
-						maxLength: 'es demasiado largo'
+						required: 'is required',
+						pattern: 'does not have the expected format',
+						minimum: `must be ${(e.params as { limit?: number }).limit} or more`,
+						maximum: `must be ${(e.params as { limit?: number }).limit} or less`,
+						enum: 'is not one of the options',
+						type: 'is not of the expected type',
+						maxLength: 'is too long'
 					};
 					return `${titulo}: ${motivo[e.keyword] ?? e.message}`;
 				})

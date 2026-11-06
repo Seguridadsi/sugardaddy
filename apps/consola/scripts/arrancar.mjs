@@ -12,12 +12,12 @@ import postgres from 'postgres';
 import { prepararBase } from './preparar-base.mjs';
 
 const url = process.env.DATABASE_URL;
-if (!url) throw new Error('Falta DATABASE_URL');
+if (!url) throw new Error('DATABASE_URL is missing');
 
 const conexion = postgres(url, { max: 1, onnotice: () => {} });
 await prepararBase(conexion, process.env);
 await conexion.end();
-console.log('[arranque] base de datos al día');
+console.log('[arranque] database up to date');
 
 /*
  * Modo «cualquier IP/nombre»: el instalador deja ORIGIN vacío y pone

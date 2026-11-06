@@ -1,36 +1,42 @@
 version: 1
 id: dns-ntp
-nombre: DNS, NTP y UPnP falsos
+nombre: Fake DNS, NTP and UPnP
 descripcion: >-
-  Un servidor de nombres, de hora y UPnP que contesta como uno de verdad (BIND o dnsmasq,
-  ntpd, MiniDLNA o MiniUPnPd) pero no resuelve nada para nadie. Registra transferencias de
-  zona, consultas de versión, monlist, búsquedas UPnP y las ráfagas de quien intenta usarlo
-  para atacar a otros. A Internet nunca le contesta con más bytes de los que recibe.
+  A name, time and UPnP server that answers like a real one (BIND or dnsmasq,
+  ntpd, MiniDLNA or MiniUPnPd) but resolves nothing for anyone. It records zone
+  transfers, version queries, monlist, UPnP searches and the bursts of anyone
+  trying to use it to attack others. It never answers the Internet with more
+  bytes than it receives.
 alerta:
   fidelidad: ruidosa
 ficha:
   detecta: >-
-    Quien busca servidores DNS, de hora (NTP) o UPnP en tu red: transferencias de zona
-    (AXFR), consultas de versión, consultas ANY, barridos de nombres, monlist y búsquedas
-    UPnP. Apunta cada petición (hasta 50 por equipo y servicio cada diez minutos desde
-    direcciones privadas, 5 desde Internet) y, al que insiste o falsifica su dirección para
-    atacar a otro, deja de contestarle y lo marca como ráfaga. Si una inundación le obliga a
-    callar, lo dice cada minuto en un aviso, sin perder las peticiones por TCP.
+    Anyone looking for DNS, time (NTP) or UPnP servers on your network: zone
+    transfers (AXFR), version queries, ANY queries, name sweeps, monlist and
+    UPnP searches. It records every request (up to 50 per machine and service
+    every ten minutes from private addresses, 5 from the Internet) and, for
+    anyone who insists or spoofs their address to attack another, it stops
+    answering and marks them as a burst. If a flood forces it to go quiet, it
+    says so every minute in an alert, without losing the requests over TCP.
   donde: >-
-    En la red de servidores o en la DMZ, en una máquina que no sea ya tu DNS ni tu servidor
-    de hora, con un nombre de servidor de nombres o de hora (ns2, ntp01). Dentro de la red
-    avisa de quien hace reconocimiento; expuesta a Internet enseña a quien busca servidores
-    para usarlos en ataques, sin que tu IP les sirva para ello.
+    On the server network or in the DMZ, on a machine that is not already your
+    DNS or your time server, with a name server or time server name (ns2,
+    ntp01). Inside the network it alerts on anyone doing reconnaissance; exposed
+    to the Internet it shows who is looking for servers to use in attacks,
+    without your IP being of any use to them for that.
   requisitos:
-    - Un sensor Linux con Docker, versión 0.13 o posterior.
-    - Abrir en el cortafuegos de esa máquina 53 UDP y TCP, 123 UDP o 1900 UDP, según lo que enciendas.
-    - En Ubuntu el 53 lo ocupa systemd-resolved; pon DNSStubListener=no en /etc/systemd/resolved.conf o elige otro puerto.
-    - Pon tus redes en «Redes internas»; solo sus equipos reciben las respuestas completas (monlist, búsquedas UPnP, version.bind). Pruébala desde uno de ellos; desde la propia máquina contesta lo mínimo.
-    - Si un cortafuegos delante cambia la IP de origen (Azure Firewall con DNAT, VIP con NAT de origen), no pongas su red en «Redes internas», porque todo Internet llegaría desde ella.
-    - No sustituye a un DNS de verdad ni resuelve para nadie; a los nombres de tu dominio contesta REFUSED, como un servidor cerrado.
-    - Fuera de tus redes internas nunca contesta con más bytes de los que recibe (sin monlist ni búsquedas UPnP) y a version.bind contesta REFUSED, por UDP y por TCP.
-    - Si activas «Respuestas completas también a Internet», tu IP puede acabar en listas de reflectores y tu proveedor puede avisarte.
-    - Si la expones a Internet, avisa a tu proveedor; los proyectos que rastrean Internet la verán como un servidor DNS.
+    - A Linux sensor with Docker, version 0.13 or later.
+    - Open in that machine's firewall 53 UDP and TCP, 123 UDP or 1900 UDP, depending on what you enable.
+    - On Ubuntu, 53 is held by systemd-resolved; set DNSStubListener=no in /etc/systemd/resolved.conf or choose another port.
+    - >-
+      Add your networks under "Internal networks": only their machines get the
+      full responses (monlist, UPnP searches, version.bind). Test it from one of
+      them; the machine itself gets the bare minimum.
+    - If a firewall in front changes the source IP (Azure Firewall with DNAT, VIP with source NAT), do not put its network under "Internal networks", because the whole Internet would arrive from it.
+    - It does not replace a real DNS or resolve for anyone; for names in your domain it answers REFUSED, like a closed server.
+    - Outside your internal networks it never answers with more bytes than it receives (no monlist or UPnP searches) and to version.bind it answers REFUSED, over UDP and TCP.
+    - If you enable "Full responses to the Internet too", your IP may end up on reflector lists and your provider may warn you.
+    - If you expose it to the Internet, notify your provider; projects that scan the Internet will see it as a DNS server.
   instalacion:
     automatica: true
 versionModulo: 0.2.1
@@ -85,16 +91,17 @@ parametros:
     nombreEquipo:
       type: string
       x-camuflaje: 'host:ns'
-      title: Nombre del equipo
-      description: El que devuelve hostname.bind (solo BIND). Que encaje con los servidores de nombres de la red.
+      title: Computer name
+      description: The one hostname.bind returns (BIND only). It should fit the name servers on the network.
       pattern: '^[a-zA-Z0-9-]{1,63}$'
       default: ns2
     sistema:
       type: string
-      title: Sistema que finge ser
+      title: System it pretends to be
       description: >-
-        Cambia las versiones que anuncia. Solo CentOS contesta a monlist (ntpd 4.2.6), como
-        los servidores viejos que buscan los atacantes, y solo a tus redes internas.
+        Changes the versions it announces. Only CentOS answers monlist (ntpd
+        4.2.6), like the old servers attackers look for, and only to your
+        internal networks.
       enum: [centos7, centos6, debian11, ubuntu2004]
       x-opciones:
         centos7: CentOS 7 (BIND 9.11, ntpd 4.2.6, MiniDLNA)
@@ -106,12 +113,12 @@ parametros:
       type: string
       title: DNS
       enum: ['yes', 'no']
-      x-opciones: { 'yes': Sí, 'no': 'No' }
+      x-opciones: { 'yes': Yes, 'no': 'No' }
       default: 'yes'
     puertoDns:
       type: integer
-      title: Puerto DNS (UDP y TCP)
-      description: Solo cuenta si DNS está en Sí. El 53 es el creíble.
+      title: DNS port (UDP and TCP)
+      description: Only matters if DNS is set to Yes. 53 is the believable one.
       minimum: 1
       maximum: 65535
       default: 53
@@ -119,12 +126,12 @@ parametros:
       type: string
       title: NTP
       enum: ['yes', 'no']
-      x-opciones: { 'yes': Sí, 'no': 'No' }
+      x-opciones: { 'yes': Yes, 'no': 'No' }
       default: 'yes'
     puertoNtp:
       type: integer
-      title: Puerto NTP (UDP)
-      description: Solo cuenta si NTP está en Sí. El 123 es el creíble.
+      title: NTP port (UDP)
+      description: Only matters if NTP is set to Yes. 123 is the believable one.
       minimum: 1
       maximum: 65535
       default: 123
@@ -132,42 +139,46 @@ parametros:
       type: string
       title: SSDP (UPnP)
       description: >-
-        Un servidor de nombres con UPnP es raro; enciéndelo si la máquina debe parecer un NAS o
-        un equipo multimedia. Nadie sirve la página que anuncia (LOCATION): quien la pida verá
-        que no hay nada.
+        A name server with UPnP is unusual; enable it if the machine should look
+        like a NAS or a media machine. Nobody serves the page it announces
+        (LOCATION): whoever requests it will see there is nothing.
       enum: ['yes', 'no']
-      x-opciones: { 'yes': Sí, 'no': 'No' }
+      x-opciones: { 'yes': Yes, 'no': 'No' }
       default: 'no'
     puertoSsdp:
       type: integer
-      title: Puerto SSDP (UDP)
-      description: Solo cuenta si SSDP está en Sí. El 1900 es el creíble.
+      title: SSDP port (UDP)
+      description: Only matters if SSDP is set to Yes. 1900 is the believable one.
       minimum: 1
       maximum: 65535
       default: 1900
     redesInternas:
       type: string
-      title: Redes internas
+      title: Internal networks
       description: >-
-        Las de tu red, separadas por comas (10.20.0.0/16, 192.168.1.0/24). Solo sus equipos
-        reciben las respuestas completas (monlist, búsquedas UPnP, version.bind), las que más
-        engañan a quien hace reconocimiento. Vacío: nadie. No pongas la red de un cortafuegos o
-        balanceador que cambie la IP de origen de lo que entra (Azure Firewall con DNAT, una
-        VIP con NAT de origen): todo Internet llegaría desde ella y tu IP serviría de reflector.
+        Those of your network, comma-separated (10.20.0.0/16, 192.168.1.0/24).
+        Only their machines receive the full responses (monlist, UPnP searches,
+        version.bind), the ones that fool reconnaissance best. Empty: nobody. Do
+        not enter the network of a firewall or load balancer that changes the
+        source IP of what comes in (Azure Firewall with DNAT, a VIP with source
+        NAT): the whole Internet would arrive from it and your IP would serve as
+        a reflector.
       pattern: '^(|((25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\.){3}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])/([89]|[12][0-9]|3[0-2])(, ?((25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\.){3}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])/([89]|[12][0-9]|3[0-2])){0,31})$'
       maxLength: 640
       default: ''
     respuestasInternet:
       type: string
-      title: Respuestas completas también a Internet
+      title: Full responses to the Internet too
       description: >-
-        Con No (lo recomendado), fuera de tus redes internas nunca contesta con más bytes de los
-        que recibe: sin monlist ni búsquedas UPnP, y a version.bind con REFUSED, como un
-        servidor que solo atiende a su red. Así tu IP no sirve para amplificar ataques. Con Sí
-        contesta a todos como un servidor real (hasta 5 veces por origen cada diez minutos) y
-        tu IP puede acabar en listas de reflectores abiertos y en quejas a tu proveedor.
+        With No (recommended), outside your internal networks it never answers
+        with more bytes than it receives: no monlist or UPnP searches, and
+        REFUSED to version.bind, like a server that only serves its own network.
+        This way your IP cannot be used to amplify attacks. With Yes it answers
+        everyone like a real server (up to 5 times per source every ten minutes)
+        and your IP may end up on open reflector lists and in complaints to your
+        provider.
       enum: ['yes', 'no']
-      x-opciones: { 'yes': 'Sí (tu IP puede salir como reflector)', 'no': 'No' }
+      x-opciones: { 'yes': Yes (your IP may appear as a reflector), 'no': 'No' }
       default: 'no'
 
 eventos:
@@ -252,44 +263,44 @@ eventos:
       top_sources
     ]
   etiquetas:
-    event: Tipo
-    pot: Servicio
-    dest_port: Puerto
-    proto: Transporte
-    packets: Paquetes del origen
-    dns_name: Nombre consultado
-    dns_type: Tipo de registro
-    dns_cls: Clase
-    opcode: Código de operación
-    mode: Modo NTP
-    st: Busca (ST)
-    mx: Espera (MX)
-    req_size: Tamaño de la petición
-    resp_size: Tamaño de la respuesta
-    amp_guard: Respuesta frenada (recortada, sin respuesta o rechazada)
-    target_ip: Dirección de la ráfaga (escáner insistente o víctima)
-    target_port: Puerto de la ráfaga
-    target_net: Red bloqueada
-    sources: Orígenes en la red
-    first_seen: Primer paquete
-    last_seen: Último paquete
-    attack_seconds: Duración (s)
-    persona: Sistema fingido
-    max_bytes: Tope diario (bytes)
-    kind: Clase de líneas
-    kind_bytes: Parte del día de la clase (bytes)
-    dropped: Líneas calladas
-    dropped_udp: Peticiones UDP calladas
-    dropped_tcp: Peticiones TCP calladas
-    dropped_targets: Ráfagas calladas
-    limits: Por qué (ritmo, cupo del origen, reparto o tope del día)
-    top_sources: Orígenes con más líneas calladas
-    untracked: Paquetes sin apuntar (tablas llenas)
-    request: Petición
-    scanner: Visita
-    attack_start: Ráfaga (escaneo insistente o reflexión)
-    attack_end: Fin de la ráfaga
-    net_start: Red entera sin respuesta
-    net_end: Fin del bloqueo de la red
-    log_full: Parte del registro de hoy gastada, esa clase se resume hasta mañana
-    log_dropped: Líneas calladas en el último minuto
+    event: Type
+    pot: Service
+    dest_port: Port
+    proto: Transport
+    packets: Packets from the source
+    dns_name: Name queried
+    dns_type: Record type
+    dns_cls: Class
+    opcode: Operation code
+    mode: NTP mode
+    st: Looks for (ST)
+    mx: Waits (MX)
+    req_size: Request size
+    resp_size: Response size
+    amp_guard: Throttled response (truncated, no response or refused)
+    target_ip: Burst address (insistent scanner or victim)
+    target_port: Burst port
+    target_net: Blocked network
+    sources: Sources in the network
+    first_seen: First packet
+    last_seen: Last packet
+    attack_seconds: Duration (s)
+    persona: Simulated system
+    max_bytes: Daily limit (bytes)
+    kind: Line class
+    kind_bytes: Share of the day for the class (bytes)
+    dropped: Lines silenced
+    dropped_udp: UDP requests silenced
+    dropped_tcp: TCP requests silenced
+    dropped_targets: Bursts silenced
+    limits: Why (rate, source quota, share or daily limit)
+    top_sources: Sources with the most silenced lines
+    untracked: Packets not recorded (tables full)
+    request: Request
+    scanner: Visit
+    attack_start: Burst (insistent scanning or reflection)
+    attack_end: End of the burst
+    net_start: Whole network left unanswered
+    net_end: End of the network block
+    log_full: Share of today's log used up; that class is summarized until tomorrow
+    log_dropped: Lines silenced in the last minute

@@ -134,7 +134,7 @@ describe.skipIf(!hayBase)('el plan con el registro de Community', async () => {
 		expect(enElPlan(p, `${P}-cowrie`)).toBe(true);
 		expect(codigos(p, `${P}-redis`)).toEqual(['registro.sin']);
 		expect(p.descartados.find((d) => d.id === `${P}-redis`)?.motivo).toBe(
-			'esta trampa se activa gratis con tu registro, en Ajustes'
+			'this decoy is enabled for free with your registration, in Settings'
 		);
 		expect(p).not.toHaveProperty('licencia');
 	});

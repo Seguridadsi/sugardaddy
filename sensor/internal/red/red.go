@@ -72,31 +72,31 @@ const maxRangosBPF = 32
 // /8 no se acepta: capturar casi todo Internet no es acotar nada.
 func Rangos(lista string) ([]netip.Prefix, error) {
 	if strings.TrimSpace(lista) == "" {
-		return nil, fmt.Errorf("capturar viene vacío: sin rangos que capturar no hay NET_RAW")
+		return nil, fmt.Errorf("capturar is empty: without ranges to capture there is no NET_RAW")
 	}
 	var rangos []netip.Prefix
 	for _, trozo := range strings.Split(lista, ",") {
 		trozo = strings.TrimSpace(trozo)
 		if trozo == "" {
-			return nil, fmt.Errorf("capturar trae una coma de más: cada hueco entre comas es un CIDR IPv4")
+			return nil, fmt.Errorf("capturar has an extra comma: each gap between commas is an IPv4 CIDR")
 		}
 		p, err := netip.ParsePrefix(trozo)
 		if err != nil || !p.Addr().Is4() {
-			return nil, fmt.Errorf("capturar trae %q: tiene que ser CIDR IPv4 (p. ej. 10.20.0.0/24, separados por comas)", trozo)
+			return nil, fmt.Errorf("capturar has %q: it must be an IPv4 CIDR (e.g. 10.20.0.0/24, separated by commas)", trozo)
 		}
 		if p.Addr().IsUnspecified() || p.Bits() == 0 {
-			return nil, fmt.Errorf("capturar trae %s: capturar todas las direcciones no es acotar; pon solo el rango de la trampa", p.String())
+			return nil, fmt.Errorf("capturar has %s: capturing all addresses is not narrowing it down; use only the decoy range", p.String())
 		}
 		if p.Bits() < 8 {
-			return nil, fmt.Errorf("capturar trae %s: un rango mayor que un /8 no es acotar; pon solo el rango de la trampa", p.String())
+			return nil, fmt.Errorf("capturar has %s: a range larger than a /8 is not narrowing it down; use only the decoy range", p.String())
 		}
 		rangos = append(rangos, p.Masked())
 	}
 	if len(rangos) == 0 {
-		return nil, fmt.Errorf("capturar viene vacío: sin rangos que capturar no hay NET_RAW")
+		return nil, fmt.Errorf("capturar is empty: without ranges to capture there is no NET_RAW")
 	}
 	if len(rangos) > maxRangosBPF {
-		return nil, fmt.Errorf("capturar trae %d rangos: el tope es %d", len(rangos), maxRangosBPF)
+		return nil, fmt.Errorf("capturar has %d ranges: the limit is %d", len(rangos), maxRangosBPF)
 	}
 	return rangos, nil
 }
@@ -151,7 +151,7 @@ func CompilarBPF(lista string) (string, error) {
 		instruccion{Codigo: devolver, K: 0},
 	)
 	if len(ins) > 512 {
-		return "", fmt.Errorf("el filtro trae %d instrucciones: el tope del kernel es 512", len(ins))
+		return "", fmt.Errorf("the filter has %d instructions: the kernel limit is 512", len(ins))
 	}
 	bruto := make([]byte, 8*len(ins))
 	for i, in := range ins {

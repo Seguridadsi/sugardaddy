@@ -707,9 +707,21 @@ describe('validarCatalogo', () => {
 
 	it('un x-trampa hacia un módulo que no está, y lo que apunta a un módulo que no entra', () => {
 		const sinCowrie = catalogo().filter((h) => h.id !== 'cowrie');
-		expect(validarCatalogo([...sinCowrie, honeycosa(credencial())]).errores).toEqual({
-			'credencial-ssh': ['parametros.objetivo: x-trampa nombra cowrie, que no está en el catálogo']
+		/* Todo módulo del catálogo que apunta a cowrie por x-trampa se queda sin
+		 * su objetivo al quitar cowrie (credencial-ssh, clave-ssh-cebo…): se deriva
+		 * del propio catálogo para no romperse cada vez que se añade uno nuevo. */
+		const aCowrie = sinCowrie.filter((h) => {
+			const obj = (h.parametros?.properties as Record<string, any> | undefined)?.objetivo;
+			return (obj?.['x-trampa']?.modulos ?? []).includes('cowrie');
 		});
+		/* La credencial de esta prueba se añade a mano: en Community no hay ninguna en el catálogo. */
+		const esperado = Object.fromEntries(
+			[...aCowrie.map((h) => h.id), 'credencial-ssh'].map((id) => [
+				id,
+				['parametros.objetivo: x-trampa nombra cowrie, que no está en el catálogo']
+			])
+		);
+		expect(validarCatalogo([...sinCowrie, honeycosa(credencial())]).errores).toEqual(esperado);
 		/* Una credencial que apunta a otra credencial rota tampoco entra. */
 		const rota = credencial();
 		rota.vias[0].carga.pasos[0].orden = 'Write-Output $sd.objetivo_noexiste';

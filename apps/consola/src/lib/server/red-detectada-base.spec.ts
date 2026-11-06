@@ -84,7 +84,7 @@ describe.skipIf(!hayBase)('la red que cuenta el instalador de un sensor remoto',
 			.from(s.auditoria)
 			.where(eq(s.auditoria.quien, `sensor ${P}-sevilla`));
 		expect(l).toMatchObject({
-			accion: 'red del sensor detectada',
+			accion: 'sensor network detected',
 			detalle: { id: `${P}-sevilla`, red: '10.70.0.0/24', vlan: 70 }
 		});
 	});

@@ -15,8 +15,8 @@ export type Aviso = {
 };
 
 const MODOS: Record<string, string> = {
-	rootful: 'con root',
-	rootless: 'sin root',
+	rootful: 'rootful',
+	rootless: 'rootless',
 	desktop: 'Docker Desktop',
 	wsl: 'WSL2'
 };
@@ -38,10 +38,10 @@ export function resumenMotor(m: MotorSensor | null | undefined): string | null {
 }
 
 const FALLOS_MOTOR: Record<string, string> = {
-	'motor.inalcanzable': 'El sensor no llega a su motor de contenedores',
-	'motor.permiso': 'El sensor no tiene permiso para usar su motor de contenedores',
-	'motor.antiguo': 'El motor de contenedores es demasiado antiguo',
-	'motor.api': 'El motor de contenedores no contesta como se espera'
+	'motor.inalcanzable': 'The sensor cannot reach its container engine',
+	'motor.permiso': 'The sensor does not have permission to use its container engine',
+	'motor.antiguo': 'The container engine is too old',
+	'motor.api': 'The container engine does not respond as expected'
 };
 
 /*
@@ -50,22 +50,22 @@ const FALLOS_MOTOR: Record<string, string> = {
  * saber quién fue ni para bloquearla.
  */
 const NO_BLOQUEAR =
-	'Los eventos marcados «IP del motor» no dicen quién se conectó: no bloquees esa dirección.';
+	'Events marked "engine IP" do not show who connected: do not block that address.';
 const ORIGEN: Record<string, string> = {
 	'origen.pasarela':
-		'A las trampas de este sensor les llega la dirección del propio motor de contenedores, no la de quien se conecta. Suele pasar cuando Docker tiene desactivado iptables o se han borrado sus reglas del cortafuegos. Si solo las has probado desde la misma máquina, el aviso se irá con la primera conexión desde otro equipo.',
+		'The decoys on this sensor receive the address of the container engine itself, not that of whoever connects. This usually happens when Docker has iptables disabled or its firewall rules have been deleted. If you have only tested them from the same machine, the warning will clear with the first connection from another machine.',
 	'origen.desktop':
-		'Este sensor corre en Docker Desktop, que reenvía las conexiones con su propia dirección: las trampas nunca ven la de quien se conecta. Vale para probar; para ver el origen real, instala el sensor en un Linux con Docker.',
+		'This sensor runs on Docker Desktop, which forwards connections using its own address: the decoys never see the address of whoever connects. This is fine for testing; to see the real source, install the sensor on a Linux host with Docker.',
 	'origen.wsl':
-		'Este sensor corre dentro de WSL2 con la red en NAT: Windows reenvía las conexiones con su propia dirección y las trampas no ven la de quien se conecta. Para ver el origen real, pon la red de WSL en modo espejo (networkingMode=mirrored) o instala el sensor en un Linux con Docker.',
+		'This sensor runs inside WSL2 with NAT networking: Windows forwards connections using its own address and the decoys do not see the address of whoever connects. To see the real source, set the WSL network to mirrored mode (networkingMode=mirrored) or install the sensor on a Linux host with Docker.',
 	'origen.rootless':
-		'El motor de contenedores corre sin root y su forma habitual de reenviar los puertos no deja ver el origen. Mientras no llegue una conexión con una dirección real, cuenta con que las trampas ven la del motor.'
+		"The container engine runs rootless and its usual way of forwarding ports hides the source. Until a connection arrives with a real address, assume the decoys see the engine's address."
 };
 
 /* El texto del sensor como frase: con mayúscula al principio y punto al final. */
 function frase(t: string) {
 	const f = t.trim();
-	return f.charAt(0).toLocaleUpperCase('es') + f.slice(1) + (/[.…!?]$/.test(f) ? '' : '.');
+	return f.charAt(0).toLocaleUpperCase('en') + f.slice(1) + (/[.…!?]$/.test(f) ? '' : '.');
 }
 
 /* Los avisos de un sensor, el más grave primero. */
@@ -77,8 +77,8 @@ export function avisosSensor(c: Capacidades | null | undefined): Aviso[] {
 		avisos.push({
 			codigo: m.codigo,
 			gravedad: 'error',
-			titulo: FALLOS_MOTOR[m.codigo] ?? 'El sensor no puede usar su motor de contenedores',
-			texto: `${frase(m.error ?? m.codigo)} Hasta que se arregle, ninguna trampa de este sensor funciona.`
+			titulo: FALLOS_MOTOR[m.codigo] ?? 'The sensor cannot use its container engine',
+			texto: `${frase(m.error ?? m.codigo)} Until this is fixed, none of the decoys on this sensor work.`
 		});
 	}
 	const origen = c.hechos['red.ipOrigenReal'];
@@ -87,8 +87,8 @@ export function avisosSensor(c: Capacidades | null | undefined): Aviso[] {
 		avisos.push({
 			codigo: motivo,
 			gravedad: 'aviso',
-			titulo: 'Las trampas no ven la IP de quien se conecta',
-			texto: `${ORIGEN[motivo] ?? 'Las trampas de este sensor ven la dirección del propio motor de contenedores, no la de quien se conecta.'} ${NO_BLOQUEAR}`
+			titulo: 'Decoys do not see the IP of whoever connects',
+			texto: `${ORIGEN[motivo] ?? 'The decoys on this sensor see the address of the container engine itself, not that of whoever connects.'} ${NO_BLOQUEAR}`
 		});
 	}
 	const clone3 = c.hechos['motor.clone3'];
@@ -96,17 +96,17 @@ export function avisosSensor(c: Capacidades | null | undefined): Aviso[] {
 		avisos.push({
 			codigo: clone3.motivo ?? 'clone3.bloqueado',
 			gravedad: 'aviso',
-			titulo: 'Puede que algunas trampas no arranquen en este motor',
+			titulo: 'Some decoys may not start on this engine',
 			texto:
-				'El motor de contenedores de este sensor no deja a los programas de las imágenes recientes crear hilos (bloquea la llamada clone3 en su perfil seccomp). Pasa con Docker 20.10 anterior a la 20.10.10 sin el parche de tu distribución. Las trampas que lo necesitan no arrancarán y lo dirán en su estado; las demás funcionan. Actualiza Docker, o el paquete docker.io de tu distribución, y el aviso se irá solo.'
+				"The container engine on this sensor does not let programs in recent images create threads (it blocks the clone3 call in its seccomp profile). This happens with Docker 20.10 releases before 20.10.10 that lack your distribution's patch. Decoys that need it will not start and will say so in their status; the others work. Update Docker, or your distribution's docker.io package, and the warning will clear on its own."
 		});
 	}
 	if (m?.sinGarantia) {
 		avisos.push({
 			codigo: 'motor.sin-garantia',
 			gravedad: 'aviso',
-			titulo: 'Motor de contenedores sin garantía',
-			texto: `Este motor ya no habla ninguna versión de su API de las que Sugardaddy tiene comprobadas (usa la ${m.api ?? '?'}). Funciona, pero sin garantía.`
+			titulo: 'Container engine without support guarantee',
+			texto: `This engine no longer speaks any of the API versions that Sugardaddy has verified (it uses ${m.api ?? '?'}). It works, but without a guarantee.`
 		});
 	}
 	return avisos;
@@ -114,4 +114,4 @@ export function avisosSensor(c: Capacidades | null | undefined): Aviso[] {
 
 /* Lo que se dice junto a un evento cuya IP es la del motor. */
 export const AVISO_IP_MOTOR =
-	'Esta dirección es la del propio motor de contenedores del sensor, no la de quien tocó la trampa. No la bloquees.';
+	"This address belongs to the sensor's container engine itself, not to whoever touched the decoy. Do not block it.";

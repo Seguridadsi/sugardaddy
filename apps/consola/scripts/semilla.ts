@@ -25,7 +25,7 @@ const db = drizzle(conexion);
 
 const [{ n }] = await db.select({ n: sql<number>`count(*)::int` }).from(s.sensores);
 if (n > 0 && !process.argv.includes('--reiniciar')) {
-	console.log('La base de datos ya tiene datos. Usa --reiniciar para empezar de cero.');
+	console.log('The database already has data. Use --reiniciar to start from scratch.');
 	await conexion.end();
 	process.exit(0);
 }
@@ -98,7 +98,7 @@ await db.insert(s.reglas).values(
 
 /*
  * Los módulos de respuesta que usan esas reglas, activados: sin esto el motor no
- * ofrecería ninguno (activa=false por defecto) y /respuestas saldría todo
+ * ofrecería ninguno (activa=false por defecto) y /responses saldría todo
  * inactivo. Es un ejemplo en local: no llevan credenciales, así que la contención
  * real fallaría cerrada; en simulación o a la espera de aprobación, que es lo que
  * enseña la demo, no hace falta. Se deriva de las propias reglas para no
@@ -134,7 +134,7 @@ await db.insert(s.auditoria).values({ quien: 'semilla', accion: 'datos de ejempl
 
 writeFileSync('.sensores.dev.json', JSON.stringify(tokens, null, '\t') + '\n', { mode: 0o600 });
 console.log(
-	`Cargados ${ejemplo.sensores.length} sensores, ${filas.length} eventos y ${ejemplo.listas.length} entradas de lista.`
+	`Loaded ${ejemplo.sensores.length} sensors, ${filas.length} events and ${ejemplo.listas.length} list entries.`
 );
-console.log('Tokens de los sensores en .sensores.dev.json');
+console.log('Sensor tokens in .sensores.dev.json');
 await conexion.end();

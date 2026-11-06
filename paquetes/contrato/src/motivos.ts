@@ -1,7 +1,7 @@
 /*
  * Los motivos (docs/diseno/modulo-despliegue.md §7.4): por qué una vía no vale
  * en un destino, o de qué avisa. Cada uno tiene un código estable fase.causa
- * y una plantilla de texto en español para el cliente. Al panel, cuando la
+ * y una plantilla de texto en inglés para el cliente. Al panel, cuando la
  * telemetría lo pida, solo suben códigos y recuentos (escala.md, principio 7):
  * el texto se queda en la consola.
  *
@@ -48,7 +48,7 @@ export type CodigoMotivo =
 
 export interface Motivo {
 	codigo: CodigoMotivo;
-	/* Para el cliente, en español. Lleva datos del cliente: se pinta escapado. */
+	/* Para el cliente, en inglés. Lleva datos del cliente: se pinta escapado. */
 	texto: string;
 	/* El hecho que lo decide, lo que pedía el requisito y lo que vale (requisito.*). */
 	hecho?: string;
@@ -64,89 +64,94 @@ export interface Motivo {
  */
 export const MOTIVOS: Readonly<Record<CodigoMotivo, { texto: string; remedio?: string }>> =
 	Object.freeze({
-		'modulo.desconocido': { texto: 'El módulo {modulo} no está en el catálogo.' },
-		'modulo.no-autorizado': { texto: '{nombre} no entra en tu suscripción.' },
-		'modulo.sin-vias': { texto: 'Esta honeycosa aún no tiene ninguna forma de ponerse.' },
+		'modulo.desconocido': { texto: 'The module {modulo} is not in the catalog.' },
+		'modulo.no-autorizado': { texto: '{nombre} is not part of your subscription.' },
+		'modulo.sin-vias': { texto: 'This decoy has no way to be deployed yet.' },
 		'modulo.via-desaparecida': {
-			texto: 'La forma con que se puso ya no existe en el módulo; retírala y vuelve a ponerla.'
+			texto:
+				'The method it was deployed with no longer exists in the module; remove it and deploy it again.'
 		},
 		/* Trampas de pago cuyo candado (la licencia) no las deja arrancar (docs/diseno/licencias-de-pago.md). */
-		'licencia.sin': { texto: 'Esta trampa de Cloud no está en tu licencia.' },
-		'licencia.caducada': { texto: 'Tu licencia de Cloud ha caducado.' },
+		'licencia.sin': { texto: 'This Cloud decoy is not included in your license.' },
+		'licencia.caducada': { texto: 'Your Cloud license has expired.' },
 		/* Las que Community activa con el registro gratuito (docs/diseno/registro-community.md). */
-		'registro.sin': { texto: 'Esta trampa se activa gratis con tu registro, en Ajustes.' },
-		'registro.caducado': { texto: 'Tu registro ha caducado: renuévalo en Ajustes.' },
+		'registro.sin': {
+			texto: 'This decoy is enabled for free with your registration, in Settings.'
+		},
+		'registro.caducado': { texto: 'Your registration has expired: renew it in Settings.' },
 		'parametros.invalidos': { texto: '{errores}' },
 		'ejecutor.desconocido': {
-			texto: 'Esta forma ({ejecutor}) llegará con una versión más nueva de Sugardaddy.'
+			texto: 'This method ({ejecutor}) will arrive with a newer version of Sugardaddy.'
 		},
-		'destino.inactivo': { texto: '{destino} está dado de baja.' },
-		'destino.tipo': { texto: 'Esta forma es para {tipos}; {destino} es {tipo}.' },
+		'destino.inactivo': { texto: '{destino} has been removed.' },
+		'destino.tipo': { texto: 'This method is for {tipos}; {destino} is {tipo}.' },
 		/* El remedio lo elige el elector según plataforma.so (remedioAgenteFalta). */
-		'agente.falta': { texto: 'Hace falta un sensor en {destino}.' },
+		'agente.falta': { texto: 'A sensor is needed on {destino}.' },
 		'agente.sin-ejecutor': {
-			texto:
-				'El sensor de {destino} aún no sabe hacer esto; se pondrá al día con su próxima versión.'
+			texto: 'The sensor on {destino} cannot do this yet; it will catch up with its next version.'
 		},
 		'agente.version': {
-			texto:
-				'Necesita un sensor {minimo} o posterior; este se pondrá al día con la próxima versión.'
+			texto: 'Needs sensor {minimo} or later; this one will update with the next version.'
 		},
 		'agente.anterior': {
-			texto: 'Este sensor no dice cómo es su máquina; se da por hecho que despliega contenedores.'
+			texto:
+				'This sensor does not report what its machine is like; it is assumed to deploy containers.'
 		},
 		'agente.sin-contacto': {
-			texto: 'El sensor de {destino} no contesta; la trampa se pondrá cuando vuelva.'
+			texto:
+				'The sensor on {destino} is not responding; the decoy will be deployed when it returns.'
 		},
 		'requisito.no-cumple': { texto: '{motivo} ({detalle}).' },
-		'requisito.sin-dato': { texto: '{motivo} Falta el dato «{hecho}»: {comoSaberlo}.' },
-		'senal.inalcanzable': { texto: 'Desde aquí no hay forma de leer lo que haga el atacante.' },
+		'requisito.sin-dato': { texto: '{motivo} The fact "{hecho}" is missing: {comoSaberlo}.' },
+		'senal.inalcanzable': { texto: 'There is no way from here to read what the attacker does.' },
 		'senal.trampa-objetivo': {
-			texto: 'Necesita una trampa {modulos} puesta para recibir su señal.'
+			texto: 'Needs a {modulos} decoy deployed to receive its signal.'
 		},
 		'senal.objetivo-sin-direccion': {
-			texto: 'Lo sembrado tiene que apuntar a la dirección de {objetivo}, y {destino} no la tiene.',
-			remedio: 'Pon la dirección de {destino} en Destinos.'
+			texto: 'What is planted must point to the address of {objetivo}, and {destino} has none.',
+			remedio: 'Set the address of {destino} in Targets.'
 		},
 		'senal.marca-repetida': {
 			texto:
-				'La trampa {otra} ya usa «{valor}» contra {objetivo}: elige otro valor para saber cuál de las dos se ha usado.'
+				'The decoy {otra} already uses "{valor}" against {objetivo}: choose another value to tell which of the two was used.'
 		},
 		'senal.objetivo-retirado': {
-			texto: 'La trampa que recibía su señal ya no existe; retira esta y vuelve a ponerla con otra.'
+			texto:
+				'The decoy that received its signal no longer exists; remove this one and deploy it again with another.'
 		},
 		'senal.objetivo-parado': {
 			texto:
-				'{objetivo} no está recibiendo ({estado}); mientras tanto, esta credencial no avisa de nada.'
+				'{objetivo} is not receiving ({estado}); until it does, this credential will not alert.'
 		},
 		'senal.objetivo-cambiado': {
 			texto:
-				'{objetivo} ha cambiado ({dato}); lo sembrado apunta a lo de antes. Retírala y vuelve a ponerla.'
+				'{objetivo} has changed ({dato}); what is planted points to the old one. Remove it and deploy it again.'
 		},
 		'senal.sin-recolector': {
 			texto:
-				'Su señal sale del registro {canal} de {destino} y aún no hay recolector que lo lea (llega con el módulo de control).'
+				'Its signal comes from {canal} on {destino}, and no collector reads it yet (it arrives with the control module).'
 		},
 		'senal.sin-rele': {
-			texto: 'Su señal necesita un sensor con receptor de balizas en este nodo, y aún no lo tiene.'
+			texto:
+				'Its signal needs a sensor with a beacon receiver on this node, and it does not have one yet.'
 		},
-		'senal.sin-conexion': { texto: 'Hay que conectar {conexion} primero.' },
-		'carga.imagen-sin-publicar': { texto: 'La imagen de esta trampa aún no está publicada.' },
+		'senal.sin-conexion': { texto: '{conexion} must be connected first.' },
+		'carga.imagen-sin-publicar': { texto: 'The image for this decoy has not been published yet.' },
 		'carga.sin-credencial': {
 			texto:
-				'Este sensor aún no tiene la credencial del registro; se pondrá al día con su próxima versión.'
+				'This sensor does not have the registry credential yet; it will catch up with its next version.'
 		},
 		'puertos.ocupado': {
-			texto: '{destino} ya usa el puerto {proto} {puerto}; elige otro o libéralo allí.'
+			texto: '{destino} already uses {proto} port {puerto}; choose another or free it there.'
 		},
 		'puertos.otra-trampa': {
-			texto: 'El puerto {puerto} ya lo usa la trampa {nombre} en este destino.'
+			texto: 'Port {puerto} is already used by the decoy {nombre} on this target.'
 		},
 		'puertos.reservado': {
-			texto: 'El puerto {puerto} de este nodo es el de la consola: elige otro.'
+			texto: 'Port {puerto} on this node is the console port: choose another.'
 		},
 		'elector.sin-via': {
-			texto: 'Ninguna forma de poner {nombre} vale en {destino}; mira el motivo de cada una.'
+			texto: 'No method of deploying {nombre} works on {destino}; check the reason for each one.'
 		}
 	});
 

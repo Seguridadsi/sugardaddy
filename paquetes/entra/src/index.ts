@@ -72,14 +72,14 @@ export async function canjear(
 	});
 	const cuerpo = (await r.json()) as { id_token?: string; error_description?: string };
 	if (!r.ok || !cuerpo.id_token)
-		throw new Error(`Canje de código rechazado: ${cuerpo.error_description ?? r.status}`);
+		throw new Error(`Code exchange rejected: ${cuerpo.error_description ?? r.status}`);
 
 	const { payload } = await jwtVerify(cuerpo.id_token, claves(c.tenant), {
 		issuer: `${AUTORIDAD}/${c.tenant}/v2.0`,
 		audience: c.clientId,
 		clockTolerance: 60
 	});
-	if (payload.nonce !== o.nonce) throw new Error('El nonce del token no coincide.');
+	if (payload.nonce !== o.nonce) throw new Error('The token nonce does not match.');
 	return payload;
 }
 

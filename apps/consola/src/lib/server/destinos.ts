@@ -103,7 +103,7 @@ export async function insertarDestino(
 			.returning({ id: s.destinos.id });
 		if (f) return f.id;
 	}
-	throw new Error(`No queda ningún id libre a partir de «${base}».`);
+	throw new Error(`No free id left starting from "${base}".`);
 }
 
 /* Un destino descrito a mano, sin sensor. Devuelve su id. */
@@ -113,7 +113,7 @@ export async function crearDestino(
 ) {
 	return db.transaction(async (tx) => {
 		const id = await insertarDestino(tx, { base: slugDestino(v.nombre), ...v });
-		await tx.insert(s.auditoria).values({ quien, accion: 'destino creado', detalle: { id, ...v } });
+		await tx.insert(s.auditoria).values({ quien, accion: 'target created', detalle: { id, ...v } });
 		return id;
 	});
 }
@@ -186,11 +186,9 @@ export function leerFormulario(
 	const errores: string[] = [];
 	const texto = (k: string) => String(f.get(k) ?? '').trim();
 	const nombre = texto('nombre');
-	if (!nombre) errores.push('Nombre: obligatorio.');
-	else if (nombre.length > LARGO_NOMBRE)
-		errores.push(`Nombre: como mucho ${LARGO_NOMBRE} caracteres.`);
-	else if (INVISIBLES.test(nombre))
-		errores.push('Nombre: sin saltos de línea ni caracteres invisibles.');
+	if (!nombre) errores.push('Name: required.');
+	else if (nombre.length > LARGO_NOMBRE) errores.push(`Name: at most ${LARGO_NOMBRE} characters.`);
+	else if (INVISIBLES.test(nombre)) errores.push('Name: no line breaks or invisible characters.');
 
 	const pide = new Set(camposDe(tipo).filter((c) => !sensor.bloqueados.includes(c)));
 	/* Una respuesta de una lista cerrada; vacía, si no es obligatoria, es que no se sabe. */
@@ -202,37 +200,36 @@ export function leerFormulario(
 	): T | undefined {
 		const v = texto(k);
 		if (!v) {
-			if (obligatorio) errores.push(`${campo}: obligatorio.`);
+			if (obligatorio) errores.push(`${campo}: required.`);
 			return undefined;
 		}
 		const o = opciones.find((x) => x.valor === v);
-		if (!o) errores.push(`${campo}: elige una opción de la lista.`);
+		if (!o) errores.push(`${campo}: choose an option from the list.`);
 		return o?.valor;
 	}
 
 	const d: DescripcionDestino = {};
 	if (pide.has('direccion')) {
 		const v = texto('direccion');
-		if (v && !DIRECCION.test(v))
-			errores.push('Dirección: una IP o un nombre de máquina, sin espacios.');
+		if (v && !DIRECCION.test(v)) errores.push('Address: an IP or a machine name, without spaces.');
 		else if (v) d.direccion = v;
 	}
 	if (pide.has('so'))
 		d.so = deLista(
 			'so',
 			sistemasDe(tipo),
-			'Sistema operativo',
+			'Operating system',
 			tipo === 'maquina' || tipo === 'fileserver'
 		);
 	const so = sensor.bloqueados.includes('so') ? sensor.so : d.so;
-	if (pide.has('edicion')) d.edicion = deLista('edicion', EDICIONES, 'Edición');
+	if (pide.has('edicion')) d.edicion = deLista('edicion', EDICIONES, 'Edition');
 	if (pide.has('version')) {
 		const v = texto('version');
 		if (v && so === 'windows') {
 			if (versionesWindows(tipo, d.edicion).some((x) => x.valor === v)) d.version = v;
-			else errores.push('Versión: elige una de la lista.');
+			else errores.push('Version: choose one from the list.');
 		} else if (v && !VERSION.test(v))
-			errores.push('Versión: números separados por puntos, como 22.04.');
+			errores.push('Version: numbers separated by dots, like 22.04.');
 		else if (v) d.version = v;
 	}
 	if (pide.has('powershell') && so === 'windows')
@@ -241,12 +238,12 @@ export function leerFormulario(
 	if (pide.has('protocolos')) {
 		const marcados = new Set(f.getAll('protocolos').map(String));
 		const conocidos = PROTOCOLOS.filter((p) => marcados.has(p.valor)).map((p) => p.valor);
-		if (conocidos.length < marcados.size) errores.push('Protocolos: elige de la lista.');
+		if (conocidos.length < marcados.size) errores.push('Protocols: choose from the list.');
 		if (conocidos.length) d.protocolos = conocidos;
 	}
 	if (pide.has('nota')) {
 		const v = texto('nota');
-		if (v.length > LARGO_NOTA) errores.push(`Descripción: como mucho ${LARGO_NOTA} caracteres.`);
+		if (v.length > LARGO_NOTA) errores.push(`Description: at most ${LARGO_NOTA} characters.`);
 		else if (v) d.nota = v;
 	}
 	for (const k of Object.keys(d) as CampoDestino[]) if (d[k] === undefined) delete d[k];
@@ -572,8 +569,8 @@ async function dependientesDe(tx: Tx, destino: string) {
  * Editar un destino: su nombre y sus respuestas del formulario. Los campos
  * que ya dice su sensor (bloqueados) no se tocan: se quedan como estaban, y
  * siguen valiendo si un día el sensor deja de decirlos. Cambiar la dirección
- * se niega si una trampa de aquí recibe la señal de otras (§8.4): lo sembrado
- * apunta a la dirección de antes. Devuelve sus nombres, para decir cuáles
+ * que sale (hechosDe) se niega si una trampa de aquí recibe la señal de otras
+ * (§8.4): lo sembrado apunta a la de antes. Devuelve sus nombres, para decir cuáles
  * retirar primero.
  */
 export async function editarDestino(
@@ -589,7 +586,13 @@ export async function editarDestino(
 		for (const c of v.bloqueados)
 			if (Object.hasOwn(antes, c)) descripcion[c] = antes[c];
 			else delete descripcion[c];
-		if ((antes.direccion ?? '') !== ((descripcion.direccion as string | undefined) ?? '')) {
+		/* La que sale de verdad: vaciarla o escribir la que ya cuenta su sensor no cambia nada. */
+		const [x] = d.sensor
+			? await tx.select().from(s.sensores).where(eq(s.sensores.id, d.sensor))
+			: [];
+		const direccion = (o: DescripcionDestino) =>
+			hechosDe({ descripcion: o }, x ?? null)['destino.direccion']?.valor;
+		if (direccion(antes) !== direccion(descripcion as DescripcionDestino)) {
 			const dependientes = await dependientesDe(tx, id);
 			if (dependientes.length) return { dependientes };
 		}
@@ -599,7 +602,7 @@ export async function editarDestino(
 			.where(eq(s.destinos.id, id));
 		await tx.insert(s.auditoria).values({
 			quien,
-			accion: 'destino modificado',
+			accion: 'target modified',
 			detalle: {
 				id,
 				nombre: v.nombre,
@@ -633,7 +636,7 @@ export async function darDeBajaDestino(
 		await tx.delete(s.destinos).where(eq(s.destinos.id, id));
 		await tx.insert(s.auditoria).values({
 			quien,
-			accion: 'destino dado de baja',
+			accion: 'target removed',
 			detalle: { id, nombre: d.nombre, tipo: d.tipo }
 		});
 		return 'borrado';

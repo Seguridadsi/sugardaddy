@@ -397,9 +397,9 @@ const motor = (m: Capacidades['motor'], hechos: Capacidades['hechos'] = {}): Cap
 describe('estado visible (§8.2)', () => {
 	it('comprobada es lo único activo; puesta sin evento, no', () => {
 		const e = c.estadoVisible(ssh, contexto());
-		expect(e).toMatchObject({ estado: 'comprobada', etiqueta: 'Comprobada', activa: true });
+		expect(e).toMatchObject({ estado: 'comprobada', etiqueta: 'Verified', activa: true });
 		const sin = c.estadoVisible(trampa({ id: 'x', ...fila('colocada') }), contexto());
-		expect(sin).toMatchObject({ estado: 'colocada', etiqueta: 'Puesta, sin comprobar' });
+		expect(sin).toMatchObject({ estado: 'colocada', etiqueta: 'Deployed, not verified' });
 		expect(sin.activa).toBe(false);
 	});
 
@@ -409,14 +409,14 @@ describe('estado visible (§8.2)', () => {
 		).toMatchObject({ estado: 'retirando', codigo: 'retirada.pendiente', activa: false });
 		expect(
 			c.estadoVisible(trampa({ id: 'x', activo: false }), contexto({ latido: null }))
-		).toMatchObject({ estado: 'parada', etiqueta: 'Parada', activa: false });
+		).toMatchObject({ estado: 'parada', etiqueta: 'Paused', activa: false });
 	});
 
 	it('un sensor sin latido: sin contacto, aunque lo guardado diga comprobada', () => {
 		const viejo = new Date(AHORA.getTime() - 6 * 60_000);
 		expect(c.estadoVisible(ssh, contexto({ latido: viejo }))).toMatchObject({
 			estado: 'sin-contacto',
-			etiqueta: 'Sin contacto',
+			etiqueta: 'Offline',
 			activa: false
 		});
 		expect(c.estadoVisible(ssh, contexto({ latido: null })).estado).toBe('sin-contacto');
@@ -432,7 +432,7 @@ describe('estado visible (§8.2)', () => {
 		expect(e).toMatchObject({
 			estado: 'degradada',
 			codigo: 'motor.inalcanzable',
-			motivo: 'El sensor no llega a su motor de contenedores',
+			motivo: 'The sensor cannot reach its container engine',
 			activa: false
 		});
 	});
@@ -471,7 +471,7 @@ describe('estado visible (§8.2)', () => {
 			trampa({ id: 'x', ...fila('por-colocar', { donde: 'desplegando…' }) }),
 			contexto({ capacidades: motor({ codigo: 'motor.permiso' }) })
 		);
-		expect(e).toMatchObject({ estado: 'por-colocar', motivo: 'Su sensor la está poniendo.' });
+		expect(e).toMatchObject({ estado: 'por-colocar', motivo: 'Its sensor is deploying it.' });
 		expect(e.avisos.map((a) => a.codigo)).toEqual(['motor.permiso']);
 	});
 
@@ -489,7 +489,7 @@ describe('estado visible (§8.2)', () => {
 		expect(e).toMatchObject({
 			estado: 'degradada',
 			codigo: 'motor.permiso',
-			motivo: 'Su sensor no la tiene en marcha.',
+			motivo: 'Its sensor is not running it.',
 			detalle: 'El sensor no tiene permiso para usar el motor.'
 		});
 		const parada = c.estadoVisible(
@@ -499,13 +499,13 @@ describe('estado visible (§8.2)', () => {
 			}),
 			contexto()
 		);
-		expect(parada).toMatchObject({ motivo: 'El sensor la ha parado.', detalle: 'Cuota.' });
+		expect(parada).toMatchObject({ motivo: 'The sensor has stopped it.', detalle: 'Cuota.' });
 		expect(
 			c.estadoVisible(
 				trampa({ id: 'x', ...fila('degradada', { colocacionMotivo: 'aislamiento.se-ven' }) }),
 				contexto()
 			).motivo
-		).toMatch(/se ven entre sí/);
+		).toMatch(/can see each other/);
 	});
 
 	it.each([
@@ -537,7 +537,7 @@ describe('estado visible (§8.2)', () => {
 		);
 		expect(e).toMatchObject({
 			estado: 'por-colocar',
-			etiqueta: 'Pendiente de poner',
+			etiqueta: 'Pending deployment',
 			codigo: 'modulo.no-autorizado',
 			motivo: 'El módulo cowrie no está autorizado.'
 		});
@@ -553,7 +553,7 @@ describe('estado visible (§8.2)', () => {
 				}),
 				contexto()
 			)
-		).toMatchObject({ codigo: null, motivo: 'Su sensor la está poniendo.' });
+		).toMatchObject({ codigo: null, motivo: 'Its sensor is deploying it.' });
 	});
 
 	it('lo guardado: por colocar mientras su sensor baja la imagen no es un fallo', () => {
@@ -565,15 +565,17 @@ describe('estado visible (§8.2)', () => {
 				}),
 				contexto()
 			);
-		expect(por('error: descargando la imagen nueva')).toMatchObject({
-			estado: 'por-colocar',
-			codigo: 'despliegue.error',
-			motivo: 'Su sensor la está poniendo: está descargando su imagen.',
-			detalle: null
-		});
+		/* Lo dice un sensor de los de antes, en español, o uno de ahora, en inglés. */
+		for (const donde of ['error: descargando la imagen nueva', 'error: downloading the new image'])
+			expect(por(donde)).toMatchObject({
+				estado: 'por-colocar',
+				codigo: 'despliegue.error',
+				motivo: 'Its sensor is deploying it: it is downloading its image.',
+				detalle: null
+			});
 		/* Si la descarga falla, sí: con lo que dice el sensor. */
 		expect(por('error: no se pudo descargar la imagen nueva (EOF); se reintenta')).toMatchObject({
-			motivo: 'Su sensor no la tiene en marcha.',
+			motivo: 'Its sensor is not running it.',
 			detalle: 'No se pudo descargar la imagen nueva (EOF); se reintenta.'
 		});
 	});
@@ -600,7 +602,7 @@ describe('estado visible (§8.2)', () => {
 		] as const)('con el objetivo %s: degradada, senal.objetivo-parado', (_, cambio) => {
 			const e = c.estadoVisible(cred, contexto({ trampas: [{ ...ssh, ...cambio }, cred] }));
 			expect(e).toMatchObject({ estado: 'degradada', codigo: 'senal.objetivo-parado' });
-			expect(e.motivo).toMatch(/^Cowrie de cow no está recibiendo \(/);
+			expect(e.motivo).toMatch(/^Cowrie de cow is not receiving \(/);
 		});
 
 		it('si su sensor (el del objetivo) no late: degradada, porque el objetivo está sin contacto', () => {
@@ -612,7 +614,7 @@ describe('estado visible (§8.2)', () => {
 				estado: 'degradada',
 				codigo: 'senal.objetivo-parado',
 				motivo:
-					'Cowrie de cow no está recibiendo (sin contacto); mientras tanto, esta credencial no avisa de nada.'
+					'Cowrie de cow is not receiving (offline); until it does, this credential will not alert.'
 			});
 		});
 
@@ -640,10 +642,10 @@ describe('estado visible (§8.2)', () => {
 				estado: 'degradada',
 				codigo: 'senal.objetivo-cambiado',
 				motivo:
-					'Cowrie de cow ha cambiado (Puerto SSH); lo sembrado apunta a lo de antes. Retírala y vuelve a ponerla.'
+					'Cowrie de cow has changed (SSH port); what is planted points to the old one. Remove it and deploy it again.'
 			});
 			const direccion = c.estadoVisible(cred, contexto({ direccion: '10.30.0.6' }));
-			expect(direccion.motivo).toMatch(/\(la dirección de su destino\)/);
+			expect(direccion.motivo).toMatch(/\(the address of its target\)/);
 			/* Un parámetro que no usan sus pasos (el nombre del equipo) no cuenta. */
 			expect(
 				c.estadoVisible(
@@ -666,7 +668,7 @@ describe('estado visible (§8.2)', () => {
 			);
 			expect(e).toMatchObject({
 				estado: 'por-colocar',
-				motivo: 'Aún no se ha dicho que esté puesta.'
+				motivo: 'It has not been marked as deployed yet.'
 			});
 			expect(e.avisos.map((a) => a.codigo)).toEqual(['senal.objetivo-parado']);
 		});

@@ -403,9 +403,9 @@ const casos: Caso[] = [
 			elegida: 'contenedor',
 			vias: { contenedor: { avisos: [A] } },
 			ademas: (r) => {
-				expect(r.elegida).toMatchObject({ clase: 'agente', nombre: 'En un sensor' });
+				expect(r.elegida).toMatchObject({ clase: 'agente', nombre: 'On a sensor' });
 				expect(r.elegida!.avisos[0].texto).toBe(
-					'Este sensor no dice cómo es su máquina; se da por hecho que despliega contenedores.'
+					'This sensor does not report what its machine is like; it is assumed to deploy containers.'
 				);
 			}
 		}
@@ -427,10 +427,10 @@ const casos: Caso[] = [
 					remedio: remedioDe('motor.modo')
 				});
 				expect(m.texto).toBe(
-					'Docker Desktop, Docker dentro de WSL y Docker o Podman sin root no dejan ver la IP del atacante (Cómo corre el motor: Docker Desktop).'
+					'Docker Desktop, Docker inside WSL, and rootless Docker or Podman do not expose the attacker IP (How the engine runs: Docker Desktop).'
 				);
 				expect(r.global!.texto).toBe(
-					'Ninguna forma de poner SSH y Telnet falsos vale en srv01; mira el motivo de cada una.'
+					'No method of deploying Fake SSH and Telnet works on srv01; check the reason for each one.'
 				);
 			}
 		}
@@ -491,7 +491,7 @@ const casos: Caso[] = [
 					hecho: 'motor.codigo',
 					valor: 'motor.inalcanzable',
 					texto:
-						'El motor de contenedores falla ahora; la trampa esperará a que vuelva (Fallo del motor: motor.inalcanzable).'
+						'The container engine is failing right now; the decoy will wait until it recovers (Engine failure: motor.inalcanzable).'
 				})
 		}
 	},
@@ -505,9 +505,9 @@ const casos: Caso[] = [
 			vias: { contenedor: { motivos: ['agente.falta'] } },
 			ademas: (r) => {
 				const m = primero(r, 'contenedor', 'agente.falta');
-				expect(m.texto).toBe('Hace falta un sensor en fs01.');
+				expect(m.texto).toBe('A sensor is needed on fs01.');
 				expect(m.remedio).toContain('appliance');
-				expect(m.remedio).toContain('Hyper-V o VMware');
+				expect(m.remedio).toContain('Hyper-V or VMware');
 			}
 		}
 	},
@@ -521,7 +521,7 @@ const casos: Caso[] = [
 			vias: { contenedor: { motivos: ['destino.tipo'] } },
 			ademas: (r) =>
 				expect(primero(r, 'contenedor', 'destino.tipo').texto).toBe(
-					'Esta forma es para máquinas, servidores de ficheros o webs; m365 es un tenant de nube.'
+					'This method is for machines, file servers or websites; m365 is a cloud tenant.'
 				)
 		}
 	},
@@ -534,7 +534,7 @@ const casos: Caso[] = [
 			elegida: null,
 			vias: { contenedor: { motivos: ['destino.inactivo'] } },
 			ademas: (r) =>
-				expect(primero(r, 'contenedor', 'destino.inactivo').texto).toBe('srv01 está dado de baja.')
+				expect(primero(r, 'contenedor', 'destino.inactivo').texto).toBe('srv01 has been removed.')
 		}
 	},
 	{
@@ -549,8 +549,7 @@ const casos: Caso[] = [
 			ademas: (r) =>
 				expect(primero(r, 'contenedor', 'agente.version')).toMatchObject({
 					/* El texto de hoy en plan(), con mayúscula y punto. */
-					texto:
-						'Necesita un sensor 0.13.0 o posterior; este se pondrá al día con la próxima versión.',
+					texto: 'Needs sensor 0.13.0 or later; this one will update with the next version.',
 					esperado: '0.13.0',
 					valor: '0.12.3'
 				})
@@ -570,7 +569,7 @@ const casos: Caso[] = [
 			vias: { contenedor: { motivos: ['puertos.ocupado'] } },
 			ademas: (r) =>
 				expect(primero(r, 'contenedor', 'puertos.ocupado')).toMatchObject({
-					texto: 'srv01 ya usa el puerto UDP 53; elige otro o libéralo allí.',
+					texto: 'srv01 already uses UDP port 53; choose another or free it there.',
 					valor: 'udp/53'
 				})
 		},
@@ -599,7 +598,7 @@ const casos: Caso[] = [
 			vias: { contenedor: { motivos: ['puertos.otra-trampa'] } },
 			ademas: (r) =>
 				expect(primero(r, 'contenedor', 'puertos.otra-trampa').texto).toBe(
-					'El puerto 2222 ya lo usa la trampa SSH viejo en este destino.'
+					'Port 2222 is already used by the decoy SSH viejo on this target.'
 				)
 		},
 		sondeo: {
@@ -619,7 +618,7 @@ const casos: Caso[] = [
 			ademas: (r) =>
 				/* El texto de hoy en choquesDePuertos. */
 				expect(primero(r, 'contenedor', 'puertos.reservado').texto).toBe(
-					'El puerto 443 de este nodo es el de la consola: elige otro.'
+					'Port 443 on this node is the console port: choose another.'
 				)
 		},
 		sondeo: {
@@ -658,7 +657,7 @@ const casos: Caso[] = [
 			vias: { contenedor: { motivos: ['carga.imagen-sin-publicar'] } },
 			ademas: (r) =>
 				expect(primero(r, 'contenedor', 'carga.imagen-sin-publicar').texto).toBe(
-					'La imagen de esta trampa aún no está publicada.'
+					'The image for this decoy has not been published yet.'
 				)
 		}
 	},
@@ -676,7 +675,7 @@ const casos: Caso[] = [
 			vias: { contenedor: { motivos: ['carga.sin-credencial'] } },
 			ademas: (r) =>
 				expect(primero(r, 'contenedor', 'carga.sin-credencial').texto).toBe(
-					'Este sensor aún no tiene la credencial del registro; se pondrá al día con su próxima versión.'
+					'This sensor does not have the registry credential yet; it will catch up with its next version.'
 				)
 		}
 	},
@@ -706,7 +705,8 @@ const casos: Caso[] = [
 		reales: {
 			elegida: null,
 			global: 'modulo.no-autorizado',
-			ademas: (r) => expect(r.global!.texto).toBe('SSH y Telnet falsos no entra en tu suscripción.')
+			ademas: (r) =>
+				expect(r.global!.texto).toBe('Fake SSH and Telnet is not part of your subscription.')
 		}
 	},
 	{
@@ -725,8 +725,7 @@ const casos: Caso[] = [
 		reales: {
 			elegida: null,
 			global: 'modulo.sin-vias',
-			ademas: (r) =>
-				expect(r.global!.texto).toBe('Esta honeycosa aún no tiene ninguna forma de ponerse.')
+			ademas: (r) => expect(r.global!.texto).toBe('This decoy has no way to be deployed yet.')
 		}
 	},
 	{
@@ -747,8 +746,8 @@ const casos: Caso[] = [
 			elegida: null,
 			global: 'parametros.invalidos',
 			ademas: (r) => {
-				expect(r.global!.texto).toBe('Puerto SSH: no es del tipo esperado');
-				expect(r.global!.valor).toEqual(['Puerto SSH: no es del tipo esperado']);
+				expect(r.global!.texto).toBe('SSH port: is not of the expected type');
+				expect(r.global!.valor).toEqual(['SSH port: is not of the expected type']);
 			}
 		},
 		/* En sondeo no se valida el esquema: eso se exige al guardar. */
@@ -768,7 +767,7 @@ const casos: Caso[] = [
 			ademas: (r) => {
 				expect(r.elegida!.nombre).toBe('En un sensor');
 				expect(primero(r, 'carpeta-auditada', 'destino.tipo').texto).toBe(
-					'Esta forma es para servidores de ficheros; srv01 es una máquina.'
+					'This method is for file servers; srv01 is a machine.'
 				);
 			}
 		}
@@ -786,7 +785,7 @@ const casos: Caso[] = [
 			},
 			ademas: (r) =>
 				expect(primero(r, 'carpeta-auditada', 'senal.sin-recolector').texto).toBe(
-					'Su señal sale del registro de eventos de Windows de fs01 y aún no hay recolector que lo lea (llega con el módulo de control).'
+					'Its signal comes from Windows event logs on fs01, and no collector reads it yet (it arrives with the control module).'
 				)
 		}
 	},
@@ -827,7 +826,7 @@ const casos: Caso[] = [
 					hecho: 'shell.powershell',
 					esperado: { minimo: '5.1' },
 					texto:
-						'Los pasos usan PowerShell 5.1 o posterior. Falta el dato «PowerShell»: dilo en la ficha de fs01, en Destinos.'
+						'Los pasos usan PowerShell 5.1 o posterior. The fact "PowerShell" is missing: enter it on the fs01 page, in Targets.'
 				})
 		}
 	},
@@ -845,7 +844,7 @@ const casos: Caso[] = [
 				expect(r.elegida).toMatchObject({ clase: 'manual', nombre: 'Pasos para Windows' });
 				expect(primero(r, 'linux', NO)).toMatchObject({
 					hecho: 'plataforma.so',
-					texto: 'Estos pasos son para Linux (Sistema operativo: Windows).'
+					texto: 'Estos pasos son para Linux (Operating system: Windows).'
 				});
 			}
 		}
@@ -869,7 +868,7 @@ const casos: Caso[] = [
 			/* Con el nombre del módulo para el cliente, no su id. */
 			ademas: (r) =>
 				expect(primero(r, 'windows', 'senal.trampa-objetivo').texto).toBe(
-					'Necesita una trampa «SSH y Telnet falsos» puesta para recibir su señal.'
+					'Needs a "SSH y Telnet falsos" decoy deployed to receive its signal.'
 				)
 		}
 	},
@@ -944,7 +943,7 @@ const casos: Caso[] = [
 					nombre: 'Como proceso del agente'
 				});
 				expect(primero(r, 'servicio', 'ejecutor.desconocido').texto).toBe(
-					'Esta forma (servicio@1) llegará con una versión más nueva de Sugardaddy.'
+					'This method (servicio@1) will arrive with a newer version of Sugardaddy.'
 				);
 			}
 		}
@@ -1014,7 +1013,7 @@ const casos: Caso[] = [
 			vias: { contenedor: { avisos: ['requisito.sin-dato'] } },
 			ademas: (r) =>
 				expect(r.elegida!.avisos[0].texto).toBe(
-					'Es más creíble en un servidor. Falta el dato «Edición»: dilo en la ficha de srv01, en Destinos.'
+					'Es más creíble en un servidor. The fact "Edition" is missing: enter it on the srv01 page, in Targets.'
 				)
 		}
 	},
@@ -1033,9 +1032,8 @@ const casos: Caso[] = [
 			},
 			ademas: (r) =>
 				expect(primero(r, 'windows', 'senal.objetivo-sin-direccion')).toMatchObject({
-					texto:
-						'Lo sembrado tiene que apuntar a la dirección de SSH de copias, y srv01 no la tiene.',
-					remedio: 'Pon la dirección de srv01 en Destinos.'
+					texto: 'What is planted must point to the address of SSH de copias, and srv01 has none.',
+					remedio: 'Set the address of srv01 in Targets.'
 				})
 		}
 	},
@@ -1141,7 +1139,7 @@ const casos: Caso[] = [
 			ademas: (r) =>
 				expect(primero(r, 'windows', 'senal.marca-repetida')).toMatchObject({
 					texto:
-						'La trampa Credencial de fs02 ya usa «SVC_SQL4K7» contra SSH de copias: elige otro valor para saber cuál de las dos se ha usado.',
+						'The decoy Credencial de fs02 already uses "SVC_SQL4K7" against SSH de copias: choose another value to tell which of the two was used.',
 					valor: 'svc_sql4k7'
 				})
 		},
@@ -1230,7 +1228,7 @@ const casos: Caso[] = [
 			vias: { contenedor: { avisos: ['puertos.ocupado'] } },
 			ademas: (r) =>
 				expect(r.elegida!.avisos[0].texto).toBe(
-					'srv01 ya usa el puerto TCP 2222; elige otro o libéralo allí.'
+					'srv01 already uses TCP port 2222; choose another or free it there.'
 				)
 		}
 	},
@@ -1245,7 +1243,7 @@ const casos: Caso[] = [
 			ademas: (r) => {
 				const m = primero(r, 'contenedor', NO);
 				expect(m).toMatchObject({ hecho: 'red.ipOrigenReal', valor: false });
-				expect(m.remedio).toContain('«Probar»');
+				expect(m.remedio).toContain('"Test"');
 			}
 		}
 	},
@@ -1282,8 +1280,7 @@ const otros: Caso[] = [
 			vias: { contenedor: { motivos: ['agente.sin-ejecutor'] } },
 			ademas: (r) =>
 				expect(primero(r, 'contenedor', 'agente.sin-ejecutor')).toMatchObject({
-					texto:
-						'El sensor de srv01 aún no sabe hacer esto; se pondrá al día con su próxima versión.',
+					texto: 'The sensor on srv01 cannot do this yet; it will catch up with its next version.',
 					valor: ['servicio@1']
 				})
 		}
@@ -1331,7 +1328,7 @@ const otros: Caso[] = [
 			vias: { contenedor: { avisos: ['agente.sin-contacto'] } },
 			ademas: (r) =>
 				expect(r.elegida!.avisos[0].texto).toBe(
-					'El sensor de srv01 no contesta; la trampa se pondrá cuando vuelva.'
+					'The sensor on srv01 is not responding; the decoy will be deployed when it returns.'
 				)
 		}
 	},
@@ -1364,7 +1361,7 @@ const otros: Caso[] = [
 			},
 			ademas: (r) =>
 				expect(primero(r, 'contenedor', 'agente.falta').remedio).toBe(
-					'Instala un sensor en fs01: en Sensores, «Instalar un sensor en otra máquina».'
+					'Install a sensor on fs01: in Sensors, use "Install a sensor on another machine".'
 				)
 		}
 	},
@@ -1389,7 +1386,7 @@ const otros: Caso[] = [
 			},
 			ademas: (r) =>
 				expect(primero(r, 'manual', 'senal.sin-conexion').texto).toBe(
-					'Hay que conectar Microsoft 365 primero.'
+					'Microsoft 365 must be connected first.'
 				)
 		}
 	},
@@ -1445,7 +1442,7 @@ const otros: Caso[] = [
 			},
 			ademas: (r) =>
 				expect(primero(r, 'manual', 'destino.tipo').texto).toBe(
-					'Esta forma es para máquinas, servidores de ficheros, webs, webs en PaaS, cuentas de hosting, directorios activos, tenants de nube, servicios SaaS o otros destinos; fs01 es impresora.'
+					'This method is for machines, file servers, websites, PaaS web apps, hosting accounts, Active Directory domains, cloud tenants, SaaS services or other targets; fs01 is impresora.'
 				)
 		}
 	},
@@ -1496,11 +1493,9 @@ describe('elector: lo demás', () => {
 			const r = correr(cowrie, sinSensor('maquina', so ? { so } : {}), {}, {}, 'reales');
 			return primero(r, 'contenedor', 'agente.falta').remedio;
 		};
-		expect(remedio('linux')).toContain('Instalar un sensor en otra máquina');
+		expect(remedio('linux')).toContain('Install a sensor on another machine');
 		expect(remedio('windows')).toContain('appliance');
-		expect(remedio('macos')).toBe(
-			'En macOS hará falta el agente nativo, que llegará más adelante.'
-		);
+		expect(remedio('macos')).toBe('macOS needs the native agent, which will arrive later.');
 		expect(remedio()).toContain('appliance');
 		expect(remedio('nas')).toContain('appliance');
 	});
@@ -1511,7 +1506,7 @@ describe('elector: lo demás', () => {
 		);
 		const r = correr(h, conSensor(), {}, {}, 'reales');
 		const m = primero(r, 'contenedor', NO);
-		expect(m.texto).toBe('Necesita el panel (canal.panel: no se sabe).');
+		expect(m.texto).toBe('Necesita el panel (canal.panel: unknown).');
 		expect(m).not.toHaveProperty('valor');
 	});
 

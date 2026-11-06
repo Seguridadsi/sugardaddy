@@ -105,7 +105,7 @@
 		{:else}
 			<label for="p-{clave}">
 				{c.title ?? clave}
-				{#if !obligatorio(clave)}<small>opcional</small>{/if}
+				{#if !obligatorio(clave)}<small>optional</small>{/if}
 			</label>
 		{/if}
 		{#if c['x-casilla']}
@@ -119,11 +119,11 @@
 				required={obligatorio(clave)}
 			>
 				<option value="" disabled
-					>{opciones.length ? 'Elige una trampa' : 'No tienes ninguna trampa de este tipo'}</option
+					>{opciones.length ? 'Choose a decoy' : 'You have no decoys of this type'}</option
 				>
 				{#each opciones as o (o.id)}
 					<option value={o.id} disabled={!!o.motivo}
-						>{o.nombre}{o.destino ? ` · en ${o.destino}` : ''}{o.motivo
+						>{o.nombre}{o.destino ? ` · on ${o.destino}` : ''}{o.motivo
 							? ` (${o.motivo})`
 							: ''}</option
 					>
@@ -155,7 +155,7 @@
 			/>
 		{:else if c.type === 'boolean'}
 			<select id="p-{clave}" name="p.{clave}" value={valor(clave, c) || 'false'}>
-				<option value="true">Sí</option>
+				<option value="true">Yes</option>
 				<option value="false">No</option>
 			</select>
 		{:else if c['x-multilinea']}

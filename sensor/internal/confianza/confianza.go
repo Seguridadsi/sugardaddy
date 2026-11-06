@@ -32,7 +32,7 @@ func Cliente(ca string, espera time.Duration) (*http.Client, error) {
 		raices = x509.NewCertPool()
 	}
 	if !raices.AppendCertsFromPEM(pem) {
-		return nil, fmt.Errorf("%s no tiene ningún certificado", ca)
+		return nil, fmt.Errorf("%s has no certificate", ca)
 	}
 	t := http.DefaultTransport.(*http.Transport).Clone()
 	t.TLSClientConfig = &tls.Config{RootCAs: raices, MinVersion: tls.VersionTLS12}

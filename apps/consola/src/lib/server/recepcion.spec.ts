@@ -116,10 +116,10 @@ describe.skipIf(!hayBase)('recepción de eventos: nunca se queda parada', () => 
 		const q = await db.select().from(s.cuarentena).where(eq(s.cuarentena.sensor, SENSOR));
 		expect(q.map((x) => x.motivo)).toEqual(
 			expect.arrayContaining([
-				'la trampa ya no existe (retirada)',
-				'la trampa es de otro sensor',
-				'no es JSON',
-				expect.stringContaining('no cumple el contrato')
+				'the decoy no longer exists (removed)',
+				'the decoy belongs to another sensor',
+				'not JSON',
+				expect.stringContaining('does not meet the contract')
 			])
 		);
 		expect(await cuantos(s.eventos)).toBe(4);
@@ -141,7 +141,7 @@ describe.skipIf(!hayBase)('recepción de eventos: nunca se queda parada', () => 
 			.select()
 			.from(s.cuarentena)
 			.where(eq(s.cuarentena.hash, hashEvento(l)));
-		expect(q.motivo).toBe('repite un evento ya recibido');
+		expect(q.motivo).toBe('repeats an event already received');
 		ultimo = hashEvento(l);
 	});
 
@@ -154,7 +154,7 @@ describe.skipIf(!hayBase)('recepción de eventos: nunca se queda parada', () => 
 			.select()
 			.from(s.cuarentena)
 			.where(eq(s.cuarentena.hash, hashEvento(sucia)));
-		expect(q.motivo).toBe('no es JSON');
+		expect(q.motivo).toBe('not JSON');
 		ultimo = hashEvento(sigue);
 	});
 

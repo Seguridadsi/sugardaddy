@@ -91,7 +91,7 @@ describe.skipIf(!hayBase)('destinos con la consola de hoy', () => {
 		const [a] = await db
 			.select()
 			.from(s.auditoria)
-			.where(and(eq(s.auditoria.quien, QUIEN), eq(s.auditoria.accion, 'sensor dado de alta')));
+			.where(and(eq(s.auditoria.quien, QUIEN), eq(s.auditoria.accion, 'sensor enrolled')));
 		expect(a.detalle).toMatchObject({ id: `${P}-a`, destino: `${P}-a` });
 	});
 
@@ -206,7 +206,7 @@ describe.skipIf(!hayBase)('destinos con la consola de hoy', () => {
 			const [a] = await db
 				.select()
 				.from(s.auditoria)
-				.where(and(eq(s.auditoria.quien, QUIEN), eq(s.auditoria.accion, 'sensor retirado')));
+				.where(and(eq(s.auditoria.quien, QUIEN), eq(s.auditoria.accion, 'sensor removed')));
 			expect(a.detalle).toEqual({ id: B, destino: B, destinoQueda: true });
 		});
 
@@ -230,7 +230,7 @@ describe.skipIf(!hayBase)('destinos con la consola de hoy', () => {
 			const r = await db
 				.select()
 				.from(s.auditoria)
-				.where(and(eq(s.auditoria.quien, QUIEN), eq(s.auditoria.accion, 'trampa retirada')));
+				.where(and(eq(s.auditoria.quien, QUIEN), eq(s.auditoria.accion, 'decoy removed')));
 			expect(r.map((x) => x.detalle)).toEqual(
 				expect.arrayContaining([
 					{ id: MANUAL, modulo: 'credencial-ssh', sensor: A, destino: B },

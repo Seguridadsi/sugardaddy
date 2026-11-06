@@ -104,14 +104,14 @@ func (a *Aplicacion) Aplicar(ctx context.Context, f ReleaseFirmada) Resultado {
 		c = r.SensorRemoto
 	}
 	if c == nil {
-		return a.resultado(r.Version, "fallida", "la versión no trae configuración para "+a.Modo)
+		return a.resultado(r.Version, "fallida", "the version has no configuration for "+a.Modo)
 	}
 	if err := a.comprobarMotor(ctx); err != nil {
 		return a.resultado(r.Version, "fallida", err.Error())
 	}
 	copia, retomada, err := a.copiaBuena()
 	if err != nil {
-		return a.resultado(r.Version, "fallida", "copia de seguridad: "+err.Error())
+		return a.resultado(r.Version, "fallida", "backup: "+err.Error())
 	}
 	// El diario: si este auxiliar muere a mitad (se reinicia Docker o la
 	// máquina), el siguiente sabe que los ficheros están a medias y cuál es la
@@ -143,14 +143,14 @@ func (a *Aplicacion) Aplicar(ctx context.Context, f ReleaseFirmada) Resultado {
 		return a.resultado(r.Version, "aplicada", "")
 	}
 	detalle := fmt.Sprintf("%v\n%s", err, cola(salida, 20))
-	a.Log("la configuración no ha quedado sana; vuelvo a la anterior", "err", err)
+	a.Log("the configuration did not come up healthy; reverting to the previous one", "err", err)
 	if e := a.restaurar(copia); e != nil {
-		detalle += "\nno se pudieron restaurar los ficheros: " + e.Error()
+		detalle += "\nthe files could not be restored: " + e.Error()
 	} else if out, e := a.levantar(ctx); e != nil {
-		detalle += "\nla configuración anterior tampoco quedó sana: " + e.Error() + "\n" + cola(out, 10)
+		detalle += "\nthe previous configuration did not come up healthy either: " + e.Error() + "\n" + cola(out, 10)
 	} else if reiniciado {
 		if out, e := a.reiniciarHttps(ctx); e != nil {
-			detalle += "\nhttps tampoco quedó sano con el Caddyfile anterior: " + e.Error() + "\n" + cola(out, 5)
+			detalle += "\nhttps did not come up healthy with the previous Caddyfile either: " + e.Error() + "\n" + cola(out, 5)
 		}
 	}
 	return a.resultado(r.Version, "fallida", detalle)
@@ -162,7 +162,7 @@ func (a *Aplicacion) Aplicar(ctx context.Context, f ReleaseFirmada) Resultado {
 func (a *Aplicacion) copiaBuena() (copia string, retomada bool, err error) {
 	if d, ok := LeerResultado(a.Dir); ok && d.Estado == "aplicando" && d.Copia != "" && filepath.Dir(d.Copia) == a.ruta(".respaldo") {
 		if fi, err := os.Stat(d.Copia); err == nil && fi.IsDir() {
-			a.Log("una aplicación anterior quedó a medias: si algo falla, se vuelve a su copia", "copia", d.Copia)
+			a.Log("a previous application was left half-done: if anything fails, it is restored from its backup", "copia", d.Copia)
 			return d.Copia, true, nil
 		}
 	}
@@ -172,7 +172,7 @@ func (a *Aplicacion) copiaBuena() (copia string, retomada bool, err error) {
 
 func (a *Aplicacion) reiniciarHttps(ctx context.Context) (string, error) {
 	if out, err := a.compose(ctx, "restart", "https"); err != nil {
-		return out, fmt.Errorf("no se pudo reiniciar https: %w", err)
+		return out, fmt.Errorf("could not restart https: %w", err)
 	}
 	return "", a.aguanta(ctx, "https")
 }
@@ -200,7 +200,7 @@ func (a *Aplicacion) aguanta(ctx context.Context, servicio string) error {
 			n, _ := i["RestartCount"].(float64)
 			return corriendo && !reiniciando, n, nil
 		}
-		return false, 0, fmt.Errorf("no hay contenedor de %s", servicio)
+		return false, 0, fmt.Errorf("there is no container for %s", servicio)
 	}
 	_, antes, err := estado()
 	if err != nil {
@@ -214,7 +214,7 @@ func (a *Aplicacion) aguanta(ctx context.Context, servicio string) error {
 		return err
 	}
 	if !ok || despues != antes {
-		return fmt.Errorf("%s no aguanta en marcha con la configuración nueva", servicio)
+		return fmt.Errorf("%s does not stay up with the new configuration", servicio)
 	}
 	return nil
 }
@@ -229,11 +229,11 @@ func (a *Aplicacion) resultado(version, estado, detalle string) Resultado {
 func (a *Aplicacion) verificar(f ReleaseFirmada) (Release, error) {
 	env, err := LeerEnv(a.ruta(".env"))
 	if err != nil {
-		return Release{}, fmt.Errorf("no se puede leer .env: %w", err)
+		return Release{}, fmt.Errorf("cannot read .env: %w", err)
 	}
 	clave, err := ClavePublica(env["PUBLICACION_CLAVE_PUBLICA"])
 	if err != nil {
-		return Release{}, errors.New("falta una PUBLICACION_CLAVE_PUBLICA válida en .env")
+		return Release{}, errors.New("a valid PUBLICACION_CLAVE_PUBLICA is missing in .env")
 	}
 	return Verificar(clave, f)
 }
@@ -314,7 +314,7 @@ func (a *Aplicacion) guardaPostgres(c *Configuracion) error {
 	antes := postgresMayor.FindSubmatch(actual)
 	despues := postgresMayor.FindStringSubmatch(c.Ficheros["compose.yml"])
 	if antes != nil && despues != nil && string(antes[1]) != despues[1] {
-		return fmt.Errorf("la versión cambia Postgres de %s a %s: no se aplica sola (los datos no se migran)", antes[1], despues[1])
+		return fmt.Errorf("the version changes Postgres from %s to %s: it is not applied automatically (data is not migrated)", antes[1], despues[1])
 	}
 	return nil
 }
@@ -351,7 +351,7 @@ func (a *Aplicacion) escribirYLevantar(ctx context.Context, r Release, c *Config
 		}
 	}
 	if out, err := a.compose(ctx, "config", "-q"); err != nil {
-		return out, fmt.Errorf("compose.yml no es válido: %w", err)
+		return out, fmt.Errorf("compose.yml is not valid: %w", err)
 	}
 	if err := a.descargarImagenes(ctx); err != nil {
 		return "", err
@@ -360,7 +360,7 @@ func (a *Aplicacion) escribirYLevantar(ctx context.Context, r Release, c *Config
 		// Antes de levantar nada: que Caddy, con su imagen de esta versión, lo acepte.
 		if out, err := a.compose(ctx, "run", "--rm", "--no-deps", "-T", "--pull", "never",
 			"--entrypoint", "caddy", "https", "validate", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"); err != nil {
-			return out, fmt.Errorf("Caddy no acepta el Caddyfile de la versión: %w", err)
+			return out, fmt.Errorf("Caddy does not accept the Caddyfile of the version: %w", err)
 		}
 	}
 	return a.levantar(ctx)
@@ -383,7 +383,7 @@ func (a *Aplicacion) borrarAnteriores(ctx context.Context) error {
 				if err := a.Docker.Borrar(ctx, c.ID); err != nil {
 					return err
 				}
-				a.Log("contenedor anterior retirado", "nombre", n)
+				a.Log("previous container removed", "nombre", n)
 			}
 		}
 	}
@@ -436,11 +436,11 @@ func (a *Aplicacion) completarEnv(c *Configuracion) error {
 func (a *Aplicacion) descargarImagenes(ctx context.Context) error {
 	out, err := a.compose(ctx, "config", "--images")
 	if err != nil {
-		return fmt.Errorf("no se pueden listar las imágenes: %w", err)
+		return fmt.Errorf("cannot list the images: %w", err)
 	}
 	for _, img := range strings.Fields(out) {
 		if err := a.Docker.AsegurarImagen(ctx, img); err != nil {
-			return fmt.Errorf("imagen %s: %w", img, err)
+			return fmt.Errorf("image %s: %w", img, err)
 		}
 	}
 	return nil
@@ -553,7 +553,7 @@ func (a *Aplicacion) exportarRaiz(ctx context.Context) {
 	}
 	tmp, err := os.MkdirTemp("", "raiz")
 	if err != nil {
-		a.Log("no se pudo copiar la raíz de la CA del nodo", "err", err)
+		a.Log("could not copy the node CA root", "err", err)
 		return
 	}
 	defer os.RemoveAll(tmp)
@@ -570,7 +570,7 @@ func (a *Aplicacion) exportarRaiz(ctx context.Context) {
 			raiz, err = raizDeCA(copia)
 		}
 		if err != nil && i == 4 {
-			a.Log("no se pudo copiar la raíz de la CA del nodo", "err", err, "salida", cola(out, 3))
+			a.Log("could not copy the node CA root", "err", err, "salida", cola(out, 3))
 		}
 	}
 	if raiz == nil {
@@ -581,13 +581,13 @@ func (a *Aplicacion) exportarRaiz(ctx context.Context) {
 	}
 	nuevo, err := escribirEnSuSitio(a.ruta("ca-raiz.crt"), raiz, 0o644)
 	if err != nil {
-		a.Log("no se pudo escribir ca-raiz.crt", "err", err)
+		a.Log("could not write ca-raiz.crt", "err", err)
 		return
 	}
 	if nuevo {
 		// Es otro fichero: la consola sigue viendo el que montó hasta que se reinicie.
 		if out, err := a.compose(ctx, "restart", "consola"); err != nil {
-			a.Log("no se pudo reiniciar la consola tras escribir ca-raiz.crt", "err", err, "salida", cola(out, 3))
+			a.Log("could not restart the console after writing ca-raiz.crt", "err", err, "salida", cola(out, 3))
 		}
 	}
 }
@@ -600,7 +600,7 @@ func raizDeCA(ruta string) ([]byte, error) {
 		return nil, err
 	}
 	if !fi.Mode().IsRegular() || fi.Size() > 64<<10 {
-		return nil, fmt.Errorf("%s no es un fichero normal", filepath.Base(ruta))
+		return nil, fmt.Errorf("%s is not a regular file", filepath.Base(ruta))
 	}
 	b, err := os.ReadFile(ruta)
 	if err != nil {
@@ -608,11 +608,11 @@ func raizDeCA(ruta string) ([]byte, error) {
 	}
 	bloque, resto := pem.Decode(b)
 	if bloque == nil || bloque.Type != "CERTIFICATE" || len(bytes.TrimSpace(resto)) > 0 {
-		return nil, fmt.Errorf("%s no es un único certificado", filepath.Base(ruta))
+		return nil, fmt.Errorf("%s is not a single certificate", filepath.Base(ruta))
 	}
 	cert, err := x509.ParseCertificate(bloque.Bytes)
 	if err != nil || !cert.IsCA {
-		return nil, fmt.Errorf("%s no es el certificado de una CA", filepath.Base(ruta))
+		return nil, fmt.Errorf("%s is not a CA certificate", filepath.Base(ruta))
 	}
 	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: bloque.Bytes}), nil
 }

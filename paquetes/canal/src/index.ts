@@ -88,10 +88,10 @@ export function verificarPeticion(
 	ahora = Date.now()
 ): Verificacion {
 	const { fecha, firma } = cabeceras;
-	if (!fecha || !firma) return { ok: false, motivo: 'faltan cabeceras de firma' };
+	if (!fecha || !firma) return { ok: false, motivo: 'missing signature headers' };
 	const t = Date.parse(fecha);
 	if (!Number.isFinite(t) || Math.abs(ahora - t) > MARGEN_RELOJ_MS)
-		return { ok: false, motivo: 'fecha fuera de margen' };
+		return { ok: false, motivo: 'date out of range' };
 	const bytes = Buffer.from(firma, 'base64');
 	let valida = false;
 	try {
@@ -104,12 +104,12 @@ export function verificarPeticion(
 	} catch {
 		valida = false;
 	}
-	if (!valida) return { ok: false, motivo: 'firma no válida' };
+	if (!valida) return { ok: false, motivo: 'invalid signature' };
 
 	/* Por sus bytes, no por el texto: Buffer.from admite la misma firma escrita de varias formas. */
 	const huella = bytes.toString('base64');
 	for (const [f, cuando] of vistas) if (ahora - cuando > 2 * MARGEN_RELOJ_MS) vistas.delete(f);
-	if (vistas.has(huella)) return { ok: false, motivo: 'petición repetida' };
+	if (vistas.has(huella)) return { ok: false, motivo: 'repeated request' };
 	vistas.set(huella, ahora);
 	return { ok: true };
 }
@@ -262,11 +262,11 @@ export function verificarEstado(
 	} catch {
 		valida = false;
 	}
-	if (!valida) return { ok: false, motivo: 'firma del panel no válida' };
+	if (!valida) return { ok: false, motivo: 'invalid Central signature' };
 	const e = JSON.parse(f.estado) as EstadoDeseado;
-	if (e.version !== 1) return { ok: false, motivo: 'versión de estado desconocida' };
-	if (e.cliente !== cliente) return { ok: false, motivo: 'el estado es para otro cliente' };
-	if (Date.parse(e.caduca) < ahora) return { ok: false, motivo: 'estado caducado' };
+	if (e.version !== 1) return { ok: false, motivo: 'unknown state version' };
+	if (e.cliente !== cliente) return { ok: false, motivo: 'the state is for another customer' };
+	if (Date.parse(e.caduca) < ahora) return { ok: false, motivo: 'the state has expired' };
 	return { ok: true, estado: e };
 }
 
@@ -321,20 +321,20 @@ export function motivoConfiguracion(
 ): string | null {
 	const x = c as Configuracion;
 	if (!x || typeof x !== 'object' || !x.ficheros || typeof x.ficheros !== 'object')
-		return `${seccion}: sin ficheros`;
+		return `${seccion}: no files`;
 	const permitidos: readonly string[] = FICHEROS_CONFIGURACION[seccion];
 	for (const [nombre, texto] of Object.entries(x.ficheros)) {
-		if (!permitidos.includes(nombre)) return `${seccion}: fichero no permitido (${nombre})`;
+		if (!permitidos.includes(nombre)) return `${seccion}: file not allowed (${nombre})`;
 		if (typeof texto !== 'string' || Buffer.byteLength(texto) > MAX_FICHERO)
-			return `${seccion}: ${nombre} no es texto o pasa de 64 KB`;
+			return `${seccion}: ${nombre} is not text or exceeds 64 KB`;
 	}
-	if (!('compose.yml' in x.ficheros)) return `${seccion}: falta compose.yml`;
+	if (!('compose.yml' in x.ficheros)) return `${seccion}: compose.yml is missing`;
 	for (const [k, v] of Object.entries(x.entorno?.nuevas ?? {}))
 		if (!CLAVE_ENTORNO.test(k) || typeof v !== 'string' || /[\r\n]/.test(v) || v.length > 1024)
-			return `${seccion}: variable de entorno mal formada (${k})`;
+			return `${seccion}: malformed environment variable (${k})`;
 	for (const k of x.entorno?.generar ?? [])
 		if (typeof k !== 'string' || !CLAVE_ENTORNO.test(k))
-			return `${seccion}: variable a generar mal formada (${k})`;
+			return `${seccion}: malformed variable to generate (${k})`;
 	return null;
 }
 
@@ -347,7 +347,7 @@ const IMAGEN = /^([a-z0-9.-]+(:[0-9]+)?\/)?[a-z0-9._\/-]+(:[A-Za-z0-9._-]+)?@sha
 export function compararVersiones(a: string, b: string) {
 	const x = SEMVER.exec(a);
 	const y = SEMVER.exec(b);
-	if (!x || !y) throw new Error(`versión mal formada: ${a} / ${b}`);
+	if (!x || !y) throw new Error(`malformed version: ${a} / ${b}`);
 	for (let i = 1; i <= 3; i++)
 		if (Number(x[i]) !== Number(y[i])) return Number(x[i]) - Number(y[i]);
 	return 0;
@@ -376,22 +376,22 @@ export function verificarRelease(
 	} catch {
 		valida = false;
 	}
-	if (!valida) return { ok: false, motivo: 'la versión no está firmada por SeguridadSI' };
+	if (!valida) return { ok: false, motivo: 'the version is not signed by SeguridadSI' };
 	const r = JSON.parse(f.release) as Release;
-	if (!SEMVER.test(r.version)) return { ok: false, motivo: 'número de versión mal formado' };
+	if (!SEMVER.test(r.version)) return { ok: false, motivo: 'malformed version number' };
 	const servicios = Object.entries(r.servicios ?? {});
-	if (servicios.length === 0) return { ok: false, motivo: 'la versión no trae servicios' };
+	if (servicios.length === 0) return { ok: false, motivo: 'the version includes no services' };
 	for (const [nombre, imagen] of servicios)
 		if (!/^[a-z][a-z0-9-]{0,30}$/.test(nombre) || !IMAGEN.test(imagen))
-			return { ok: false, motivo: `imagen de ${nombre} sin digest o mal formada` };
+			return { ok: false, motivo: `image for ${nombre} has no digest or is malformed` };
 	if (r.actualizador !== undefined && !IMAGEN.test(r.actualizador))
-		return { ok: false, motivo: 'imagen del actualizador sin digest o mal formada' };
+		return { ok: false, motivo: 'updater image has no digest or is malformed' };
 	for (const seccion of ['nodo', 'sensorRemoto'] as const) {
 		if (r[seccion] === undefined) continue;
 		const m = motivoConfiguracion(seccion, r[seccion]);
 		if (m) return { ok: false, motivo: m };
 		if (!r.actualizador)
-			return { ok: false, motivo: 'una versión con configuración tiene que traer el actualizador' };
+			return { ok: false, motivo: 'a version with configuration must include the updater' };
 	}
 	return { ok: true, release: r };
 }

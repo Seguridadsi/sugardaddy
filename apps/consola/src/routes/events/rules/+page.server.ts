@@ -1,0 +1,110 @@
+import { fail } from '@sveltejs/kit';
+import { rango } from '@sugardaddy/canal';
+import { exigir } from '$lib/server/auth/permisos';
+import { puede } from '$lib/permisos';
+import {
+	ESTADOS_TRIAJE,
+	borrarReglaTriaje,
+	cambiarActivaReglaTriaje,
+	crearReglaTriaje,
+	nombresTrampas,
+	reglasTriaje,
+	type EstadoTriaje
+} from '$lib/server/consultas';
+import { migrados } from '$lib/server/origenes-comun';
+import { CRITERIOS_TRIAJE, type CriterioTriaje } from '$lib/server/triaje-auto';
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/* El valor de una regla, validado según su criterio. Devuelve el error o null. */
+function valorMal(
+	criterio: CriterioTriaje,
+	valor: string,
+	trampas: Record<string, string>
+): string | null {
+	const v = valor.trim();
+	if (!v) return 'Enter a value for the rule.';
+	if (v.length > 200) return 'The value is too long.';
+	if (criterio === 'ip' && !rango(v))
+		return 'Enter an IP address (10.0.0.5) or a CIDR range (10.0.0.0/24).';
+	if (criterio === 'trampa' && !trampas[v]) return 'That decoy does not exist.';
+	return null;
+}
+
+export const load = async ({ url, locals }) => {
+	const nombres = await nombresTrampas();
+	/* Prefill del formulario cuando se llega desde un perfil de IP o de usuario
+	 * («Crear regla para…»): se valida igual que al enviar; un valor raro se ignora. */
+	const criterioPedido = url.searchParams.get('criterio') ?? '';
+	const criterio = (CRITERIOS_TRIAJE as readonly string[]).includes(criterioPedido)
+		? (criterioPedido as CriterioTriaje)
+		: 'ip';
+	const valor = (url.searchParams.get('valor') ?? '').trim().slice(0, 200);
+	/* Las reglas por IP que pasaron a Orígenes conocidos ya no se aplican ni se enseñan aquí. */
+	const m = await migrados();
+	const pasadas = new Set(m?.triaje ?? []);
+	return {
+		reglas: (await reglasTriaje()).filter((r) => !pasadas.has(r.id)),
+		origenes: !!m,
+		pasadas: pasadas.size,
+		nombres,
+		trampas: Object.entries(nombres).map(([id, nombre]) => ({ id, nombre })),
+		criterios: CRITERIOS_TRIAJE,
+		estados: ESTADOS_TRIAJE,
+		/* El valor de trampa solo se prefilla si existe esa trampa. */
+		prefill: { criterio, valor: criterio === 'trampa' && !nombres[valor] ? '' : valor },
+		/* La gestión es de operador; a un lector se le enseña la lista, pero no los controles. */
+		puedeEditar: !!locals.usuario && puede(locals.usuario.roles, 'desplegar')
+	};
+};
+
+export const actions = {
+	crear: async ({ request, locals }) => {
+		const u = exigir(locals, 'desplegar');
+		const f = await request.formData();
+		const criterio = String(f.get('criterio') ?? '');
+		const valor = String(f.get('valor') ?? '');
+		const estado = String(f.get('estado') ?? '');
+		const nota = String(f.get('nota') ?? '');
+		if (!(CRITERIOS_TRIAJE as readonly string[]).includes(criterio))
+			return fail(400, { error: 'Invalid criterion.' });
+		if (!(ESTADOS_TRIAJE as readonly string[]).includes(estado))
+			return fail(400, { error: 'Invalid status.' });
+		/* «Esta IP es mía» no es un triaje: es un origen conocido (tampoco avisa ni se bloquea). */
+		if (criterio === 'ip' && estado !== 'interesante' && (await migrados()))
+			return fail(400, {
+				error:
+					'An IP or network of yours that does not need review is a known source: add it there.',
+				aOrigenes: valor.trim(),
+				nota: nota.trim()
+			});
+		const nombres = await nombresTrampas();
+		const mal = valorMal(criterio as CriterioTriaje, valor, nombres);
+		if (mal) return fail(400, { error: mal });
+		await crearReglaTriaje(u.correo, {
+			criterio: criterio as CriterioTriaje,
+			valor,
+			estado: estado as EstadoTriaje,
+			nota: nota || null
+		});
+		return { mensaje: 'Rule created. It will apply to new events.' };
+	},
+	cambiarActiva: async ({ request, locals }) => {
+		const u = exigir(locals, 'desplegar');
+		const f = await request.formData();
+		const id = String(f.get('id') ?? '');
+		const activa = f.get('activa') === 'true';
+		if (!UUID.test(id)) return fail(400, { error: 'Invalid rule.' });
+		const ok = await cambiarActivaReglaTriaje(u.correo, id, activa);
+		if (!ok) return fail(404, { error: 'That rule no longer exists.' });
+		return { mensaje: activa ? 'Rule enabled.' : 'Rule disabled.' };
+	},
+	borrar: async ({ request, locals }) => {
+		const u = exigir(locals, 'desplegar');
+		const id = String((await request.formData()).get('id') ?? '');
+		if (!UUID.test(id)) return fail(400, { error: 'Invalid rule.' });
+		const ok = await borrarReglaTriaje(u.correo, id);
+		if (!ok) return fail(404, { error: 'That rule no longer exists.' });
+		return { mensaje: 'Rule deleted. Triage it already applied is kept.' };
+	}
+};

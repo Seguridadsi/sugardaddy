@@ -45,7 +45,7 @@ const CODIGO: Record<string, string> = {
 const fuente = JSON.parse(readFileSync(process.argv[2] ?? 'ne-admin1.geojson', 'utf8'));
 const provincias = (fuente.features as Provincia[]).filter((f) => f.properties.adm0_a3 === 'ESP');
 for (const p of provincias)
-	if (!CODIGO[p.properties.region]) throw new Error(`Comunidad sin código: ${p.properties.region}`);
+	if (!CODIGO[p.properties.region]) throw new Error(`Region with no code: ${p.properties.region}`);
 
 const coleccion = (fs: Provincia[]) => ({ type: 'FeatureCollection', features: fs }) as never;
 const canarias = provincias.filter((p) => CODIGO[p.properties.region] === 'CN');
@@ -107,4 +107,4 @@ writeFileSync(
 		zonas: [...zonas].map(([id, d]) => ({ id, d }))
 	})
 );
-console.log(`${zonas.size} comunidades, ${ANCHO}x${ALTO}`);
+console.log(`${zonas.size} regions, ${ANCHO}x${ALTO}`);

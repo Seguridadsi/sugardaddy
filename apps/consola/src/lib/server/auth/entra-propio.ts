@@ -101,15 +101,15 @@ export async function guardarEntraPropio(
 	if (!GUID.test(tenant) && !DOMINIO.test(tenant))
 		return {
 			ok: false,
-			error: 'El tenant es un GUID (o un dominio del tipo empresa.onmicrosoft.com).'
+			error: 'The tenant is a GUID (or a domain such as company.onmicrosoft.com).'
 		};
-	if (!GUID.test(clientId))
-		return { ok: false, error: 'El id de la aplicación (cliente) es un GUID.' };
-	if (secreto.length > 256) return { ok: false, error: 'Ese secreto es demasiado largo.' };
+	if (!GUID.test(clientId)) return { ok: false, error: 'The application (client) ID is a GUID.' };
+	if (secreto.length > 256) return { ok: false, error: 'That secret is too long.' };
 	if (estadoClave() !== 'lista')
 		return {
 			ok: false,
-			error: 'Este nodo no tiene su clave para guardar secretos (CLAVE_SECRETOS en el .env).'
+			error:
+				'This node does not have its key for storing secrets (CLAVE_SECRETOS in the .env file).'
 		};
 
 	const previo = await leer();
@@ -121,14 +121,15 @@ export async function guardarEntraPropio(
 	} else if (previo && previo.clientId === clientId && descifrar(previo.secreto, CONTEXTO).ok) {
 		sobre = previo.secreto;
 		fin = previo.final;
-	} else return { ok: false, error: 'Falta el secreto de la aplicación.' };
+	} else return { ok: false, error: 'The application secret is missing.' };
 
 	const existe = await comprobar(tenant);
-	if (existe === 'no') return { ok: false, error: 'Microsoft no conoce ese tenant. Revísalo.' };
+	if (existe === 'no')
+		return { ok: false, error: 'Microsoft does not recognize that tenant. Check it.' };
 	if (existe === 'sin-red')
 		return {
 			ok: false,
-			error: 'No se llega a Microsoft desde el nodo. Revisa su salida a internet.'
+			error: 'Microsoft cannot be reached from the node. Check its internet access.'
 		};
 
 	await escribir({
@@ -140,7 +141,7 @@ export async function guardarEntraPropio(
 		guardadoPor: quien,
 		guardado: new Date().toISOString()
 	});
-	await auditar(quien, 'entrada con Microsoft (Entra propio) guardada, pendiente de probar', {
+	await auditar(quien, 'Microsoft sign-in (own Entra) saved, pending test', {
 		tenant,
 		clientId
 	});
@@ -157,7 +158,7 @@ export async function activarEntraPropio(quien: string, probadoCon: string) {
 		activadoPor: probadoCon,
 		activado: new Date().toISOString()
 	});
-	await auditar(quien, 'entrada con Microsoft (Entra propio) activada', {
+	await auditar(quien, 'Microsoft sign-in (own Entra) enabled', {
 		tenant: g.tenant,
 		clientId: g.clientId,
 		probadaCon: probadoCon
@@ -167,7 +168,7 @@ export async function activarEntraPropio(quien: string, probadoCon: string) {
 
 export async function quitarEntraPropio(quien: string) {
 	const [f] = await db.delete(s.ajustes).where(eq(s.ajustes.clave, AJUSTE)).returning();
-	if (f) await auditar(quien, 'entrada con Microsoft (Entra propio) quitada');
+	if (f) await auditar(quien, 'Microsoft sign-in (own Entra) removed');
 	return !!f;
 }
 

@@ -112,10 +112,10 @@ export function verificarLista(
 	} catch {
 		valida = false;
 	}
-	if (!valida) return { ok: false, motivo: 'lista no firmada por el panel' };
+	if (!valida) return { ok: false, motivo: 'list not signed by Central' };
 	const l = JSON.parse(f.lista) as ListaGlobal;
-	if (l.version !== 1) return { ok: false, motivo: 'versión de lista desconocida' };
-	if (Date.parse(l.caduca) < ahora) return { ok: false, motivo: 'lista caducada' };
+	if (l.version !== 1) return { ok: false, motivo: 'unknown list version' };
+	if (Date.parse(l.caduca) < ahora) return { ok: false, motivo: 'list expired' };
 	return { ok: true, lista: l };
 }
 
@@ -160,11 +160,11 @@ export function verificarListaTor(
 	} catch {
 		valida = false;
 	}
-	if (!valida) return { ok: false, motivo: 'lista no firmada por el panel' };
+	if (!valida) return { ok: false, motivo: 'list not signed by Central' };
 	const l = JSON.parse(f.lista) as ListaTor;
-	if (l.version !== 1 || l.tipo !== 'tor') return { ok: false, motivo: 'no es una lista de Tor' };
-	if (Date.parse(l.caduca) < ahora) return { ok: false, motivo: 'lista caducada' };
+	if (l.version !== 1 || l.tipo !== 'tor') return { ok: false, motivo: 'not a Tor list' };
+	if (Date.parse(l.caduca) < ahora) return { ok: false, motivo: 'list expired' };
 	if (!Array.isArray(l.ips) || l.ips.some((ip) => !isIP(ip)))
-		return { ok: false, motivo: 'la lista trae algo que no es una IP' };
+		return { ok: false, motivo: 'the list contains something that is not an IP' };
 	return { ok: true, lista: l };
 }

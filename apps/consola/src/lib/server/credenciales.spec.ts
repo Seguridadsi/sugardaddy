@@ -9,12 +9,12 @@ describe('alerta por el nombre de la empresa', () => {
 	const lista = ['Aldanza'];
 
 	it('salta si la contraseña contiene la palabra, sin importar mayúsculas ni tildes', () => {
-		expect(alertaPara('ALDANZA2024!', null, lista)).toBe('La contraseña contiene «Aldanza»');
+		expect(alertaPara('ALDANZA2024!', null, lista)).toBe('Password contains "Aldanza"');
 		expect(alertaPara('aldánza', null, lista)).not.toBeNull();
 	});
 
 	it('salta si la contiene el usuario', () => {
-		expect(alertaPara('123456', 'admin.aldanza', lista)).toBe('El usuario contiene «Aldanza»');
+		expect(alertaPara('123456', 'admin.aldanza', lista)).toBe('Username contains "Aldanza"');
 	});
 
 	it('no salta con variantes ni parecidos: solo la palabra tal cual', () => {
@@ -52,7 +52,7 @@ describe('contraseña de un evento', () => {
 		const c = credencialDe({ ...base, detalle: { password: 'Aldanza1' } }, campo, ['aldanza']);
 		expect(c).toEqual({
 			contrasena: 'Aldanza1',
-			alerta: 'La contraseña contiene «aldanza»',
+			alerta: 'Password contains "aldanza"',
 			severidad: 'critica'
 		});
 	});

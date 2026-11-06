@@ -135,7 +135,7 @@ func (t *toques) tocar(ctx context.Context, ordenes []plan.Toque, informar func(
 	turno := make(chan struct{}, toquesALaVez)
 	for _, o := range ordenes {
 		if !valido(o) {
-			slog.Warn("toque mal formado", "id", o.ID, "trampa", o.Trampa)
+			slog.Warn("malformed touch", "id", o.ID, "trampa", o.Trampa)
 			continue
 		}
 		todos.Add(1)
@@ -157,7 +157,7 @@ func (t *toques) tocar(ctx context.Context, ordenes []plan.Toque, informar func(
 				c.Close()
 			}
 			if err := informar(ctx, o.ID, err == nil, detalle); err != nil {
-				slog.Warn("no se pudo contar cómo fue un toque", "id", o.ID, "err", err)
+				slog.Warn("could not count how a touch went", "id", o.ID, "err", err)
 			}
 		}()
 	}

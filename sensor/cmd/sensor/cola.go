@@ -72,7 +72,7 @@ func (s *sensor) retomarDescartes() {
 		return
 	}
 	if err := json.Unmarshal(s.estado.Descartados, &s.descartes); err != nil {
-		slog.Warn("no se entiende lo descartado pendiente de resumir; se pierde su resumen", "err", err)
+		slog.Warn("cannot parse the discarded events waiting to be summarized; their summary is lost", "err", err)
 		s.descartes = nil
 	}
 }

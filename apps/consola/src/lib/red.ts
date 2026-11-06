@@ -17,10 +17,10 @@ export function redDelFormulario(
 ): { red: string | null; vlan: number | null; redNombre: string | null } | { error: string } {
 	const red = leerRed(String(f.get('red') ?? ''));
 	if (red === undefined)
-		return { error: 'La red va en CIDR IPv4, de /8 a /32 (p. ej. 10.70.0.0/24).' };
+		return { error: 'The network must be IPv4 CIDR, from /8 to /32 (e.g. 10.70.0.0/24).' };
 	const vlan = leerVlan(String(f.get('vlan') ?? ''));
-	if (vlan === undefined) return { error: 'La VLAN es un número del 1 al 4094.' };
+	if (vlan === undefined) return { error: 'The VLAN must be a number from 1 to 4094.' };
 	const redNombre = String(f.get('redNombre') ?? '').trim();
-	if (redNombre.length > 60) return { error: 'El nombre de la red admite hasta 60 caracteres.' };
+	if (redNombre.length > 60) return { error: 'The network name can be up to 60 characters.' };
 	return { red, vlan, redNombre: redNombre || null };
 }

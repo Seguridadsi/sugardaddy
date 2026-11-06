@@ -53,9 +53,9 @@ const requisitoIPPropia: Requisito = {
 	hecho: 'red.capa2',
 	igual: true,
 	motivo:
-		'Necesita el modo de red «IP propia»: su tráfico es de capa 2 (multidifusión, difusión o el enlace crudo) y no cruza el NAT del puente de Docker.',
+		'Needs the "own IP" network mode: its traffic is layer 2 (multicast, broadcast or the raw link) and does not cross the Docker bridge NAT.',
 	remedio:
-		'Instala el sensor en la VLAN a vigilar, con red por cable (no Wi-Fi ni nube) y con un rango de IP propia reservado.'
+		'Install the sensor on the VLAN to monitor, on a wired network (not Wi-Fi or cloud), with a reserved range of own IPs.'
 };
 
 /* Un v1 como honeycosa: su contenedor pasa a ser la vía «contenedor» con contenedor@1. */

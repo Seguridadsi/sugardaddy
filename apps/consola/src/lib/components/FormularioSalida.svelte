@@ -105,10 +105,10 @@
 	const pedidos = $derived(canal.secretos.filter((x) => cumple(x.si)));
 
 	const NOMBRE_SEVERIDAD: Record<string, string> = {
-		baja: 'Baja: todo',
-		media: 'Media o más',
-		alta: 'Alta o más',
-		critica: 'Solo crítica'
+		baja: 'Low: everything',
+		media: 'Medium or higher',
+		alta: 'High or higher',
+		critica: 'Critical only'
 	};
 
 	let eventos = $derived(valores.reglas.eventos);
@@ -120,18 +120,18 @@
 	const elegidas = $derived(new Set(valores.reglas.trampas ?? []));
 	const accionesElegidas = $derived(new Set(valores.reglas.acciones ?? []));
 	const guardado = (id: string) => guardados.find((g) => g.id === id);
-	const fecha = (iso: string) => new Date(iso).toLocaleDateString('es-ES');
+	const fecha = (iso: string) => new Date(iso).toLocaleDateString('en-GB');
 </script>
 
 <div class="campo">
-	<label for="s-nombre">Nombre</label>
+	<label for="s-nombre">Name</label>
 	<input
 		id="s-nombre"
 		name="nombre"
 		required
 		maxlength="80"
 		value={valores.nombre}
-		placeholder="SIEM del SOC, correo de guardia…"
+		placeholder="SOC SIEM, on-call email…"
 	/>
 </div>
 
@@ -147,8 +147,8 @@
 		{/if}
 		{#if !claveLista}
 			<p class="aviso">
-				Este nodo aún no tiene su clave para guardar secretos: se crea al actualizarlo. Hasta
-				entonces, esta salida no puede guardar ninguno.
+				This node does not have its key for storing secrets yet: it is created when the node is
+				updated. Until then, this output cannot store any.
 			</p>
 		{/if}
 		{#each pedidos as x (x.id)}
@@ -156,7 +156,7 @@
 			<div class="campo">
 				<label for="s-{x.id}">
 					{x.titulo}
-					{#if !x.obligatorio && !x.necesario}<small>opcional</small>{/if}
+					{#if !x.obligatorio && !x.necesario}<small>optional</small>{/if}
 				</label>
 				<input
 					id="s-{x.id}"
@@ -167,19 +167,19 @@
 					spellcheck="false"
 					required={(x.obligatorio || x.necesario) && !g?.puesto}
 					placeholder={g?.puesto
-						? `Guardado${g.final ? `, acaba en …${g.final}` : ''}: escribe otro para cambiarlo`
+						? `Stored${g.final ? `, ends in …${g.final}` : ''}: type a new one to change it`
 						: ''}
 				/>
 				<p class="ayuda">
-					{x.descripcion} Se guarda cifrado con la clave de este nodo y no se vuelve a enseñar.
+					{x.descripcion} It is stored encrypted with this node's key and is never shown again.
 					{#if g?.puesto && g.cuando}
-						Lo puso {g.quien} el {fecha(g.cuando)}.
+						Set by {g.quien} on {fecha(g.cuando)}.
 					{/if}
 				</p>
 				{#if g?.puesto && !x.obligatorio && !x.necesario}
 					<label class="marca">
 						<input type="checkbox" name="s.{x.id}.quitar" />
-						Quitarlo
+						Remove it
 					</label>
 				{/if}
 			</div>
@@ -188,15 +188,15 @@
 {/if}
 
 <fieldset>
-	<legend>Qué envía</legend>
+	<legend>What it sends</legend>
 	<label class="interruptor">
 		<input type="checkbox" name="incidentes" checked={valores.reglas.incidentes !== false} />
 		<span>
-			<b>Incidentes (recomendado)</b>
+			<b>Incidents (recommended)</b>
 			<small>
-				Lo que importa, sin ruido: un aviso cuando un origen tiene pinta de ataque (una trampa que
-				solo toca un atacante, una de la red interna, o muchos puntos en una hora), sus novedades
-				agrupadas y un resumen al cerrarse.
+				What matters, without the noise: an alert when a source looks like an attack (a decoy that
+				only an attacker would touch, one on the internal network, or many touches within an hour),
+				its updates grouped together and a summary when it closes.
 			</small>
 		</span>
 	</label>
@@ -204,11 +204,10 @@
 	<label class="interruptor">
 		<input type="checkbox" name="resumenSemanal" checked={valores.reglas.resumenSemanal === true} />
 		<span>
-			<b>Resumen semanal</b>
+			<b>Weekly summary</b>
 			<small>
-				Los lunes por la mañana, la semana en pocas líneas: los incidentes reales, lo que tocaron
-				tus orígenes conocidos, el ruido de internet y los pentests. Pensado para personas (correo,
-				Teams, Slack…).
+				On Monday mornings, the week in a few lines: real incidents, what your known sources
+				touched, internet noise and pentests. Designed for people (email, Teams, Slack…).
 			</small>
 		</span>
 	</label>
@@ -221,14 +220,14 @@
 			onchange={(e) => (eventos = e.currentTarget.checked)}
 		/>
 		<span>
-			<b>Eventos de las trampas</b>
-			<small>Cada vez que alguien toca una trampa, con estos filtros.</small>
+			<b>Decoy events</b>
+			<small>Every time someone touches a decoy, using these filters.</small>
 		</span>
 	</label>
 
 	<div class="filtros" class:apagado={!eventos}>
 		<div class="campo">
-			<label for="s-severidad">Severidad mínima</label>
+			<label for="s-severidad">Minimum severity</label>
 			<select id="s-severidad" name="severidad" value={valores.reglas.severidadMinima}>
 				{#each severidades as sv (sv)}
 					<option value={sv}>{NOMBRE_SEVERIDAD[sv] ?? sv}</option>
@@ -237,7 +236,7 @@
 		</div>
 
 		<div class="grupo">
-			<span class="titulo">De qué trampas</span>
+			<span class="titulo">Which decoys</span>
 			<label class="marca">
 				<input
 					type="radio"
@@ -246,7 +245,7 @@
 					checked={trampasModo === 'todas'}
 					onchange={() => (trampasModo = 'todas')}
 				/>
-				Todas, también las que pongas después
+				All, including decoys you deploy later
 			</label>
 			<label class="marca">
 				<input
@@ -257,7 +256,7 @@
 					onchange={() => (trampasModo = 'algunas')}
 					disabled={!trampas.length}
 				/>
-				Solo algunas
+				Only some
 			</label>
 			{#if trampasModo === 'algunas'}
 				<div class="lista">
@@ -272,9 +271,10 @@
 		</div>
 
 		<div class="grupo">
-			<span class="titulo">De qué ubicación</span>
+			<span class="titulo">Which location</span>
 			<p class="nota">
-				Dónde está la trampa: la suya o, si no tiene, la de su sensor. Sin marcar ninguna, de todas.
+				Where the decoy is: its own location or, if it has none, that of its sensor. If none is
+				ticked, all locations are included.
 			</p>
 			<div class="en-linea">
 				{#each ENTORNOS as e (e)}
@@ -287,7 +287,7 @@
 		</div>
 
 		<div class="grupo">
-			<span class="titulo">Qué tipo de evento</span>
+			<span class="titulo">Which event type</span>
 			<label class="marca">
 				<input
 					type="radio"
@@ -296,7 +296,7 @@
 					checked={accionesModo === 'todas'}
 					onchange={() => (accionesModo = 'todas')}
 				/>
-				Todos
+				All
 			</label>
 			<label class="marca">
 				<input
@@ -306,7 +306,7 @@
 					checked={accionesModo === 'algunas'}
 					onchange={() => (accionesModo = 'algunas')}
 				/>
-				Solo algunos
+				Only some
 			</label>
 			{#if accionesModo === 'algunas'}
 				<div class="lista columnas">
@@ -324,10 +324,10 @@
 	<label class="interruptor">
 		<input type="checkbox" name="salud" checked={valores.reglas.salud} />
 		<span>
-			<b>Avisos de salud del nodo</b>
+			<b>Node health alerts</b>
 			<small>
-				Un sensor que deja de contestar, una trampa caída o parada, la cola de otra salida llena, y
-				cuando se arreglan.
+				A sensor that stops responding, a decoy that is down or stopped, another output's queue
+				being full, and when they recover.
 			</small>
 		</span>
 	</label>
@@ -335,17 +335,17 @@
 	<label class="interruptor">
 		<input type="checkbox" name="respuesta" checked={valores.reglas.respuesta !== false} />
 		<span>
-			<b>Lo que hace Respuesta</b>
+			<b>What Response does</b>
 			<small>
-				Cada contención ejecutada, simulada o fallida, lo que las guardas no dejan hacer y, sobre
-				todo, lo que espera tu aprobación, con el enlace a la consola.
+				Every containment action executed, simulated or failed, what the safeguards do not allow
+				and, above all, what is waiting for your approval, with a link to the console.
 			</small>
 		</span>
 	</label>
 </fieldset>
 
 <fieldset>
-	<legend>Cuándo</legend>
+	<legend>When</legend>
 	<label class="marca">
 		<input
 			type="radio"
@@ -354,7 +354,7 @@
 			checked={agrupacion === 'inmediato'}
 			onchange={() => (agrupacion = 'inmediato')}
 		/>
-		Cada uno en cuanto pasa
+		Each one as it happens
 	</label>
 	<label class="marca resumen">
 		<input
@@ -364,7 +364,7 @@
 			checked={agrupacion === 'resumen'}
 			onchange={() => (agrupacion = 'resumen')}
 		/>
-		Todo junto, en un resumen cada
+		All together, in a digest every
 		<input
 			class="minutos mono"
 			type="number"
@@ -373,18 +373,18 @@
 			max="1440"
 			step="1"
 			value={minutos}
-			aria-label="Minutos entre resúmenes"
+			aria-label="Minutes between digests"
 			class:apagado={agrupacion !== 'resumen'}
 		/>
-		minutos
+		minutes
 	</label>
 </fieldset>
 
 <label class="interruptor">
 	<input type="checkbox" name="activa" checked={valores.activa} />
 	<span>
-		<b>Activa</b>
-		<small>Si la pausas, deja de recibir y lo que tuviera pendiente se descarta.</small>
+		<b>Enabled</b>
+		<small>If you pause it, it stops receiving and anything pending is discarded.</small>
 	</span>
 </label>
 

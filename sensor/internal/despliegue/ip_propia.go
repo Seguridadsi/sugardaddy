@@ -90,7 +90,7 @@ func direccionesDelAnfitrion() (map[netip.Addr]bool, error) {
 	dir := map[netip.Addr]bool{}
 	lista, err := addrsDelAnfitrion()
 	if err != nil {
-		return nil, fmt.Errorf("no se pudieron leer las direcciones locales del anfitrión: %w", err)
+		return nil, fmt.Errorf("could not read the local addresses of the host: %w", err)
 	}
 	for _, a := range lista {
 		if ipn, es := a.(*net.IPNet); es {
@@ -121,11 +121,11 @@ func direccionesDelAnfitrion() (map[netip.Addr]bool, error) {
 // suya y las IP están escritas en la prueba, no hay que buscarlas.
 func IPPropia(o Opciones, s plan.TrampaPlan) (string, error) {
 	if o.RedPropia == nil {
-		return "", fmt.Errorf("la trampa %s pide el modo de red «IP propia» y este sensor no lo trae (docs/diseno/red.md)", s.ID)
+		return "", fmt.Errorf("decoy %s asks for the own-IP network mode and this sensor does not support it (docs/diseno/red.md)", s.ID)
 	}
 	if o.RedPropia.Puente != "" {
 		if o.RedPropia.IPFija == "" {
-			return "", fmt.Errorf("la red de banco %s no trae la IP de la trampa", o.RedPropia.Puente)
+			return "", fmt.Errorf("bench network %s does not carry the decoy IP", o.RedPropia.Puente)
 		}
 		return o.RedPropia.IPFija, nil
 	}
@@ -139,7 +139,7 @@ func IPPropia(o Opciones, s plan.TrampaPlan) (string, error) {
 	}
 	rango := o.RedPropia.Rango
 	if !rango.IsValid() || !rango.Addr().Is4() || rango.Bits() < 8 || rango.Bits() > 30 {
-		return "", fmt.Errorf("el rango de IP propias (%s) no vale: tiene que ser un CIDR IPv4 de /8 a /30, con sitio para una trampa", o.RedPropia.Rango)
+		return "", fmt.Errorf("the own-IP range (%s) is not valid: it must be an IPv4 CIDR from /8 to /30, with room for a decoy", o.RedPropia.Rango)
 	}
 	// Las direcciones útiles del rango: sin la dirección de red y sin la
 	// primera IP (la «pasarela que nadie tiene», pasarelaNadie).
@@ -173,7 +173,7 @@ func IPPropia(o Opciones, s plan.TrampaPlan) (string, error) {
 	// Lo que de verdad se puede sondear: todo menos difusión y anfitrión.
 	sondeables := cupo - 1 - delAnfitrion
 	if sondeables <= 0 {
-		return "", fmt.Errorf("el rango propio %s no tiene ninguna candidata para %s: todo él es difusión o direcciones del anfitrión", rango, s.ID)
+		return "", fmt.Errorf("own range %s has no candidate for %s: all of it is broadcast or host addresses", rango, s.ID)
 	}
 	// El sitio donde empieza esta trampa lo decide su nombre (fnv), para
 	// que dos trampas distintas no caigan a la primera IP a la vez — o por
@@ -211,7 +211,7 @@ func IPPropia(o Opciones, s plan.TrampaPlan) (string, error) {
 			delete(ipsPropias.siguiente, s.ID)
 			ipsPropias.acumuladas[s.ID] = 0
 			muIP.Unlock()
-			return "", fmt.Errorf("el rango propio %s no tiene una IP libre para %s (el sondeo ARP encontró equipo en todas)", rango, s.ID)
+			return "", fmt.Errorf("own range %s has no free IP for %s (the ARP probe found a device on every one)", rango, s.ID)
 		}
 		if sondadas >= topeSondas {
 			// Tope de esta vuelta (hallazgo 9): la siguiente llamada sigue
@@ -220,7 +220,7 @@ func IPPropia(o Opciones, s plan.TrampaPlan) (string, error) {
 			ipsPropias.siguiente[s.ID] = (sitio + i + 1) % cupo
 			ipsPropias.acumuladas[s.ID] = acumuladas
 			muIP.Unlock()
-			return "", fmt.Errorf("el rango propio %s no tiene una IP libre a la vista para %s (sondeadas %d candidatas esta vuelta; se sigue en la siguiente)", rango, s.ID, sondadas)
+			return "", fmt.Errorf("own range %s has no free IP in sight for %s (%d candidates probed this round; continuing in the next)", rango, s.ID, sondadas)
 		}
 	}
 	if hallada == "" {
@@ -230,7 +230,7 @@ func IPPropia(o Opciones, s plan.TrampaPlan) (string, error) {
 		delete(ipsPropias.siguiente, s.ID)
 		ipsPropias.acumuladas[s.ID] = 0
 		muIP.Unlock()
-		return "", fmt.Errorf("el rango propio %s no tiene una IP libre para %s (el sondeo ARP encontró equipo en todas)", rango, s.ID)
+		return "", fmt.Errorf("own range %s has no free IP for %s (the ARP probe found a device on every one)", rango, s.ID)
 	}
 	muIP.Lock()
 	delete(ipsPropias.siguiente, s.ID)

@@ -87,7 +87,7 @@ func (s *sensor) encolarArtefacto(e evento.Evento) {
 		}
 	}
 	if len(s.artefactos) >= maxArtefactosPendientes {
-		slog.Warn("captura: demasiadas copias pendientes de subir; esta se omite",
+		slog.Warn("capture: too many copies waiting to upload; skipping this one",
 			"trampa", e.Trampa.ID, "sha256", sha)
 		return
 	}
@@ -131,22 +131,22 @@ func (s *sensor) artefactosVencidos() []artefactoPendiente {
 // errArtefactoIncoherente: lo que se sacó del contenedor no cuadra con el
 // sha256 que la trampa apuntó en el evento. No se sube (no se fía) y se
 // descarta: reintentarlo daría lo mismo.
-var errArtefactoIncoherente = errors.New("el contenido del contenedor no cuadra con el sha256 del evento")
+var errArtefactoIncoherente = errors.New("the container content does not match the event sha256")
 
 func (s *sensor) intentarArtefacto(ctx context.Context, p artefactoPendiente) {
 	err := s.entregarArtefacto(ctx, p)
 	switch {
 	case err == nil:
 		s.quitarArtefacto(p.evento, p.sha256)
-		slog.Info("captura: copia subida a la consola", "trampa", p.trampa, "tipo", p.tipo, "sha256", p.sha256)
+		slog.Info("capture: copy uploaded to the console", "trampa", p.trampa, "tipo", p.tipo, "sha256", p.sha256)
 	case errors.Is(err, consola.ErrArtefactoRechazado), errors.Is(err, errArtefactoIncoherente):
 		s.quitarArtefacto(p.evento, p.sha256)
-		slog.Warn("captura: la copia no se sube; se descarta", "trampa", p.trampa, "sha256", p.sha256, "err", err)
+		slog.Warn("capture: the copy will not be uploaded; discarding it", "trampa", p.trampa, "sha256", p.sha256, "err", err)
 	default:
 		// Transitorio: el evento aún no llegó a la consola, el contenedor no
 		// está en marcha o la red falló. Se reintenta con espera creciente.
 		if !s.reintentarArtefacto(p.evento, p.sha256) {
-			slog.Warn("captura: se deja de intentar subir la copia", "trampa", p.trampa, "sha256", p.sha256, "err", err)
+			slog.Warn("capture: giving up on uploading the copy", "trampa", p.trampa, "sha256", p.sha256, "err", err)
 		}
 	}
 }
@@ -161,7 +161,7 @@ func (s *sensor) entregarArtefacto(ctx context.Context, p artefactoPendiente) er
 		return err
 	}
 	if id == "" {
-		return fmt.Errorf("la trampa %s no tiene contenedor en marcha", p.trampa)
+		return fmt.Errorf("decoy %s has no running container", p.trampa)
 	}
 	b, err := s.docker.LeerDeContenedor(ctx, id, p.outfile, topeArtefacto)
 	if err != nil {

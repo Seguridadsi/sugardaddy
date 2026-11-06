@@ -1,28 +1,32 @@
 version: 1
 id: smb
-nombre: Carpeta compartida (SMB)
+nombre: Shared folder (SMB)
 descripcion: >-
-  Un servidor de ficheros Windows (SMB) que parece una carpeta compartida de la red: negocia,
-  acepta el inicio de sesión y responde como uno real, pero no sirve ni ejecuta nada. Registra
-  cada negociación, el usuario, dominio y equipo que se autentican (con el hash NetNTLMv2 si
-  llega), el recurso al que se conectan, los ficheros que abren o intentan escribir (solo nombre,
-  huella y tamaño) y las sondas de gusanos como EternalBlue y DoublePulsar, marcadas como críticas.
+  A Windows file server (SMB) that looks like a network shared folder: it
+  negotiates, accepts sign-in and answers like a real one, but serves and
+  executes nothing. It records every negotiation, the user, domain and machine
+  that authenticate (with the NetNTLMv2 hash if it arrives), the resource they
+  connect to, the files they open or try to write (name, fingerprint and size
+  only) and probes from worms such as EternalBlue and DoublePulsar, marked as
+  critical.
 alerta:
   fidelidad: interno
 ficha:
   detecta: >-
-    Movimiento lateral y gusanos en tu red por SMB (el puerto 445): intentos de inicio de sesión
-    con robo de credenciales (captura usuario, dominio, equipo y el hash NetNTLMv2 para que veas
-    quién y desde dónde), conexión a recursos compartidos, apertura y escritura de ficheros, y
-    sondas de EternalBlue/DoublePulsar (MS17-010), el vector de WannaCry y NotPetya.
+    Lateral movement and worms on your network over SMB (port 445): sign-in
+    attempts with credential theft (captures user, domain, machine and the
+    NetNTLMv2 hash so you can see who and from where), connection to shared
+    resources, opening and writing files, and EternalBlue/DoublePulsar
+    (MS17-010) probes, the vector of WannaCry and NotPetya.
   donde: >-
-    En la red de servidores o de puestos, en una máquina que no comparta ya ficheros por SMB, con
-    un nombre de servidor de ficheros creíble (FS01, NAS01). Es el vector número uno de ransomware
-    y robo de credenciales: cualquiera que toque este 445 es sospechoso.
+    On the server or workstation network, on a machine that does not already
+    share files over SMB, with a believable file server name (FS01, NAS01). It
+    is the number one vector for ransomware and credential theft: anyone
+    touching this 445 is suspicious.
   requisitos:
-    - Un sensor Linux con Docker (el del nodo o uno instalado en otra máquina).
-    - Abrir en el cortafuegos de esa máquina el puerto que elijas (el 445 es el creíble).
-    - En Windows el 445 lo tiene el propio sistema; usa esta trampa en un sensor Linux, no en el puesto.
+    - A Linux sensor with Docker (the node's own or one installed on another machine).
+    - Open in that machine's firewall the port you choose (445 is the believable one).
+    - On Windows, 445 is held by the system itself; use this decoy on a Linux sensor, not on the workstation.
   instalacion:
     automatica: true
 versionModulo: 0.1.0
@@ -73,32 +77,32 @@ parametros:
   properties:
     puertoSmb:
       type: integer
-      title: Puerto SMB
-      description: El 445 es el estándar de SMB y el más creíble y atacado. Solo si la máquina no lo usa ya para compartir ficheros.
+      title: SMB port
+      description: 445 is the SMB standard and the most believable and attacked. Only if the machine does not already use it to share files.
       minimum: 1
       maximum: 65535
       default: 445
     nombreEquipo:
       type: string
       x-camuflaje: 'equipo:fs'
-      title: Nombre del equipo
-      description: El nombre NetBIOS que anuncia en la negociación y en el reto NTLM. Que encaje con los servidores de ficheros de la red (FS01, NAS01).
+      title: Computer name
+      description: The NetBIOS name it announces in the negotiation and in the NTLM challenge. It should fit the file servers on the network (FS01, NAS01).
       pattern: '^[A-Za-z0-9-]{1,15}$'
       default: FS01
     dominio:
       type: string
       x-camuflaje: 'netbios'
-      title: Dominio o grupo de trabajo
-      description: El dominio/grupo que anuncia. Pon el de tu red para que parezca un servidor más.
+      title: Domain or workgroup
+      description: The domain/group it announces. Use your network's so it looks like one more server.
       pattern: '^[A-Za-z0-9-]{1,15}$'
       default: WORKGROUP
     recursos:
       type: string
-      title: Recursos compartidos
+      title: Shared resources
       description: >-
-        Nombres de recursos creíbles, separados por comas (Finanzas, RRHH, Backups). Hacen la
-        trampa más creíble y aparecen en el registro; la trampa acepta la conexión a cualquier
-        recurso y nunca sirve datos de verdad.
+        Believable resource names, comma-separated (Finanzas, RRHH, Backups).
+        They make the decoy more believable and appear in the log; the decoy
+        accepts the connection to any resource and never serves real data.
       pattern: '^[^\x00]{0,256}$'
       maxLength: 256
       default: 'Finanzas,RRHH,Backups,IT$'
@@ -173,41 +177,41 @@ eventos:
   sesion: session
   resumen: [dominio, recurso, fichero, grave, ntlm_version, comando, interfaz, omitidos, motivo]
   etiquetas:
-    eventid: Evento
-    dst_port: Puerto
-    proto: Transporte
-    dialecto: Dialecto SMB
-    dominio: Dominio
-    password: Contraseña (si va en claro)
-    ntlm_version: Tipo de NTLM
-    ntlm_hash: Hash NetNTLM (hex)
-    reto: Reto del servidor (hex)
-    recurso: Recurso compartido
-    fichero: Fichero
-    huella: Huella del contenido (SHA-256)
-    tamano: Tamaño capturado (bytes)
-    interfaz: Interfaz DCERPC
-    opnum: Operación DCERPC
-    comando: Comando SMB
-    grave: Por qué es grave
-    variante: Variante de la respuesta
-    motivo_cierre: Motivo de cierre
-    omitidos: Eventos no apuntados
-    por_tipo: Por tipo de evento
-    ips_ruidosas: IP que más se callan
-    ips_distintas: IP distintas calladas
-    periodo_s: En los últimos (s)
-    tope_bytes: Tope diario (bytes)
-    motivo: Se calla por
-    error: Error del registro
-    smb.session.connect: Conexión
-    smb.session.negotiate: Negociación SMB
-    smb.session.auth: Inicio de sesión (credenciales)
-    smb.session.anonymous: Sesión nula o de invitado
-    smb.tree.connect: Conexión a un recurso
-    smb.file.open: Abre un fichero
-    smb.file.write: Escribe un fichero
-    smb.rpc.call: Llamada DCERPC
-    smb.exploit: Sonda de exploit (EternalBlue/DoublePulsar)
-    smb.log.omitidos: Eventos que no caben (resumen)
-    smb.session.rechazos: Conexiones rechazadas por tope (resumen)
+    eventid: Event
+    dst_port: Port
+    proto: Transport
+    dialecto: SMB dialect
+    dominio: Domain
+    password: Password (if sent in plaintext)
+    ntlm_version: NTLM type
+    ntlm_hash: NetNTLM hash (hex)
+    reto: Server challenge (hex)
+    recurso: Shared resource
+    fichero: File
+    huella: Content fingerprint (SHA-256)
+    tamano: Size captured (bytes)
+    interfaz: DCERPC interface
+    opnum: DCERPC operation
+    comando: SMB command
+    grave: Why it is critical
+    variante: Response variant
+    motivo_cierre: Reason for closing
+    omitidos: Events not recorded
+    por_tipo: By event type
+    ips_ruidosas: IPs most silenced
+    ips_distintas: Distinct IPs silenced
+    periodo_s: In the last (s)
+    tope_bytes: Daily limit (bytes)
+    motivo: Muted because
+    error: Log error
+    smb.session.connect: Connection
+    smb.session.negotiate: SMB negotiation
+    smb.session.auth: Sign-in (credentials)
+    smb.session.anonymous: Null or guest session
+    smb.tree.connect: Connection to a resource
+    smb.file.open: Opens a file
+    smb.file.write: Writes a file
+    smb.rpc.call: DCERPC call
+    smb.exploit: Exploit probe (EternalBlue/DoublePulsar)
+    smb.log.omitidos: Events that do not fit (summary)
+    smb.session.rechazos: Connections rejected by limit (summary)

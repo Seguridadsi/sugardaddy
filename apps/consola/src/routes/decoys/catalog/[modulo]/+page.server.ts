@@ -1,0 +1,51 @@
+import { error } from '@sveltejs/kit';
+import { puertosPublicados, tipoEvento, validarParametros } from '@sugardaddy/contrato';
+import type { CargaContenedor } from '@sugardaddy/contrato';
+import { tipoDeServicio } from '@sugardaddy/estilo/pictogramas';
+import {
+	catalogoConSuscripcion,
+	desplegable,
+	fichaDe,
+	porQueNo,
+	viaContenedor
+} from '$lib/server/catalogo';
+import { contarTrampasDe } from '$lib/server/consultas';
+
+/*
+ * La ficha de una trampa del catálogo, esté o no disponible para el cliente
+ * (en su suscripción y, si es de pago, en su licencia). Lo que se ejecuta (imagen, puertos, aislamiento) es lo de su vía
+ * contenedor@1. Se despliega desde aquí si tiene alguna vía que esta consola
+ * sabe poner: en un sensor o con pasos a mano (paso 11).
+ */
+export const load = async ({ params }) => {
+	const m = (await catalogoConSuscripcion()).find((x) => x.id === params.modulo);
+	if (!m) error(404, 'That decoy is not in the catalog');
+	const c = viaContenedor(m)?.carga as CargaContenedor | undefined;
+	const p = validarParametros(m.parametros, {});
+	return {
+		modulo: {
+			id: m.id,
+			nombre: m.nombre,
+			descripcion: m.descripcion,
+			tipo: tipoEvento(m),
+			version: m.versionModulo,
+			disponible: m.disponible,
+			instaladas: await contarTrampasDe(m.id),
+			porQueNo: porQueNo(m),
+			activarConRegistro: !m.disponible && m.conRegistro,
+			registroCaducado: m.licencia === 'registro.caducado',
+			desplegable: desplegable(m),
+			ficha: fichaDe(m) ?? null,
+			procedencia: m.procedencia ?? null,
+			pictograma: tipoDeServicio(m.id),
+			aislamiento: c?.aislamiento ?? null,
+			imagen: c?.contenedor.imagen ?? null,
+			puertos: c
+				? puertosPublicados(c, p.ok ? p.valor : {}).map((x) => `${x.puerto}/${x.protocolo}`)
+				: [],
+			ajustes: Object.values(m.parametros.properties)
+				.map((c) => (c as { title?: string }).title)
+				.filter(Boolean) as string[]
+		}
+	};
+};

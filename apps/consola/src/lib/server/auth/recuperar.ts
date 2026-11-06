@@ -62,9 +62,9 @@ async function mandar(correo: string, codigo: string): Promise<boolean> {
 
 async function enviarYApuntar(usuario: string, correo: string, codigo: string) {
 	const enviado = await mandar(correo, codigo);
-	await auditar('anónimo', 'código de recuperación pedido', {
+	await auditar('anonymous', 'recovery code requested', {
 		usuario,
-		resultado: enviado ? 'enviado' : 'no se pudo enviar'
+		resultado: enviado ? 'sent' : 'could not be sent'
 	});
 }
 
@@ -82,9 +82,9 @@ export async function pedirCodigo(usuario: string): Promise<void> {
 				.where(eq(s.usuariosLocales.usuario, nombre))
 		: [];
 	if (!u || !correoValido(u.correo)) {
-		await auditar('anónimo', 'código de recuperación pedido', {
+		await auditar('anonymous', 'recovery code requested', {
 			usuario: nombre,
-			resultado: u ? 'sin correo' : 'no existe'
+			resultado: u ? 'no email' : 'does not exist'
 		});
 		return;
 	}
@@ -104,9 +104,9 @@ export async function pedirCodigo(usuario: string): Promise<void> {
 		recientes.length >= POR_HORA ||
 		recientes.some((r) => ahora - r.creada.getTime() < ENTRE_PETICIONES_MS)
 	) {
-		await auditar('anónimo', 'código de recuperación pedido', {
+		await auditar('anonymous', 'recovery code requested', {
 			usuario: nombre,
-			resultado: 'frenado'
+			resultado: 'throttled'
 		});
 		return;
 	}
@@ -131,7 +131,7 @@ export async function pedirCodigo(usuario: string): Promise<void> {
 
 export type Canje = { ok: true; id: string; identidad: Identidad } | { ok: false; error: string };
 
-const NO_VALE = 'El código no vale o ha caducado. Pide otro.';
+const NO_VALE = 'The code is not valid or has expired. Request another.';
 
 /* Canjea el código: si vale, pone la contraseña nueva y cierra todos los códigos abiertos del usuario. */
 export async function canjearCodigo(
@@ -141,7 +141,7 @@ export async function canjearCodigo(
 ): Promise<Canje> {
 	if (!loginLocalHabilitado()) return { ok: false, error: NO_VALE };
 	if (nueva.length < MIN_CLAVE)
-		return { ok: false, error: `La contraseña necesita al menos ${MIN_CLAVE} caracteres.` };
+		return { ok: false, error: `The password needs at least ${MIN_CLAVE} characters.` };
 	const limpio = codigo.replace(/\s+/g, '');
 	const nombre = norma(usuario);
 	if (!/^\d{6}$/.test(limpio) || !nombre) return { ok: false, error: NO_VALE };
@@ -175,7 +175,7 @@ export async function canjearCodigo(
 						abiertas.map((a) => a.id)
 					)
 				);
-		await auditar('anónimo', 'código de recuperación fallido', { usuario: nombre });
+		await auditar('anonymous', 'recovery code failed', { usuario: nombre });
 		return { ok: false, error: NO_VALE };
 	}
 
@@ -193,7 +193,7 @@ export async function canjearCodigo(
 
 	const r = await cambiarClave(u.id, nueva);
 	if (!r.ok) return r;
-	await auditar(r.identidad.correo, 'contraseña restablecida con código', {
+	await auditar(r.identidad.correo, 'password reset with code', {
 		usuario: nombre,
 		origen: buena.origen
 	});

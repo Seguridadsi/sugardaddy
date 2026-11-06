@@ -26,7 +26,7 @@
 </div>
 
 <section class="panel">
-	<h2>Qué suma Sugardaddy Cloud</h2>
+	<h2>What Sugardaddy Cloud adds</h2>
 	<ul>
 		{#each puntos as punto}
 			<li>{punto}</li>
@@ -38,10 +38,10 @@
 </section>
 
 <div class="cta">
-	<p>¿Lo quieres en tu nodo? Hablamos y te lo activamos.</p>
+	<p>Want it on your node? Talk to us and we will enable it.</p>
 	<div class="acciones">
 		<a class="boton" href={CONTACTO} target="_blank" rel="noopener noreferrer">
-			Conocer Sugardaddy Cloud
+			Discover Sugardaddy Cloud
 		</a>
 		<a class="correo" href="mailto:{CORREO}">{CORREO}</a>
 	</div>

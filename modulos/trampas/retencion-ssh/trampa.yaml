@@ -1,25 +1,27 @@
 version: 1
 id: retencion-ssh
-nombre: Retención SSH o de banner (tarpit)
+nombre: SSH or banner tarpit
 descripcion: >-
-  Un puerto que parece un SSH, o el servicio que anuncie su saludo, y que nunca pasa de la
-  bienvenida: quien conecta se queda esperando horas, sin llegar ni a autenticarse. Registra
-  quién conecta, con qué cliente llega y cuánto tiempo pierde.
+  A port that looks like an SSH, or the service its greeting announces, and
+  never gets past the welcome: whoever connects is left waiting for hours,
+  without even getting to authenticate. It records who connects, with which
+  client they arrive and how much time they lose.
 alerta:
   fidelidad: internet
 ficha:
   detecta: >-
-    Quien intenta conectar por SSH, o al servicio que anuncia el saludo, y con qué cliente
-    llega (OpenSSH, libssh, paramiko, Go, o la primera orden que manda). Lo retiene horas sin
-    dejarle ni autenticarse, así que los barridos automáticos se atascan en esta máquina.
+    Anyone trying to connect over SSH, or to the service the greeting announces,
+    and with which client they arrive (OpenSSH, libssh, paramiko, Go, or the
+    first command they send). It holds them for hours without letting them even
+    authenticate, so automatic sweeps get stuck on this machine.
   donde: >-
-    En el 22 o el 2222 de servidores que no tienen SSH. En modo saludo, en puertos de
-    servicios que no existen en esa máquina (21 FTP, 23 Telnet, 25 SMTP, 3306 MySQL...),
-    con un saludo que encaje con el puerto.
+    On 22 or 2222 of servers that have no SSH. In greeting mode, on ports of
+    services that do not exist on that machine (21 FTP, 23 Telnet, 25 SMTP, 3306
+    MySQL...), with a greeting that fits the port.
   requisitos:
-    - Un sensor Linux con Docker (el del nodo o uno instalado en otra máquina).
-    - Abrir en el cortafuegos de esa máquina el puerto que elijas.
-    - 64 MB de memoria libres. Con mil conexiones retenidas gasta 21 MB y menos de 10 KB/s.
+    - A Linux sensor with Docker (the node's own or one installed on another machine).
+    - Open in that machine's firewall the port you choose.
+    - 64 MB of free memory. With a thousand held connections it uses 21 MB and less than 10 KB/s.
   instalacion:
     automatica: true
 versionModulo: 0.1.0
@@ -59,48 +61,49 @@ parametros:
   properties:
     puerto:
       type: integer
-      title: Puerto
+      title: Port
       description: >-
-        El 2222 o el 22 en modo SSH (el 22 solo si la máquina no usa ya el 22 para su SSH de
-        verdad). En modo saludo, el del servicio que finge: 21, 23, 25, 3306...
+        2222 or 22 in SSH mode (22 only if the machine does not already use 22
+        for its real SSH). In greeting mode, that of the service it pretends to
+        be: 21, 23, 25, 3306...
       minimum: 1
       maximum: 65535
       default: 2222
     modo:
       type: string
-      title: Qué finge ser
+      title: What it pretends to be
       description: >-
-        SSH retiene a los clientes SSH antes de la autenticación. Saludo manda el texto de
-        abajo, como lo haría un FTP, un SMTP o una base de datos, y no contesta nada más.
+        SSH holds SSH clients before authentication. Greeting sends the text
+        below, as an FTP, an SMTP or a database would, and answers nothing else.
       enum: [ssh, banner]
       x-opciones:
-        ssh: Un servidor SSH
-        banner: Otro servicio (saludo fijo)
+        ssh: An SSH server
+        banner: Another service (fixed greeting)
       default: ssh
     banner:
       type: string
-      title: Saludo
+      title: Greeting
       description: >-
-        Solo cuenta en el modo saludo. La primera línea que verá quien conecte, tal cual la da el
-        programa que finge y que encaje con el puerto: «220 (vsFTPd 3.0.5)» en el 21, «220
-        mail.tuempresa.local ESMTP Postfix» en el 25. Texto sin tildes ni saltos de línea, hasta
-        200 caracteres.
+        Only matters in greeting mode. The first line whoever connects will see,
+        exactly as the program it pretends to be gives it and fitting the port:
+        "220 (vsFTPd 3.0.5)" on 21, "220 mail.tuempresa.local ESMTP Postfix" on
+        25. Text without accents or line breaks, up to 200 characters.
       pattern: '^[\x20-\x7e]{1,200}$'
       maxLength: 200
       default: 220 (vsFTPd 3.0.5)
     retardo:
       type: integer
-      title: Segundos entre línea y línea
+      title: Seconds between lines
       description: >-
-        En modo SSH, cada cuánto le manda una línea. Con 10 casi ningún cliente se rinde y
-        apenas gasta red.
+        In SSH mode, how often it sends a line. With 10 almost no client gives
+        up and it barely uses any network.
       minimum: 1
       maximum: 60
       default: 10
     duracionMaxHoras:
       type: integer
-      title: Horas como mucho por conexión
-      description: Pasado este tiempo se le suelta, para que una conexión olvidada no ocupe un hueco para siempre.
+      title: Hours at most per connection
+      description: After this time it is released, so a forgotten connection does not occupy a slot forever.
       minimum: 1
       maximum: 168
       default: 24
@@ -153,29 +156,29 @@ eventos:
     - aviso
   resumen: [datos, duracion_s, motivo, rechazadas, sin_apuntar]
   etiquetas:
-    evento: Qué pasa
-    modo: Modo
-    datos: Cliente o primera orden
-    duracion_s: Retenido (s)
-    bytes: Bytes enviados
-    recibidos: Bytes recibidos
-    motivo: Se suelta por
-    rechazadas: Conexiones rechazadas
-    por_tope_global: Por el tope total
-    por_tope_ip: Por el tope de su IP
-    de_su_ip: De esta IP
-    ips_distintas: IP distintas
-    ips_sin_contar: De otras IP sin contar
-    activas: Conexiones retenidas
-    periodo_s: En los últimos (s)
-    sin_apuntar: Líneas sin apuntar
-    por_cupo_ip: Por el cupo de su IP
-    por_tope_dia: Por el tope del día
-    tope_bytes: Tope diario (bytes)
-    aviso: Aviso
-    conexion: Conecta
-    cliente: Se identifica
-    fin: Se suelta
-    rechazos: Rechazadas por tope (resumen)
-    callados: Le dan sin parar; lo suyo sale resumido
-    tope: Registro de hoy lleno; hasta mañana, solo resúmenes
+    evento: What happens
+    modo: Mode
+    datos: Client or first command
+    duracion_s: Held (s)
+    bytes: Bytes sent
+    recibidos: Bytes received
+    motivo: Released by
+    rechazadas: Connections rejected
+    por_tope_global: By the total limit
+    por_tope_ip: By its IP's limit
+    de_su_ip: From this IP
+    ips_distintas: Distinct IPs
+    ips_sin_contar: From other IPs not counted
+    activas: Connections held
+    periodo_s: In the last (s)
+    sin_apuntar: Lines not recorded
+    por_cupo_ip: By its IP's quota
+    por_tope_dia: By the daily limit
+    tope_bytes: Daily limit (bytes)
+    aviso: Alert
+    conexion: Connects
+    cliente: Identifies itself
+    fin: Released
+    rechazos: Rejected due to limit (summary)
+    callados: They keep hitting it; theirs comes out summarized
+    tope: Today's log is full; until tomorrow, summaries only

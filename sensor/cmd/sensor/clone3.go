@@ -31,7 +31,7 @@ func probarClone3() int {
 		fmt.Println("clone3:", e.Error())
 		return salidaClone3(e)
 	case <-time.After(esperaClone3):
-		fmt.Println("clone3: el perfil seccomp ha matado el hilo")
+		fmt.Println("clone3: the seccomp profile killed the thread")
 		return motor.SalidaClone3Bloqueado
 	}
 }

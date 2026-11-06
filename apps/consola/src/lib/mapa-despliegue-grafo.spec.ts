@@ -19,7 +19,7 @@ const trampa = (i: number, c: Partial<TrampaMapa> = {}): TrampaMapa => ({
 	id: `t${i}`,
 	nombre: `Trampa ${i}`,
 	modulo: null,
-	clase: 'Contenedor',
+	clase: 'Container',
 	estado: 'comprobada',
 	etiqueta: 'Comprobada',
 	motivo: null,
@@ -233,7 +233,7 @@ describe('armarGrafo', () => {
 				trampa(2, {
 					id: 'kp',
 					objetivo: 'rec',
-					ruta: { texto: 'Auditoría de Windows, hacia', destino: '10.0.0.1:8088/tcp', rele: false }
+					ruta: { texto: 'Windows audit, to', destino: '10.0.0.1:8088/tcp', rele: false }
 				})
 			]
 		});
@@ -241,7 +241,7 @@ describe('armarGrafo', () => {
 			de: 't:kp',
 			a: 't:rec',
 			clase: 'senal',
-			relacion: { texto: 'Auditoría de Windows', destino: '10.0.0.1:8088/tcp' }
+			relacion: { texto: 'Windows audit', destino: '10.0.0.1:8088/tcp' }
 		});
 	});
 

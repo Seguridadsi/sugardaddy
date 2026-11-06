@@ -7,9 +7,9 @@ export const POST = async ({ request }) => {
 	const b = await request.json().catch(() => null);
 	const estado = b?.estado;
 	if (typeof b?.version !== 'string' || !['aplicando', 'aplicada', 'fallida'].includes(estado))
-		error(400, 'Se esperaba { version, estado, detalle }');
+		error(400, 'Expected { version, estado, detalle }');
 	const tipo = b.tipo === 'configuracion' ? 'configuracion' : 'version';
 	const ok = await resultadoActualizacion(b.version, estado, String(b.detalle ?? ''), tipo);
-	if (!ok) error(409, 'Esa versión no es la pendiente');
+	if (!ok) error(409, 'That version is not the pending one');
 	return json({ ok: true });
 };

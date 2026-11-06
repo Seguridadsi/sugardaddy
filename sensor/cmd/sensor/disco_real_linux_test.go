@@ -88,8 +88,8 @@ func TestPerforadoReal(t *testing.T) {
 		return
 	case "sin-permiso", "sin-perforar":
 		causa := map[string]string{"sin-permiso": causaSinPermiso, "sin-perforar": causaSinPerforar}[paso]
-		if !parada || !strings.Contains(s.estado.Paradas["t1"], "cuota superada ("+causa+")") {
-			t.Fatalf("la trampa se para con «cuota superada» y su motivo: %v", s.estado.Paradas)
+		if !parada || !strings.Contains(s.estado.Paradas["t1"], "quota exceeded ("+causa+")") {
+			t.Fatalf("la trampa se para con «quota exceeded» y su motivo: %v", s.estado.Paradas)
 		}
 		t.Logf("parada: %s", s.estado.Paradas["t1"])
 	default:

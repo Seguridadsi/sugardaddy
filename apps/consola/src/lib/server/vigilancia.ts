@@ -58,7 +58,7 @@ export async function compartirIncidentes(quien: string, si: boolean, ahora = ne
 		: { ...v, incidentes: false, desde: null, borrar: true };
 	if (si) await volverASubir();
 	await guardar(nueva);
-	await auditar(quien, si ? 'incidentes compartidos con el panel' : 'incidentes ya no compartidos');
+	await auditar(quien, si ? 'Incidents shared with Central' : 'Incidents no longer shared');
 	return nueva;
 }
 
@@ -126,7 +126,7 @@ export async function incidentesPorSubir(v: Vigilancia, limite = POR_ENVIO) {
 		eventos: f.eventos,
 		trampas: f.trampas
 			.slice(0, MAX_TRAMPAS)
-			.map((x) => acotar(nombres[x] ?? 'Trampa retirada', 60) || 'Sin nombre'),
+			.map((x) => acotar(nombres[x] ?? 'Removed decoy', 60) || 'Unnamed'),
 		primero: f.primero.toISOString(),
 		ultimo: f.ultimo.toISOString(),
 		abierto: f.abierto.toISOString(),
@@ -160,6 +160,6 @@ export async function aplicarAtenciones(lista: AtencionIncidente[] | undefined) 
 			.set({ atendido: new Date(), atendidoPor: por, atendidoComo: 'lo-miro' })
 			.where(and(eq(t.id, a.id), isNull(t.atendido)))
 			.returning({ origen: t.origen });
-		if (f) await auditar(por, 'incidente atendido desde el panel', { origen: f.origen });
+		if (f) await auditar(por, 'Incident handled from Central', { origen: f.origen });
 	}
 }

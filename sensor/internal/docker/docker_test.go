@@ -167,7 +167,7 @@ func TestRechazaUnMotorPorDebajoDelMinimo(t *testing.T) {
 			if !errors.As(err, &em) || em.Codigo != MotorAntiguo {
 				t.Fatalf("tenía que ser %s: %v", MotorAntiguo, err)
 			}
-			if !strings.Contains(em.Texto, c.dice) || !strings.Contains(em.Texto, "Docker 20.10 o posterior") {
+			if !strings.Contains(em.Texto, c.dice) || !strings.Contains(em.Texto, "Docker 20.10 or later") {
 				t.Fatalf("el mensaje no dice qué motor hay ni qué hace falta: %q", em.Texto)
 			}
 		})

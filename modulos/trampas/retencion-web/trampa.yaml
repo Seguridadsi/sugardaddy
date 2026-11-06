@@ -1,26 +1,29 @@
 version: 1
 id: retencion-web
-nombre: Retención web (tarpit HTTP)
+nombre: Web tarpit (HTTP tarpit)
 descripcion: >-
-  Un servidor web que responde a cualquier ruta con un fichero inventado (configuración,
-  credenciales, copias de bases de datos) enviado byte a byte, muy despacio. Registra cada
-  petición, la herramienta que la lanza y cuánto tiempo pierde el escáner atrapado.
+  A web server that answers any path with a made-up file (configuration,
+  credentials, database backups) sent byte by byte, very slowly. It records
+  every request, the tool that launches it and how much time the trapped scanner
+  loses.
 alerta:
   fidelidad: internet
 ficha:
   detecta: >-
-    Escáneres y gusanos que barren la red en busca de ficheros con secretos (.env,
-    .git/config, copias de bases de datos, credenciales de la nube): su IP, las rutas que
-    prueban, la herramienta que usan y cuánto tiempo pierden atrapados. A partir de la cuarta
-    petición de una misma IP, cada respuesta tarda más, así que el barrido se alarga horas.
+    Scanners and worms sweeping the network for files with secrets (.env,
+    .git/config, database backups, cloud credentials): their IP, the paths they
+    try, the tool they use and how much time they lose trapped. From the fourth
+    request of the same IP, each response takes longer, so the sweep stretches
+    over hours.
   donde: >-
-    En un puerto web (8080, 80) de la red de servidores, la DMZ o la VLAN de gestión, donde
-    nadie navega: cualquier petición que llegue es de alguien que está explorando.
+    On a web port (8080, 80) of the server network, the DMZ or the management
+    VLAN, where nobody browses: any request that arrives is from someone
+    exploring.
   requisitos:
-    - Un sensor Linux con Docker (el del nodo o uno instalado en otra máquina).
-    - Abrir en el cortafuegos de esa máquina el puerto que elijas.
-    - 160 MB de memoria libres. Con muchos escáneres a la vez gasta como mucho un cuarto de núcleo y menos de 1 Mbit/s.
-    - Los ficheros falsos llevan claves inventadas con formato de AWS. Si un DLP o un IDS vigila esa red, puede avisar.
+    - A Linux sensor with Docker (the node's own or one installed on another machine).
+    - Open in that machine's firewall the port you choose.
+    - 160 MB of free memory. With many scanners at once it uses at most a quarter of a core and less than 1 Mbit/s.
+    - The fake files carry made-up keys in AWS format. If a DLP or an IDS watches that network, it may alert.
   instalacion:
     automatica: true
 versionModulo: 0.1.2
@@ -69,8 +72,8 @@ parametros:
   properties:
     puerto:
       type: integer
-      title: Puerto
-      description: El 8080 o el 80 son los creíbles para un servidor web interno, si la máquina no los usa ya.
+      title: Port
+      description: 8080 or 80 are the believable ones for an internal web server, if the machine does not already use them.
       minimum: 1
       maximum: 65535
       default: 8080
@@ -127,33 +130,33 @@ eventos:
   resumen:
     [method, path, user_agent, duration, status, peticion, sin_apuntar, rechazadas, desalojadas]
   etiquetas:
-    phase: Fase
-    method: Método
-    host: Host pedido
-    path: Ruta
-    qs: Parámetros
-    user_agent: Herramienta
-    duration: Retenido (s)
-    id: Petición
-    status: Respuesta
-    peticion: Petición recibida
-    sin_apuntar: Líneas sin apuntar
-    de_su_ip: De esta IP
-    por_cupo_ip: Por el cupo de su IP
-    por_tope_dia: Por el tope del día
-    rechazadas: Conexiones rechazadas
-    por_tope_global: Por el tope total
-    por_tope_ip: Por el tope de su IP
-    desalojadas: Desalojadas para dar sitio a otra IP
-    ips_distintas: IP distintas
-    ips_sin_contar: De otras IP sin contar
-    activas: Conexiones abiertas
-    periodo_s: En los últimos (s)
-    tope_bytes: Tope diario (bytes)
-    aviso: Aviso
-    start: Pide un fichero
-    end: Se suelta
-    error: Petición que no llega al tarpit
-    rechazos: Conexiones rechazadas o desalojadas por tope (resumen)
-    callados: Le dan sin parar; lo suyo sale resumido
-    tope: Registro de hoy lleno; hasta mañana, solo resúmenes
+    phase: Phase
+    method: Method
+    host: Host requested
+    path: Path
+    qs: Parameters
+    user_agent: Tool
+    duration: Held (s)
+    id: Request
+    status: Response
+    peticion: Request received
+    sin_apuntar: Lines not recorded
+    de_su_ip: From this IP
+    por_cupo_ip: By its IP's quota
+    por_tope_dia: By the daily limit
+    rechazadas: Connections rejected
+    por_tope_global: By the total limit
+    por_tope_ip: By its IP's limit
+    desalojadas: Evicted to make room for another IP
+    ips_distintas: Distinct IPs
+    ips_sin_contar: From other IPs not counted
+    activas: Open connections
+    periodo_s: In the last (s)
+    tope_bytes: Daily limit (bytes)
+    aviso: Alert
+    start: Requests a file
+    end: Released
+    error: Request that does not reach the tarpit
+    rechazos: Connections rejected or evicted by limit (summary)
+    callados: They keep hitting it; theirs comes out summarized
+    tope: Today's log is full; until tomorrow, summaries only

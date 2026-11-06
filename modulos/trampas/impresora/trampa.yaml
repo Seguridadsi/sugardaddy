@@ -1,30 +1,32 @@
 version: 1
 id: impresora
-nombre: Impresora de red
+nombre: Network printer
 descripcion: >-
-  Una impresora de oficina que contesta como una de verdad en 9100 (RAW/PJL), 631 (IPP) y
-  una web de administración, pero no imprime ni ejecuta nada. Registra el reconocimiento y el
-  robo de ficheros por PJL (PRET), los trabajos (solo huella y tamaño), los intentos de
-  inicio de sesión y el cambio del servidor LDAP/SMTP por el del atacante (passback).
+  An office printer that answers like a real one on 9100 (RAW/PJL), 631 (IPP)
+  and an administration web page, but prints and executes nothing. It records
+  reconnaissance and file theft through PJL (PRET), jobs (fingerprint and size
+  only), sign-in attempts and the change of the LDAP/SMTP server to the
+  attacker's (passback).
 alerta:
   fidelidad: ruidosa
 ficha:
   detecta: >-
-    Quien busca impresoras en la red y trata de aprovecharlas: comandos PJL de reconocimiento
-    (@PJL INFO), listado y lectura de ficheros de la impresora con recorrido de rutas
-    (FSDIRLIST, FSUPLOAD, estilo PRET), desfiguración del panel (RDYMSG), peticiones IPP y
-    trabajos de impresión, credenciales por defecto probadas en la web y, la señal más
-    valiosa, el «passback»: el atacante apunta el servidor LDAP o SMTP al suyo para quedarse
-    la cuenta de servicio, y deja la IP de su equipo.
+    Anyone looking for printers on the network and trying to exploit them: PJL
+    reconnaissance commands (@PJL INFO), listing and reading the printer's files
+    with path traversal (FSDIRLIST, FSUPLOAD, PRET style), panel defacement
+    (RDYMSG), IPP requests and print jobs, default credentials tried on the web
+    page and, the most valuable signal, "passback": the attacker points the LDAP
+    or SMTP server to their own to keep the service account, and leaves their
+    machine's IP.
   donde: >-
-    Donde habría una impresora: la red de la oficina, una VLAN de impresión o una DMZ. Con
-    los puertos 9100, 631 y 80, que salen en el reconocimiento interno (nmap) de cualquier
-    atacante. En una máquina que no sea ya tu servidor de impresión.
+    Where a printer would be: the office network, a print VLAN or a DMZ. With
+    ports 9100, 631 and 80, which show up in any attacker's internal
+    reconnaissance (nmap). On a machine that is not already your print server.
   requisitos:
-    - Un sensor Linux con Docker (el del nodo o uno instalado en otra máquina).
-    - Abrir en el cortafuegos de esa máquina los puertos que enciendas (9100 y, si los activas, 631 y 80).
-    - No la pongas en una máquina que ya use el 9100, el 631 (cupsd) o el 80 para su propio servicio.
-    - 'Los escáneres de vulnerabilidades propios (Nessus, Qualys) la tocarán: ten a mano sus IP para distinguirlas.'
+    - A Linux sensor with Docker (the node's own or one installed on another machine).
+    - Open in that machine's firewall the ports you enable (9100 and, if you enable them, 631 and 80).
+    - Do not put it on a machine that already uses 9100, 631 (cupsd) or 80 for its own service.
+    - 'Your own vulnerability scanners (Nessus, Qualys) will touch it: keep their IPs at hand to tell them apart.'
   instalacion:
     automatica: true
 versionModulo: 0.1.0
@@ -82,62 +84,64 @@ parametros:
   properties:
     puertoRaw:
       type: integer
-      title: Puerto RAW/JetDirect
-      description: El 9100 es el estándar de impresión directa, el más creíble y el más buscado. Solo cámbialo si la máquina ya lo usa.
+      title: RAW/JetDirect port
+      description: 9100 is the direct-printing standard, the most believable and the most sought after. Only change it if the machine already uses it.
       minimum: 1
       maximum: 65535
       default: 9100
     ipp:
       type: string
-      title: Encender IPP (631)
-      description: El puerto de impresión moderno (IPP/CUPS). Creíble para los drivers y para ipptool. Apágalo si la máquina ya tiene un cupsd en el 631.
+      title: Enable IPP (631)
+      description: The modern printing port (IPP/CUPS). Believable for drivers and for ipptool. Turn it off if the machine already has a cupsd on 631.
       enum: ['yes', 'no']
       default: 'yes'
     puertoIpp:
       type: integer
-      title: Puerto IPP
-      description: El 631 es el estándar de IPP. Es también el que anuncia la impresora en sus URL, así que debe ser el que el atacante alcanza.
+      title: IPP port
+      description: 631 is the IPP standard. It is also the one the printer announces in its URLs, so it must be the one the attacker reaches.
       minimum: 1
       maximum: 65535
       default: 631
     web:
       type: string
-      title: Encender la web de administración (80)
-      description: La página de administración de la impresora, donde se ven los intentos de login y el cambio del servidor LDAP/SMTP (passback). Apágala si la máquina ya tiene un servidor web en el 80.
+      title: Enable the administration web page (80)
+      description: The printer's administration page, where login attempts and the change of the LDAP/SMTP server (passback) are seen. Turn it off if the machine already has a web server on 80.
       enum: ['yes', 'no']
       default: 'yes'
     puertoWeb:
       type: integer
-      title: Puerto web
-      description: El 80 es el estándar de la web de una impresora. Es el que anuncia en sus enlaces, así que debe ser el que el atacante alcanza.
+      title: Web port
+      description: 80 is the web standard for a printer's web page. It is the one it announces in its links, so it must be the one the attacker reaches.
       minimum: 1
       maximum: 65535
       default: 80
     modelo:
       type: string
-      title: Modelo que finge ser
+      title: Model it pretends to be
       description: >-
-        El modelo que devuelve @PJL INFO ID y que muestra la web e IPP. Déjalo en «auto» para
-        que la trampa use uno realista derivado de su semilla (distinto en cada trampa). Si
-        pones un texto, será el modelo exacto. No se suplanta a ningún fabricante real.
+        The model returned by @PJL INFO ID and shown by the web page and IPP.
+        Leave it on "auto" so the decoy uses a realistic one derived from its
+        seed (different for each decoy). If you enter a text, it will be the
+        exact model. No real manufacturer is impersonated.
       pattern: '^[\x20-\x7e]{1,80}$'
       maxLength: 80
       default: 'auto'
     nombreEquipo:
       type: string
       x-camuflaje: 'host:prn'
-      title: Nombre del equipo
+      title: Computer name
       description: >-
-        El nombre de red de la impresora (el que muestra la web y anuncia IPP). Que encaje
-        con cómo nombras las impresoras en tu red. Vacío (lo normal en despliegues masivos),
-        lo deriva de la semilla, distinto en cada trampa: así miles de despliegues no
-        anuncian todos el mismo nombre, que sería una huella común de la trampa.
+        The printer's network name (the one the web page shows and IPP
+        announces). It should fit how you name printers on your network. Empty
+        (normal in mass deployments), it is derived from the seed, different for
+        each decoy: this way thousands of deployments do not all announce the
+        same name, which would be a common fingerprint of the decoy.
       pattern: '^[A-Za-z0-9-]{0,63}$'
       default: ''
     ubicacion:
       type: string
-      title: Ubicación
-      description: La ubicación física que muestra la impresora (p. ej. «Planta 2 - Administración»). Vacía, la deriva de la semilla.
+      title: Location
+      description: The physical location the printer shows (e.g. "Floor 2 - Administration"). Empty, it is derived from the seed.
       maxLength: 120
       default: ''
 
@@ -250,55 +254,55 @@ eventos:
       aviso
     ]
   etiquetas:
-    servicio: Servicio
-    comando: Comando PJL
-    args: Argumentos
-    ruta: Ruta
-    operacion: Operación IPP
-    recurso: Recurso
-    metodo: Método HTTP
-    agente: Cliente (User-Agent)
-    usuario: Usuario
-    password: Contraseña
-    texto: Texto
-    campo: Campo
-    valor: Valor
-    servidor: Servidor del atacante
-    huella: Huella del trabajo (sha256)
-    tam: Tamaño (bytes)
-    grave: Por qué es grave
-    motivo: Se calla por
-    omitidos: Eventos no apuntados
-    omitidos_graves: De ellos, graves
-    omitidos_auth: De ellos, contraseñas
-    rechazadas: Conexiones rechazadas
-    de_su_ip: De esta IP
-    por_tope_global: Por el tope total
-    por_tope_ip: Por el tope de su IP
-    ips_distintas: IP distintas
-    ips_sin_contar: Rechazos de otras IP sin contar
-    activas: Conexiones a la vez
-    periodo_s: En los últimos (s)
-    perdidos: Eventos perdidos (disco)
-    error: Error del registro
-    aviso: Aviso
-    tope_bytes: Tope diario (bytes)
-    impresora.session.connect: Conexión
-    impresora.session.rechazos: Conexiones rechazadas (resumen)
-    impresora.session.tope: Conexión cortada por tope
-    impresora.pjl.info: Reconocimiento PJL
-    impresora.pjl.fs: Acceso a ficheros de la impresora
-    impresora.pjl.traversal: Robo de ficheros con recorrido de rutas
-    impresora.pjl.escritura: Escritura/borrado en la impresora
-    impresora.pjl.control: Control del panel (desfiguración/bloqueo)
-    impresora.pjl.job: Trabajo de impresión
-    impresora.ps.peligroso: PostScript peligroso (robo de ficheros/control)
-    impresora.ipp.peticion: Petición IPP
-    impresora.ipp.trabajo: Trabajo IPP
-    impresora.web.get: Navegación por la web
-    impresora.web.login: Intento de inicio de sesión
-    impresora.web.passback: Passback de credenciales (LDAP/SMTP)
-    impresora.web.config: Cambio de configuración
-    impresora.log.tope: Registro de hoy lleno, no se apunta más hasta mañana
-    impresora.log.omitidos: Eventos que no caben (resumen)
-    impresora.log.error: Fallo al escribir el registro
+    servicio: Service
+    comando: PJL command
+    args: Arguments
+    ruta: Path
+    operacion: IPP operation
+    recurso: Resource
+    metodo: HTTP method
+    agente: Client (User-Agent)
+    usuario: User
+    password: Password
+    texto: Text
+    campo: Field
+    valor: Value
+    servidor: Attacker's server
+    huella: Job fingerprint (sha256)
+    tam: Size (bytes)
+    grave: Why it is critical
+    motivo: Muted because
+    omitidos: Events not recorded
+    omitidos_graves: Of which, critical
+    omitidos_auth: Of which, passwords
+    rechazadas: Connections rejected
+    de_su_ip: From this IP
+    por_tope_global: By the total limit
+    por_tope_ip: By its IP's limit
+    ips_distintas: Distinct IPs
+    ips_sin_contar: Rejections from other IPs not counted
+    activas: Simultaneous connections
+    periodo_s: In the last (s)
+    perdidos: Events lost (disk)
+    error: Log error
+    aviso: Alert
+    tope_bytes: Daily limit (bytes)
+    impresora.session.connect: Connection
+    impresora.session.rechazos: Connections rejected (summary)
+    impresora.session.tope: Connection cut off by limit
+    impresora.pjl.info: PJL reconnaissance
+    impresora.pjl.fs: Access to the printer's files
+    impresora.pjl.traversal: File theft with path traversal
+    impresora.pjl.escritura: Write/delete on the printer
+    impresora.pjl.control: Panel control (defacement/lock)
+    impresora.pjl.job: Print job
+    impresora.ps.peligroso: Dangerous PostScript (file theft/control)
+    impresora.ipp.peticion: IPP request
+    impresora.ipp.trabajo: IPP job
+    impresora.web.get: Web browsing
+    impresora.web.login: Sign-in attempt
+    impresora.web.passback: Credential passback (LDAP/SMTP)
+    impresora.web.config: Configuration change
+    impresora.log.tope: Today's log is full; nothing more is recorded until tomorrow
+    impresora.log.omitidos: Events that do not fit (summary)
+    impresora.log.error: Failed to write the log

@@ -8,22 +8,22 @@
 # nueva (sin .env), recupera también los secretos y la CA del HTTPS.
 set -euo pipefail
 cd "$(dirname "$0")"
-COPIA="${1:?Uso: restaurar.sh <copia.tar.enc>}"
-[[ -f clave-copias ]] || { echo "Falta clave-copias: sin ella no se puede descifrar"; exit 1; }
+COPIA="${1:?Usage: restaurar.sh <backup.tar.enc>}"
+[[ -f clave-copias ]] || { echo "clave-copias is missing: without it the backup cannot be decrypted"; exit 1; }
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass file:clave-copias -in "$COPIA" | tar -C "$TMP" -xf -
 
 if [[ ! -f .env ]]; then
-	echo "Máquina nueva: recupero .env, versiones.env y la raíz de la CA"
+	echo "New machine: restoring .env, versiones.env and the CA root"
 	cp "$TMP/.env" "$TMP/versiones.env" .
 	[[ -f "$TMP/ca-raiz.crt" ]] && cp "$TMP/ca-raiz.crt" .
 fi
 dc() { docker compose --env-file .env --env-file versiones.env "$@"; }
 
-read -r -p "Se va a sustituir la base de datos del nodo por la de la copia. ¿Seguir? [s/N] " ok
-[[ "$ok" == "s" ]] || { echo "Cancelado"; exit 1; }
+read -r -p "The node database will be replaced with the one in the backup. Continue? [y/N] " ok
+[[ "$ok" == "y" || "$ok" == "Y" ]] || { echo "Cancelled"; exit 1; }
 
 dc up -d --wait postgres
 # Pase lo que pase a partir de aquí, el nodo vuelve a quedar en marcha.
@@ -40,4 +40,4 @@ if [[ -d "$TMP/caddy" ]]; then
 		--entrypoint chown https -R 0:0 /data
 fi
 dc up -d --wait
-echo "Restaurado. Revisa la consola y la auditoría."
+echo "Restored. Check the console and the audit log."

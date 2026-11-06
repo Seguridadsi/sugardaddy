@@ -12,7 +12,7 @@ import { comprobarArquitectura } from './arquitectura-sh';
 const carpetas: string[] = [];
 afterEach(() => carpetas.splice(0).forEach((c) => rmSync(c, { recursive: true, force: true })));
 
-const DESPUES = 'esta línea ya se ha gastado: genera otra.';
+const DESPUES = 'this line has already been used: generate a new one.';
 
 /* Ejecuta la comprobación con solo estas órdenes en el PATH (nombre → script). */
 function ejecutar(ordenes: Record<string, string>) {
@@ -22,7 +22,7 @@ function ejecutar(ordenes: Record<string, string>) {
 		writeFileSync(join(bin, n), `#!/bin/sh\n${cuerpo}\n`);
 		chmodSync(join(bin, n), 0o755);
 	}
-	const script = `set -Eeuo pipefail\n${comprobarArquitectura('este sensor', DESPUES)}\necho SIGUE\n`;
+	const script = `set -Eeuo pipefail\n${comprobarArquitectura('this sensor', DESPUES)}\necho SIGUE\n`;
 	const r = spawnSync('/bin/bash', ['-c', script], {
 		env: { PATH: bin, LANG: 'C.UTF-8' },
 		encoding: 'utf8'
@@ -43,14 +43,14 @@ describe('comprobación de arquitectura del sensor remoto', () => {
 		const r = ejecutar(docker('linux/arm64'));
 		expect(r.codigo).toBe(1);
 		expect(r.salida).toBe('');
-		expect(r.error).toContain('este sensor necesita un motor Docker de Linux amd64');
+		expect(r.error).toContain('this sensor needs a Linux amd64 (x86_64) Docker engine');
 		expect(r.error).toContain('linux/arm64');
-		expect(r.error).toContain('(código instalar.arquitectura)');
+		expect(r.error).toContain('(code instalar.arquitectura)');
 	});
 
 	it('dice que la línea ya se ha gastado y qué hacer para la otra máquina', () => {
 		const r = ejecutar(docker('linux/arm64'));
-		expect(r.error).toContain(`No se ha cambiado nada en esta, pero ${DESPUES} (código`);
+		expect(r.error).toContain(`Nothing was changed on this one, but ${DESPUES} (code`);
 	});
 
 	it('un motor de Windows tampoco vale', () => {
@@ -72,16 +72,16 @@ describe('comprobación de arquitectura del sensor remoto', () => {
 
 it('el instalador del sensor remoto la hace antes de instalar Docker o escribir nada', () => {
 	const s = readFileSync(new URL('./sensores-remotos.ts', import.meta.url), 'utf8');
-	const arq = s.indexOf("${comprobarArquitectura('este sensor', LINEA_GASTADA)}");
+	const arq = s.indexOf("${comprobarArquitectura('this sensor', LINEA_GASTADA)}");
 	expect(arq).toBeGreaterThan(s.indexOf('id -u'));
-	expect(arq).toBeLessThan(s.indexOf('PASO="instalar Docker"'));
+	expect(arq).toBeLessThan(s.indexOf('PASO="install Docker"'));
 	expect(arq).toBeLessThan(s.indexOf('mkdir -p "$DIR'));
 });
 
 it('y le dice que genere otra línea en Sensores: la que ha usado ya no vale', () => {
 	const s = readFileSync(new URL('./sensores-remotos.ts', import.meta.url), 'utf8');
 	const texto = s.match(/const LINEA_GASTADA =\s*'([^']+)'/)?.[1];
-	expect(texto).toContain('esta línea ya se ha gastado');
-	expect(texto).toContain('genera una nueva en Sensores de la consola');
+	expect(texto).toContain('this line has already been used');
+	expect(texto).toContain('generate a new one in Sensors in the console');
 	expect(texto).not.toMatch(/["$`]/);
 });

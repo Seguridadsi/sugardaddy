@@ -18,6 +18,7 @@ copiados=0
 for f in trampas/*/trampa.yaml ficheros/*/trampa.yaml nube/*/trampa.yaml \
 	respuestas/*/respuesta.yaml \
 	ficheros/*/plantilla/*.docx ficheros/*/plantilla/*.xlsx \
+	ficheros/*/plantilla/*.pptx \
 	ficheros/*/plantilla/*.pdf ficheros/*/plantilla/*.svg; do
 	# Un patrón que no casa se queda tal cual: no es un fichero.
 	[ -f "$f" ] || continue

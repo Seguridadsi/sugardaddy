@@ -35,7 +35,7 @@ vi.mock('./catalogo', async (original) => {
 
 const { db, schema: s } = hayBase ? await import('./db') : ({} as never);
 const { plan } = hayBase ? await import('./sensor') : ({} as never);
-const rutaAlta = hayBase ? await import('../../routes/trampas/nueva/[modulo]/+page.server') : null;
+const rutaAlta = hayBase ? await import('../../routes/decoys/new/[modulo]/+page.server') : null;
 const { eq, like } = await import('drizzle-orm');
 
 /* Todo lo de esta prueba empieza por zz-pb: así se limpia sin tocar nada más. */
@@ -94,11 +94,11 @@ describe.skipIf(!hayBase)('el plan con la base de datos', () => {
 			{
 				id: `${P}-redis`,
 				codigo: 'modulo.no-autorizado',
-				motivo: 'el módulo redis no está autorizado'
+				motivo: 'the module redis is not authorized'
 			}
 		]);
 		expect(await trampa(`${P}-redis`)).toMatchObject({
-			donde: 'en espera: el módulo redis no está autorizado',
+			donde: 'en espera: the module redis is not authorized',
 			colocacionMotivo: 'modulo.no-autorizado'
 		});
 		/* La que sigue en el plan no se toca. */
@@ -118,11 +118,11 @@ describe.skipIf(!hayBase)('el plan con la base de datos', () => {
 			{
 				id: `${P}-redis`,
 				codigo: 'modulo.desconocido',
-				motivo: 'el módulo no-existe no está en el catálogo'
+				motivo: 'the module no-existe is not in the catalog'
 			}
 		]);
 		expect(await trampa(`${P}-redis`)).toMatchObject({
-			donde: 'en espera: el módulo no-existe no está en el catálogo',
+			donde: 'en espera: the module no-existe is not in the catalog',
 			colocacionMotivo: 'modulo.desconocido'
 		});
 	});
@@ -167,7 +167,7 @@ describe.skipIf(!hayBase)('el alta guarda la vía con que se pone', () => {
 		try {
 			return await rutaAlta!.actions.default({
 				params: { modulo: 'cowrie' },
-				request: new Request('http://consola/trampas/nueva/cowrie', { method: 'POST', body: f }),
+				request: new Request('http://consola/decoys/new/cowrie', { method: 'POST', body: f }),
 				locals: { usuario: { nombre: 'Prueba', correo: QUIEN, roles: ['admin'] } }
 			} as never);
 		} catch (e) {
@@ -186,7 +186,7 @@ describe.skipIf(!hayBase)('el alta guarda la vía con que se pone', () => {
 		});
 		/* La auditoría dice también dónde y cómo se puso. */
 		const [a] = await db.select().from(s.auditoria).where(eq(s.auditoria.quien, QUIEN));
-		expect(a).toMatchObject({ accion: 'trampa creada' });
+		expect(a).toMatchObject({ accion: 'decoy created' });
 		expect(a.detalle).toMatchObject({
 			id: `${P}-alta-v1`,
 			destino: SENSOR,

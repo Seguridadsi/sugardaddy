@@ -1,5 +1,5 @@
 /*
- * La acción «Bloquear esta IP» del perfil de IP (routes/eventos/ip/[ip]): mete
+ * La acción «Bloquear esta IP» del perfil de IP (routes/events/ip/[ip]): mete
  * la IP en la lista negra local (la que alimenta el EDL), con la caducidad que
  * se elija, reusando anadirALista. Contra una base de datos de verdad
  * (DATABASE_URL de .env, como edl.spec.ts); si no hay, se salta.
@@ -21,7 +21,7 @@ vi.mock('$env/dynamic/private', () => ({ env: process.env }));
 vi.mock('$app/environment', () => ({ building: false, dev: true }));
 
 const { db, schema: s } = hayBase ? await import('./db') : ({} as never);
-const ruta = hayBase ? await import('../../routes/eventos/ip/[ip]/+page.server') : null;
+const ruta = hayBase ? await import('../../routes/events/ip/[ip]/+page.server') : null;
 const { eq } = await import('drizzle-orm');
 
 const QUIEN = 'zz-bloquear-ip';
@@ -34,7 +34,7 @@ const locals = (roles = ['admin']) => ({
 const peticion = (campos: Record<string, string> = {}) => {
 	const f = new FormData();
 	for (const [k, v] of Object.entries(campos)) f.set(k, v);
-	return new Request('http://consola/eventos/ip', { method: 'POST', body: f });
+	return new Request('http://consola/events/ip', { method: 'POST', body: f });
 };
 
 async function bloquear(ip: string, campos: Record<string, string> = {}, roles?: string[]) {

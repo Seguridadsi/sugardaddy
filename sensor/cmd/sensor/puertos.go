@@ -65,12 +65,12 @@ func (s *sensor) sondearAnfitrion(ctx context.Context, id string, estados []desp
 	s.anfitrion.intento = time.Now()
 	a, err := motor.SondaAnfitrion(ctx, s.docker, s.opc.ImagenSonda, id)
 	if err != nil {
-		slog.Warn("no se pudieron medir los puertos de la máquina", "err", err)
+		slog.Warn("could not measure the machine ports", "err", err)
 		return
 	}
 	propios, err := despliegue.PuertosPropios(ctx, s.docker, id)
 	if err != nil {
-		slog.Warn("no se pudieron leer los puertos de las trampas", "err", err)
+		slog.Warn("could not read the decoy ports", "err", err)
 		return
 	}
 	s.anfitrion.a, s.anfitrion.propios = a, propios

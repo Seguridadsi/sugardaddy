@@ -108,7 +108,7 @@ export async function cabecera() {
 		.select({ n: sql<number>`count(*)::int` })
 		.from(s.aprobaciones)
 		.where(eq(s.aprobaciones.estado, 'pendiente'));
-	const nodo = await ajuste('nodo', { nombre: 'Nodo sin nombre', nodo: 'nodo', version: '0.0.0' });
+	const nodo = await ajuste('nodo', { nombre: 'Unnamed node', nodo: 'nodo', version: '0.0.0' });
 	return {
 		/* En una imagen, la versión es la de la imagen: es lo que de verdad está corriendo. */
 		cliente: { ...nodo, version: env.SUGARDADDY_VERSION ?? nodo.version },
@@ -196,7 +196,7 @@ export async function fijarTriaje(
 			});
 		await tx
 			.insert(s.auditoria)
-			.values({ quien, accion: 'triaje de evento', detalle: { evento, estado } });
+			.values({ quien, accion: 'event triage', detalle: { evento, estado } });
 		return true;
 	});
 }
@@ -207,7 +207,7 @@ export async function quitarTriaje(quien: string, evento: string): Promise<void>
 		await tx.delete(s.triaje).where(eq(s.triaje.evento, evento));
 		await tx
 			.insert(s.auditoria)
-			.values({ quien, accion: 'triaje de evento retirado', detalle: { evento } });
+			.values({ quien, accion: 'event triage removed', detalle: { evento } });
 	});
 }
 
@@ -240,7 +240,7 @@ export async function crearReglaTriaje(quien: string, v: DatosReglaTriaje): Prom
 			.returning({ id: s.reglasTriaje.id });
 		await tx.insert(s.auditoria).values({
 			quien,
-			accion: 'regla de triaje creada',
+			accion: 'triage rule created',
 			detalle: { criterio: v.criterio, valor, estado: v.estado }
 		});
 		return f.id;
@@ -257,7 +257,7 @@ export async function borrarReglaTriaje(quien: string, id: string): Promise<bool
 		if (!f) return false;
 		await tx
 			.insert(s.auditoria)
-			.values({ quien, accion: 'regla de triaje borrada', detalle: { id, ...f } });
+			.values({ quien, accion: 'triage rule deleted', detalle: { id, ...f } });
 		return true;
 	});
 }
@@ -277,7 +277,7 @@ export async function cambiarActivaReglaTriaje(
 		if (!f) return false;
 		await tx.insert(s.auditoria).values({
 			quien,
-			accion: activa ? 'regla de triaje activada' : 'regla de triaje desactivada',
+			accion: activa ? 'triage rule enabled' : 'triage rule disabled',
 			detalle: { id }
 		});
 		return true;
@@ -613,9 +613,18 @@ export async function resumen() {
 
 	const top = [...porOrigen.values()].sort((a, b) => b.eventos - a.eventos).slice(0, 5);
 	const geos = await geoDe(top.map((o) => ({ origen: { ip: o.ip } }) as Evento));
+	/* Primeros pasos: lo que ya ha pasado alguna vez, aunque ahora esté parado. */
+	const [{ salidas }] = await db.select({ salidas: sql<number>`count(*)::int` }).from(s.salidas);
+
 	return {
 		ahora,
 		geo: await mapaDeOrigenes(),
+		pasos: {
+			sensor: sensores.some((x) => x.ultimoLatido !== null),
+			trampa: todas.length > 0,
+			probada: todas.some((t) => t.colocacion === 'comprobada'),
+			avisos: salidas > 0
+		},
 		cifras: {
 			eventos: dia.length,
 			criticos: dia.filter((e) => e.severidad === 'critica').length,
@@ -751,7 +760,7 @@ export async function crearTrampa(
 		if (!f) return false;
 		await tx.insert(s.auditoria).values({
 			quien,
-			accion: 'trampa creada',
+			accion: 'decoy created',
 			detalle: {
 				...fila,
 				...(manual ? { pasos: manual.sha256, retirar: paraRetirar(manual) } : {})
@@ -802,7 +811,7 @@ export async function decidirAprobacion(quien: string, id: string, aprobar: bool
 		if (!a) return null;
 		await tx.insert(s.auditoria).values({
 			quien,
-			accion: aprobar ? 'respuesta aprobada' : 'respuesta rechazada',
+			accion: aprobar ? 'response approved' : 'response rejected',
 			detalle: { aprobacion: a.id, respuesta: a.respuesta, objetivo: a.objetivo }
 		});
 		return a;
@@ -840,9 +849,11 @@ export async function anadirALista(
 			.onConflictDoNothing()
 			.returning();
 		if (!fila) return false;
-		await tx
-			.insert(s.auditoria)
-			.values({ quien, accion: `añadido a lista ${v.lista}`, detalle: v });
+		await tx.insert(s.auditoria).values({
+			quien,
+			accion: `added to ${v.lista === 'blanca' ? 'allowlist' : v.lista === 'negra' ? 'blocklist' : 'list ' + v.lista}`,
+			detalle: v
+		});
 		return true;
 	});
 }
@@ -858,7 +869,7 @@ export async function guardarComparticion(quien: string, valor: Comparticion) {
 			.insert(s.ajustes)
 			.values({ clave: 'comparticion', valor })
 			.onConflictDoUpdate({ target: s.ajustes.clave, set: { valor } });
-		await tx.insert(s.auditoria).values({ quien, accion: 'compartición cambiada', detalle: valor });
+		await tx.insert(s.auditoria).values({ quien, accion: 'sharing changed', detalle: valor });
 	});
 }
 
@@ -874,9 +885,7 @@ export async function guardarBuscarActualizaciones(quien: string, activo: boolea
 			.insert(s.ajustes)
 			.values({ clave: 'buscar-actualizaciones', valor: activo })
 			.onConflictDoUpdate({ target: s.ajustes.clave, set: { valor: activo } });
-		await tx
-			.insert(s.auditoria)
-			.values({ quien, accion: 'aviso de versiones', detalle: { activo } });
+		await tx.insert(s.auditoria).values({ quien, accion: 'version notice', detalle: { activo } });
 	});
 }
 
@@ -922,7 +931,7 @@ export async function guardarAutoActualizar(quien: string, valor: AutoActualizar
 		/* En la auditoría NO se guarda el correo, solo si se dio. */
 		await tx.insert(s.auditoria).values({
 			quien,
-			accion: valor.activo ? 'auto-actualización activada' : 'auto-actualización desactivada',
+			accion: valor.activo ? 'auto-update enabled' : 'auto-update disabled',
 			detalle: { correo: valor.correo ? 'dado' : 'no' }
 		});
 	});
@@ -973,8 +982,8 @@ export async function guardarWebhook(quien: string, valor: Webhook) {
 		/* En la auditoría va la URL (es del propio cliente), pero del secreto solo si lo hay. */
 		await tx.insert(s.auditoria).values({
 			quien,
-			accion: valor.activo ? 'webhook de eventos activado' : 'webhook de eventos desactivado',
-			detalle: { url: valor.url, secreto: valor.secreto ? 'sí' : 'no' }
+			accion: valor.activo ? 'event webhook enabled' : 'event webhook disabled',
+			detalle: { url: valor.url, secreto: valor.secreto ? 'yes' : 'no' }
 		});
 	});
 }
@@ -1107,9 +1116,7 @@ export async function modificarTrampa(
 			.update(s.trampas)
 			.set({ ...v, donde: 'aplicando cambios…' })
 			.where(eq(s.trampas.id, id));
-		await tx
-			.insert(s.auditoria)
-			.values({ quien, accion: 'trampa modificada', detalle: { id, ...v } });
+		await tx.insert(s.auditoria).values({ quien, accion: 'decoy modified', detalle: { id, ...v } });
 	};
 	await (bd ? modificar(bd) : db.transaction(modificar));
 }

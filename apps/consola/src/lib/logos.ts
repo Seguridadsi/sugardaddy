@@ -47,8 +47,7 @@ const LOGOS: Record<string, { proyecto: string; fichero: string; credito: string
 	'github.com/ryanolee/go-pot': {
 		proyecto: 'go-pot',
 		fichero: 'go-pot',
-		credito:
-			'Logotipo de go-pot, de @_iroshi (CC0), a partir del gopher de Go de Renee French (CC BY 4.0).'
+		credito: 'go-pot logo by @_iroshi (CC0), based on the Go gopher by Renee French (CC BY 4.0).'
 	}
 };
 
@@ -84,10 +83,10 @@ export function iconosTrampa(p?: Procedencia | null, tipo?: TipoDeServicio | nul
 	const logo = clave === undefined ? undefined : LOGOS[clave];
 	const ajena = p && clave !== PROPIO && p.proyecto.trim();
 	const titulo = logo
-		? `Basada en ${logo.proyecto}, de código abierto`
+		? `Based on ${logo.proyecto}, open source`
 		: ajena
-			? `Trampa de Sugardaddy basada en ${ajena}`
-			: 'Trampa de Sugardaddy';
+			? `Sugardaddy decoy based on ${ajena}`
+			: 'Sugardaddy decoy';
 	const iconos: IconoTrampa[] = [];
 	if (logo)
 		iconos.push({

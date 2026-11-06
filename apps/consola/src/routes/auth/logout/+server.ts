@@ -6,7 +6,7 @@ import { auditar } from '$lib/server/consultas';
 
 /* Solo POST: que un enlace ajeno no pueda cerrarle la sesión a nadie. */
 export const POST = async ({ url, cookies, locals }) => {
-	if (locals.usuario) await auditar(locals.usuario.correo, 'salida');
+	if (locals.usuario) await auditar(locals.usuario.correo, 'sign-out');
 	const oid = await cerrar(cookies);
 	/*
 	 * Solo una sesión federada (de Entra) se cierra también en Microsoft, para que
@@ -15,5 +15,5 @@ export const POST = async ({ url, cookies, locals }) => {
 	 */
 	const federada = !!oid && !oid.startsWith('local:') && !oid.startsWith('emergencia:');
 	const activa = federada ? await configActiva() : null;
-	redirect(303, activa ? urlDeCierre(activa.config, `${url.origin}/auth/callback`) : '/entrar');
+	redirect(303, activa ? urlDeCierre(activa.config, `${url.origin}/auth/callback`) : '/sign-in');
 };

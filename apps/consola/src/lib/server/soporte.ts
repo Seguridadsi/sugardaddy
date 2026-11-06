@@ -50,7 +50,7 @@ export async function soporte(): Promise<Soporte> {
 		const cerrado = { ...v, estado: 'cerrado' as const, hasta: null, rol: null };
 		await guardar(cerrado);
 		await cerrarSesionesDeSoporte();
-		await auditar('nodo', 'acceso de soporte caducado');
+		await auditar('node', 'support access expired');
 		return cerrado;
 	}
 	return v;
@@ -64,7 +64,7 @@ export async function recibirSolicitud(sol: SolicitudSoporte | null) {
 	const v = await soporte();
 	if (v.solicitud?.cuando === sol.cuando || v.estado === 'abierto') return;
 	await guardar({ estado: 'solicitado', solicitud: sol, hasta: null, rol: null });
-	await auditar('panel central', `${await operador()} pide acceso de soporte`, {
+	await auditar('Central', `${await operador()} requests support access`, {
 		por: sol.por,
 		motivo: sol.motivo
 	});
@@ -75,7 +75,7 @@ export async function aceptar(quien: string, horas: number | null, rol: RolSopor
 	if (v.estado !== 'solicitado') return false;
 	const hasta = horas === null ? null : new Date(Date.now() + horas * 3600_000).toISOString();
 	await guardar({ ...v, estado: 'abierto', hasta, rol });
-	await auditar(quien, 'acceso de soporte abierto', { hasta, rol, motivo: v.solicitud?.motivo });
+	await auditar(quien, 'support access opened', { hasta, rol, motivo: v.solicitud?.motivo });
 	return true;
 }
 
@@ -83,7 +83,7 @@ export async function rechazar(quien: string) {
 	const v = await soporte();
 	if (v.estado !== 'solicitado') return false;
 	await guardar({ ...v, estado: 'rechazado', hasta: null, rol: null });
-	await auditar(quien, 'acceso de soporte rechazado', { motivo: v.solicitud?.motivo });
+	await auditar(quien, 'support access rejected', { motivo: v.solicitud?.motivo });
 	return true;
 }
 
@@ -92,7 +92,7 @@ export async function cerrarYa(quien: string) {
 	if (v.estado !== 'abierto') return false;
 	await guardar({ ...v, estado: 'cerrado', hasta: null, rol: null });
 	await cerrarSesionesDeSoporte();
-	await auditar(quien, 'acceso de soporte cerrado por el cliente');
+	await auditar(quien, 'support access closed by the customer');
 	return true;
 }
 

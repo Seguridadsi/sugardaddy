@@ -9,4 +9,4 @@ import { slug } from '../../scripts/destinos.mjs';
 /* El id que se guarda; vacío si ni el escrito ni el nombre tienen una letra o un número. */
 export const identificador = (escrito: string, nombre: string) => slug(escrito) || slug(nombre);
 
-export const SIN_IDENTIFICADOR = 'Identificador: escribe uno con alguna letra o número.';
+export const SIN_IDENTIFICADOR = 'Identifier: enter one with at least one letter or number.';

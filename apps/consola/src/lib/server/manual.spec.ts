@@ -54,12 +54,10 @@ const { cambiarTrampa, crearSensor } = hayBase ? await import('./gestion') : ({}
 const { honeycosas } = hayBase ? await import('./catalogo') : ({} as never);
 const { informarEstado, plan } = hayBase ? await import('./sensor') : ({} as never);
 const { trampasConEventos, resumen } = hayBase ? await import('./consultas') : ({} as never);
-const rutaTrampa = hayBase ? await import('../../routes/trampas/[id]/+page.server') : null;
-const rutaAlta = hayBase ? await import('../../routes/trampas/nueva/[modulo]/+page.server') : null;
-const rutaLista = hayBase ? await import('../../routes/trampas/+page.server') : null;
-const rutaPasos = hayBase
-	? await import('../../routes/trampas/[id]/pasos/[formato]/+server')
-	: null;
+const rutaTrampa = hayBase ? await import('../../routes/decoys/[id]/+page.server') : null;
+const rutaAlta = hayBase ? await import('../../routes/decoys/new/[modulo]/+page.server') : null;
+const rutaLista = hayBase ? await import('../../routes/decoys/+page.server') : null;
+const rutaPasos = hayBase ? await import('../../routes/decoys/[id]/steps/[formato]/+server') : null;
 const { and, eq, like, or } = await import('drizzle-orm');
 
 const QUIEN = 'zz-prueba-manual';
@@ -101,7 +99,7 @@ async function accion(
 	try {
 		return await rutaTrampa!.actions[nombre]({
 			params: { id },
-			request: new Request(`http://consola/trampas/${id}`, { method: 'POST', body: f }),
+			request: new Request(`http://consola/decoys/${id}`, { method: 'POST', body: f }),
 			locals: locals(roles)
 		} as never);
 	} catch (e) {
@@ -116,7 +114,7 @@ async function alta(modulo: string, campos: Record<string, string>) {
 	try {
 		return await rutaAlta!.actions.default({
 			params: { modulo },
-			request: new Request(`http://consola/trampas/nueva/${modulo}`, { method: 'POST', body: f }),
+			request: new Request(`http://consola/decoys/new/${modulo}`, { method: 'POST', body: f }),
 			locals: locals()
 		} as never);
 	} catch (e) {
@@ -132,7 +130,7 @@ async function enLista(nombre: 'estado' | 'retirar', campos: Record<string, stri
 	for (const [k, v] of Object.entries(campos)) f.append(k, v);
 	try {
 		return await rutaLista!.actions[nombre]({
-			request: new Request('http://consola/trampas', { method: 'POST', body: f }),
+			request: new Request('http://consola/decoys', { method: 'POST', body: f }),
 			locals: locals()
 		} as never);
 	} catch (e) {
@@ -143,7 +141,7 @@ async function enLista(nombre: 'estado' | 'retirar', campos: Record<string, stri
 /* Descargar unos pasos: la respuesta, o el error que lanza. */
 async function descargar(id: string, formato: string, parte?: string, roles?: string[]) {
 	const url = new URL(
-		`http://consola/trampas/${id}/pasos/${formato}${parte ? `?parte=${parte}` : ''}`
+		`http://consola/decoys/${id}/steps/${formato}${parte ? `?parte=${parte}` : ''}`
 	);
 	try {
 		return (await rutaPasos!.GET({
@@ -274,7 +272,7 @@ describe.skipIf(!hayBase)('la vía manual en la consola', () => {
 				trampa: { id: ID, nombre: 'Credencial de win', colocacion: 'por-colocar' },
 				destino: { id: WIN, nombre: WIN },
 				objetivo: { id: OBJETIVO, nombre: 'Cowrie de local' },
-				estado: { estado: 'por-colocar', motivo: 'Aún no se ha dicho que esté puesta.' }
+				estado: { estado: 'por-colocar', motivo: 'It has not been marked as deployed yet.' }
 			});
 			const p = d.pasos!;
 			expect(p).toMatchObject({
@@ -282,7 +280,7 @@ describe.skipIf(!hayBase)('la vía manual en la consola', () => {
 				via: 'Pasos para Windows',
 				integros: true,
 				formatos: ['ps1', 'md', 'txt'],
-				marca: 'el usuario «svc_sql4k7»'
+				marca: 'user "svc_sql4k7"'
 			});
 			expect(p.bloque.split('\n')).toEqual([
 				'$sd = @{',
@@ -305,14 +303,14 @@ describe.skipIf(!hayBase)('la vía manual en la consola', () => {
 			const r = (await descargar(ID, 'ps1')) as Response;
 			expect(r.status).toBe(200);
 			expect(r.headers.get('content-disposition')).toBe(
-				`attachment; filename="sugardaddy-${ID}-colocar.ps1"`
+				`attachment; filename="sugardaddy-${ID}-deploy.ps1"`
 			);
 			const bytes = new Uint8Array(await r.arrayBuffer());
 			expect([...bytes.slice(0, 3)]).toEqual([0xef, 0xbb, 0xbf]);
 			const texto = new TextDecoder().decode(bytes);
 			expect(texto).toContain(`sha256 ${guardados.sha256}\r\n`);
 			expect(sha256Pasos(guardados)).toBe(guardados.sha256);
-			expect((await auditoria('pasos descargados')).map((a) => a.detalle)).toEqual([
+			expect((await auditoria('steps downloaded')).map((a) => a.detalle)).toEqual([
 				{ id: ID, formato: 'ps1', parte: 'colocar', pasos: guardados.sha256 }
 			]);
 			/* El documento para el control de cambios, también. */
@@ -359,9 +357,11 @@ describe.skipIf(!hayBase)('la vía manual en la consola', () => {
 		it('«Ya está hecho» la deja puesta y apunta quién y cuándo', async () => {
 			const antes = Date.now();
 			expect(await accion('hecho', ID, {}, ['lector'])).toMatchObject({ status: 403 });
-			expect(await accion('hecho', ID)).toMatchObject({ hecho: expect.stringMatching(/puesta/) });
+			expect(await accion('hecho', ID)).toMatchObject({
+				hecho: expect.stringMatching(/it is deployed/)
+			});
 			expect(await trampa(ID)).toMatchObject({ colocacion: 'colocada', colocacionMotivo: null });
-			const [a] = await auditoria('trampa puesta a mano');
+			const [a] = await auditoria('decoy deployed manually');
 			expect(a.quien).toBe(QUIEN);
 			expect(a.cuando.getTime()).toBeGreaterThanOrEqual(antes - 1000);
 			expect(a.detalle).toEqual({
@@ -382,7 +382,7 @@ describe.skipIf(!hayBase)('la vía manual en la consola', () => {
 
 		it('retirar la deja retirando, con sus pasos de retirada, y «Ya lo he quitado» la borra', async () => {
 			expect(await accion('retirar', ID)).toMatchObject({
-				hecho: expect.stringMatching(/Ya lo he quitado/)
+				hecho: expect.stringMatching(/I have removed it/)
 			});
 			expect(await trampa(ID)).toMatchObject({
 				colocacion: 'retirando',
@@ -391,21 +391,21 @@ describe.skipIf(!hayBase)('la vía manual en la consola', () => {
 			const d = await ficha(ID);
 			expect(d.estado).toMatchObject({ estado: 'retirando', codigo: 'retirada.pendiente' });
 			const r = (await descargar(ID, 'ps1', 'retirar')) as Response;
-			expect(r.headers.get('content-disposition')).toMatch(/-retirar\.ps1"$/);
+			expect(r.headers.get('content-disposition')).toMatch(/-remove\.ps1"$/);
 			expect(await r.text()).toContain('Borra la sesión «nas42» de PuTTY.');
 			/* Retirar otra vez no cambia nada; desde la lista, tampoco. */
 			expect(await enLista('retirar', { id: ID })).toMatchObject({
-				mensaje: expect.stringMatching(/Ya lo he quitado/)
+				mensaje: expect.stringMatching(/I have removed it/)
 			});
-			expect(await auditoria('trampa en retirada')).toHaveLength(1);
+			expect(await auditoria('decoy being removed')).toHaveLength(1);
 
 			const fuera = await accion('quitado', ID);
 			expect(fuera).toMatchObject({
 				status: 303,
-				location: '/trampas?quitada=Credencial%20de%20win'
+				location: '/decoys?quitada=Credencial%20de%20win'
 			});
 			expect(await trampa(ID)).toBeUndefined();
-			const [a] = await auditoria('trampa retirada');
+			const [a] = await auditoria('decoy removed');
 			expect(a.detalle).toMatchObject({ id: ID, modulo: 'credencial-ssh', destino: WIN });
 		});
 	});
@@ -426,7 +426,7 @@ describe.skipIf(!hayBase)('la vía manual en la consola', () => {
 
 		it('con credencial-ssh y un destino Windows, los pasos llevan los datos del destino y del objetivo', async () => {
 			const r = await alta('credencial-ssh', credencial());
-			expect(r).toMatchObject({ status: 303, location: `/trampas/${CRED}` });
+			expect(r).toMatchObject({ status: 303, location: `/decoys/${CRED}` });
 			const t = await trampa(CRED);
 			expect(t).toMatchObject({
 				modulo: 'credencial-ssh',
@@ -466,7 +466,7 @@ describe.skipIf(!hayBase)('la vía manual en la consola', () => {
 			 * quitarla: si una consola anterior borra la fila tras una vuelta
 			 * atrás, los pasos de retirada siguen ahí (§9.1).
 			 */
-			const [a] = await auditoria('trampa creada');
+			const [a] = await auditoria('decoy created');
 			expect(a.detalle).toMatchObject({
 				id: CRED,
 				destino: WIN,
@@ -524,7 +524,7 @@ describe.skipIf(!hayBase)('la vía manual en la consola', () => {
 			expect(r).toMatchObject({ status: 400 });
 			expect(codigos(r)).toEqual(['parametros.invalidos']);
 			expect((r as { data: { motivos: { texto: string }[] } }).data.motivos[0].texto).toMatch(
-				/Nombre de la trampa: lleva saltos de línea o caracteres de control/
+				/Decoy name: contains line breaks or control characters/
 			);
 		});
 
@@ -541,7 +541,7 @@ describe.skipIf(!hayBase)('la vía manual en la consola', () => {
 				donde: 'desplegando…'
 			});
 			try {
-				const url = new URL(`http://consola/trampas/nueva/credencial-ssh?destino=${WIN}`);
+				const url = new URL(`http://consola/decoys/new/credencial-ssh?destino=${WIN}`);
 				const f = (await rutaAlta!.load({ params: { modulo: 'credencial-ssh' }, url } as never))
 					.forma!;
 				expect(f.objetivos.objetivo).toEqual([
@@ -550,7 +550,7 @@ describe.skipIf(!hayBase)('la vía manual en la consola', () => {
 						id: otra,
 						nombre: 'Cowrie pendiente',
 						destino: `Sensor ${LOCAL}`,
-						motivo: 'aún no está puesta'
+						motivo: 'it is not deployed yet'
 					}
 				]);
 				/* Guardar con ella, el elector lo vuelve a mirar: no vale. */
@@ -575,12 +575,12 @@ describe.skipIf(!hayBase)('la vía manual en la consola', () => {
 				'p.usuario': 'svc_sql4k7',
 				'p.sesion': 'nas43'
 			});
-			expect(r).toMatchObject({ hecho: expect.stringMatching(/de nuevo/) });
+			expect(r).toMatchObject({ hecho: expect.stringMatching(/regenerated/) });
 			const t = await trampa(CRED);
 			expect(t.parametros).toMatchObject({ sesion: 'nas43' });
 			expect(t.manual!.variables.sesion).toBe('nas43');
 			expect(t.manual!.sha256).not.toBe(antes.sha256);
-			const [a] = await auditoria('pasos generados de nuevo');
+			const [a] = await auditoria('steps regenerated');
 			expect(a.detalle).toMatchObject({
 				id: CRED,
 				pasos: t.manual!.sha256,
@@ -600,7 +600,7 @@ describe.skipIf(!hayBase)('la vía manual en la consola', () => {
 				expect(e.estado).toBe('por-colocar');
 				expect(e.avisos.map((a) => a.codigo)).toEqual(['senal.objetivo-cambiado']);
 				expect(await accion('regenerar', CRED)).toMatchObject({
-					hecho: expect.stringMatching(/de nuevo/)
+					hecho: expect.stringMatching(/regenerated/)
 				});
 				expect((await trampa(CRED)).manual!.variables.objetivo_puertoSsh).toBe('2299');
 				expect((await ficha(CRED)).estado!.avisos).toEqual([]);
@@ -623,7 +623,9 @@ describe.skipIf(!hayBase)('la vía manual en la consola', () => {
 				'p.sesion': 'nas44'
 			});
 			expect(r).toMatchObject({ status: 400 });
-			expect((r as Fallo).data.errores).toEqual([expect.stringMatching(/Retírala y pon otra/)]);
+			expect((r as Fallo).data.errores).toEqual([
+				expect.stringMatching(/Remove it and deploy another/)
+			]);
 			expect((await trampa(CRED)).manual!.variables.sesion).toBe('nas43');
 		});
 
@@ -717,7 +719,7 @@ describe.skipIf(!hayBase)('la vía manual en la consola', () => {
 				status: 400,
 				data: {
 					error:
-						'«Credencial de pc01» apunta a esta trampa: si la paras, dejaría de avisar. Retírala primero.'
+						'"Credencial de pc01" points to this decoy: if you stop it, it will stop alerting. Remove it first.'
 				}
 			});
 			expect(await trampa(OBJETIVO)).toMatchObject({ activo: true, colocacion: 'comprobada' });
@@ -730,7 +732,7 @@ describe.skipIf(!hayBase)('la vía manual en la consola', () => {
 			});
 			expect(r).toMatchObject({ status: 400 });
 			expect((r as Fallo).data.errores).toEqual([
-				'«Credencial de pc01» apunta a esta trampa con su «Puerto SSH»: si lo cambias, dejaría de avisar. Retírala primero o deja ese ajuste como estaba.'
+				'"Credencial de pc01" points to this decoy using its "SSH port": if you change it, it will stop alerting. Remove it first or leave that setting as it was.'
 			]);
 			expect(await trampa(OBJETIVO)).toMatchObject({ parametros: { puertoSsh: 2231 } });
 			/* Con el mismo puerto, el resto se cambia. */

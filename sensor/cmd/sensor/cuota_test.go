@@ -62,7 +62,7 @@ func TestSinPoderPerforarLaTrampaSeParaYVuelveAlLeerlaEntera(t *testing.T) {
 
 	s.vigilarCuota(time.Now())
 	aviso := s.estado.Paradas["t1"]
-	if len(*paradas) != 1 || !strings.Contains(aviso, "cuota superada (registros.sin-perforar)") {
+	if len(*paradas) != 1 || !strings.Contains(aviso, "quota exceeded (registros.sin-perforar)") {
 		t.Fatalf("sin poder perforar, la trampa se para con el aviso: paradas=%v aviso=%q", *paradas, aviso)
 	}
 	if s.opc.Paradas["t1"] != aviso {
@@ -153,8 +153,8 @@ func TestAvisoDeCuota(t *testing.T) {
 		if n := utf8.RuneCountInString("parada: " + aviso); n > 200 {
 			t.Errorf("el aviso no cabe en el estado (%d caracteres): %q", n, aviso)
 		}
-		if !strings.HasPrefix(aviso, "cuota superada ("+causa+")") {
-			t.Errorf("el aviso empieza por «cuota superada» y su código: %q", aviso)
+		if !strings.HasPrefix(aviso, "quota exceeded ("+causa+")") {
+			t.Errorf("el aviso empieza por «quota exceeded» y su código: %q", aviso)
 		}
 	}
 }

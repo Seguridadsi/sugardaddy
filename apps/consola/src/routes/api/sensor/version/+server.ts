@@ -13,10 +13,10 @@ import { sensorDe } from '$lib/server/sensor';
  */
 export const GET = async ({ request, url }) => {
 	const sensor = await sensorDe(request);
-	if (!sensor.remoto) error(403, 'El sensor local se actualiza con el nodo');
+	if (!sensor.remoto) error(403, 'The local sensor is updated with the node');
 	if (await retenido(sensor.id)) return json(null);
 	const actual = url.searchParams.get('actual') ?? '';
-	if (!/^\d+\.\d+\.\d+$/.test(actual)) error(400, 'Falta la versión actual (?actual=x.y.z)');
+	if (!/^\d+\.\d+\.\d+$/.test(actual)) error(400, 'Missing the current version (?actual=x.y.z)');
 	const { firmada, release } = await releaseDelNodo();
 	return json(
 		compararVersiones(release.version, actual) > 0
@@ -27,10 +27,10 @@ export const GET = async ({ request, url }) => {
 
 export const POST = async ({ request }) => {
 	const sensor = await sensorDe(request);
-	if (!sensor.remoto) error(403, 'El sensor local se actualiza con el nodo');
+	if (!sensor.remoto) error(403, 'The local sensor is updated with the node');
 	const b = await request.json().catch(() => null);
 	if (typeof b?.version !== 'string' || !['aplicando', 'aplicada', 'fallida'].includes(b?.estado))
-		error(400, 'Se esperaba { version, estado, detalle }');
+		error(400, 'Expected { version, estado, detalle }');
 	if (b.tipo === 'configuracion') {
 		await resultadoConfiguracionRemota(sensor.id, b.version, b.estado, String(b.detalle ?? ''));
 		return json({ ok: true });
@@ -38,7 +38,7 @@ export const POST = async ({ request }) => {
 	if (b.estado === 'aplicada')
 		await db.update(s.sensores).set({ version: b.version }).where(eq(s.sensores.id, sensor.id));
 	if (b.estado !== 'aplicando')
-		await auditar(`sensor ${sensor.id}`, `actualización ${b.estado}`, {
+		await auditar(`sensor ${sensor.id}`, `update ${b.estado}`, {
 			version: b.version,
 			detalle: String(b.detalle ?? '').slice(0, 500)
 		});

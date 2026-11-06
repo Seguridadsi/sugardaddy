@@ -29,7 +29,8 @@ export function configuradoEnEntorno() {
 }
 
 export function configEntorno(): Config {
-	if (!configuradoEnEntorno()) throw new Error('Falta la configuración de Entra. Revisa el .env.');
+	if (!configuradoEnEntorno())
+		throw new Error('Entra configuration is missing. Check the .env file.');
 	return {
 		tenant: env.ENTRA_TENANT_ID!,
 		clientId: env.ENTRA_CLIENT_ID!,

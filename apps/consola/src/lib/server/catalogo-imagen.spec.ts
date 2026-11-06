@@ -56,7 +56,7 @@ describe('catalogo-de-imagen.sh', () => {
 			(f) =>
 				!/^(trampas|ficheros|nube)\/[^/]+\/trampa\.yaml$/.test(f) &&
 				!/^respuestas\/[^/]+\/respuesta\.yaml$/.test(f) &&
-				!/^ficheros\/[^/]+\/plantilla\/[^/]+\.(docx|xlsx|pdf|svg)$/.test(f)
+				!/^ficheros\/[^/]+\/plantilla\/[^/]+\.(docx|xlsx|pptx|pdf|svg)$/.test(f)
 		);
 		expect(raros).toEqual([]);
 	});

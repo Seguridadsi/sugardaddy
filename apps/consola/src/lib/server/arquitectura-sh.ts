@@ -20,7 +20,7 @@
 export const comprobarArquitectura = (
 	que: string,
 	despues: string
-) => `PASO="comprobar la arquitectura"
+) => `PASO="check the architecture"
 plataforma=""
 if command -v docker >/dev/null; then
 	plataforma="$(docker version --format '{{.Server.Os}}/{{.Server.Arch}}' 2>/dev/null || true)"
@@ -28,6 +28,6 @@ elif command -v dpkg >/dev/null; then
 	plataforma="linux/$(dpkg --print-architecture 2>/dev/null || true)"
 fi
 if [[ "$plataforma" =~ ^[a-z0-9]+/[a-z0-9_]+$ && "$plataforma" != linux/amd64 ]]; then
-	echo "Sugardaddy: ${que} necesita un motor Docker de Linux amd64 (x86_64) y el de esta máquina es $plataforma, donde sus contenedores no arrancarían. Instálalo en una máquina o VM x86_64. No se ha cambiado nada en esta, pero ${despues} (código instalar.arquitectura)" >&2
+	echo "Sugardaddy: ${que} needs a Linux amd64 (x86_64) Docker engine, and this machine has $plataforma, where its containers would not start. Install it on an x86_64 machine or VM. Nothing was changed on this one, but ${despues} (code instalar.arquitectura)" >&2
 	exit 1
 fi`;

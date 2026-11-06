@@ -178,7 +178,7 @@ describe.skipIf(!hayBase)('la vigilancia', async () => {
 			const [i, ...resto] = incidentes();
 			expect(resto).toEqual([]);
 			expect(i).toMatchObject({ id: x.id, origen: x.origen, severidad: 'alta', eventos: 12 });
-			expect(i.trampas).toEqual(['Carpeta de RRHH', 'Trampa retirada']);
+			expect(i.trampas).toEqual(['Carpeta de RRHH', 'Removed decoy']);
 			expect(Object.keys(i).sort()).toEqual(
 				[
 					'abierto',
@@ -254,7 +254,7 @@ describe.skipIf(!hayBase)('la vigilancia', async () => {
 			await v.compartirIncidentes('zz-vig', true);
 			falla = '/api/nodo/incidentes';
 			await latir();
-			expect(await errorDelCanal()).toMatch(/no acepta los incidentes/);
+			expect(await errorDelCanal()).toMatch(/did not accept the incidents/);
 			expect((await fila(x.id)).subido).toBeNull();
 			falla = null;
 			envios = [];
@@ -317,11 +317,9 @@ describe.skipIf(!hayBase)('la vigilancia', async () => {
 			const [a] = await db
 				.select()
 				.from(s.auditoria)
-				.where(eq(s.auditoria.accion, 'el panel ha descartado incidentes'));
+				.where(eq(s.auditoria.accion, 'Central discarded incidents'));
 			expect(a).toBeDefined();
-			await db
-				.delete(s.auditoria)
-				.where(eq(s.auditoria.accion, 'el panel ha descartado incidentes'));
+			await db.delete(s.auditoria).where(eq(s.auditoria.accion, 'Central discarded incidents'));
 			envios = [];
 			await latir();
 			expect(subidas()).toEqual([]);
@@ -339,7 +337,7 @@ describe.skipIf(!hayBase)('la vigilancia', async () => {
 				ultimoContacto: string | null;
 				estado: EstadoDeseado | null;
 			};
-			expect(c.error).toMatch(/no acepta los incidentes/);
+			expect(c.error).toMatch(/did not accept the incidents/);
 			expect(c.ultimoContacto).not.toBeNull();
 			expect(c.estado?.operador).toBe('ACME Seguridad');
 		});
@@ -395,7 +393,7 @@ describe.skipIf(!hayBase)('la vigilancia', async () => {
 			extra = { releBalizas: true };
 			falla = '/api/nodo/rele';
 			await latir();
-			expect(await errorDelCanal()).toMatch(/balizas del relé/);
+			expect(await errorDelCanal()).toMatch(/relay beacons/);
 			expect(subidas().map((e) => e.cuerpo)).toEqual([{ borrar: true }]);
 			expect((await v.vigilancia()).borrar).toBe(false);
 		});

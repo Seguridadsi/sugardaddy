@@ -37,14 +37,14 @@
 	type="button"
 	class="plegar"
 	aria-expanded={!plegado}
-	aria-label="{plegado ? 'Mostrar' : 'Ocultar'} {titulo}"
-	title={plegado ? 'Mostrar' : 'Ocultar'}
+	aria-label="{plegado ? 'Show' : 'Hide'} {titulo}"
+	title={plegado ? 'Show' : 'Hide'}
 	onclick={alternar}
 >
 	<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" class:plegado>
 		<path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" />
 	</svg>
-	<span>{plegado ? 'Mostrar' : 'Ocultar'}</span>
+	<span>{plegado ? 'Show' : 'Hide'}</span>
 </button>
 
 <style>

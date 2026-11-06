@@ -18,25 +18,25 @@ export const GET = async ({ url, cookies, request, locals }) => {
 	const guardado = cookies.get(COOKIE_OIDC);
 	cookies.delete(COOKIE_OIDC, { path: '/' });
 	if (!guardado) {
-		if (!url.search) redirect(303, '/entrar?salida=1');
-		await auditar('anónimo', 'entrada denegada', {
-			motivo: 'sin cookie de ida',
+		if (!url.search) redirect(303, '/sign-in?salida=1');
+		await auditar('anonymous', 'sign-in denied', {
+			motivo: 'no outbound cookie',
 			agente: request.headers.get('user-agent')?.slice(0, 120)
 		});
-		redirect(303, '/entrar?error=caducado');
+		redirect(303, '/sign-in?error=caducado');
 	}
 	const { estado, nonce, verificador, volverA, probar } = JSON.parse(guardado);
 	/* Una prueba desde Ajustes vuelve a Ajustes, con el motivo si sale mal. */
 	function fuera(motivo: string): never {
-		redirect(303, probar ? `/ajustes?entra=${motivo}#entra` : `/entrar?error=${motivo}`);
+		redirect(303, probar ? `/settings?entra=${motivo}#entra` : `/sign-in?error=${motivo}`);
 	}
 
 	if (url.searchParams.get('error')) {
-		await auditar('anónimo', 'entrada denegada', { motivo: url.searchParams.get('error') });
+		await auditar('anonymous', 'sign-in denied', { motivo: url.searchParams.get('error') });
 		fuera('rechazado');
 	}
 	if (url.searchParams.get('state') !== estado) {
-		await auditar('anónimo', 'entrada denegada', { motivo: 'estado' });
+		await auditar('anonymous', 'sign-in denied', { motivo: 'estado' });
 		fuera('estado');
 	}
 	const codigo = url.searchParams.get('code');
@@ -49,14 +49,14 @@ export const GET = async ({ url, cookies, request, locals }) => {
 	 * no cambia.
 	 */
 	if (probar) {
-		if (!locals.usuario || !puede(locals.usuario.roles, 'ajustes')) redirect(303, '/entrar');
+		if (!locals.usuario || !puede(locals.usuario.roles, 'ajustes')) redirect(303, '/sign-in');
 		const config = await configPropia();
 		if (!config) fuera('sin-config');
 		let p;
 		try {
 			p = await canjear(config, { codigo, redirectUri, verificador, nonce });
 		} catch (e) {
-			console.error('[auth] canje de prueba fallido', e);
+			console.error('[auth] test exchange failed', e);
 			fuera('canje');
 		}
 		const r = identidadPropia(p);
@@ -64,12 +64,12 @@ export const GET = async ({ url, cookies, request, locals }) => {
 		else if (!r.roles.includes('admin')) fuera('sin-admin');
 		else {
 			await activarEntraPropio(locals.usuario.correo, r.correo);
-			redirect(303, '/ajustes?entra=activado#entra');
+			redirect(303, '/settings?entra=activado#entra');
 		}
 	}
 
 	const activa = await configActiva();
-	if (!activa) redirect(303, '/entrar');
+	if (!activa) redirect(303, '/sign-in');
 
 	/* La puerta de soporte solo existe mientras el cliente la tenga abierta. */
 	const sop = await soporte();
@@ -82,17 +82,17 @@ export const GET = async ({ url, cookies, request, locals }) => {
 	try {
 		r = await canjearCodigo(activa, { codigo, redirectUri, verificador, nonce }, puerta);
 	} catch (e) {
-		console.error('[auth] canje fallido', e);
-		await auditar('anónimo', 'entrada denegada', { motivo: 'canje' });
-		redirect(303, '/entrar?error=canje');
+		console.error('[auth] exchange failed', e);
+		await auditar('anonymous', 'sign-in denied', { motivo: 'canje' });
+		redirect(303, '/sign-in?error=canje');
 	}
 	if ('rechazo' in r) {
-		await auditar('anónimo', 'entrada denegada', { motivo: r.rechazo });
-		redirect(303, `/entrar?error=${r.rechazo}`);
+		await auditar('anonymous', 'sign-in denied', { motivo: r.rechazo });
+		redirect(303, `/sign-in?error=${r.rechazo}`);
 	}
 
 	await abrir(cookies, r, url.protocol === 'https:');
-	await auditar(r.correo, r.soporte ? `entrada de soporte de ${await operador()}` : 'entrada', {
+	await auditar(r.correo, r.soporte ? `support sign-in by ${await operador()}` : 'sign-in', {
 		roles: r.roles
 	});
 	redirect(303, volverSeguro(volverA));

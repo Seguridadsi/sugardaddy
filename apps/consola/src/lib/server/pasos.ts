@@ -74,9 +74,9 @@ export function opcionesDeObjetivo(
 	trampas: Record<string, TrampaDelCliente>
 ): Record<string, OpcionObjetivo[]> {
 	const motivoDe = (t: TrampaDelCliente) => {
-		if (t.colocacion === 'retirando') return 'se está retirando';
-		if (!RECIBEN.includes(t.colocacion)) return 'aún no está puesta';
-		if (!t.direccion) return `${t.destinoNombre || 'su destino'} no tiene dirección`;
+		if (t.colocacion === 'retirando') return 'it is being removed';
+		if (!RECIBEN.includes(t.colocacion)) return 'it is not deployed yet';
+		if (!t.direccion) return `${t.destinoNombre || 'its target'} has no address`;
 		return null;
 	};
 	return Object.fromEntries(
@@ -88,7 +88,7 @@ export function opcionesDeObjetivo(
 				.sort(
 					(a, b) =>
 						Number(a.motivo !== null) - Number(b.motivo !== null) ||
-						a.nombre.localeCompare(b.nombre, 'es')
+						a.nombre.localeCompare(b.nombre, 'en')
 				)
 		])
 	);
@@ -171,17 +171,17 @@ export const FORMATOS: readonly FormatoPasos[] = ['ps1', 'sh', 'md', 'txt'];
 
 /* Cómo se llama cada campo de una marca para el cliente. */
 function campoDeMarca(campo: Marca['campo']): string {
-	if (campo === 'origen.usuario') return 'el usuario';
-	if (campo === 'origen.ip') return 'la IP de origen';
-	if (campo === 'origen.equipo') return 'el equipo';
-	return `«${campo.slice('detalle.'.length)}»`;
+	if (campo === 'origen.usuario') return 'user';
+	if (campo === 'origen.ip') return 'source IP';
+	if (campo === 'origen.equipo') return 'machine';
+	return `field "${campo.slice('detalle.'.length)}"`;
 }
 
 /* La marca con que se le atribuyen los eventos de su objetivo, en una frase (§8.5). */
 export function textoMarca(m: Marca): string {
 	return 'igual' in m
-		? `${campoDeMarca(m.campo)} «${m.igual}»`
-		: `${campoDeMarca(m.campo)} con «${m.contiene}»`;
+		? `${campoDeMarca(m.campo)} "${m.igual}"`
+		: `${campoDeMarca(m.campo)} containing "${m.contiene}"`;
 }
 
 /*
@@ -245,7 +245,7 @@ export async function descargarPasos(
 	const f = exportar(p, formato, { parte, ...(nonce ? { nonce } : {}) });
 	await db.insert(s.auditoria).values({
 		quien,
-		accion: 'pasos descargados',
+		accion: 'steps downloaded',
 		detalle: { id, formato, parte, pasos: p.sha256 }
 	});
 	return f;

@@ -7,7 +7,7 @@
 	type Paso = { n: number; texto: string; orden?: string; comprobar?: string };
 	let { pasos, lenguaje }: { pasos: Paso[]; lenguaje: 'powershell' | 'sh' | 'ninguno' } = $props();
 	const debeDar = $derived(
-		lenguaje === 'powershell' ? 'tiene que dar True' : 'tiene que terminar sin error'
+		lenguaje === 'powershell' ? 'must return True' : 'must finish without error'
 	);
 </script>
 
@@ -17,7 +17,7 @@
 			<p>{p.texto}</p>
 			{#if p.orden}<pre class="mono codigo">{p.orden}</pre>{/if}
 			{#if p.comprobar}
-				<p class="comprobar">Comprueba antes de seguir ({debeDar}):</p>
+				<p class="comprobar">Check before continuing ({debeDar}):</p>
 				<pre class="mono codigo">{p.comprobar}</pre>
 			{/if}
 		</li>

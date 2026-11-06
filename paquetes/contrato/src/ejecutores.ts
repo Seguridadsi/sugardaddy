@@ -120,7 +120,7 @@ export const EJECUTORES: Readonly<Record<string, Ejecutor>> = congelar({
 	 */
 	'contenedor@1': {
 		id: 'contenedor@1',
-		nombre: 'En un sensor',
+		nombre: 'On a sensor',
 		clase: 'agente',
 		corre: 'agente',
 		destinos: ['maquina', 'fileserver', 'web'],
@@ -131,31 +131,30 @@ export const EJECUTORES: Readonly<Record<string, Ejecutor>> = congelar({
 				en: ['rootful'],
 				siFalta: 'ignora',
 				motivo:
-					'Docker Desktop, Docker dentro de WSL y Docker o Podman sin root no dejan ver la IP del atacante.',
+					'Docker Desktop, Docker inside WSL, and rootless Docker or Podman do not expose the attacker IP.',
 				remedio:
-					'Pon el sensor en un Linux con Docker con root o en la appliance de Hyper-V o VMware.'
+					'Put the sensor on a Linux machine with rootful Docker or in the Hyper-V or VMware appliance.'
 			},
 			{
 				hecho: 'motor.arquitectura',
 				en: ['amd64'],
 				siFalta: 'ignora',
-				motivo: 'Las imágenes de las trampas solo existen para amd64.'
+				motivo: 'Decoy images exist only for amd64.'
 			},
 			{
 				/* Aún no ha llegado nada: hace falta una trampa puesta para saberlo. */
 				hecho: 'red.ipOrigenReal',
 				igual: true,
 				siFalta: 'ignora',
-				motivo:
-					'Las trampas de esta máquina ven la IP del motor de contenedores, no la del atacante.',
+				motivo: 'The decoys on this machine see the container engine IP, not the attacker IP.',
 				remedio:
-					'Si solo has probado desde la propia máquina, prueba una de sus trampas desde otro equipo («Probar»): el aviso se va con la primera IP de fuera. Si no, revisa que Docker tenga iptables activado.'
+					'If you have only tested from the machine itself, test one of its decoys from another computer ("Test"): the warning clears with the first outside IP. Otherwise, check that Docker has iptables enabled.'
 			},
 			{
 				hecho: 'motor.codigo',
 				presente: false,
 				nivel: 'avisa',
-				motivo: 'El motor de contenedores falla ahora; la trampa esperará a que vuelva.'
+				motivo: 'The container engine is failing right now; the decoy will wait until it recovers.'
 			}
 		],
 		pausable: true,
@@ -170,7 +169,7 @@ export const EJECUTORES: Readonly<Record<string, Ejecutor>> = congelar({
 	 */
 	'manual@1': {
 		id: 'manual@1',
-		nombre: 'Pasos a mano',
+		nombre: 'Manual steps',
 		clase: 'manual',
 		corre: 'consola',
 		destinos: TODOS,

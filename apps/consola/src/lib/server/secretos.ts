@@ -61,7 +61,7 @@ export function cifrar(
 	contexto: string,
 	clave = claveDelNodo()
 ): string {
-	if (!clave) throw new Error('Este nodo no tiene clave para cifrar secretos (CLAVE_SECRETOS)');
+	if (!clave) throw new Error('This node has no key for encrypting secrets (CLAVE_SECRETOS)');
 	const iv = randomBytes(12);
 	const c = createCipheriv(ALGORITMO, clave.bytes, iv);
 	c.setAAD(aad(clave.id, contexto));
@@ -101,10 +101,10 @@ export function descifrar(sobre: string, contexto: string, clave = claveDelNodo(
 /* Lo que se dice al cliente cuando un secreto guardado no se puede leer. */
 export const TEXTO_ILEGIBLE: Record<Exclude<Descifrado, { ok: true }>['motivo'], string> = {
 	'sin-clave':
-		'Este nodo no tiene su clave para leer secretos (CLAVE_SECRETOS en su .env): vuelve a poner el secreto cuando la tenga.',
+		'This node does not have its key for reading secrets (CLAVE_SECRETOS in its .env file): enter the secret again once it has one.',
 	'otra-clave':
-		'El secreto se guardó con otra clave del nodo (p. ej. tras reinstalarlo o restaurar una copia en otra máquina): vuelve a ponerlo.',
-	ilegible: 'El secreto guardado no se puede leer: vuelve a ponerlo.'
+		'The secret was saved with a different node key (e.g. after reinstalling or restoring a backup on another machine): enter it again.',
+	ilegible: 'The saved secret cannot be read: enter it again.'
 };
 
 /* Los 4 últimos caracteres, solo si es lo bastante largo como para que no digan casi nada. */

@@ -30,9 +30,9 @@ const (
 )
 
 const (
-	avisoPerdido      = "el registro anterior ya no está: puede faltar lo que hubiera sin leer"
-	avisoDesaparecido = "un registro rotado ha desaparecido antes de acabarlo: puede faltar lo que tuviera"
-	avisoSalto        = "%s: se saltan %d bytes sin salto de línea desde el byte %d (línea gigante o fichero disperso)"
+	avisoPerdido      = "the previous log is gone: anything unread in it may be missing"
+	avisoDesaparecido = "a rotated log disappeared before it was finished: anything in it may be missing"
+	avisoSalto        = "%s: skipping %d bytes without a line break from byte %d (giant line or sparse file)"
 )
 
 // comprimidos: lo que deja logrotate con compress no es texto y no se lee.

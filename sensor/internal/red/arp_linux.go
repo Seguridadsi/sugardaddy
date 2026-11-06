@@ -24,11 +24,11 @@ import (
 func abiertoEnlace(interfaz string) (*enlace, error) {
 	red, err := net.InterfaceByName(interfaz)
 	if err != nil {
-		return nil, fmt.Errorf("no hay interfaz %s: %w", interfaz, err)
+		return nil, fmt.Errorf("no interface %s: %w", interfaz, err)
 	}
 	fd, err := syscall.Socket(syscall.AF_PACKET, syscall.SOCK_RAW, int(htons(0x0003))) // ETH_P_ALL
 	if err != nil {
-		return nil, fmt.Errorf("AF_PACKET en %s (hace falta NET_RAW): %w", interfaz, err)
+		return nil, fmt.Errorf("AF_PACKET on %s (NET_RAW is required): %w", interfaz, err)
 	}
 	if err := syscall.Bind(fd, &syscall.SockaddrLinklayer{Protocol: htons(0x0003), Ifindex: red.Index}); err != nil {
 		syscall.Close(fd)
@@ -59,7 +59,7 @@ func abiertoEnlace(interfaz string) (*enlace, error) {
 	}
 	if err := syscall.SetsockoptString(fd, syscall.SOL_SOCKET, 0x1a /* SO_ATTACH_FILTER */, string(bruto)); err != nil {
 		syscall.Close(fd)
-		return nil, fmt.Errorf("enganchar el filtro de solo-ARP: %w", err)
+		return nil, fmt.Errorf("attaching the ARP-only filter: %w", err)
 	}
 	return &enlace{fd: fd, interfaz: red}, nil
 }
@@ -123,7 +123,7 @@ func (e *enlace) leer(plazo time.Time) (o arpOido, ok bool) {
 // conteste ARP, que en la práctica es lo mismo para el tráfico IP).
 func Libre(interfaz string, ip netip.Addr, espera time.Duration) (bool, error) {
 	if !ip.Is4() {
-		return false, fmt.Errorf("la IP propia %s no es IPv4", ip)
+		return false, fmt.Errorf("the own IP %s is not IPv4", ip)
 	}
 	e, err := abiertoEnlace(interfaz)
 	if err != nil {

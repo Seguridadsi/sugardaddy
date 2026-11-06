@@ -1,28 +1,32 @@
 version: 1
 id: rdp
-nombre: Escritorio remoto (RDP)
+nombre: Remote Desktop (RDP)
 descripcion: >-
-  Un servidor de Escritorio remoto (RDP) que parece un Windows con RDP abierto: negocia, termina
-  TLS y pide credenciales por NLA como uno real, pero no da sesión a nadie ni ejecuta nada.
-  Registra cada conexión y negociación (con la cookie mstshash), el usuario, dominio y equipo de
-  cada intento de inicio de sesión y el hash NetNTLMv2 que llega; si pones una contraseña sembrada
-  y alguien la prueba, la captura en claro. Objetivo número uno de fuerza bruta y movimiento lateral.
+  A Remote Desktop (RDP) server that looks like a Windows machine with RDP open:
+  it negotiates, terminates TLS and asks for credentials through NLA like a real
+  one, but gives no one a session and executes nothing. It records every
+  connection and negotiation (with the mstshash cookie), the user, domain and
+  machine of each sign-in attempt and the NetNTLMv2 hash received; if you set a
+  seeded password and someone tries it, it is captured in plaintext. A top
+  target for brute force and lateral movement.
 alerta:
   fidelidad: interno
 ficha:
   detecta: >-
-    Fuerza bruta de RDP, robo de credenciales y movimiento lateral por el puerto 3389: intentos de
-    inicio de sesión (captura usuario, dominio, equipo y el hash NetNTLMv2 para que veas quién y
-    desde dónde), la herramienta que usan (cookie mstshash y huella TLS JA3/JA4) y, si prueban una
-    credencial sembrada, la contraseña en claro. Cualquiera que toque este 3389 es sospechoso.
+    RDP brute force, credential theft and lateral movement through port 3389:
+    sign-in attempts (captures user, domain, machine and the NetNTLMv2 hash so
+    you can see who and from where), the tool they use (mstshash cookie and
+    JA3/JA4 TLS fingerprint) and, if they try a seeded credential, the plaintext
+    password. Anyone touching this 3389 is suspicious.
   donde: >-
-    En la red de servidores o de puestos, en una máquina Linux que no comparta ya RDP, con un
-    nombre de equipo creíble (TS01, RDS01). RDP es de lo más escaneado y atacado de Internet y de
-    las redes internas; nadie legítimo debería intentar entrar a esta.
+    On the server or workstation network, on a Linux machine that does not
+    already share RDP, with a believable machine name (TS01, RDS01). RDP is
+    among the most scanned and attacked services on the Internet and on internal
+    networks; nobody legitimate should try to sign in to this one.
   requisitos:
-    - Un sensor Linux con Docker (el del nodo o uno instalado en otra máquina).
-    - Abrir en el cortafuegos de esa máquina el puerto que elijas (el 3389 es el creíble).
-    - En Windows el 3389 lo suele tener Terminal Services; usa esta trampa en un sensor Linux, no en el puesto.
+    - A Linux sensor with Docker (the node's own or one installed on another machine).
+    - Open in that machine's firewall the port you choose (3389 is the believable one).
+    - On Windows, 3389 is usually held by Terminal Services; use this decoy on a Linux sensor, not on the workstation.
   instalacion:
     automatica: true
 versionModulo: 0.1.0
@@ -70,58 +74,63 @@ parametros:
   properties:
     puertoRdp:
       type: integer
-      title: Puerto RDP
-      description: El 3389 es el estándar de RDP y el más creíble y atacado. Solo si la máquina no lo usa ya para Escritorio remoto.
+      title: RDP port
+      description: 3389 is the RDP standard and the most believable and attacked. Only if the machine does not already use it for Remote Desktop.
       minimum: 1
       maximum: 65535
       default: 3389
     nombreEquipo:
       type: string
       x-camuflaje: 'equipo:ts'
-      title: Nombre del equipo
-      description: El nombre que anuncia en el certificado TLS y en el reto NTLM. Que encaje con los servidores de la red (TS01, RDS01).
+      title: Computer name
+      description: The name it announces in the TLS certificate and in the NTLM challenge. It should fit the servers on the network (TS01, RDS01).
       pattern: '^[A-Za-z0-9-]{1,15}$'
       default: TS01
     dominio:
       type: string
       x-camuflaje: 'netbios'
-      title: Dominio o grupo de trabajo
+      title: Domain or workgroup
       description: >-
-        El dominio o grupo de trabajo NetBIOS que anuncia en el reto NTLM. Pon el de tu red para que
-        parezca un equipo más. Si es un grupo de trabajo (WORKGROUP), la trampa anuncia su propio
-        nombre de equipo en los campos de dominio NTLM, como un Windows standalone real.
+        The NetBIOS domain or workgroup it announces in the NTLM challenge. Use
+        your network's so it looks like one more machine. If it is a workgroup
+        (WORKGROUP), the decoy announces its own machine name in the NTLM domain
+        fields, like a real standalone Windows.
       pattern: '^[A-Za-z0-9-]{1,15}$'
       default: WORKGROUP
     dominioDns:
       type: string
       x-camuflaje: 'dominio'
-      title: Dominio DNS (FQDN, opcional)
+      title: DNS domain (FQDN, optional)
       description: >-
-        FQDN del dominio (p. ej. corp.example.com) para que el reto NTLM anuncie ese DnsDomainName y
-        el DnsComputerName equipo.FQDN, como un equipo de dominio real. Déjalo vacío si es un grupo
-        de trabajo o no quieres anunciar un dominio DNS.
+        The domain FQDN (e.g. corp.example.com) so the NTLM challenge announces
+        that DnsDomainName and the DnsComputerName machine.FQDN, like a real
+        domain machine. Leave it empty if it is a workgroup or you do not want
+        to announce a DNS domain.
       pattern: '^$|^(?=.{1,253}$)([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,}$'
       maxLength: 253
       default: ''
     seguridad:
       type: string
-      title: Seguridad RDP
+      title: RDP security
       description: >-
-        "nla" (recomendado) exige Autenticación a nivel de red como un Windows moderno: captura el
-        hash NetNTLMv2 de cada intento. "tls" deja además que la contraseña llegue en claro en el
-        Client Info de clientes que no usan NLA.
+        "nla" (recommended) requires Network Level Authentication like a modern
+        Windows: it captures the NetNTLMv2 hash of each attempt. "tls" also lets
+        the password arrive in plaintext in the Client Info of clients that do
+        not use NLA.
       enum: ['nla', 'tls']
       x-opciones:
-        nla: NLA (captura NetNTLMv2; como Windows Server moderno)
-        tls: TLS (permite también contraseña en claro por Client Info)
+        nla: NLA (captures NetNTLMv2; like a modern Windows Server)
+        tls: TLS (also allows plaintext password through Client Info)
       default: 'nla'
     contrasenaSembrada:
       type: string
-      title: Contraseña sembrada (opcional)
+      title: Seeded password (optional)
       description: >-
-        Si pones una, la trampa ACEPTA el login que la use y captura la contraseña en claro (útil
-        con una credencial trampa colocada en otra parte: sabrás si alguien la prueba contra RDP).
-        Si la dejas vacía, todos los intentos reciben "logon failure" y solo se captura el NetNTLMv2.
+        If you set one, the decoy ACCEPTS the login that uses it and captures
+        the password in plaintext (useful with a decoy credential placed
+        elsewhere: you will know if someone tries it against RDP). If you leave
+        it empty, all attempts receive "logon failure" and only the NetNTLMv2 is
+        captured.
       pattern: '^[\x20-\x7e]{0,128}$'
       maxLength: 128
       default: ''
@@ -182,33 +191,33 @@ eventos:
   sesion: session
   resumen: [dominio, dialecto, ntlm_version, password, ja4, motivo_cierre, omitidos, motivo]
   etiquetas:
-    eventid: Evento
-    dst_port: Puerto
-    proto: Transporte
-    dialecto: Protocolos pedidos
-    dominio: Dominio
-    equipo: Equipo del cliente
-    password: Contraseña (si va en claro)
-    ntlm_version: Tipo de NTLM
-    ntlm_hash: Hash NetNTLMv2 (hashcat -m 5600)
-    reto: Reto del servidor (hex)
-    ja3: Huella TLS JA3
-    ja4: Huella TLS JA4
-    variante: Variante de explotación
-    motivo_cierre: Motivo de cierre
-    omitidos: Eventos no apuntados
-    por_tipo: Por tipo de evento
-    ips_ruidosas: IP que más se callan
-    ips_distintas: IP distintas calladas
-    periodo_s: En los últimos (s)
-    tope_bytes: Tope diario (bytes)
-    motivo: Se calla por
-    error: Error del registro
-    rdp.session.connect: Conexión
-    rdp.session.negotiate: Negociación RDP (cookie mstshash)
-    rdp.auth: Intento de inicio de sesión (NetNTLMv2)
-    rdp.auth.aceptado: Inicio de sesión ACEPTADO (contraseña sembrada)
-    rdp.exploit: Herramienta de explotación (BlueKeep / MS12-020)
-    rdp.session.rechazos: Conexiones rechazadas por tope (resumen)
-    rdp.error: Conexión cortada por un fallo interno
-    rdp.log.omitidos: Eventos que no caben (resumen)
+    eventid: Event
+    dst_port: Port
+    proto: Transport
+    dialecto: Protocols requested
+    dominio: Domain
+    equipo: Customer machine
+    password: Password (if sent in plaintext)
+    ntlm_version: NTLM type
+    ntlm_hash: NetNTLMv2 hash (hashcat -m 5600)
+    reto: Server challenge (hex)
+    ja3: JA3 TLS fingerprint
+    ja4: JA4 TLS fingerprint
+    variante: Exploitation variant
+    motivo_cierre: Reason for closing
+    omitidos: Events not recorded
+    por_tipo: By event type
+    ips_ruidosas: IPs most silenced
+    ips_distintas: Distinct IPs silenced
+    periodo_s: In the last (s)
+    tope_bytes: Daily limit (bytes)
+    motivo: Muted because
+    error: Log error
+    rdp.session.connect: Connection
+    rdp.session.negotiate: RDP negotiation (mstshash cookie)
+    rdp.auth: Sign-in attempt (NetNTLMv2)
+    rdp.auth.aceptado: Sign-in ACCEPTED (seeded password)
+    rdp.exploit: Exploitation tool (BlueKeep / MS12-020)
+    rdp.session.rechazos: Connections rejected by limit (summary)
+    rdp.error: Connection cut off by an internal failure
+    rdp.log.omitidos: Events that do not fit (summary)

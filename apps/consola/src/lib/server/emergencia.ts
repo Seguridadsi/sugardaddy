@@ -72,7 +72,7 @@ export async function opcionesRegistro(rpID: string, nombre: string, quien: stri
 	const opciones = await generateRegistrationOptions({
 		rpName: 'Sugardaddy',
 		rpID,
-		userName: `emergencia · ${nombre}`,
+		userName: `emergency · ${nombre}`,
 		attestationType: 'none',
 		excludeCredentials: existentes.map((l) => ({ id: l.id })),
 		authenticatorSelection: { residentKey: 'preferred', userVerification: 'required' }
@@ -88,7 +88,7 @@ export async function registrar(
 	conCodigo: boolean
 ) {
 	const r = tomarReto(retoId);
-	if (!r) return { ok: false as const, motivo: 'El reto ha caducado. Vuelve a empezar.' };
+	if (!r) return { ok: false as const, motivo: 'The challenge has expired. Start again.' };
 	const v = await verifyRegistrationResponse({
 		response: respuesta,
 		expectedChallenge: r.reto,
@@ -97,7 +97,7 @@ export async function registrar(
 		requireUserVerification: true
 	}).catch((e: Error) => ({ verified: false as const, error: e.message }));
 	if (!v.verified || !('registrationInfo' in v) || !v.registrationInfo)
-		return { ok: false as const, motivo: 'La llave no ha superado la verificación.' };
+		return { ok: false as const, motivo: 'The key did not pass verification.' };
 	const { credential } = v.registrationInfo;
 	await db.insert(s.llavesEmergencia).values({
 		id: credential.id,
@@ -107,13 +107,13 @@ export async function registrar(
 		registradaPor: r.quien!
 	});
 	if (conCodigo) await gastarCodigo();
-	await auditar(r.quien!, 'llave de emergencia registrada', { nombre: r.nombre, conCodigo });
+	await auditar(r.quien!, 'emergency key registered', { nombre: r.nombre, conCodigo });
 	return { ok: true as const };
 }
 
 export async function retirarLlave(quien: string, id: string) {
 	const [f] = await db.delete(s.llavesEmergencia).where(eq(s.llavesEmergencia.id, id)).returning();
-	if (f) await auditar(quien, 'llave de emergencia retirada', { nombre: f.nombre });
+	if (f) await auditar(quien, 'emergency key removed', { nombre: f.nombre });
 	return !!f;
 }
 
@@ -205,7 +205,7 @@ export async function nuevoCodigoEmergencia(quien: string) {
 		.insert(s.ajustes)
 		.values({ clave: AJUSTE_CODIGO, valor })
 		.onConflictDoUpdate({ target: s.ajustes.clave, set: { valor } });
-	await auditar(quien, 'código de emergencia generado');
+	await auditar(quien, 'emergency code generated');
 	return codigo;
 }
 
@@ -250,9 +250,9 @@ export async function canjearCodigoEmergencia(codigo: string, ip: string, ahora 
 			: [];
 	if (gastado.length === 0) {
 		fallos.set(ip, [...(fallos.get(ip) ?? []), ahora]);
-		await auditar('anónimo', 'código de emergencia rechazado', { ip });
+		await auditar('anonymous', 'emergency code rejected', { ip });
 		return { ok: false as const, motivo: 'invalido' as const };
 	}
-	await auditar('emergencia · código', 'ENTRADA DE EMERGENCIA', { via: 'código', ip });
-	return { ok: true as const, nuevo: await nuevoCodigoEmergencia('emergencia · código') };
+	await auditar('emergency · code', 'EMERGENCY SIGN-IN', { via: 'code', ip });
+	return { ok: true as const, nuevo: await nuevoCodigoEmergencia('emergency · code') };
 }

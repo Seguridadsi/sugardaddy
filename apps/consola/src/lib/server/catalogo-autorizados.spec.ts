@@ -49,33 +49,33 @@ describe('porQueNo: lo de pago se nombra por su edición, Cloud', () => {
 	it('en community, una de pago viene en Cloud; una gratis fuera de la lista no está incluida', () => {
 		env.EDICION = 'community';
 		expect(porQueNo({ id: 'mysql', incluida: false, licencia: 'licencia.sin' })).toBe(
-			'Viene en Sugardaddy Cloud'
+			'Included in Sugardaddy Cloud'
 		);
 		expect(porQueNo({ id: 'cowrie', incluida: false, licencia: 'cubierta' })).toBe(
-			'No incluida en tu suscripción'
+			'Not included in your subscription'
 		);
 	});
 
 	it('en community, una de registro lleva a registrarse y dice si ha caducado', () => {
 		env.EDICION = 'community';
 		expect(porQueNo({ id: 'smb', incluida: false, licencia: 'registro.sin' })).toBe(
-			'Gratis con tu registro'
+			'Free with your registration'
 		);
 		expect(porQueNo({ id: 'smb', incluida: true, licencia: 'registro.caducado' })).toBe(
-			'Tu registro ha caducado'
+			'Your registration has expired'
 		);
 		expect(porQueNo({ id: 'smb', incluida: true, licencia: 'cubierta' })).toBeNull();
 	});
 
 	it('en Cloud: fuera de la suscripción, fuera de la licencia o con la licencia caducada', () => {
 		expect(porQueNo({ id: 'mysql', incluida: false, licencia: 'cubierta' })).toBe(
-			'No incluida en tu suscripción'
+			'Not included in your subscription'
 		);
 		expect(porQueNo({ id: 'mysql', incluida: true, licencia: 'licencia.sin' })).toBe(
-			'No está en tu licencia de Cloud'
+			'Not in your Cloud license'
 		);
 		expect(porQueNo({ id: 'mysql', incluida: true, licencia: 'licencia.caducada' })).toBe(
-			'Tu licencia de Cloud ha caducado'
+			'Your Cloud license has expired'
 		);
 		expect(porQueNo({ id: 'mysql', incluida: true, licencia: 'cubierta' })).toBeNull();
 	});

@@ -47,7 +47,7 @@ export async function guardarIdentidad(
 	await escribir({ ...antes, ...v, semilla: antes.semilla ?? randomBytes(16).toString('hex') });
 	await db.insert(s.auditoria).values({
 		quien,
-		accion: v.dominio ? 'dominio de la empresa guardado' : 'dominio de la empresa sin indicar',
+		accion: v.dominio ? 'company domain saved' : 'company domain not provided',
 		detalle: { dominio: v.dominio }
 	});
 }
@@ -176,7 +176,7 @@ export async function aplicarIdentidad(quien: string): Promise<{
 		} else
 			sinCambiar.push({
 				nombre: ahora.nombre,
-				motivo: r.errores[0] ?? r.motivos[0]?.texto ?? 'no se puede modificar'
+				motivo: r.errores[0] ?? r.motivos[0]?.texto ?? 'cannot be modified'
 			});
 	}
 	await escribir({ ...(await identidad()), aplicados });

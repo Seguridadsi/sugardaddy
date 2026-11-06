@@ -119,7 +119,7 @@ export function urlPanelValida(u: string) {
 }
 
 export async function darDeAlta(quien: string, panel: string, codigo: string) {
-	if (await leer()) return { ok: false, motivo: 'Este nodo ya está dado de alta en un panel.' };
+	if (await leer()) return { ok: false, motivo: 'This node is already enrolled in a Central.' };
 	const { nodo } = (await cabecera()).cliente;
 	const claves = generarClaves();
 	const base = panel.replace(/\/+$/, '');
@@ -132,11 +132,11 @@ export async function darDeAlta(quien: string, panel: string, codigo: string) {
 			signal: AbortSignal.timeout(15_000)
 		});
 	} catch {
-		return { ok: false, motivo: 'No se ha podido contactar con el panel.' };
+		return { ok: false, motivo: 'Could not reach Central.' };
 	}
 	if (!r.ok) {
 		const m = (await r.json().catch(() => null))?.message;
-		return { ok: false, motivo: `El panel ha rechazado el alta: ${m ?? r.status}` };
+		return { ok: false, motivo: `Central rejected the enrollment: ${m ?? r.status}` };
 	}
 	const b = await r.json();
 	await guardar({
@@ -151,7 +151,7 @@ export async function darDeAlta(quien: string, panel: string, codigo: string) {
 		error: null,
 		estado: null
 	});
-	await auditar(quien, 'nodo dado de alta en el panel central', {
+	await auditar(quien, 'node enrolled in Central', {
 		panel: base,
 		huellaPanel: huella(String(b.clavePublicaPanel))
 	});
@@ -166,6 +166,14 @@ export type Actualizacion = {
 	version: string | null;
 	release: ReleaseFirmada | null;
 	detalle: string | null;
+};
+
+/* Los estados se guardan en español; en la auditoría se leen en inglés. */
+const ESTADO_TXT: Record<string, string> = {
+	aplicando: 'applying',
+	aplicada: 'applied',
+	fallida: 'failed',
+	cancelado: 'cancelled'
 };
 
 const SIN_ACTUALIZACION: Actualizacion = {
@@ -203,12 +211,12 @@ async function considerar(estado: EstadoDeseado, nodo: string) {
 	const rechazo = !v.ok
 		? v.motivo
 		: v.release.version !== estado.versionObjetivo
-			? 'la versión firmada no es la que pide el estado'
+			? 'the signed version is not the one the state asks for'
 			: compararVersiones(v.release.version, actual) <= 0
-				? `no se baja de versión (${actual} → ${v.release.version})`
+				? `downgrades are not allowed (${actual} → ${v.release.version})`
 				: null;
 	if (rechazo) {
-		await auditar(`nodo ${nodo}`, 'versión rechazada', { motivo: rechazo });
+		await auditar(`node ${nodo}`, 'version rejected', { motivo: rechazo });
 		return;
 	}
 	if (!v.ok) return;
@@ -219,7 +227,7 @@ async function considerar(estado: EstadoDeseado, nodo: string) {
 		release: estado.release,
 		detalle: null
 	});
-	await auditar(`nodo ${nodo}`, 'versión pendiente de instalar', { version: v.release.version });
+	await auditar(`node ${nodo}`, 'version pending installation', { version: v.release.version });
 }
 
 /*
@@ -251,7 +259,7 @@ export async function considerarCommunity() {
 	if (!firmada?.release || !firmada?.firma) return;
 	const v = verificarRelease(clave, firmada);
 	if (!v.ok) {
-		await auditar('auto-actualización', 'release community rechazada', { motivo: v.motivo });
+		await auditar('auto-update', 'community release rejected', { motivo: v.motivo });
 		return;
 	}
 	const actual = (await cabecera()).cliente.version;
@@ -264,7 +272,7 @@ export async function considerarCommunity() {
 		release: firmada,
 		detalle: null
 	});
-	await auditar('auto-actualización', 'versión community pendiente', {
+	await auditar('auto-update', 'community version pending', {
 		version: v.release.version
 	});
 }
@@ -417,7 +425,7 @@ export async function informarRelevo(
 		if (remoto) await db.update(s.sensores).set({ configuracion: c }).where(eq(s.sensores.id, id));
 		else await guardarAjuste('configuracion', c);
 	}
-	await auditar(`sensor ${id}`, `relevo ${estado}`, {
+	await auditar(`sensor ${id}`, `handover ${ESTADO_TXT[estado] ?? estado}`, {
 		version,
 		detalle: detalle.slice(0, 500)
 	});
@@ -442,7 +450,7 @@ export async function resultadoConfiguracionRemota(
 		.set({ configuracion: c, ...(estado === 'aplicada' ? { version } : {}) })
 		.where(eq(s.sensores.id, sensor));
 	if (estado !== 'aplicando') await soltarRelevo(sensor);
-	await auditar(`sensor ${sensor}`, `configuración ${estado}`, {
+	await auditar(`sensor ${sensor}`, `configuration ${ESTADO_TXT[estado] ?? estado}`, {
 		version,
 		detalle: detalle.slice(0, 500)
 	});
@@ -480,7 +488,7 @@ export async function resultadoActualizacion(
 						sql`coalesce(${s.ajustes.valor}->>'remoto', 'false') <> 'true'`
 					)
 				);
-		await auditar('actualizador', `configuración ${estado}`, {
+		await auditar('updater', `configuration ${ESTADO_TXT[estado] ?? estado}`, {
 			version,
 			detalle: detalle.slice(0, 500)
 		});
@@ -496,7 +504,7 @@ export async function resultadoActualizacion(
 	} else {
 		await guardarActualizacion({ ...a, estado, detalle: detalle.slice(0, 500) });
 	}
-	await auditar('actualizador', `actualización ${estado}`, {
+	await auditar('updater', `update ${ESTADO_TXT[estado] ?? estado}`, {
 		version,
 		detalle: detalle.slice(0, 500)
 	});
@@ -596,10 +604,10 @@ export async function escalarAlPanel(d: Escalado): Promise<boolean> {
 	if (!c || c.cortado) return false;
 	try {
 		const r = await enviar(c, '/api/nodo/escalado', JSON.stringify(d));
-		if (r.status !== 202) throw new Error(`el panel responde ${r.status}`);
+		if (r.status !== 202) throw new Error(`Central responded ${r.status}`);
 		return true;
 	} catch (e) {
-		console.error('[escalado] no llegó al panel', e);
+		console.error('[escalado] did not reach Central', e);
 		return false;
 	}
 }
@@ -614,12 +622,12 @@ export async function latir() {
 	}
 	try {
 		const r = await enviar(c, '/api/nodo/latido', JSON.stringify(await latido()));
-		if (!r.ok) throw new Error(`el panel responde ${r.status}`);
+		if (!r.ok) throw new Error(`Central responded ${r.status}`);
 		const v = verificarEstado(c.clavePublicaPanel, c.cliente, await r.json());
 		if (!v.ok) {
 			/* Esto no es un fallo de red: alguien que no es el panel está respondiendo. */
-			await auditar(`nodo ${c.nodo}`, 'estado deseado rechazado', { motivo: v.motivo });
-			throw new Error(`estado deseado rechazado: ${v.motivo}`);
+			await auditar(`node ${c.nodo}`, 'desired state rejected', { motivo: v.motivo });
+			throw new Error(`desired state rejected: ${v.motivo}`);
 		}
 		await guardar({
 			...c,
@@ -660,19 +668,18 @@ async function subirIncidentes(c: Canal) {
 	const v = await vigilancia();
 	if (v.borrar) {
 		const r = await enviar(c, '/api/nodo/incidentes', JSON.stringify({ borrar: true }));
-		if (!r.ok) throw new Error(`el panel no borra los incidentes: ${r.status}`);
+		if (!r.ok) throw new Error(`Central did not delete the incidents: ${r.status}`);
 		await borradoEnElPanel();
 	}
 	if (!v.incidentes) return;
 	const { incidentes, marcas } = await incidentesPorSubir(v);
 	if (!incidentes.length) return;
 	const r = await enviar(c, '/api/nodo/incidentes', JSON.stringify({ incidentes }));
-	if (!r.ok) throw new Error(`el panel no acepta los incidentes: ${r.status}`);
+	if (!r.ok) throw new Error(`Central did not accept the incidents: ${r.status}`);
 	await marcarIncidentesSubidos(marcas);
 	/* Fila a fila: lo que no acepta no bloquea lo demás, y aquí queda constancia. */
 	const { descartadas } = (await r.json().catch(() => ({}))) as { descartadas?: number };
-	if (descartadas)
-		await auditar(`nodo ${c.nodo}`, 'el panel ha descartado incidentes', { descartadas });
+	if (descartadas) await auditar(`node ${c.nodo}`, 'Central discarded incidents', { descartadas });
 }
 
 /* Se cortó sin que el panel se enterase: tiene que borrar sus incidentes igualmente. */
@@ -701,7 +708,7 @@ async function publicarBalizasRele(c: Canal) {
 	if (huella === previa) return;
 	if (!tokens.length && previa === null) return; // nunca tuvo balizas: nada que registrar aún
 	const r = await enviar(c, '/api/nodo/balizas', JSON.stringify({ tokens }));
-	if (!r.ok) throw new Error(`el panel no acepta los tokens de baliza: ${r.status}`);
+	if (!r.ok) throw new Error(`Central did not accept the beacon tokens: ${r.status}`);
 	await db
 		.insert(s.ajustes)
 		.values({ clave: 'balizas-rele-huella', valor: { huella } })
@@ -723,7 +730,7 @@ async function drenarBalizasRele(c: Canal) {
 	let ack: number[] = [];
 	for (let tanda = 0; tanda < MAX_TANDAS_RELE; tanda++) {
 		const r = await enviar(c, '/api/nodo/rele', JSON.stringify({ ack }));
-		if (!r.ok) throw new Error(`el panel no entrega las balizas del relé: ${r.status}`);
+		if (!r.ok) throw new Error(`Central did not deliver the relay beacons: ${r.status}`);
 		const { eventos } = (await r.json()) as { eventos?: BalizaRele[] };
 		if (!Array.isArray(eventos) || !eventos.length) break;
 		await recibirBalizasRele(eventos);
@@ -741,13 +748,13 @@ async function intercambiarInteligencia(c: Canal) {
 		const { indicadores, hasta } = await indicadoresPendientes();
 		if (indicadores.length) {
 			const r = await enviar(c, '/api/nodo/indicadores', JSON.stringify({ indicadores }));
-			if (!r.ok) throw new Error(`el panel no acepta los indicadores: ${r.status}`);
+			if (!r.ok) throw new Error(`Central did not accept the indicators: ${r.status}`);
 		}
 		await marcarSubidos(hasta);
 	}
 	if (recibir) {
 		const r = await enviar(c, '/api/nodo/lista', '{}');
-		if (!r.ok) throw new Error(`el panel no entrega la lista global: ${r.status}`);
+		if (!r.ok) throw new Error(`Central did not deliver the global list: ${r.status}`);
 		await aplicarLista(c.clavePublicaPanel, await r.json(), c.nodo);
 	} else {
 		await retirarListaGlobal();
@@ -758,7 +765,7 @@ async function intercambiarInteligencia(c: Canal) {
  * Un código de recuperación que SeguridadSI ha mandado desde su panel al correo
  * de contacto del cliente: aquí solo llega su hash, en el estado firmado. Se
  * guarda una vez (el id es el del panel) para ese usuario local y se canjea en
- * /entrar/recuperar como uno pedido desde la entrada (auth/recuperar.ts).
+ * /sign-in/recover como uno pedido desde la entrada (auth/recuperar.ts).
  */
 export async function guardarRecuperacionPanel(r: RecuperacionPanel | null | undefined) {
 	if (!r || typeof r.usuario !== 'string' || typeof r.codigoHash !== 'string') return;
@@ -782,7 +789,7 @@ export async function guardarRecuperacionPanel(r: RecuperacionPanel | null | und
 		.onConflictDoNothing()
 		.returning({ id: s.recuperacionesClave.id });
 	if (nueva)
-		await auditar('panel central', 'código de recuperación recibido del panel', {
+		await auditar('Central', 'recovery code received from Central', {
 			usuario: r.usuario
 		});
 }
@@ -797,7 +804,7 @@ async function guardarAutorizados(modulos: string[]) {
 		.insert(s.ajustes)
 		.values({ clave: 'modulos', valor: modulos })
 		.onConflictDoUpdate({ target: s.ajustes.clave, set: { valor: modulos } });
-	await auditar('panel central', 'módulos autorizados cambiados', { antes, ahora: modulos });
+	await auditar('Central', 'authorized modules changed', { antes, ahora: modulos });
 }
 
 /*
@@ -829,12 +836,12 @@ export async function altaAutomatica() {
 	const codigo = env.PANEL_ALTA_CODIGO;
 	if (!panel || !codigo || (await leer())) return true;
 	if (!urlPanelValida(panel) || !/^[A-Za-z0-9_-]{32}$/.test(codigo)) {
-		console.error('[alta] PANEL_URL o PANEL_ALTA_CODIGO no son válidos');
+		console.error('[alta] PANEL_URL or PANEL_ALTA_CODIGO is not valid');
 		return true;
 	}
-	const r = await darDeAlta('instalador', panel, codigo);
+	const r = await darDeAlta('installer', panel, codigo);
 	if (!r.ok) console.error(`[alta] ${r.motivo}`);
-	else console.log('[alta] nodo dado de alta en el panel central');
+	else console.log('[alta] node enrolled in Central');
 	return r.ok;
 }
 
@@ -847,14 +854,14 @@ export async function cortar(quien: string) {
 	await corteSinAvisar(!r?.ok);
 	/* Quien corta deja de confiar en el panel: el soporte no se queda abierto. */
 	await cerrarYa(quien);
-	await auditar(quien, 'canal con el panel central cortado');
+	await auditar(quien, 'channel with Central cut');
 }
 
 export async function reanudar(quien: string) {
 	const c = await leer();
 	if (!c || !c.cortado) return;
 	await guardar({ ...c, cortado: false });
-	await auditar(quien, 'canal con el panel central reanudado');
+	await auditar(quien, 'channel with Central resumed');
 	/* Al cortar, el panel borró sus incidentes. */
 	await corteSinAvisar(false);
 	await volverASubir();
@@ -881,16 +888,18 @@ async function guardarRelease(version: string, firmada: ReleaseFirmada) {
  */
 async function pedirAlPanel(sensor?: string) {
 	const c = await leer();
-	if (!c) throw new Error('El nodo no está dado de alta en el panel central.');
-	if (c.cortado) throw new Error('El canal con el panel está cortado.');
+	if (!c) throw new Error('The node is not enrolled in Central.');
+	if (c.cortado) throw new Error('The channel with Central is cut.');
 	const version = (await cabecera()).cliente.version;
 	const r = await enviar(c, '/api/nodo/sensor-remoto', JSON.stringify({ sensor, version }));
-	if (!r.ok) throw new Error(`el panel responde ${r.status}: ${(await r.text()).slice(0, 200)}`);
+	if (!r.ok) throw new Error(`Central responded ${r.status}: ${(await r.text()).slice(0, 200)}`);
 	const b = (await r.json()) as { descarga: Descarga | null; release: ReleaseFirmada };
 	const clave = env.PUBLICACION_CLAVE_PUBLICA;
 	const v = clave ? verificarRelease(clave, b.release) : null;
 	if (!v?.ok || v.release.version !== version)
-		throw new Error('La versión que entrega el panel no es auténtica o no es la del nodo.');
+		throw new Error(
+			'The version delivered by Central is not authentic or is not the node version.'
+		);
 	await guardarRelease(version, b.release);
 	return { descarga: b.descarga, firmada: b.release, release: v.release };
 }
@@ -911,7 +920,7 @@ export async function releaseDelNodo() {
 
 export async function credencialSensorRemoto(sensor: string) {
 	const p = await pedirAlPanel(sensor);
-	if (!p.descarga) throw new Error('El panel no ha dado credencial de descarga.');
+	if (!p.descarga) throw new Error('Central did not provide a download credential.');
 	return { descarga: p.descarga, firmada: p.firmada, release: p.release };
 }
 
@@ -967,7 +976,7 @@ async function sincronizarTor(c: Canal, huellaFirmada: string | null) {
 		return;
 	const v = verificarListaTor(c.clavePublicaPanel, f);
 	if (!v.ok) {
-		await auditar(`nodo ${c.nodo}`, 'lista de Tor rechazada', { motivo: v.motivo });
+		await auditar(`node ${c.nodo}`, 'Tor list rejected', { motivo: v.motivo });
 		return;
 	}
 	await guardarTor(huellaFirmada, v.lista);

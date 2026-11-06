@@ -64,7 +64,7 @@ export async function sensores() {
  */
 export class DestinoNoDisponible extends Error {
 	constructor() {
-		super('Ese destino ya tiene un sensor o se ha dado de baja. Recarga la página.');
+		super('That target already has a sensor or has been removed. Reload the page.');
 	}
 }
 
@@ -108,7 +108,7 @@ export async function crearSensor(
 			});
 		await tx
 			.insert(s.auditoria)
-			.values({ quien, accion: 'sensor dado de alta', detalle: { ...v, destino: d } });
+			.values({ quien, accion: 'sensor enrolled', detalle: { ...v, destino: d } });
 		return token;
 	});
 }
@@ -128,7 +128,7 @@ export async function cambiarRed(
 		if (!f) return false;
 		await tx
 			.insert(s.auditoria)
-			.values({ quien, accion: 'red del sensor cambiada', detalle: { id, ...v } });
+			.values({ quien, accion: 'sensor network changed', detalle: { id, ...v } });
 		return true;
 	});
 }
@@ -142,7 +142,7 @@ export async function nombrarRed(quien: string, sensores: string[], nombre: stri
 		await tx.update(s.sensores).set({ redNombre: nombre }).where(inArray(s.sensores.id, sensores));
 		await tx
 			.insert(s.auditoria)
-			.values({ quien, accion: 'nombre de red cambiado', detalle: { sensores, nombre } });
+			.values({ quien, accion: 'network name changed', detalle: { sensores, nombre } });
 	});
 }
 
@@ -161,7 +161,7 @@ export async function cambiarEntorno(quien: string, id: string, entorno: Entorno
 		if (!f) return false;
 		await tx
 			.insert(s.auditoria)
-			.values({ quien, accion: 'entorno del sensor cambiado', detalle: { id, entorno } });
+			.values({ quien, accion: 'sensor environment changed', detalle: { id, entorno } });
 		return true;
 	});
 }
@@ -182,7 +182,7 @@ export async function cambiarEntornoTrampa(quien: string, id: string, entorno: E
 		if (!f) return false;
 		await tx
 			.insert(s.auditoria)
-			.values({ quien, accion: 'entorno de la trampa cambiado', detalle: { id, entorno } });
+			.values({ quien, accion: 'decoy environment changed', detalle: { id, entorno } });
 		return true;
 	});
 }
@@ -202,7 +202,7 @@ export async function redDetectada(id: string, v: { red: string | null; vlan: nu
 		if (!f) return false;
 		await tx
 			.insert(s.auditoria)
-			.values({ quien: `sensor ${id}`, accion: 'red del sensor detectada', detalle: { id, ...v } });
+			.values({ quien: `sensor ${id}`, accion: 'sensor network detected', detalle: { id, ...v } });
 		return true;
 	});
 }
@@ -219,7 +219,7 @@ export async function regenerarToken(quien: string, id: string) {
 		if (!f) return null;
 		await tx
 			.insert(s.auditoria)
-			.values({ quien, accion: 'token de sensor regenerado', detalle: { id } });
+			.values({ quien, accion: 'sensor token regenerated', detalle: { id } });
 		return token;
 	});
 }
@@ -256,7 +256,7 @@ export async function retirarSensor(quien: string, id: string) {
 				.update(s.sensores)
 				.set({ claveHash: hashToken(randomBytes(32).toString('base64url')) })
 				.where(eq(s.sensores.id, id));
-			await tx.insert(s.auditoria).values({ quien, accion: 'sensor desactivado', detalle: { id } });
+			await tx.insert(s.auditoria).values({ quien, accion: 'sensor deactivated', detalle: { id } });
 			return 'desactivado';
 		}
 		/*
@@ -284,7 +284,7 @@ export async function retirarSensor(quien: string, id: string) {
 		await tx.delete(s.sensores).where(eq(s.sensores.id, id));
 		await tx.insert(s.auditoria).values({
 			quien,
-			accion: 'sensor retirado',
+			accion: 'sensor removed',
 			detalle: { id, ...(d ? { destino: d.id, destinoQueda } : {}) }
 		});
 		return 'retirado';
@@ -321,7 +321,7 @@ export async function cambiarTrampa(
 			.where(eq(s.trampas.id, id));
 		await tx
 			.insert(s.auditoria)
-			.values({ quien, accion: activo ? 'trampa reanudada' : 'trampa parada', detalle: { id } });
+			.values({ quien, accion: activo ? 'decoy resumed' : 'decoy stopped', detalle: { id } });
 		return 'hecho';
 	});
 }
@@ -344,7 +344,7 @@ async function borrarTrampa(tx: Tx, quien: string, f: typeof s.trampas.$inferSel
 	await tx.delete(s.trampas).where(eq(s.trampas.id, f.id));
 	await tx.insert(s.auditoria).values({
 		quien,
-		accion: 'trampa retirada',
+		accion: 'decoy removed',
 		detalle: { id: f.id, modulo: f.modulo, sensor: f.sensor, destino: f.destino, ...huella(f) }
 	});
 }
@@ -381,7 +381,7 @@ export async function retirarTrampa(
 			await tx.update(s.trampas).set(r).where(eq(s.trampas.id, id));
 			await tx.insert(s.auditoria).values({
 				quien,
-				accion: 'trampa en retirada',
+				accion: 'decoy being removed',
 				detalle: { id, modulo: f.modulo, destino: f.destino, ...huella(f) }
 			});
 		}
@@ -428,7 +428,7 @@ export async function trampaHecha(
 		await tx.update(s.trampas).set(c).where(eq(s.trampas.id, id));
 		await tx.insert(s.auditoria).values({
 			quien,
-			accion: 'trampa puesta a mano',
+			accion: 'decoy deployed manually',
 			detalle: { id, nombre: f.nombre, destino: f.destino, ...huella(f) }
 		});
 		return 'puesta';

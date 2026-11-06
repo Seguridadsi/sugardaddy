@@ -1,15 +1,14 @@
-# Cómo contribuir
+# How to contribute
 
-Gracias por el interés en Sugardaddy.
+Thank you for your interest in Sugardaddy.
 
-**De momento no aceptamos código de fuera.** Si llega una pull request, la
-cerraremos con una nota. Es temporal, mientras ordenamos las licencias del
-proyecto.
+**For now we do not accept code from outside.** If a pull request arrives, we will
+close it with a note. This is temporary, while we sort out the project's licenses.
 
-Sí son bienvenidos:
+Welcome:
 
-- **Fallos:** abre una incidencia con la versión, qué hiciste, qué esperabas y
-  qué pasó.
-- **Sugerencias e ideas:** abre una incidencia y cuéntanos el caso de uso.
-- **Vulnerabilidades:** nunca en una incidencia pública. Sigue
+- **Bugs:** open an issue with the version, what you did, what you expected and
+  what happened.
+- **Suggestions and ideas:** open an issue and tell us about the use case.
+- **Vulnerabilities:** never in a public issue. Follow
   [SECURITY.md](SECURITY.md).

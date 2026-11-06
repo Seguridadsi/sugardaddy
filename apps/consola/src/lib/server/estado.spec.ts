@@ -135,7 +135,7 @@ describe.skipIf(!hayBase)('estado del sensor: motor y hechos', () => {
 		expect(x.trampas).toBe(1);
 		expect(x.cuarentena).toBe(0);
 		expect(x.rupturas).toBe(0);
-		expect(x.motor).toBe('Docker 27.5.1 · con root · API 1.47');
+		expect(x.motor).toBe('Docker 27.5.1 · rootful · API 1.47');
 		expect(x.avisos.map((a) => a.codigo)).toEqual(['origen.pasarela']);
 		expect(x).not.toHaveProperty('capacidades');
 	});

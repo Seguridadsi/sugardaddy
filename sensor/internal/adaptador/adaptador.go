@@ -21,7 +21,7 @@ import (
 )
 
 // ErrIgnorada es una línea que no es un evento (arranque, estadísticas).
-var ErrIgnorada = errors.New("línea ignorada")
+var ErrIgnorada = errors.New("line ignored")
 
 const (
 	maxTexto = 256
@@ -33,7 +33,7 @@ const (
 func Adaptar(sensor string, s plan.TrampaPlan, linea []byte) (evento.Evento, error) {
 	var nativo map[string]any
 	if err := json.Unmarshal(linea, &nativo); err != nil {
-		return evento.Evento{}, fmt.Errorf("no es JSON: %w", err)
+		return evento.Evento{}, fmt.Errorf("not JSON: %w", err)
 	}
 	ev := s.Manifiesto.Eventos
 
@@ -198,7 +198,7 @@ func fecha(v any) (time.Time, error) {
 			return d, nil
 		}
 	}
-	return time.Time{}, fmt.Errorf("fecha ilegible: %q", recortar(t, 64))
+	return time.Time{}, fmt.Errorf("unreadable date: %q", recortar(t, 64))
 }
 
 // recortar deja como mucho n bytes sin partir un carácter por la mitad.
@@ -461,14 +461,14 @@ func Descartados(sensor string, s plan.TrampaPlan, d Descarte) evento.Evento {
 	var aviso string
 	switch codigo {
 	case CodigoColaSinDisco:
-		aviso = "El disco de la máquina del sensor se quedó sin sitio: estos eventos no se pudieron guardar. " +
-			"Conviene liberar espacio en esa máquina."
+		aviso = "The disk of the sensor machine ran out of space: these events could not be saved. " +
+			"Free up space on that machine."
 	case CodigoColaPocoDisco:
-		aviso = fmt.Sprintf("Queda poco disco libre en la máquina del sensor, así que solo podía guardar %d MB de "+
-			"eventos pendientes de enviar a la consola: estos no cupieron. Conviene liberar espacio en esa máquina.", mb)
+		aviso = fmt.Sprintf("Little free disk is left on the sensor machine, so it could only keep %d MB of "+
+			"events waiting to be sent to the console: these did not fit. Free up space on that machine.", mb)
 	default:
-		aviso = fmt.Sprintf("La consola no recogió los eventos a tiempo y el sensor llegó al tope de lo que guarda "+
-			"para ella (%d MB): estos eventos no se pudieron guardar. Conviene comprobar que el sensor llega a la consola.", mb)
+		aviso = fmt.Sprintf("The console did not collect the events in time and the sensor reached the limit of what it keeps "+
+			"for it (%d MB): these events could not be saved. Check that the sensor can reach the console.", mb)
 	}
 	detalle := map[string]any{
 		"codigo": codigo, "aviso": aviso,

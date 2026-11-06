@@ -55,23 +55,23 @@ func validarConfiguracion(seccion string, c *Configuracion) error {
 		return nil
 	}
 	if len(c.Ficheros) == 0 {
-		return fmt.Errorf("%s: sin ficheros", seccion)
+		return fmt.Errorf("%s: no files", seccion)
 	}
 	for nombre, texto := range c.Ficheros {
 		if !slices.Contains(FicherosPermitidos[seccion], nombre) {
-			return fmt.Errorf("%s: fichero no permitido (%s)", seccion, nombre)
+			return fmt.Errorf("%s: file not allowed (%s)", seccion, nombre)
 		}
 		if len(texto) > maxFichero {
-			return fmt.Errorf("%s: %s pasa de 64 KB", seccion, nombre)
+			return fmt.Errorf("%s: %s exceeds 64 KB", seccion, nombre)
 		}
 	}
 	if _, ok := c.Ficheros["compose.yml"]; !ok {
-		return fmt.Errorf("%s: falta compose.yml", seccion)
+		return fmt.Errorf("%s: compose.yml is missing", seccion)
 	}
 	if c.Entorno != nil {
 		for k, v := range c.Entorno.Nuevas {
 			if !claveEntorno.MatchString(k) || strings.ContainsAny(v, "\r\n") || len(v) > 1024 {
-				return fmt.Errorf("%s: variable de entorno mal formada (%s)", seccion, k)
+				return fmt.Errorf("%s: malformed environment variable (%s)", seccion, k)
 			}
 		}
 		for _, k := range c.Entorno.Generar {
@@ -106,7 +106,7 @@ func ClavePublica(b64 string) (ed25519.PublicKey, error) {
 	}
 	pub, ok := k.(ed25519.PublicKey)
 	if !ok {
-		return nil, errors.New("la clave de publicación no es Ed25519")
+		return nil, errors.New("the publishing key is not Ed25519")
 	}
 	return pub, nil
 }
@@ -117,31 +117,31 @@ func Verificar(clave ed25519.PublicKey, f ReleaseFirmada) (Release, error) {
 	var r Release
 	firma, err := base64.StdEncoding.DecodeString(f.Firma)
 	if err != nil || !ed25519.Verify(clave, []byte(f.Release), firma) {
-		return r, errors.New("la versión no está firmada por SeguridadSI")
+		return r, errors.New("the version is not signed by SeguridadSI")
 	}
 	if err := json.Unmarshal([]byte(f.Release), &r); err != nil {
 		return r, err
 	}
 	if !semver.MatchString(r.Version) {
-		return r, errors.New("número de versión mal formado")
+		return r, errors.New("malformed version number")
 	}
 	if len(r.Servicios) == 0 {
-		return r, errors.New("la versión no trae servicios")
+		return r, errors.New("the version includes no services")
 	}
 	for s, img := range r.Servicios {
 		if !servicio.MatchString(s) || !imagen.MatchString(img) {
-			return r, fmt.Errorf("imagen de %s sin digest o mal formada", s)
+			return r, fmt.Errorf("image for %s has no digest or is malformed", s)
 		}
 	}
 	if r.Actualizador != "" && !imagen.MatchString(r.Actualizador) {
-		return r, errors.New("imagen del actualizador sin digest o mal formada")
+		return r, errors.New("updater image has no digest or is malformed")
 	}
 	for seccion, c := range map[string]*Configuracion{"nodo": r.Nodo, "sensorRemoto": r.SensorRemoto} {
 		if err := validarConfiguracion(seccion, c); err != nil {
 			return r, err
 		}
 		if c != nil && r.Actualizador == "" {
-			return r, errors.New("una versión con configuración tiene que traer el actualizador")
+			return r, errors.New("a version with configuration must include the updater")
 		}
 	}
 	return r, nil

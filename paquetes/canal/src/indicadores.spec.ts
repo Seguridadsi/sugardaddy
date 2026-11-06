@@ -115,7 +115,7 @@ describe('lista de Tor firmada', () => {
 		const vieja = { ...lista, caduca: new Date(Date.now() - 1000).toISOString() };
 		expect(verificarListaTor(panel.publica, firmarListaTor(panel.privada, vieja))).toMatchObject({
 			ok: false,
-			motivo: 'lista caducada'
+			motivo: 'list expired'
 		});
 	});
 

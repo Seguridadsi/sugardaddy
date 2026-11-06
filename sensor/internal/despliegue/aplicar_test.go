@@ -175,12 +175,12 @@ func TestSinImagenNuevaLaTrampaSigueComoEstaba(t *testing.T) {
 		t.Fatal(err)
 	}
 	descargas.wg.Wait()
-	if !strings.Contains(estados[0].Donde, "descargando la imagen nueva; sigue como estaba") {
+	if !strings.Contains(estados[0].Donde, "downloading the new image; it keeps running as before") {
 		t.Fatalf("la descarga va aparte y la trampa sigue: %+v", estados[0])
 	}
 	estados, _ = Aplicar(context.Background(), d, o, p)
 	descargas.wg.Wait()
-	if !strings.Contains(estados[0].Donde, "no se pudo descargar la imagen nueva") || !strings.Contains(estados[0].Donde, "sigue como estaba") {
+	if !strings.Contains(estados[0].Donde, "could not download the new image") || !strings.Contains(estados[0].Donde, "it keeps running as before") {
 		t.Fatalf("estado tras fallar la descarga: %+v", estados[0])
 	}
 	if m.hizo("DELETE /containers/c-t1") {
@@ -200,7 +200,7 @@ func TestSinRedAisladaSeRetiraIgualYLoQueFuncionaSigue(t *testing.T) {
 	if !m.hizo("DELETE /containers/c-vieja") {
 		t.Fatal("la trampa que sale del plan se retira aunque falle la red")
 	}
-	if m.hizo("DELETE /containers/c-t1") || !strings.Contains(estados[0].Donde, "sigue como estaba") {
+	if m.hizo("DELETE /containers/c-t1") || !strings.Contains(estados[0].Donde, "it keeps running as before") {
 		t.Fatalf("la que funciona sigue: %+v", estados[0])
 	}
 }
@@ -291,7 +291,7 @@ func TestLaSondaAvisaSiLasTrampasSeVen(t *testing.T) {
 			}
 		}
 		for _, e := range estados {
-			if strings.Contains(e.Donde, "se ven entre sí") != llega {
+			if strings.Contains(e.Donde, "can see each other") != llega {
 				t.Fatalf("llega=%v, estado: %+v", llega, e)
 			}
 		}

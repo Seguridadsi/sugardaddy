@@ -112,26 +112,26 @@ func main() {
 		os.Exit(0)
 	}
 	urlConsola := flag.String("consola", "http://localhost:5180", "dirección de la consola del nodo")
-	datos := flag.String("datos", "./datos-sensor", "carpeta de trabajo del sensor")
-	escucha := flag.String("escucha", "0.0.0.0", "IP del anfitrión donde se publican las trampas")
-	desplazar := flag.Int("desplazar", 0, "suma esto a los puertos expuestos (desarrollo)")
-	socket := flag.String("docker", "/var/run/docker.sock", "socket de Docker")
-	ca := flag.String("ca", "", "raíz de la CA de la consola, si no es de confianza para el sistema (sensor en otra máquina)")
-	salud := flag.String("salud", "", "dirección del punto de salud para el actualizador, p. ej. :9100 (vacío: ninguno)")
+	datos := flag.String("datos", "./datos-sensor", "sensor working folder")
+	escucha := flag.String("escucha", "0.0.0.0", "host IP where the decoys are published")
+	desplazar := flag.Int("desplazar", 0, "adds this to the exposed ports (development)")
+	socket := flag.String("docker", "/var/run/docker.sock", "Docker socket")
+	ca := flag.String("ca", "", "root of the console CA, if the system does not trust it (sensor on another machine)")
+	salud := flag.String("salud", "", "address of the health endpoint for the updater, e.g. :9100 (empty: none)")
 	// El modo «IP propia» (docs/diseno/red.md): solo si quien instala el
 	// sensor elige interfaz y rango. Sin ellos, las trampas con bloque red
 	// dan su error en el despliegue en vez de ir al puente aislado rotas.
-	enlace := flag.String("enlace", "", "interfaz física del segmento a vigilar, para el modo «IP propia» (por cable o VLAN, no Wi-Fi)")
-	rango := flag.String("rango", "", "rango de IP propias reservado para las trampas, p. ej. 10.0.0.240/28 (fuera del reparto del DHCP)")
+	enlace := flag.String("enlace", "", "physical interface of the segment to monitor, for the own-IP mode (wired or VLAN, not Wi-Fi)")
+	rango := flag.String("rango", "", "range of own IPs reserved for the decoys, e.g. 10.0.0.240/28 (outside the DHCP pool)")
 	flag.Parse()
 
 	token := os.Getenv("SUGARDADDY_TOKEN")
 	if token == "" {
-		slog.Error("falta SUGARDADDY_TOKEN")
+		slog.Error("SUGARDADDY_TOKEN is missing")
 		os.Exit(2)
 	}
 	if err := os.MkdirAll(*datos, 0o700); err != nil {
-		slog.Error("carpeta de datos", "err", err)
+		slog.Error("data folder", "err", err)
 		os.Exit(1)
 	}
 
@@ -140,7 +140,7 @@ func main() {
 
 	h, err := confianza.Cliente(*ca, 30*time.Second)
 	if err != nil {
-		slog.Error("CA de la consola", "err", err)
+		slog.Error("console CA", "err", err)
 		os.Exit(2)
 	}
 	d := docker.Nuevo(*socket)
@@ -170,13 +170,13 @@ func main() {
 	if *enlace != "" || *rango != "" {
 		red, err := redPropiaDeArranque(*enlace, *rango)
 		if err != nil {
-			slog.Error("el modo «IP propia»", "err", err)
+			slog.Error("the own-IP mode", "err", err)
 			os.Exit(2)
 		}
 		s.opc.RedPropia = red
 	}
 	if s.estado, err = estado.Cargar(*datos); err != nil {
-		slog.Error("estado ilegible", "err", err)
+		slog.Error("unreadable state", "err", err)
 		os.Exit(1)
 	}
 	// Las trampas paradas por su cuota siguen paradas tras un reinicio.
@@ -186,7 +186,7 @@ func main() {
 		p := s.plan
 		s.muPlan.Unlock()
 		if p == nil {
-			return errors.New("aún no hay plan")
+			return errors.New("there is no plan yet")
 		}
 		ctx, cancelar := context.WithTimeout(ctx, time.Minute)
 		defer cancelar()
@@ -203,13 +203,13 @@ func main() {
 	s.ritmo = ritmoDe(guardadas)
 	s.retomarDescartes()
 	if err := s.retomarCadena(); err != nil {
-		slog.Error("cola de salida", "err", err)
+		slog.Error("outgoing queue", "err", err)
 		os.Exit(1)
 	}
 	if *salud != "" {
 		go s.servirSalud(*salud)
 	}
-	slog.Info("sensor en marcha", "version", version, "consola", *urlConsola)
+	slog.Info("sensor running", "version", version, "consola", *urlConsola)
 	go s.relevar(ctx, &relevo.Relevo{
 		Docker: s.docker, Consola: s.consola, Version: version, Datos: *datos, Socket: *socket,
 		Log: func(m string, args ...any) { slog.Info(m, args...) },
@@ -298,17 +298,17 @@ func (s *sensor) servirSalud(dir string) {
 	http.HandleFunc("/salud", s.salud)
 	srv := &http.Server{Addr: dir, ReadHeaderTimeout: 5 * time.Second}
 	if err := srv.ListenAndServe(); err != nil {
-		slog.Error("punto de salud", "err", err)
+		slog.Error("health endpoint", "err", err)
 	}
 }
 
 func (s *sensor) salud(w http.ResponseWriter, _ *http.Request) {
 	if time.Since(time.Unix(s.ultimoPlan.Load(), 0)) > 3*cadaPlan {
-		http.Error(w, "sin plan reciente de la consola", http.StatusServiceUnavailable)
+		http.Error(w, "no recent plan from the console", http.StatusServiceUnavailable)
 		return
 	}
 	if f := s.falloMotor.Load(); f != nil {
-		http.Error(w, "sin motor de contenedores: "+f.Error(), http.StatusServiceUnavailable)
+		http.Error(w, "no container engine: "+f.Error(), http.StatusServiceUnavailable)
 		return
 	}
 	_, _ = w.Write([]byte("ok\n"))
@@ -336,7 +336,7 @@ func (s *sensor) correr(ctx context.Context) {
 		}
 		select {
 		case <-ctx.Done():
-			slog.Info("sensor parado")
+			slog.Info("sensor stopped")
 			return
 		case <-reloj.C:
 		}
@@ -346,7 +346,7 @@ func (s *sensor) correr(ctx context.Context) {
 func (s *sensor) actualizarPlan(ctx context.Context) {
 	p, err := s.consola.Plan(ctx)
 	if err != nil {
-		slog.Warn("no se pudo pedir el plan; sigo con el anterior", "err", err)
+		slog.Warn("could not request the plan; keeping the previous one", "err", err)
 		return
 	}
 	// Sin estado local, la cadena sigue desde lo último que la consola aceptó.
@@ -355,7 +355,7 @@ func (s *sensor) actualizarPlan(ctx context.Context) {
 		s.guardar()
 	}
 	for _, d := range p.Descartados {
-		slog.Debug("trampa fuera del plan", "id", d.ID, "motivo", d.Motivo)
+		slog.Debug("decoy outside the plan", "id", d.ID, "motivo", d.Motivo)
 	}
 	// Hay plan: el sensor habla con su consola aunque desplegar tarde.
 	s.ultimoPlan.Store(time.Now().Unix())
@@ -367,7 +367,7 @@ func (s *sensor) actualizarPlan(ctx context.Context) {
 	s.opc.EnLaRed = s.anfitrion.a.PublicarEn
 	estados, err := despliegue.Aplicar(ctx, s.docker, s.opc, p)
 	if err != nil {
-		slog.Error("despliegue", "err", err)
+		slog.Error("deployment", "err", err)
 	}
 	s.describirMotor(ctx, p.Sensor, err)
 	s.sondearAnfitrion(ctx, p.Sensor, estados)
@@ -376,7 +376,7 @@ func (s *sensor) actualizarPlan(ctx context.Context) {
 		estados = []despliegue.Estado{}
 	}
 	if err := s.consola.Informar(ctx, estados, s.motor, s.hechos()); err != nil {
-		slog.Warn("no se pudo informar del estado", "err", err)
+		slog.Warn("could not report the state", "err", err)
 	}
 	s.muPlan.Lock()
 	s.plan = &p
@@ -442,14 +442,14 @@ func (s *sensor) sondearMotor(ctx context.Context, id string) {
 	if h, err := motor.Clone3(ctx, s.docker, s.opc.ImagenSonda, id); err == nil {
 		s.sondeo.clone3 = h
 	} else {
-		slog.Warn("no se pudo medir clone3 en el motor", "err", err)
+		slog.Warn("could not measure clone3 on the engine", "err", err)
 		todo = false
 	}
 	if s.motor.Modo == motor.ModoWSL {
 		if p, err := motor.PuertaEnlace(ctx, s.docker, s.opc.ImagenSonda, id); err == nil {
 			s.sondeo.puerta = p
 		} else {
-			slog.Warn("no se pudo medir la puerta de enlace de WSL", "err", err)
+			slog.Warn("could not measure the WSL gateway", "err", err)
 			todo = false
 		}
 	}
@@ -493,7 +493,7 @@ func (s *sensor) hechos() map[string]any {
 func redPropiaDeArranque(enlace, rango string) (*despliegue.RedPropia, error) {
 	p, err := netip.ParsePrefix(rango)
 	if enlace == "" || rango == "" || err != nil || !p.Addr().Is4() || p.Bits() < 8 || p.Bits() > 30 {
-		return nil, fmt.Errorf("quiere -enlace y -rango juntos, con un CIDR IPv4 reservado de /8 a /30 (p. ej. -enlace eth0 -rango 10.0.0.240/28)")
+		return nil, fmt.Errorf("needs -enlace and -rango together, with a reserved IPv4 CIDR from /8 to /30 (e.g. -enlace eth0 -rango 10.0.0.240/28)")
 	}
 	return &despliegue.RedPropia{Interfaz: enlace, Rango: p}, nil
 }
@@ -517,7 +517,7 @@ func (s *sensor) montarVigilante(ctx context.Context) {
 	// mata a sí mismo en cuanto una trampa propia contesta un ARP.
 	apuntar, err := red.Vigilar(ctx, s.opc.RedPropia.Interfaz, despliegue.EsMACDeTrampaBytes, reclamos)
 	if err != nil {
-		slog.Warn("sin vigilante ARP: el sondeo previo de cada IP propia sigue protegiendo", "err", err)
+		slog.Warn("no ARP watcher: the prior probe of each own IP still protects", "err", err)
 		return
 	}
 	s.apuntarIP, s.vigiladas = apuntar, map[string]bool{}
@@ -538,10 +538,10 @@ func (s *sensor) montarVigilante(ctx context.Context) {
 				s.olvidarVigilada(r.IP)
 				if s.pararTrampa != nil {
 					if err := s.pararTrampa(id); err != nil {
-						slog.Error("no se pudo parar la trampa con la IP reclamada", "err", err)
+						slog.Error("could not stop the decoy whose IP was claimed", "err", err)
 					}
 				}
-				slog.Warn("otro equipo reclamó la IP propia de una trampa", "trampa", id, "ip", r.IP, "mac", r.MAC)
+				slog.Warn("another device claimed the own IP of a decoy", "trampa", id, "ip", r.IP, "mac", r.MAC)
 			}
 		}
 	}()
@@ -622,7 +622,7 @@ func (s *sensor) leer() {
 		antes := cadena.Ultimo()
 		linea, err := cadena.Emitir(x)
 		if err != nil {
-			slog.Error("no se pudo serializar", "err", err)
+			slog.Error("could not serialize", "err", err)
 			return
 		}
 		if !cola.cabe(len(linea)) {
@@ -654,7 +654,7 @@ func (s *sensor) leer() {
 		antes := seguidor.Posicion{Inodo: s.estado.Inodos[sp.ID], Offset: s.estado.Leido[sp.ID], Huella: s.estado.Huellas[sp.ID], Modif: s.estado.Modifs[sp.ID]}
 		lineas, pos, aviso, err := seguidor.Seguir(ruta, antes)
 		if err != nil {
-			slog.Warn("registro ilegible", "trampa", sp.ID, "err", err)
+			slog.Warn("unreadable log", "trampa", sp.ID, "err", err)
 			continue
 		}
 		if aviso != "" {
@@ -668,7 +668,7 @@ func (s *sensor) leer() {
 				continue
 			}
 			if err != nil {
-				slog.Warn("línea no traducible", "trampa", sp.ID, "err", err)
+				slog.Warn("line cannot be translated", "trampa", sp.ID, "err", err)
 				continue
 			}
 			s.origen(&e)
@@ -695,14 +695,14 @@ func (s *sensor) leer() {
 	if len(nuevas) > 0 {
 		if err := anadirACola(s.salida, cola.inicio, nuevas); err != nil {
 			if !discoLleno(err) {
-				slog.Error("cola de salida", "err", err)
+				slog.Error("outgoing queue", "err", err)
 				return
 			}
 			// Sin disco, lo de esta vuelta se descarta y se resume como con la
 			// cola llena; los resúmenes pendientes se quedan para otra vuelta.
 			sinDisco = true
 			if len(s.descartes) == 0 {
-				slog.Error("cola de salida: no queda disco; se descartan los eventos nuevos hasta que lo haya; irá un resumen",
+				slog.Error("outgoing queue: no disk left; new events are discarded until there is room; a summary will follow",
 					"codigo", adaptador.CodigoColaSinDisco, "err", err)
 			}
 			cola.descartes, nuevas, resumidas = s.descartes.copia(), nil, nil
@@ -714,18 +714,18 @@ func (s *sensor) leer() {
 				cola.descartar(x.e, x.n, false)
 			}
 		} else {
-			slog.Info("eventos nuevos", "n", len(nuevas))
+			slog.Info("new events", "n", len(nuevas))
 		}
 	}
 	if len(resumidas) > 0 {
-		slog.Info("resumen de lo descartado con la cola llena, ya en la cola", "trampas", resumidas)
+		slog.Info("summary of what was discarded while the queue was full, now in the queue", "trampas", resumidas)
 	}
 	if len(s.descartes) == 0 && len(cola.descartes) > 0 && !sinDisco {
 		if cola.porDisco {
-			slog.Warn("cola de salida llena: queda poco disco libre y su tope es pequeño; se descartan los eventos nuevos hasta que haya sitio; irá un resumen",
+			slog.Warn("outgoing queue full: little free disk is left and its limit is small; new events are discarded until there is room; a summary will follow",
 				"codigo", adaptador.CodigoColaPocoDisco, "tope", cola.tope)
 		} else {
-			slog.Warn("cola de salida llena: se descartan los eventos nuevos hasta que la consola los recoja; irá un resumen",
+			slog.Warn("outgoing queue full: new events are discarded until the console collects them; a summary will follow",
 				"codigo", adaptador.CodigoColaLlena, "tope", cola.tope)
 		}
 	}
@@ -752,7 +752,7 @@ func (s *sensor) entregar(ctx context.Context) {
 	// Más corta que lo entregado: la han vaciado o cambiado por fuera. Se
 	// vuelve a mandar entera (la consola da por repetido lo que ya tenga).
 	if fi, err := os.Stat(s.salida); err == nil && fi.Size() < s.estado.Entregado {
-		slog.Warn("la cola de salida es más corta que lo entregado; se vuelve a mandar desde el principio")
+		slog.Warn("the outgoing queue is shorter than what was delivered; resending from the start")
 		s.estado.Entregado = 0
 	}
 	lineas, _, err := seguidor.Leer(s.salida, s.estado.Entregado)
@@ -773,11 +773,11 @@ func (s *sensor) entregar(ctx context.Context) {
 	r, err := s.consola.Entregar(ctx, lineas)
 	if errors.Is(err, consola.ErrDemasiadoGrande) && len(lineas) > 1 {
 		s.lote = len(lineas) / 2
-		slog.Warn("la consola no admite una entrega tan grande; se parte", "lineas", s.lote)
+		slog.Warn("the console does not accept a delivery this large; splitting it", "lineas", s.lote)
 		return
 	}
 	if err != nil {
-		slog.Warn("entrega fallida; reintento", "err", err)
+		slog.Warn("delivery failed; retrying", "err", err)
 		s.consolaRecoge = false
 		s.pausa = time.Now().Add(5 * time.Second)
 		return
@@ -791,7 +791,7 @@ func (s *sensor) entregar(ctx context.Context) {
 	s.vaciarCola()
 	if !r.OK {
 		// No se arregla reintentando: la consola ha visto una cadena que no cuadra.
-		slog.Error("la consola rechaza la cadena", "linea", r.Linea, "motivo", r.Motivo)
+		slog.Error("the console rejects the chain", "linea", r.Linea, "motivo", r.Motivo)
 		s.pausa = time.Now().Add(time.Minute)
 	}
 }
@@ -855,12 +855,12 @@ func (s *sensor) vaciarCola() {
 	}
 	s.estado.Entregado = 0
 	if err := s.estado.Guardar(s.opc.Datos); err != nil {
-		slog.Error("no se pudo guardar el estado; la cola no se vacía", "err", err)
+		slog.Error("could not save the state; the queue is not emptied", "err", err)
 		s.estado.Entregado = fi.Size()
 		return
 	}
 	if err := os.Truncate(s.salida, 0); err != nil {
-		slog.Error("no se pudo vaciar la cola de salida", "err", err)
+		slog.Error("could not empty the outgoing queue", "err", err)
 	}
 }
 
@@ -887,7 +887,7 @@ func (s *sensor) podar(ahora time.Time) {
 				continue
 			}
 			if err := os.RemoveAll(dir); err == nil {
-				slog.Info("carpeta de una trampa retirada borrada", "carpeta", dir)
+				slog.Info("folder of a removed decoy deleted", "carpeta", dir)
 				delete(s.estado.Leido, e.Name())
 				delete(s.estado.Inodos, e.Name())
 				delete(s.estado.Huellas, e.Name())
@@ -943,7 +943,7 @@ func (s *sensor) podarTrampa(sp plan.TrampaPlan, ahora time.Time) int64 {
 		}
 		if err := os.Remove(filepath.Join(dir, r.nombre)); err == nil {
 			total -= r.tam
-			slog.Info("registro rotado retirado", "trampa", sp.ID, "fichero", r.nombre)
+			slog.Info("rotated log removed", "trampa", sp.ID, "fichero", r.nombre)
 		}
 	}
 	if total <= cuotaRegistros {
@@ -966,11 +966,11 @@ func (s *sensor) podarTrampa(sp plan.TrampaPlan, ahora time.Time) int64 {
 		}
 		if fi2, err := os.Lstat(activo); err == nil {
 			total -= antes - ocupado(fi2)
-			slog.Warn("registro de la trampa: liberado lo ya leído, pasaba de su cuota", "trampa", sp.ID, "bytes", antes-ocupado(fi2))
+			slog.Warn("decoy log: freed what had been read, it exceeded its quota", "trampa", sp.ID, "bytes", antes-ocupado(fi2))
 		}
 	}
 	if total > cuotaRegistros {
-		slog.Warn("los registros de la trampa pasan de su cuota con lo que queda por leer", "trampa", sp.ID, "bytes", total)
+		slog.Warn("the decoy logs exceed their quota with what is left to read", "trampa", sp.ID, "bytes", total)
 	}
 	return total
 }
@@ -1041,7 +1041,7 @@ func ultimaEscritura(dir string) time.Time {
 
 func (s *sensor) guardar() {
 	if err := s.estado.Guardar(s.opc.Datos); err != nil {
-		slog.Error("no se pudo guardar el estado", "err", err)
+		slog.Error("could not save the state", "err", err)
 	}
 }
 
@@ -1070,7 +1070,7 @@ func (s *sensor) retomarCadena() error {
 			return err
 		}
 		if completa < fi.Size() {
-			slog.Warn("cola de salida acabada en media línea; se recorta", "bytes", fi.Size()-completa)
+			slog.Warn("outgoing queue ends mid-line; trimming it", "bytes", fi.Size()-completa)
 			if err := f.Truncate(completa); err != nil {
 				return err
 			}
@@ -1083,7 +1083,7 @@ func (s *sensor) retomarCadena() error {
 		return nil
 	}
 	if h := evento.Hash(ultima); h != s.estado.UltimoHash {
-		slog.Warn("el estado iba por detrás de la cola de salida; la cadena sigue desde la última línea escrita")
+		slog.Warn("the state was behind the outgoing queue; the chain continues from the last line written")
 		s.estado.UltimoHash = h
 		if s.estado.Entregado > completa {
 			s.estado.Entregado = completa
@@ -1164,11 +1164,11 @@ func (s *sensor) relevar(ctx context.Context, r *relevo.Relevo) {
 		func() {
 			defer func() {
 				if p := recover(); p != nil {
-					slog.Error("relevo", "panico", p)
+					slog.Error("handover", "panico", p)
 				}
 			}()
 			if err := r.Intentar(ctx); err != nil {
-				slog.Warn("relevo", "err", err)
+				slog.Warn("handover", "err", err)
 			}
 		}()
 	}

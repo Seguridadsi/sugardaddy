@@ -88,7 +88,7 @@ describe.skipIf(!process.env.DATABASE_URL)('identidad', async () => {
 			.select()
 			.from(s.auditoria)
 			.where(eq(s.auditoria.quien, 'zz-identidad@prueba'));
-		expect(a.accion).toBe('dominio de la empresa guardado');
+		expect(a.accion).toBe('company domain saved');
 		await db.delete(s.auditoria).where(eq(s.auditoria.quien, 'zz-identidad@prueba'));
 	});
 

@@ -88,7 +88,7 @@ func TestReconoceElModo(t *testing.T) {
 
 func TestUnMotorQueNoSirveSeDescribeConSuFallo(t *testing.T) {
 	r := Describir(context.Background(), motorCon(t, motorfalso.Docker19, nil), nil)
-	if r.Codigo != docker.MotorAntiguo || !strings.Contains(r.Error, "Docker 20.10 o posterior") || r.Tipo != "" {
+	if r.Codigo != docker.MotorAntiguo || !strings.Contains(r.Error, "Docker 20.10 or later") || r.Tipo != "" {
 		t.Fatalf("descripción: %+v", r)
 	}
 }

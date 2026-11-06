@@ -59,7 +59,7 @@ func deserializar(t *testing.T, filtro string) []instruccion {
 		t.Fatalf("el filtro mide %d bytes: no son instrucciones de 8", len(bruto))
 	}
 	if len(bruto)/8 > 512 {
-		t.Fatalf("el filtro trae %d instrucciones: el tope del kernel es 512", len(bruto)/8)
+		t.Fatalf("the filter has %d instructions: the kernel limit is 512", len(bruto)/8)
 	}
 	ins := make([]instruccion, len(bruto)/8)
 	for i := range ins {

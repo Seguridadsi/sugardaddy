@@ -61,7 +61,7 @@ export async function coberturaLicencia(): Promise<(modulo: string) => Cobertura
 		if (!esDePago(modulo)) return 'cubierta';
 		if (!v) return sin(modulo);
 		if (!v.ok) {
-			if (!/caducad/.test(v.motivo)) return sin(modulo);
+			if (!/caducad|expired/i.test(v.motivo)) return sin(modulo);
 			return deRegistro(modulo) ? 'registro.caducado' : 'licencia.caducada';
 		}
 		return licenciaPermite(v.licencia, modulo) ? 'cubierta' : sin(modulo);

@@ -479,7 +479,7 @@ describe.skipIf(!hayBase)('lo que ve el cliente, sin escribir nada', () => {
 				estado: 'degradada',
 				codigo: 'senal.objetivo-parado',
 				motivo:
-					'Cowrie de cow no está recibiendo (pendiente de poner); mientras tanto, esta credencial no avisa de nada.'
+					'Cowrie de cow is not receiving (pending deployment); until it does, this credential will not alert.'
 			});
 			autorizadosAhora.ids = [...TODOS];
 			await plan(S, true, '0.13.1');
@@ -491,7 +491,7 @@ describe.skipIf(!hayBase)('lo que ve el cliente, sin escribir nada', () => {
 				dependientes: ['Credencial de fs01']
 			});
 			await cambiar(SSH, { activo: false, colocacion: 'por-colocar' });
-			expect((await sinEscribir(() => estado(CRED))).motivo).toMatch(/\(parada\)/);
+			expect((await sinEscribir(() => estado(CRED))).motivo).toMatch(/\(paused\)/);
 			await cambiarTrampa(QUIEN, SSH, true);
 			await informarEstado(S, [{ id: SSH, donde: '0.0.0.0:2222' }]);
 
@@ -500,7 +500,7 @@ describe.skipIf(!hayBase)('lo que ve el cliente, sin escribir nada', () => {
 				estado: 'degradada',
 				codigo: 'senal.objetivo-parado'
 			});
-			expect((await estado(CRED)).motivo).toMatch(/\(sin contacto\)/);
+			expect((await estado(CRED)).motivo).toMatch(/\(offline\)/);
 		});
 
 		it('si cambia el puerto de su objetivo o la dirección de su destino: senal.objetivo-cambiado', async () => {
@@ -509,7 +509,7 @@ describe.skipIf(!hayBase)('lo que ve el cliente, sin escribir nada', () => {
 				estado: 'degradada',
 				codigo: 'senal.objetivo-cambiado',
 				motivo:
-					'Cowrie de cow ha cambiado (Puerto SSH); lo sembrado apunta a lo de antes. Retírala y vuelve a ponerla.'
+					'Cowrie de cow has changed (SSH port); what is planted points to the old one. Remove it and deploy it again.'
 			});
 			await cambiar(SSH, { parametros: { puertoSsh: 2222 } });
 			await db
@@ -517,7 +517,7 @@ describe.skipIf(!hayBase)('lo que ve el cliente, sin escribir nada', () => {
 				.set({ descripcion: { so: 'linux', direccion: '10.30.0.6' } })
 				.where(eq(s.destinos.id, COW));
 			expect((await sinEscribir(() => estado(CRED))).motivo).toMatch(
-				/\(la dirección de su destino\)/
+				/\(the address of its target\)/
 			);
 		});
 

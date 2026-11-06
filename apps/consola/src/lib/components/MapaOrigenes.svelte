@@ -36,19 +36,19 @@
 </script>
 
 {#snippet atribucion()}
-	Últimos {dias} días, solo IP públicas. Geolocalización:
+	Last {dias} days, public IPs only. Geolocation:
 	<a href="https://db-ip.com" rel="noreferrer noopener" target="_blank">DB-IP</a> (CC BY 4.0).
 {/snippet}
 
 {#snippet redes()}
 	{#if organizaciones.length}
 		<section>
-			<h3 class="redes">Desde qué redes</h3>
+			<h3 class="redes">Which networks</h3>
 			<ol class="redes">
 				{#each organizaciones as o (o.organizacion)}
 					<li>
 						<span class="nombre" title={o.asn ? `AS${o.asn}` : ''}>{o.organizacion}</span>
-						<span class="n mono" title={plural(o.ips, 'IP', 'IP')}>{o.eventos}</span>
+						<span class="n mono" title={plural(o.ips, 'IP', 'IPs')}>{o.eventos}</span>
 					</li>
 				{/each}
 			</ol>
@@ -57,17 +57,17 @@
 {/snippet}
 
 <div class="cab-mapa">
-	<h3>Mapa mundial</h3>
-	<BotonPlegar id="resumen-mapa-mundo" titulo="Mapa mundial" bind:plegado={plegado.mundo} />
+	<h3>World map</h3>
+	<BotonPlegar id="resumen-mapa-mundo" titulo="World map" bind:plegado={plegado.mundo} />
 </div>
 {#if !plegado.mundo}
 	<MapaCalor
 		dibujo={dibujoMundo}
 		zonas={paises.map((p) => ({ ...p, id: p.pais }))}
 		nombre={nombrePais}
-		titulo="Países"
-		etiqueta="Mapa de orígenes por país"
-		vacio="Ningún evento desde IP públicas."
+		titulo="Countries"
+		etiqueta="Map of sources by country"
+		vacio="No events from public IPs."
 		pie={atribucion}
 		resumen={redes}
 	/>
@@ -76,17 +76,17 @@
 <div class="separador"></div>
 
 <div class="cab-mapa">
-	<h3>Mapa de España</h3>
-	<BotonPlegar id="resumen-mapa-espana" titulo="Mapa de España" bind:plegado={plegado.espana} />
+	<h3>Map of Spain</h3>
+	<BotonPlegar id="resumen-mapa-espana" titulo="Map of Spain" bind:plegado={plegado.espana} />
 </div>
 {#if !plegado.espana}
 	<MapaCalor
 		dibujo={espana}
 		zonas={regiones.map((r) => ({ ...r, id: r.region }))}
 		nombre={(id) => COMUNIDADES[id] ?? id}
-		titulo="España, por comunidad"
-		etiqueta="Mapa de orígenes en España por comunidad autónoma"
-		vacio="Ningún evento desde IP españolas."
+		titulo="Spain, by region"
+		etiqueta="Map of sources in Spain by autonomous community"
+		vacio="No events from Spanish IPs."
 		pie={atribucion}
 	/>
 {/if}

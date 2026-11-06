@@ -114,23 +114,23 @@ const ORDEN_CLASE: Record<ClaseEjecutor, number> = { agente: 0, conector: 1, man
 
 /* Cómo se nombra cada tipo de destino en un texto: para varios y para uno. */
 const TIPOS: Record<TipoDestino, [varios: string, uno: string]> = {
-	maquina: ['máquinas', 'una máquina'],
-	fileserver: ['servidores de ficheros', 'un servidor de ficheros'],
-	web: ['webs', 'una web'],
-	'paas-web': ['webs en PaaS', 'una web en PaaS'],
-	hosting: ['cuentas de hosting', 'una cuenta de hosting'],
-	dominio: ['directorios activos', 'un directorio activo'],
-	tenant: ['tenants de nube', 'un tenant de nube'],
-	saas: ['servicios SaaS', 'un servicio SaaS'],
-	otro: ['otros destinos', 'otro tipo de destino']
+	maquina: ['machines', 'a machine'],
+	fileserver: ['file servers', 'a file server'],
+	web: ['websites', 'a website'],
+	'paas-web': ['PaaS web apps', 'a PaaS web app'],
+	hosting: ['hosting accounts', 'a hosting account'],
+	dominio: ['Active Directory domains', 'an Active Directory domain'],
+	tenant: ['cloud tenants', 'a cloud tenant'],
+	saas: ['SaaS services', 'a SaaS service'],
+	otro: ['other targets', 'another type of target']
 };
 
 /* «del registro {canal} de fs01». */
 const CANALES: Record<string, string> = {
-	'windows-eventos': 'de eventos de Windows',
+	'windows-eventos': 'Windows event logs',
 	syslog: 'syslog',
-	journald: 'journald',
-	'directorio-activo': 'del directorio activo'
+	journald: 'the journald journal',
+	'directorio-activo': 'Active Directory logs'
 };
 
 const CONEXIONES: Record<string, string> = {
@@ -138,7 +138,7 @@ const CONEXIONES: Record<string, string> = {
 	azure: 'Azure',
 	aws: 'AWS',
 	google: 'Google',
-	ldap: 'el directorio LDAP'
+	ldap: 'the LDAP directory'
 };
 
 const nombreDe = (tabla: Record<string, string>, clave: string) =>
@@ -173,12 +173,12 @@ const frase = (t: string) => (/[.!?…]$/.test(t) ? t : `${t}.`);
  */
 function comoSaberlo(hecho: string, d: Destino): string {
 	const fuentes = Object.hasOwn(HECHOS, hecho) ? HECHOS[hecho].fuentes : [];
-	if (fuentes.includes('formulario')) return `dilo en la ficha de ${d.nombre}, en Destinos`;
+	if (fuentes.includes('formulario')) return `enter it on the ${d.nombre} page, in Targets`;
 	if (fuentes.includes('sensor'))
 		return d.agente
-			? `lo dirá el sensor de ${d.nombre} cuando se ponga al día`
-			: `lo dice un sensor instalado en ${d.nombre}`;
-	return 'esta consola aún no lo sabe';
+			? `the sensor on ${d.nombre} will report it once it updates`
+			: `a sensor installed on ${d.nombre} provides it`;
+	return 'this console does not know it yet';
 }
 
 /* §3.2: el requisito no se cumple o falta su hecho. */
@@ -199,7 +199,7 @@ function motivoDeRequisito(r: Requisito, hechos: Hechos, d: Destino, falta: bool
 			{ motivo: frase(r.motivo), hecho: nombre, comoSaberlo: comoSaberlo(r.hecho, d) },
 			extra
 		);
-	const detalle = `${nombre}: ${valor === undefined ? 'no se sabe' : valorVisible(r.hecho, valor)}`;
+	const detalle = `${nombre}: ${valor === undefined ? 'unknown' : valorVisible(r.hecho, valor)}`;
 	return motivo(
 		'requisito.no-cumple',
 		{ motivo: sinPunto(r.motivo), detalle },
@@ -211,13 +211,13 @@ function motivoDeRequisito(r: Requisito, hechos: Hechos, d: Destino, falta: bool
 function remedioAgenteFalta(so: unknown, destino: string): string {
 	switch (so) {
 		case 'linux':
-			return `Instala un sensor en ${destino}: en Sensores, «Instalar un sensor en otra máquina».`;
+			return `Install a sensor on ${destino}: in Sensors, use "Install a sensor on another machine".`;
 		case 'windows':
-			return `En Windows, el sensor va en la appliance: impórtala en Hyper-V o VMware, con red puente, en la red de ${destino}.`;
+			return `On Windows, the sensor runs in the appliance: import it into Hyper-V or VMware, with bridged networking, on the network of ${destino}.`;
 		case 'macos':
-			return 'En macOS hará falta el agente nativo, que llegará más adelante.';
+			return 'macOS needs the native agent, which will arrive later.';
 		default:
-			return `Instala un sensor en ${destino} (en Sensores, «Instalar un sensor en otra máquina») o pon la appliance de Hyper-V o VMware en su red.`;
+			return `Install a sensor on ${destino} (in Sensors, use "Install a sensor on another machine") or put the Hyper-V or VMware appliance on its network.`;
 	}
 }
 
@@ -362,9 +362,9 @@ function senalPorTrampa(
 	/* Con el nombre de cada módulo, si la consola lo pasa; si no, su id. */
 	const nombres = modulos.map((m) => {
 		const n = c.nombresModulos && Object.hasOwn(c.nombresModulos, m) ? c.nombresModulos[m] : m;
-		return `«${n}»`;
+		return `"${n}"`;
 	});
-	const sinObjetivo = () => motivo('senal.trampa-objetivo', { modulos: unaLista(nombres, 'o') });
+	const sinObjetivo = () => motivo('senal.trampa-objetivo', { modulos: unaLista(nombres, 'or') });
 	const sinDireccion = (t: TrampaDelCliente) =>
 		motivo('senal.objetivo-sin-direccion', { objetivo: t.nombre, destino: t.destinoNombre });
 	const recibe = (t: TrampaDelCliente) =>
@@ -488,7 +488,7 @@ function evaluarVia(
 				{
 					tipos: unaLista(
 						tipos.map((t) => tipoTexto(t, 0)),
-						'o'
+						'or'
 					),
 					destino: d.nombre,
 					tipo: tipoTexto(d.tipo, 1)

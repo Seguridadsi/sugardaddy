@@ -32,9 +32,9 @@ function cargar<T>(familia: string, fichero: string, leer: (yaml: string) => Res
 		try {
 			r = leer(readFileSync(join(raiz(), familia, id, fichero), 'utf8'));
 		} catch (e) {
-			r = { ok: false, errores: [`no se puede leer: ${(e as Error).message}`] };
+			r = { ok: false, errores: [`cannot be read: ${(e as Error).message}`] };
 		}
-		if (!r.ok) console.warn(`módulo ${familia}/${id} descartado`, r);
+		if (!r.ok) console.warn(`module ${familia}/${id} discarded`, r);
 		return r.ok ? [r.valor] : [];
 	});
 }
@@ -68,7 +68,7 @@ export function honeycosas(): Honeycosa[] {
 	);
 	const { validas, errores } = validarCatalogo([...trampas, ...ficheros, ...nube]);
 	for (const [id, e] of Object.entries(errores))
-		console.warn(`módulo ${familiaDe.get(id) ?? 'trampas'}/${id} descartado`, {
+		console.warn(`module ${familiaDe.get(id) ?? 'trampas'}/${id} discarded`, {
 			ok: false,
 			errores: e
 		});
@@ -135,24 +135,24 @@ export function traductorDeTrampa(h: Honeycosa, via?: string): Traductor | undef
 export function textoDeFicha(texto: string, h: Honeycosa): string {
 	const props = h.parametros.properties as Record<string, { title?: unknown }>;
 	const nombre = (p: string) =>
-		`«${Object.hasOwn(props, p) && typeof props[p].title === 'string' ? props[p].title : p}»`;
+		`"${Object.hasOwn(props, p) && typeof props[p].title === 'string' ? props[p].title : p}"`;
 	return texto
 		.replace(/\$\{([^}]*)\}/g, (hueco, x: string) => {
 			if (Object.hasOwn(props, x)) return nombre(x);
-			if (x === 'baliza_url') return 'la dirección de la baliza';
+			if (x === 'baliza_url') return 'the beacon address';
 			const [de, campo, ...mas] = x.split('.');
 			if (mas.length) return hueco;
-			if (de === 'destino')
-				return campo === 'direccion' ? 'la dirección del destino' : 'el destino';
-			if (de === 'trampa') return 'esta trampa';
+			if (de === 'destino') return campo === 'direccion' ? 'the target address' : 'the target';
+			if (de === 'trampa') return 'this decoy';
 			if (campo !== undefined && Object.hasOwn(props, de))
 				return campo === 'direccion'
-					? `la dirección de ${nombre(de)}`
-					: `«${campo}» de ${nombre(de)}`;
+					? `the address of ${nombre(de)}`
+					: `"${campo}" of ${nombre(de)}`;
 			return hueco;
 		})
-		.replaceAll('««', '«')
-		.replaceAll('»»', '»');
+		.replaceAll('«"', '"')
+		.replaceAll('"»', '"')
+		.replaceAll('""', '"');
 }
 
 /*
@@ -187,7 +187,9 @@ export function fichaDe(h: Honeycosa): ManifiestoTrampa['ficha'] {
 export const catalogoRespuestas = () =>
 	cargar<ManifiestoRespuesta>('respuestas', 'respuesta.yaml', leerRespuesta).filter((m) => {
 		if (m.riesgo === 'contencion') return true;
-		console.warn(`módulo respuestas/${m.id} descartado: es informativo y eso va por Avisos y SIEM`);
+		console.warn(
+			`module respuestas/${m.id} discarded: it is informational and that goes through Alerts & SIEM`
+		);
 		return false;
 	});
 
@@ -245,15 +247,15 @@ export async function catalogoConSuscripcion() {
  * Cloud. Las de registro se activan gratis (docs/diseno/registro-community.md).
  */
 export function porQueNo(m: { id: string; incluida: boolean; licencia: Cobertura }) {
-	if (m.licencia === 'registro.caducado') return 'Tu registro ha caducado';
-	if (m.licencia === 'registro.sin') return 'Gratis con tu registro';
+	if (m.licencia === 'registro.caducado') return 'Your registration has expired';
+	if (m.licencia === 'registro.sin') return 'Free with your registration';
 	if (!m.incluida) {
-		if (!esCommunity()) return 'No incluida en tu suscripción';
-		if (esDeRegistro(m.id)) return 'Gratis con tu registro';
-		return esDePago(m.id) ? 'Viene en Sugardaddy Cloud' : 'No incluida en tu suscripción';
+		if (!esCommunity()) return 'Not included in your subscription';
+		if (esDeRegistro(m.id)) return 'Free with your registration';
+		return esDePago(m.id) ? 'Included in Sugardaddy Cloud' : 'Not included in your subscription';
 	}
-	if (m.licencia === 'licencia.caducada') return 'Tu licencia de Cloud ha caducado';
-	if (m.licencia === 'licencia.sin') return 'No está en tu licencia de Cloud';
+	if (m.licencia === 'licencia.caducada') return 'Your Cloud license has expired';
+	if (m.licencia === 'licencia.sin') return 'Not in your Cloud license';
 	return null;
 }
 

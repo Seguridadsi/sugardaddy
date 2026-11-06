@@ -11,7 +11,10 @@ import { env } from '$env/dynamic/private';
  */
 export const GET = () => {
 	if (env.TLS_MODO === 'ficheros')
-		error(404, 'Esta consola usa un certificado de tu empresa: no hay raíz que instalar.');
+		error(
+			404,
+			'This console uses a certificate from your organization: there is no root to install.'
+		);
 	let pem = '';
 	try {
 		pem = readFileSync(env.CA_RAIZ ?? '', 'utf8');
@@ -19,7 +22,7 @@ export const GET = () => {
 		/* se dice abajo */
 	}
 	const raiz = pem.match(/-----BEGIN CERTIFICATE-----[A-Za-z0-9+/=\s]+-----END CERTIFICATE-----/);
-	if (!raiz) error(503, 'La raíz de la CA aún no está lista: vuelve a intentarlo en unos minutos.');
+	if (!raiz) error(503, 'The CA root is not ready yet. Try again in a few minutes.');
 	return new Response(`${raiz[0]}\n`, {
 		headers: {
 			'content-type': 'application/x-x509-ca-cert',

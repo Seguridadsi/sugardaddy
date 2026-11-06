@@ -35,29 +35,28 @@
 	} = $props();
 
 	const RESULTADO: Record<string, string> = {
-		activado: 'Probado y activado: a partir de ahora se entra con tu Microsoft.',
-		'sin-config':
-			'No hay nada guardado que probar (o el secreto no se puede leer): vuelve a guardarlo.',
+		activado: 'Tested and enabled: from now on, people sign in with your Microsoft account.',
+		'sin-config': 'There is nothing saved to test (or the secret cannot be read): save it again.',
 		rechazado:
-			'Microsoft no ha dejado entrar. Mira que tu usuario tenga asignado un rol en la aplicación.',
-		estado: 'La respuesta de Microsoft no corresponde a esta prueba. Vuelve a probar.',
-		caducado: 'La prueba ha tardado demasiado. Vuelve a probar.',
-		canje: 'Microsoft no ha aceptado el secreto o la URL de retorno. Revisa los dos.',
+			'Microsoft did not allow the sign-in. Check that your user has a role assigned in the application.',
+		estado: 'The Microsoft response does not match this test. Test again.',
+		caducado: 'The test took too long. Test again.',
+		canje: 'Microsoft did not accept the secret or the redirect URL. Check both.',
 		sin_rol:
-			'Has entrado, pero sin ningún rol de Sugardaddy: asígnate el rol «admin» en la aplicación.',
+			'You signed in, but without any Sugardaddy role: assign yourself the "admin" role in the application.',
 		'sin-admin':
-			'Has entrado, pero sin el rol «admin». Para activarlo, la prueba la hace alguien con «admin».',
-		sin_correo: 'Tu cuenta de Microsoft no trae dirección de correo.',
-		sin_oid: 'El token de Microsoft no identifica la cuenta.'
+			'You signed in, but without the "admin" role. To enable it, the test must be done by someone with "admin".',
+		sin_correo: 'Your Microsoft account has no email address.',
+		sin_oid: 'The Microsoft token does not identify the account.'
 	};
 	const resultado = $derived(page.url.searchParams.get('entra'));
 
 	const NOMBRES: Record<string, string> = {
-		lector: 'Lector: ve todo, no cambia nada',
-		operador: 'Operador: despliega y para trampas',
-		aprobador: 'Aprobador: aprueba bloqueos',
-		'admin-listas': 'Administrador de listas',
-		admin: 'Administrador: todo, incluidos los ajustes'
+		lector: 'Viewer: sees everything, changes nothing',
+		operador: 'Operator: deploys and stops decoys',
+		aprobador: 'Approver: approves blocks',
+		'admin-listas': 'List administrator',
+		admin: 'Administrator: everything, including settings'
 	};
 	const roles = JSON.stringify(
 		ROLES.map((r) => ({
@@ -85,7 +84,7 @@ az rest --method POST --uri "https://graph.microsoft.com/v1.0/servicePrincipals/
   --body "{\\"principalId\\":\\"$YO\\",\\"resourceId\\":\\"$SP\\",\\"appRoleId\\":\\"$ADMIN\\"}" -o none
 SECRETO=$(az ad app credential reset --id "$APP" --display-name sugardaddy --years 2 --query password -o tsv)
 echo; echo "Tenant:    $(az account show --query tenantId -o tsv)"
-echo "Cliente:   $APP"; echo "Secreto:   $SECRETO"`);
+echo "Client:    $APP"; echo "Secret:    $SECRETO"`);
 
 	let copiado = $state(false);
 	async function copiar() {
@@ -96,12 +95,12 @@ echo "Cliente:   $APP"; echo "Secreto:   $SECRETO"`);
 </script>
 
 <section class="panel bloque" id="entra">
-	<h2>Entrar con Microsoft (tu Entra ID)</h2>
+	<h2>Sign in with Microsoft (your Entra ID)</h2>
 	<p class="ayuda">
-		Para que tu equipo entre con su cuenta de Microsoft de la empresa, con su MFA. Se conecta con el
-		Entra ID de tu organización: la aplicación la creas tú, en tu tenant, y quién entra y con qué
-		rol lo decides tú asignando roles en ella. El usuario y contraseña de la consola y la entrada de
-		emergencia siguen valiendo.
+		So your team can sign in with their company Microsoft account, including MFA. It connects to
+		your organization's Entra ID: you create the application yourself, in your tenant, and you
+		decide who signs in and with which role by assigning roles in it. The console username and
+		password and the emergency sign-in keep working.
 	</p>
 
 	{#if resultado && RESULTADO[resultado]}
@@ -112,59 +111,59 @@ echo "Cliente:   $APP"; echo "Secreto:   $SECRETO"`);
 
 	{#if propio?.activo}
 		<p class="bien">
-			Activo. Tenant <code>{propio.tenant}</code>, aplicación
-			<code>{propio.clientId}</code>{#if propio.final}, secreto acabado en <code
-					>{propio.final}</code
-				>{/if}. Probado por {propio.activadoPor} el
-			{new Date(propio.activado ?? propio.guardado).toLocaleDateString('es-ES')}.
+			Enabled. Tenant <code>{propio.tenant}</code>, application
+			<code>{propio.clientId}</code>{#if propio.final}, secret ending in <code>{propio.final}</code
+				>{/if}. Tested by {propio.activadoPor} on
+			{new Date(propio.activado ?? propio.guardado).toLocaleDateString('en-GB')}.
 		</p>
 		{#if !propio.legible}
-			<p class="mal">El secreto guardado no se puede leer en este nodo: vuelve a ponerlo abajo.</p>
+			<p class="mal">The saved secret cannot be read on this node: enter it again below.</p>
 		{/if}
 	{:else if propio}
 		<p class="aviso">
-			Guardado pero sin probar: aún no se usa. Pulsa «Probar» y entra con una cuenta que tenga el
-			rol «admin» en la aplicación.
+			Saved but not tested: it is not in use yet. Click "Test" and sign in with an account that has
+			the "admin" role in the application.
 		</p>
 	{:else if seguridadsi}
 		<p>
-			Hoy esta consola entra con Microsoft a través del Entra de {page.data.operador}. Si conectas
-			el tuyo, pasa a usarse el tuyo (y el acceso de soporte de {page.data.operador} ya no entra con Microsoft).
+			Today this console signs in with Microsoft through the {page.data.operador} Entra. If you connect
+			your own, yours is used instead (and {page.data.operador} support access no longer signs in with
+			Microsoft).
 		</p>
 	{/if}
 
 	<details open={!propio}>
-		<summary>{propio ? 'Cambiar la conexión' : 'Cómo conectarlo (unos 5 minutos)'}</summary>
+		<summary>{propio ? 'Change the connection' : 'How to connect it (about 5 minutes)'}</summary>
 		<ol class="pasos">
 			<li>
-				Entra en <a href="https://shell.azure.com" target="_blank" rel="noopener">shell.azure.com</a
-				>
-				(Bash) con una cuenta que pueda crear aplicaciones en tu Entra ID.
+				Go to <a href="https://shell.azure.com" target="_blank" rel="noopener">shell.azure.com</a>
+				(Bash) with an account that can create applications in your Entra ID.
 			</li>
 			<li>
-				Pega este script. Crea la aplicación «Sugardaddy consola» con esta URL de retorno:
-				<code>{retorno}</code>, sus roles y la asignación obligatoria, te da a ti el rol «admin» y
-				saca un secreto que caduca en 2 años.
+				Paste this script. It creates the "Sugardaddy consola" application with this redirect URL: <code
+					>{retorno}</code
+				>, its roles and mandatory assignment, gives you the "admin" role and generates a secret
+				that expires in 2 years.
 				<pre>{script}</pre>
 				<button type="button" class="boton" onclick={copiar}>
-					{copiado ? 'Copiado' : 'Copiar el script'}
+					{copiado ? 'Copied' : 'Copy the script'}
 				</button>
 			</li>
 			<li>
-				Copia lo que imprime al final aquí y pulsa «Guardar y probar»: te lleva a Microsoft y, si
-				vuelves con el rol «admin», queda activado.
+				Copy what it prints at the end here and click "Save and test": it takes you to Microsoft
+				and, if you come back with the "admin" role, it is enabled.
 			</li>
 		</ol>
 		<p class="ayuda">
-			La URL de retorno es la de esta consola tal y como la estás usando ahora. Si tu equipo entra
-			por otro nombre, entra tú por ese mismo nombre antes de conectarlo.
+			The redirect URL is this console's address exactly as you are using it now. If your team signs
+			in through a different name, use that same name before connecting it.
 		</p>
 
 		{#if error}<p class="mal" role="alert">{error}</p>{/if}
 		<!-- Sin use:enhance: si va bien, la respuesta lleva al navegador hasta Microsoft. -->
 		<form method="POST" action="?/entraGuardar">
 			<label class="campo">
-				<span>Tenant (id del directorio)</span>
+				<span>Tenant (directory ID)</span>
 				<input
 					name="tenant"
 					value={valores?.tenant ?? propio?.tenant ?? ''}
@@ -175,7 +174,7 @@ echo "Cliente:   $APP"; echo "Secreto:   $SECRETO"`);
 				/>
 			</label>
 			<label class="campo">
-				<span>Cliente (id de la aplicación)</span>
+				<span>Client (application ID)</span>
 				<input
 					name="clientId"
 					value={valores?.clientId ?? propio?.clientId ?? ''}
@@ -186,24 +185,24 @@ echo "Cliente:   $APP"; echo "Secreto:   $SECRETO"`);
 				/>
 			</label>
 			<label class="campo">
-				<span>Secreto</span>
+				<span>Secret</span>
 				<input
 					name="secreto"
 					type="password"
 					autocomplete="off"
-					placeholder={propio ? 'Déjalo vacío para conservar el que hay' : ''}
+					placeholder={propio ? 'Leave empty to keep the current one' : ''}
 					required={!propio}
 				/>
 			</label>
-			<button class="boton principal">Guardar y probar</button>
+			<button class="boton principal">Save and test</button>
 		</form>
 	</details>
 
 	{#if propio}
 		<div class="acciones-entra">
-			<a class="boton" href="/auth/login?probar=1">Probar</a>
+			<a class="boton" href="/auth/login?probar=1">Test</a>
 			<form method="POST" action="?/entraQuitar">
-				<button class="boton peligro">Quitar</button>
+				<button class="boton peligro">Remove</button>
 			</form>
 		</div>
 	{/if}

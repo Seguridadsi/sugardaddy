@@ -106,7 +106,7 @@ export async function marcarSubidos(hasta: Date) {
 export async function aplicarLista(clavePublicaPanel: string, f: ListaFirmada, nodo: string) {
 	const v = verificarLista(clavePublicaPanel, f);
 	if (!v.ok) {
-		await auditar(`nodo ${nodo}`, 'lista global rechazada', { motivo: v.motivo });
+		await auditar(`node ${nodo}`, 'global list rejected', { motivo: v.motivo });
 		return false;
 	}
 	const quien = await operador();

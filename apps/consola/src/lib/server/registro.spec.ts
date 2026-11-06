@@ -125,10 +125,10 @@ describe('sin registro no se desbloquea nada', () => {
 		expect(cubre('smb')).toBe('registro.sin');
 		expect(cubre('mysql')).toBe('licencia.sin');
 		expect(porQueNo({ id: 'smb', incluida: false, licencia: cubre('smb') })).toBe(
-			'Gratis con tu registro'
+			'Free with your registration'
 		);
 		expect(porQueNo({ id: 'mysql', incluida: false, licencia: cubre('mysql') })).toBe(
-			'Viene en Sugardaddy Cloud'
+			'Included in Sugardaddy Cloud'
 		);
 	});
 
@@ -291,7 +291,7 @@ describe('renovación', () => {
 		vi.stubGlobal('fetch', respuesta(404));
 		expect(await renovar(tarde)).toBe('retirado');
 		expect(bd.ajustes.get('licencia')).toEqual(antes);
-		expect((await estadoRegistro(tarde)).fallo).toMatch(/retirado/);
+		expect((await estadoRegistro(tarde)).fallo).toMatch(/withdrawn/);
 	});
 });
 
@@ -324,7 +324,7 @@ describe('Cloud no cambia', () => {
 		const cubre = await coberturaLicencia();
 		expect(cubre('smb')).toBe('licencia.sin');
 		expect(porQueNo({ id: 'smb', incluida: true, licencia: 'licencia.sin' })).toBe(
-			'No está en tu licencia de Cloud'
+			'Not in your Cloud license'
 		);
 	});
 

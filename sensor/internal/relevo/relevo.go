@@ -54,7 +54,7 @@ type Relevo struct {
 var esperas = []time.Duration{10 * time.Minute, 30 * time.Minute, 2 * time.Hour, 6 * time.Hour}
 
 // Nada que hacer: no es un error, solo no toca (todavía). Lleva el motivo.
-var errNoToca = errors.New("no toca")
+var errNoToca = errors.New("not due")
 
 func noToca(motivo string) error { return fmt.Errorf("%w: %s", errNoToca, motivo) }
 
@@ -108,7 +108,7 @@ func (r *Relevo) Intentar(ctx context.Context) error {
 	if errors.Is(err, errNoToca) {
 		// Se dice por qué: un relevo que no llega nunca no puede quedar mudo.
 		if r.Log != nil {
-			r.Log("relevo: todavía no", "motivo", strings.TrimPrefix(err.Error(), errNoToca.Error()+": "))
+			r.Log("handover: not yet", "motivo", strings.TrimPrefix(err.Error(), errNoToca.Error()+": "))
 		}
 		return nil
 	}
@@ -132,11 +132,11 @@ func (r *Relevo) intentar(ctx context.Context) error {
 	yo := r.idPropio()
 	propio, err := r.Docker.Inspeccionar(ctx, yo)
 	if err != nil {
-		return noToca("no encuentro mi propio contenedor (" + yo + ")")
+		return noToca("cannot find my own container (" + yo + ")")
 	}
 	proyecto := etiquetas(propio)["com.docker.compose.project"]
 	if proyecto == "" {
-		return noToca("no estoy en un proyecto de compose")
+		return noToca("not running in a compose project")
 	}
 	lista, err := r.Docker.ListarConEtiqueta(ctx, "com.docker.compose.project="+proyecto)
 	if err != nil {
@@ -148,7 +148,7 @@ func (r *Relevo) intentar(ctx context.Context) error {
 		for _, n := range c.Names {
 			// Un actualizador 0.11 a mitad de un cambio: ni se intenta.
 			if strings.HasSuffix(n, "-anterior") {
-				return noToca("el actualizador viejo está a mitad de un cambio")
+				return noToca("the old updater is in the middle of a change")
 			}
 		}
 		switch c.Labels["com.docker.compose.service"] {
@@ -163,15 +163,15 @@ func (r *Relevo) intentar(ctx context.Context) error {
 		return errNoToca // ya hecho, o no hay actualizador: nada que contar
 	}
 	if desde, err := time.Parse(time.RFC3339Nano, estadoDe(propio)["StartedAt"].(string)); err != nil || r.ahora().Sub(desde) < 2*time.Minute {
-		return noToca("acabo de arrancar")
+		return noToca("just started")
 	}
 
 	of, err := r.Consola.Relevo(ctx)
 	if err != nil {
-		return noToca("la consola no contesta: " + err.Error())
+		return noToca("the console is not responding: " + err.Error())
 	}
 	if of == nil {
-		return noToca("la consola aún no da permiso")
+		return noToca("the console has not given permission yet")
 	}
 	vi, err := r.Docker.Inspeccionar(ctx, viejo.ID)
 	if err != nil {
@@ -180,18 +180,18 @@ func (r *Relevo) intentar(ctx context.Context) error {
 	env := entornoDe(vi)
 	clave, err := actualizador.ClavePublica(env["PUBLICACION_CLAVE_PUBLICA"])
 	if err != nil {
-		return fmt.Errorf("el actualizador viejo no tiene una clave de publicación válida: %w", err)
+		return fmt.Errorf("the old updater has no valid publishing key: %w", err)
 	}
 	rel, err := actualizador.Verificar(clave, of.Release)
 	if err != nil {
-		return fmt.Errorf("versión del relevo: %w", err)
+		return fmt.Errorf("handover version: %w", err)
 	}
 	conf := rel.Nodo
 	if modo == actualizador.ModoSensorRemoto {
 		conf = rel.SensorRemoto
 	}
 	if rel.Version != r.Version || conf == nil || rel.Actualizador == "" {
-		return fmt.Errorf("la versión del relevo (%s) no es la de este sensor (%s) o no trae configuración", rel.Version, r.Version)
+		return fmt.Errorf("the handover version (%s) is not this sensor version (%s) or has no configuration", rel.Version, r.Version)
 	}
 	destino := "/nodo"
 	red := proyecto + "_nodo"
@@ -200,17 +200,17 @@ func (r *Relevo) intentar(ctx context.Context) error {
 	}
 	dir := origenDe(vi, destino)
 	if dir == "" {
-		return fmt.Errorf("el actualizador viejo no monta %s: no sé dónde está la carpeta", destino)
+		return fmt.Errorf("the old updater does not mount %s: cannot tell where the folder is", destino)
 	}
 
 	// El permiso de antes no reserva nada: el cerrojo se toma aquí, y si la
 	// consola no lo da (otro sensor se adelantó), no se toca nada.
 	if err := r.Consola.InformarRelevo(ctx, "aplicando", ""); err != nil {
-		return noToca("la consola no da el cerrojo: " + err.Error())
+		return noToca("the console does not grant the lock: " + err.Error())
 	}
 	if err := r.Docker.Parar(ctx, viejo.ID); err != nil {
 		_ = r.Consola.InformarRelevo(ctx, "fallida", err.Error())
-		return fmt.Errorf("no se pudo parar el actualizador viejo: %w", err)
+		return fmt.Errorf("could not stop the old updater: %w", err)
 	}
 	// Y otra vez: que no haya empezado un cambio justo antes de pararlo.
 	if l, err := r.Docker.ListarConEtiqueta(ctx, "com.docker.compose.project="+proyecto); err == nil {
@@ -219,7 +219,7 @@ func (r *Relevo) intentar(ctx context.Context) error {
 				if strings.HasSuffix(n, "-anterior") {
 					_ = r.Docker.Arrancar(ctx, viejo.ID)
 					_ = r.Consola.InformarRelevo(ctx, "cancelado", "")
-					return noToca("el actualizador viejo empezó un cambio justo antes de pararlo")
+					return noToca("the old updater started a change just before it was stopped")
 				}
 			}
 		}
@@ -237,9 +237,9 @@ func (r *Relevo) intentar(ctx context.Context) error {
 	}); err != nil {
 		_ = r.Docker.Arrancar(ctx, viejo.ID)
 		_ = r.Consola.InformarRelevo(ctx, "fallida", err.Error())
-		return fmt.Errorf("no se pudo lanzar el auxiliar: %w", err)
+		return fmt.Errorf("could not start the helper: %w", err)
 	}
-	r.Log("relevo lanzado: el auxiliar aplica la configuración de la versión", "version", rel.Version, "modo", modo)
+	r.Log("handover started: the helper applies the version configuration", "version", rel.Version, "modo", modo)
 	return nil
 }
 

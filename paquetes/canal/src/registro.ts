@@ -69,8 +69,8 @@ export function licenciaDeRegistro(
 ): { ok: true; licencia: Licencia } | { ok: false; motivo: string } {
 	const v = verificarLicencia(clavePublicaPublicacion, f, ahora);
 	if (!v.ok) return v;
-	if (v.msp !== MSP_REGISTRO) return { ok: false, motivo: 'no es una licencia de registro' };
+	if (v.msp !== MSP_REGISTRO) return { ok: false, motivo: 'not a registration license' };
 	const fuera = v.licencia.modulos.find((m) => !MODULOS_REGISTRO.has(m));
-	if (fuera) return { ok: false, motivo: `la licencia de registro no puede incluir «${fuera}»` };
+	if (fuera) return { ok: false, motivo: `a registration license cannot include "${fuera}"` };
 	return { ok: true, licencia: v.licencia };
 }

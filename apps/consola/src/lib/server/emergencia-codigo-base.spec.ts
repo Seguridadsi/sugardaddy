@@ -60,7 +60,7 @@ describe.skipIf(!hayBase)('código de emergencia', () => {
 	it('el del instalador entra, se gasta y deja otro que también entra', async () => {
 		const c = script('--si-no-hay');
 		expect(c).toMatch(/^[A-Z2-9]{4}(-[A-Z2-9]{4}){5}$/);
-		expect(await em.estadoCodigoEmergencia()).toMatchObject({ por: 'instalador' });
+		expect(await em.estadoCodigoEmergencia()).toMatchObject({ por: 'installer' });
 
 		/* Escrito a mano: minúsculas, espacios en vez de guiones. */
 		const r = await em.canjearCodigoEmergencia(c.toLowerCase().replaceAll('-', ' '), '10.0.0.1');

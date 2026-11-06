@@ -38,7 +38,7 @@ describe('peticiones del nodo', () => {
 	});
 
 	it('si cambia el cuerpo, la firma no vale', () => {
-		expect(verificar(firmar(), '{"v":2}')).toEqual({ ok: false, motivo: 'firma no válida' });
+		expect(verificar(firmar(), '{"v":2}')).toEqual({ ok: false, motivo: 'invalid signature' });
 	});
 
 	it('firmada con la clave de otro nodo, no vale', () => {
@@ -49,7 +49,7 @@ describe('peticiones del nodo', () => {
 		const c = firmar();
 		const vistas = new Map();
 		expect(verificar(c, '{"v":1}', vistas)).toEqual({ ok: true });
-		expect(verificar(c, '{"v":1}', vistas)).toEqual({ ok: false, motivo: 'petición repetida' });
+		expect(verificar(c, '{"v":1}', vistas)).toEqual({ ok: false, motivo: 'repeated request' });
 	});
 
 	it('tampoco escribiendo la misma firma de otra forma', () => {
@@ -65,13 +65,13 @@ describe('peticiones del nodo', () => {
 		])
 			expect(verificar({ ...c, 'x-firma': otra }, '{"v":1}', vistas), otra).toEqual({
 				ok: false,
-				motivo: 'petición repetida'
+				motivo: 'repeated request'
 			});
 	});
 
 	it('una petición vieja no vale', () => {
 		const c = firmar('{"v":1}', Date.now() - 10 * 60_000);
-		expect(verificar(c)).toEqual({ ok: false, motivo: 'fecha fuera de margen' });
+		expect(verificar(c)).toEqual({ ok: false, motivo: 'date out of range' });
 	});
 });
 
@@ -97,7 +97,7 @@ describe('estado deseado', () => {
 
 	it('rechaza un estado firmado por otra clave, aunque venga del mismo sitio', () => {
 		const r = verificarEstado(panel.publica, 'aldanza', firmarEstado(otro.privada, estado()));
-		expect(r).toEqual({ ok: false, motivo: 'firma del panel no válida' });
+		expect(r).toEqual({ ok: false, motivo: 'invalid Central signature' });
 	});
 
 	it('rechaza un estado manipulado por el camino', () => {
@@ -110,7 +110,7 @@ describe('estado deseado', () => {
 		const f = firmarEstado(panel.privada, estado({ cliente: 'bodegas' }));
 		expect(verificarEstado(panel.publica, 'aldanza', f)).toEqual({
 			ok: false,
-			motivo: 'el estado es para otro cliente'
+			motivo: 'the state is for another customer'
 		});
 	});
 
@@ -121,7 +121,7 @@ describe('estado deseado', () => {
 		);
 		expect(verificarEstado(panel.publica, 'aldanza', f)).toEqual({
 			ok: false,
-			motivo: 'estado caducado'
+			motivo: 'the state has expired'
 		});
 	});
 });
@@ -190,7 +190,7 @@ describe('versiones firmadas', () => {
 
 	it('el panel no puede firmar versiones: su clave no es la de publicación', () => {
 		const r = verificarRelease(publicacion.publica, firmarRelease(panel.privada, release));
-		expect(r).toEqual({ ok: false, motivo: 'la versión no está firmada por SeguridadSI' });
+		expect(r).toEqual({ ok: false, motivo: 'the version is not signed by SeguridadSI' });
 	});
 
 	it('una imagen por etiqueta, sin digest, no vale aunque esté firmada', () => {

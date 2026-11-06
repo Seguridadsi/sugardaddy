@@ -18,7 +18,7 @@
 	/*
 	 * Un mapa de calor de orígenes (países o comunidades) y, al lado, la lista.
 	 * Pinchar una zona, en el mapa o en la lista, enseña a la derecha sus IP con
-	 * más eventos, cada una con su perfil (/eventos/ip). Sin selección, la lista
+	 * más eventos, cada una con su perfil (/events/ip). Sin selección, la lista
 	 * de zonas y lo que se pase en `resumen`.
 	 */
 	import type { Snippet } from 'svelte';
@@ -78,7 +78,7 @@
 						style="fill-opacity: {intensidad(d.eventos)}"
 						role="button"
 						tabindex="0"
-						aria-label="{nombre(z.id)}: {plural(d.eventos, 'evento', 'eventos')}"
+						aria-label="{nombre(z.id)}: {plural(d.eventos, 'event', 'events')}"
 						aria-pressed={elegida === z.id}
 						onclick={() => elegir(z.id)}
 						onkeydown={(e) => {
@@ -88,10 +88,10 @@
 							}
 						}}
 						><title
-							>{nombre(z.id)} · {plural(d.eventos, 'evento', 'eventos')} desde {plural(
+							>{nombre(z.id)} · {plural(d.eventos, 'event', 'events')} from {plural(
 								d.ips,
 								'IP',
-								'IP'
+								'IPs'
 							)}</title
 						></path
 					>
@@ -108,18 +108,18 @@
 			<button type="button" class="volver" onclick={() => (elegida = null)}>← {titulo}</button>
 			<h3 class="titulo-zona">{nombre(sel.id)}</h3>
 			<p class="cifras">
-				{plural(sel.eventos, 'evento', 'eventos')} desde {plural(sel.ips, 'IP', 'IP')}
-				{#if sel.ips > sel.top.length}<span>· las {sel.top.length} con más eventos</span>{/if}
+				{plural(sel.eventos, 'event', 'events')} from {plural(sel.ips, 'IP', 'IPs')}
+				{#if sel.ips > sel.top.length}<span>· the top {sel.top.length} by events</span>{/if}
 			</p>
 			<ol class="ips">
 				{#each sel.top as i (i.ip)}
 					<li>
-						<a class="mono" href="/eventos/ip/{encodeURIComponent(i.ip)}" title="Perfil de la IP"
+						<a class="mono" href="/events/ip/{encodeURIComponent(i.ip)}" title="IP profile"
 							>{i.ip}</a
 						>
 						<span class="n mono">{i.eventos}</span>
 						<small class="org" title={i.organizacion ?? ''}
-							>{i.organizacion ?? 'red desconocida'} · {haceCuanto(i.ultimo, ahora)}</small
+							>{i.organizacion ?? 'unknown network'} · {haceCuanto(i.ultimo, ahora)}</small
 						>
 					</li>
 				{/each}
@@ -135,12 +135,12 @@
 						<li>
 							<button type="button" class="zona" onclick={() => elegir(z.id)}>
 								<span class="nombre">{nombre(z.id)}</span>
-								<span class="n mono" title={plural(z.ips, 'IP', 'IP')}>{z.eventos}</span>
+								<span class="n mono" title={plural(z.ips, 'IP', 'IPs')}>{z.eventos}</span>
 							</button>
 						</li>
 					{/each}
 				</ol>
-				{#if zonas.length}<p class="pista">Pincha una zona para ver sus IP.</p>{/if}
+				{#if zonas.length}<p class="pista">Click a region to see its IPs.</p>{/if}
 			</section>
 			{@render resumen?.()}
 		{/if}
@@ -155,7 +155,7 @@
 		padding: 16px 18px;
 	}
 
-	@media (max-width: 860px) {
+	@media (max-width: 1108px) {
 		.geo {
 			grid-template-columns: minmax(0, 1fr);
 		}

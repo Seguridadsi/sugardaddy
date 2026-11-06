@@ -19,7 +19,7 @@ export const GET = async ({ url, cookies, locals }) => {
 	if (probar) exigir(locals, 'ajustes');
 	else if (locals.usuario) redirect(303, '/');
 	const config = probar ? await configPropia() : (await configActiva())?.config;
-	if (!config) redirect(303, probar ? '/ajustes?entra=sin-config#entra' : '/entrar');
+	if (!config) redirect(303, probar ? '/settings?entra=sin-config#entra' : '/sign-in');
 
 	const estado = generarEstado();
 	const nonce = generarEstado();

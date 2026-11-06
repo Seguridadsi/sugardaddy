@@ -79,7 +79,7 @@ describe.skipIf(!hayBase)('Entra propio del cliente', () => {
 		expect(await g({ clientId: 'abc' })).toMatchObject({ ok: false });
 		expect(await g({ secreto: '' })).toMatchObject({
 			ok: false,
-			error: 'Falta el secreto de la aplicación.'
+			error: 'The application secret is missing.'
 		});
 		expect(await g({}, async () => 'no')).toMatchObject({ ok: false });
 		expect(await g({}, async () => 'sin-red')).toMatchObject({ ok: false });

@@ -50,10 +50,10 @@ export async function sensorDe(request: Request) {
 	const token = request.headers
 		.get('authorization')
 		?.match(/^Bearer ([A-Za-z0-9_-]{32,128})$/)?.[1];
-	if (!token) error(401, 'Falta el token del sensor');
+	if (!token) error(401, 'Missing sensor token');
 	const hash = createHash('sha256').update(token).digest('hex');
 	const [sensor] = await db.select().from(s.sensores).where(eq(s.sensores.claveHash, hash));
-	if (!sensor) error(401, 'Token desconocido');
+	if (!sensor) error(401, 'Unknown token');
 	await db.update(s.sensores).set({ ultimoLatido: new Date() }).where(eq(s.sensores.id, sensor.id));
 	return sensor;
 }
@@ -83,7 +83,7 @@ const esVersion = (v: string) => /^\d+\.\d+\.\d+$/.test(v);
  * del elector.
  */
 export function textoDescarte(codigo: CodigoMotivo, datos: DatosMotivo = {}): string {
-	if (codigo === 'modulo.no-autorizado') return `el módulo ${datos.modulo} no está autorizado`;
+	if (codigo === 'modulo.no-autorizado') return `the module ${datos.modulo} is not authorized`;
 	const t = motivo(codigo, datos).texto;
 	if (codigo === 'parametros.invalidos') return t;
 	return t[0].toLowerCase() + t.slice(1).replace(/\.$/, '');
@@ -332,8 +332,8 @@ export function leerEstados(trampas: unknown[]): EstadoTrampa[] {
 
 /* Cada bloque de lo que cuenta el sensor de su máquina, como se dice en la auditoría. */
 const BLOQUES = {
-	motor: 'lo que cuenta de su motor de contenedores',
-	hechos: 'lo que cuenta de su máquina'
+	motor: 'what it reports about its container engine',
+	hechos: 'what it reports about its machine'
 } as const;
 const MAX_BLOQUE = 32 * 1024;
 
@@ -349,9 +349,9 @@ export function revisarCapacidades(cuerpo: unknown): string[] {
 	for (const [k, nombre] of Object.entries(BLOQUES)) {
 		const v = cuerpo[k];
 		if (v === undefined || v === null) continue;
-		if (!esObjeto(v)) r.push(`${nombre} no tiene la forma esperada y se ignora`);
+		if (!esObjeto(v)) r.push(`${nombre} does not have the expected shape and is ignored`);
 		else if (Buffer.byteLength(JSON.stringify(v)) > MAX_BLOQUE)
-			r.push(`${nombre} pasa de 32 KB y se descarta lo que sobra`);
+			r.push(`${nombre} exceeds 32 KB and the excess is discarded`);
 	}
 	return r;
 }
@@ -369,7 +369,7 @@ async function auditarDescartes(sensor: string, descartes: string[]) {
 	if (antes !== undefined && ahora - antes < AUDITAR_CADA) return;
 	await db.insert(s.auditoria).values({
 		quien: `sensor ${sensor}`,
-		accion: 'datos de la máquina descartados',
+		accion: 'machine data discarded',
 		detalle: { motivo: descartes.join('; ') }
 	});
 	auditado.set(sensor, ahora);
@@ -600,17 +600,17 @@ async function guardarEntrega(
 
 			let e: Evento | null = null;
 			let motivo: string | null = null;
-			if (linea.length > LIMITE_LINEA) motivo = 'línea demasiado larga';
+			if (linea.length > LIMITE_LINEA) motivo = 'line too long';
 			else {
 				let dato: unknown = null;
 				try {
 					dato = JSON.parse(linea);
 				} catch {
-					motivo = 'no es JSON';
+					motivo = 'not JSON';
 				}
 				if (!motivo) {
 					const v = validarEvento(dato);
-					if (!v.ok) motivo = `no cumple el contrato: ${v.errores.slice(0, 3).join('; ')}`;
+					if (!v.ok) motivo = `does not meet the contract: ${v.errores.slice(0, 3).join('; ')}`;
 					else e = v.valor;
 				}
 			}
@@ -621,16 +621,17 @@ async function guardarEntrega(
 					.values({ sensor, esperado: anterior, recibido: e.hashAnterior, hash });
 				await tx.insert(s.auditoria).values({
 					quien: `sensor ${sensor}`,
-					accion: 'cadena de eventos rota',
+					accion: 'event chain broken',
 					detalle: { esperado: anterior, recibido: e.hashAnterior, hash }
 				});
 			}
 
 			if (e && !motivo) {
-				if (e.sensor !== sensor) motivo = 'el evento dice ser de otro sensor';
+				if (e.sensor !== sensor) motivo = 'the event claims to be from another sensor';
 				else if (deQuien.get(e.trampa.id) === undefined)
-					motivo = 'la trampa ya no existe (retirada)';
-				else if (deQuien.get(e.trampa.id) !== sensor) motivo = 'la trampa es de otro sensor';
+					motivo = 'the decoy no longer exists (removed)';
+				else if (deQuien.get(e.trampa.id) !== sensor)
+					motivo = 'the decoy belongs to another sensor';
 			}
 
 			/*
@@ -681,8 +682,8 @@ async function guardarEntrega(
 					};
 					motivo =
 						causa.code === '23505' && causa.constraint_name === 'eventos_pkey'
-							? 'repite un evento ya recibido'
-							: `no se pudo guardar: ${String(causa.message ?? err).slice(0, 200)}`;
+							? 'repeats an event already received'
+							: `could not be saved: ${String(causa.message ?? err).slice(0, 200)}`;
 				}
 				/*
 				 * El primer evento real de su trampa la comprueba (§8.3). En su propio
@@ -698,7 +699,7 @@ async function guardarEntrega(
 						);
 						colocacion.set(evento.trampa.id, { ...f, ...cambio });
 					} catch (err) {
-						console.error('no se pudo dar por comprobada la trampa', evento.trampa.id, err);
+						console.error('could not mark the decoy as verified', evento.trampa.id, err);
 					}
 				}
 				/*
@@ -713,7 +714,7 @@ async function guardarEntrega(
 							anotarPrueba(sp, evento.id, deLaPrueba, cuando, colocacion, evento.trampa.id)
 						);
 					} catch (err) {
-						console.error('no se pudo anotar la prueba del evento', evento.id, err);
+						console.error('could not record the test for the event', evento.id, err);
 					}
 				}
 				/*
@@ -744,7 +745,7 @@ async function guardarEntrega(
 					await tx.insert(s.cuarentena).values({
 						...fila,
 						linea: '',
-						motivo: `${fila.motivo.slice(0, 200)} (la línea no se pudo guardar: ${String((err as Error).message).slice(0, 120)})`
+						motivo: `${fila.motivo.slice(0, 200)} (the line could not be saved: ${String((err as Error).message).slice(0, 120)})`
 					});
 				}
 			}

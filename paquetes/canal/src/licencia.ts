@@ -106,15 +106,14 @@ const fechaValida = (v: unknown) =>
 function motivoDelegacion(x: unknown): string | null {
 	const d = x as Delegacion;
 	if (!d || typeof d !== 'object' || d.tipo !== 'delegacion-licencias')
-		return 'no es un certificado de MSP';
-	if (d.version !== 1) return 'versión de certificado desconocida';
-	if (typeof d.msp !== 'string' || !ID.test(d.msp)) return 'MSP mal formado';
-	if (typeof d.clavePublica !== 'string' || !B64.test(d.clavePublica))
-		return 'clave del MSP mal formada';
+		return 'not an MSP certificate';
+	if (d.version !== 1) return 'unknown certificate version';
+	if (typeof d.msp !== 'string' || !ID.test(d.msp)) return 'malformed MSP';
+	if (typeof d.clavePublica !== 'string' || !B64.test(d.clavePublica)) return 'malformed MSP key';
 	if (!Array.isArray(d.modulos) || d.modulos.some((m) => typeof m !== 'string' || !MODULO.test(m)))
-		return 'lista de módulos del certificado mal formada';
-	if (!fechaValida(d.emitida)) return 'fecha de emisión del certificado mal formada';
-	if (!fechaValida(d.caduca)) return 'fecha de caducidad del certificado mal formada';
+		return 'malformed certificate module list';
+	if (!fechaValida(d.emitida)) return 'malformed certificate issue date';
+	if (!fechaValida(d.caduca)) return 'malformed certificate expiry date';
 	return null;
 }
 
@@ -131,19 +130,19 @@ export function verificarDelegacion(
 		typeof x.delegacion !== 'string' ||
 		typeof x.firma !== 'string'
 	)
-		return { ok: false, motivo: 'no tiene la forma de un certificado firmado' };
+		return { ok: false, motivo: 'does not have the form of a signed certificate' };
 	if (!firmaValida(clavePublicaPublicacion, x.delegacion, x.firma))
-		return { ok: false, motivo: 'el certificado no está firmado por SeguridadSI' };
+		return { ok: false, motivo: 'the certificate is not signed by SeguridadSI' };
 	let d: unknown;
 	try {
 		d = JSON.parse(x.delegacion);
 	} catch {
-		return { ok: false, motivo: 'lo firmado no es JSON' };
+		return { ok: false, motivo: 'the signed content is not JSON' };
 	}
 	const m = motivoDelegacion(d);
 	if (m) return { ok: false, motivo: m };
 	if (Date.parse((d as Delegacion).caduca) < ahora)
-		return { ok: false, motivo: 'el certificado del MSP ha caducado' };
+		return { ok: false, motivo: 'the MSP certificate has expired' };
 	return { ok: true, delegacion: d as Delegacion };
 }
 
@@ -158,18 +157,17 @@ const firmaValida = (clave: string, texto: string, firma: string) => {
 /* Qué falla en una licencia ya parseada, o null si su forma vale. No mira firma ni reloj. */
 export function motivoLicencia(x: unknown): string | null {
 	const l = x as Licencia;
-	if (!l || typeof l !== 'object' || l.tipo !== 'licencia') return 'no es una licencia';
-	if (l.version !== 1) return 'versión de licencia desconocida';
-	if (typeof l.cliente !== 'string' || !ID.test(l.cliente)) return 'cliente mal formado';
-	if (typeof l.nodo !== 'string' || !ID.test(l.nodo)) return 'nodo mal formado';
-	if (typeof l.nodoClave !== 'string' || !B64.test(l.nodoClave))
-		return 'clave del nodo mal formada';
+	if (!l || typeof l !== 'object' || l.tipo !== 'licencia') return 'not a license';
+	if (l.version !== 1) return 'unknown license version';
+	if (typeof l.cliente !== 'string' || !ID.test(l.cliente)) return 'malformed customer';
+	if (typeof l.nodo !== 'string' || !ID.test(l.nodo)) return 'malformed node';
+	if (typeof l.nodoClave !== 'string' || !B64.test(l.nodoClave)) return 'malformed node key';
 	if (!Array.isArray(l.modulos) || l.modulos.some((m) => typeof m !== 'string' || !MODULO.test(m)))
-		return 'lista de módulos mal formada';
+		return 'malformed module list';
 	if (typeof l.marca !== 'string' || l.marca.length === 0 || l.marca.length > 128)
-		return 'marca mal formada';
-	if (!fechaValida(l.emitida)) return 'fecha de emisión mal formada';
-	if (!fechaValida(l.caduca)) return 'fecha de caducidad mal formada';
+		return 'malformed brand';
+	if (!fechaValida(l.emitida)) return 'malformed issue date';
+	if (!fechaValida(l.caduca)) return 'malformed expiry date';
 	return null;
 }
 
@@ -188,7 +186,7 @@ export function verificarLicencia(
 ): { ok: true; licencia: Licencia; msp?: string } | { ok: false; motivo: string } {
 	const x = f as LicenciaFirmada;
 	if (!x || typeof x !== 'object' || typeof x.licencia !== 'string' || typeof x.firma !== 'string')
-		return { ok: false, motivo: 'no tiene la forma de una licencia firmada' };
+		return { ok: false, motivo: 'does not have the form of a signed license' };
 	let clave = clavePublicaPublicacion;
 	let delegada: Delegacion | null = null;
 	if (x.delegacion !== undefined) {
@@ -200,21 +198,21 @@ export function verificarLicencia(
 	if (!firmaValida(clave, x.licencia, x.firma))
 		return {
 			ok: false,
-			motivo: delegada ? 'no está firmada por la clave del MSP' : 'no está firmada por SeguridadSI'
+			motivo: delegada ? 'not signed by the MSP key' : 'not signed by SeguridadSI'
 		};
 	let l: unknown;
 	try {
 		l = JSON.parse(x.licencia);
 	} catch {
-		return { ok: false, motivo: 'lo firmado no es JSON' };
+		return { ok: false, motivo: 'the signed content is not JSON' };
 	}
 	const m = motivoLicencia(l);
 	if (m) return { ok: false, motivo: m };
-	if (Date.parse((l as Licencia).caduca) < ahora) return { ok: false, motivo: 'licencia caducada' };
+	if (Date.parse((l as Licencia).caduca) < ahora) return { ok: false, motivo: 'license expired' };
 	if (delegada) {
 		const permitidos = new Set(delegada.modulos);
 		const fuera = (l as Licencia).modulos.find((n) => !permitidos.has(n));
-		if (fuera) return { ok: false, motivo: `el certificado del MSP no incluye «${fuera}»` };
+		if (fuera) return { ok: false, motivo: `the MSP certificate does not include "${fuera}"` };
 		return { ok: true, licencia: l as Licencia, msp: delegada.msp };
 	}
 	return { ok: true, licencia: l as Licencia };

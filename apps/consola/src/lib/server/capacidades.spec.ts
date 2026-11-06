@@ -107,10 +107,7 @@ const lineasAuditoria = (id: string) =>
 		.select()
 		.from(s.auditoria)
 		.where(
-			and(
-				eq(s.auditoria.quien, `sensor ${id}`),
-				eq(s.auditoria.accion, 'datos de la máquina descartados')
-			)
+			and(eq(s.auditoria.quien, `sensor ${id}`), eq(s.auditoria.accion, 'machine data discarded'))
 		);
 
 /* El cuerpo de un sensor 0.13.1, el de §4.4. */
@@ -425,7 +422,8 @@ describe.skipIf(!hayBase)('capacidades en la consola', () => {
 		let lineas = await lineasAuditoria(E);
 		expect(lineas).toHaveLength(1);
 		expect(lineas[0].detalle).toEqual({
-			motivo: 'lo que cuenta de su motor de contenedores no tiene la forma esperada y se ignora'
+			motivo:
+				'what it reports about its container engine does not have the expected shape and is ignored'
 		});
 
 		/*
@@ -464,7 +462,7 @@ describe.skipIf(!hayBase)('capacidades en la consola', () => {
 		expect(lineas).toHaveLength(2);
 		expect(lineas.map((l) => l.detalle)).toContainEqual({
 			motivo:
-				'lo que cuenta de su motor de contenedores no tiene la forma esperada y se ignora; lo que cuenta de su máquina pasa de 32 KB y se descarta lo que sobra'
+				'what it reports about its container engine does not have the expected shape and is ignored; what it reports about its machine exceeds 32 KB and the excess is discarded'
 		});
 		/* Unos hechos que no son un objeto no hacen fallar el informe. */
 		expect((await estado(E, { trampas: [], hechos: 'muchos' })).status).toBe(200);

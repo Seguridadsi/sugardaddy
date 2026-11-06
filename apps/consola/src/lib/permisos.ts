@@ -20,3 +20,17 @@ export type Permiso = keyof typeof PERMISOS;
 
 export const puede = (roles: readonly string[], permiso: Permiso) =>
 	PERMISOS[permiso].some((r) => roles.includes(r));
+
+const NOMBRES_DE_ROL: Record<Rol, string> = {
+	lector: 'Viewer',
+	operador: 'Operator',
+	aprobador: 'Approver',
+	'admin-listas': 'List administrator',
+	admin: 'Administrator'
+};
+
+/* El rol que se enseña: el de más alcance de los que tiene. */
+export const nombreRol = (roles: readonly string[]) => {
+	const rol = [...ROLES].reverse().find((r) => roles.includes(r));
+	return rol ? NOMBRES_DE_ROL[rol] : (roles[0] ?? '');
+};

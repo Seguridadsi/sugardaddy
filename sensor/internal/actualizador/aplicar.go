@@ -48,10 +48,10 @@ func (a *Aplicador) Aplicar(ctx context.Context, r Release) error {
 	for _, s := range nombres {
 		p, err := a.cambiar(ctx, s, r.Servicios[s])
 		if err != nil {
-			a.Log("fallo; vuelvo atrás", "servicio", s, "err", err)
+			a.Log("failed; rolling back", "servicio", s, "err", err)
 			for i := len(hechos) - 1; i >= 0; i-- {
 				if e := a.deshacer(ctx, hechos[i]); e != nil {
-					a.Log("no se pudo deshacer", "servicio", hechos[i].servicio, "err", e)
+					a.Log("could not roll back", "servicio", hechos[i].servicio, "err", e)
 				}
 			}
 			return fmt.Errorf("%s: %w", s, err)
@@ -74,7 +74,7 @@ func (a *Aplicador) cambiar(ctx context.Context, servicio, imagen string) (*paso
 		return nil, err
 	}
 	if len(lista) != 1 {
-		return nil, fmt.Errorf("se esperaba un contenedor del servicio y hay %d", len(lista))
+		return nil, fmt.Errorf("expected one container for the service and found %d", len(lista))
 	}
 	viejo, err := a.Docker.Inspeccionar(ctx, lista[0].ID)
 	if err != nil {
@@ -87,11 +87,11 @@ func (a *Aplicador) cambiar(ctx context.Context, servicio, imagen string) (*paso
 	nombre := trimBarra(fmt.Sprint(viejo["Name"]))
 	salud, _ := config["Labels"].(map[string]any)[EtiquetaSalud].(string)
 	if salud == "" {
-		return nil, fmt.Errorf("el contenedor no declara %s: no se puede comprobar que el cambio funciona", EtiquetaSalud)
+		return nil, fmt.Errorf("the container does not declare %s: cannot verify that the change works", EtiquetaSalud)
 	}
 
 	if err := a.Docker.AsegurarImagen(ctx, imagen); err != nil {
-		return nil, fmt.Errorf("imagen: %w", err)
+		return nil, fmt.Errorf("image: %w", err)
 	}
 	p := paso{servicio: servicio, nombre: nombre, anterior: lista[0].ID}
 	if err := a.Docker.Renombrar(ctx, p.anterior, nombre+"-anterior"); err != nil {
@@ -142,7 +142,7 @@ func (a *Aplicador) cambiar(ctx context.Context, servicio, imagen string) (*paso
 	}
 	if err != nil {
 		if e := a.deshacer(ctx, p); e != nil {
-			a.Log("no se pudo deshacer", "servicio", servicio, "err", e)
+			a.Log("could not roll back", "servicio", servicio, "err", e)
 		}
 		return nil, err
 	}
@@ -164,7 +164,7 @@ func (a *Aplicador) deshacer(ctx context.Context, p paso) error {
 func (a *Aplicador) esperarSalud(ctx context.Context, u string) error {
 	limite := time.Now().Add(a.EsperaSalud)
 	cliente := &http.Client{Timeout: 3 * time.Second}
-	ultimo := "sin respuesta"
+	ultimo := "no response"
 	for time.Now().Before(limite) {
 		resp, err := cliente.Get(u)
 		if err == nil {
@@ -182,7 +182,7 @@ func (a *Aplicador) esperarSalud(ctx context.Context, u string) error {
 		case <-time.After(2 * time.Second):
 		}
 	}
-	return fmt.Errorf("no responde sano en %s (%s)", a.EsperaSalud, ultimo)
+	return fmt.Errorf("not healthy within %s (%s)", a.EsperaSalud, ultimo)
 }
 
 // SinHerencia quita de la configuración de un contenedor lo que vino de su

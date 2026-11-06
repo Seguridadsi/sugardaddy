@@ -108,7 +108,7 @@ function abrir() {
 		asn: leer<AsnResponse>('dbip-asn-lite.mmdb'),
 		espana: existsSync(es) ? leerEspana(readFileSync(es)) : null
 	};
-	if (!bases.pais) console.warn(`[geo] sin base de países en ${carpeta}: no se geolocaliza`);
+	if (!bases.pais) console.warn(`[geo] no country database in ${carpeta}: no geolocation`);
 	return bases;
 }
 

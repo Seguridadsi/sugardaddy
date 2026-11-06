@@ -7,19 +7,19 @@ import type { DescripcionDestino, Hecho, TipoDestino } from '@sugardaddy/contrat
 
 /* Los tipos que se pueden dar de alta, en el orden del desplegable: para elegir y para las listas. */
 export const TIPOS_DESTINO: { valor: TipoDestino; texto: string; corto: string }[] = [
-	{ valor: 'maquina', texto: 'Una máquina (servidor o puesto)', corto: 'Máquina' },
-	{ valor: 'fileserver', texto: 'Un servidor de ficheros o un NAS', corto: 'Servidor de ficheros' },
-	{ valor: 'web', texto: 'Una web en un servidor tuyo', corto: 'Web' },
-	{ valor: 'paas-web', texto: 'Una web en la nube (App Service…)', corto: 'Web en la nube' },
-	{ valor: 'hosting', texto: 'Una cuenta de hosting (cPanel, SFTP…)', corto: 'Hosting' },
-	{ valor: 'dominio', texto: 'Un directorio activo', corto: 'Directorio activo' },
+	{ valor: 'maquina', texto: 'A machine (server or workstation)', corto: 'Machine' },
+	{ valor: 'fileserver', texto: 'A file server or a NAS', corto: 'File server' },
+	{ valor: 'web', texto: 'A website on your own server', corto: 'Website' },
+	{ valor: 'paas-web', texto: 'A website in the cloud (App Service…)', corto: 'Cloud website' },
+	{ valor: 'hosting', texto: 'A hosting account (cPanel, SFTP…)', corto: 'Hosting' },
+	{ valor: 'dominio', texto: 'An Active Directory domain', corto: 'Active Directory' },
 	{
 		valor: 'tenant',
-		texto: 'Una cuenta de nube (Microsoft 365, Azure, AWS, Google)',
-		corto: 'Cuenta de nube'
+		texto: 'A cloud account (Microsoft 365, Azure, AWS, Google)',
+		corto: 'Cloud account'
 	},
-	{ valor: 'saas', texto: 'Otro servicio en la nube', corto: 'Servicio en la nube' },
-	{ valor: 'otro', texto: 'Otra cosa', corto: 'Otro' }
+	{ valor: 'saas', texto: 'Another cloud service', corto: 'Cloud service' },
+	{ valor: 'otro', texto: 'Something else', corto: 'Other' }
 ];
 
 export const nombreTipoDestino = (t: string) =>
@@ -53,7 +53,7 @@ export function sistemasDe(tipo: string): { valor: So; texto: string }[] {
 	if (tipo === 'fileserver')
 		return [
 			{ valor: 'windows', texto: 'Windows Server' },
-			{ valor: 'linux', texto: 'Linux con Samba' },
+			{ valor: 'linux', texto: 'Linux with Samba' },
 			{ valor: 'nas', texto: 'NAS' }
 		];
 	return [
@@ -71,8 +71,8 @@ export const nombreSo: Record<string, string> = {
 };
 
 export const EDICIONES: { valor: NonNullable<DescripcionDestino['edicion']>; texto: string }[] = [
-	{ valor: 'servidor', texto: 'Servidor' },
-	{ valor: 'puesto', texto: 'Puesto de trabajo' }
+	{ valor: 'servidor', texto: 'Server' },
+	{ valor: 'puesto', texto: 'Workstation' }
 ];
 
 /*
@@ -101,18 +101,18 @@ export function versionesWindows(tipo: string, edicion?: string) {
 
 /* PowerShell 7 se guarda como 7.0: lo menos que puede ser, que es lo que cuenta en un «minimo». */
 export const POWERSHELL = [
-	{ valor: '5.1', texto: 'PowerShell 5.1 (la de serie en Windows)' },
-	{ valor: '7.0', texto: 'PowerShell 7 o posterior' }
+	{ valor: '5.1', texto: 'PowerShell 5.1 (the Windows default)' },
+	{ valor: '7.0', texto: 'PowerShell 7 or later' }
 ];
 
 export const POSIX: { valor: NonNullable<DescripcionDestino['posix']>; texto: string }[] = [
 	{ valor: 'bash', texto: 'bash' },
-	{ valor: 'sh', texto: 'sh (dash u otro)' },
+	{ valor: 'sh', texto: 'sh (dash or other)' },
 	{ valor: 'busybox', texto: 'BusyBox' }
 ];
 
 export const PROTOCOLOS: { valor: 'smb' | 'nfs'; texto: string }[] = [
-	{ valor: 'smb', texto: 'SMB (carpetas de Windows)' },
+	{ valor: 'smb', texto: 'SMB (Windows shares)' },
 	{ valor: 'nfs', texto: 'NFS' }
 ];
 
@@ -128,9 +128,9 @@ export const HECHO_DE_CAMPO: Record<Exclude<CampoDestino, 'nota'>, string> = {
 };
 
 export const nombreFuente: Record<NonNullable<Hecho['fuente']>, string> = {
-	sensor: 'el sensor',
-	consola: 'la consola',
-	formulario: 'el formulario'
+	sensor: 'the sensor',
+	consola: 'the console',
+	formulario: 'the form'
 };
 
 /*

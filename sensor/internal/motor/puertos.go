@@ -158,11 +158,11 @@ func SondaAnfitrion(ctx context.Context, d *docker.Cliente, imagen, sensor strin
 		return nil, err
 	}
 	if codigo != 0 {
-		return nil, fmt.Errorf("la sonda de puertos ha salido con %d: %s", codigo, strings.TrimSpace(salida))
+		return nil, fmt.Errorf("the ports probe exited with %d: %s", codigo, strings.TrimSpace(salida))
 	}
 	var a Anfitrion
 	if err := json.Unmarshal([]byte(strings.TrimSpace(salida)), &a); err != nil {
-		return nil, fmt.Errorf("la sonda de puertos no da lo esperado: %w", err)
+		return nil, fmt.Errorf("the ports probe returned something unexpected: %w", err)
 	}
 	return &a, nil
 }

@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { notaVisible } from '$lib/formato';
+	import { nombreSeveridad } from '$lib/formato';
 	import type { Evento as EventoFirmado } from '@sugardaddy/contrato';
 	/*
 	 * El evento firmado, más lo que le añade la consola al recibirlo: la alerta,
@@ -18,9 +20,9 @@
 
 	/* El nombre legible de cada estado de triaje. */
 	const ETIQUETA_TRIAJE: Record<string, string> = {
-		revisado: 'Revisado',
-		'falso-positivo': 'Falso positivo',
-		interesante: 'Interesante'
+		revisado: 'Reviewed',
+		'falso-positivo': 'False positive',
+		interesante: 'Interesting'
 	};
 
 	type Modulos = Record<
@@ -41,7 +43,7 @@
 		modulos = {},
 		geos = {},
 		ahora,
-		/* Con triaje: muestra el control para marcar cada evento (solo en /eventos,
+		/* Con triaje: muestra el control para marcar cada evento (solo en /events,
 		 * la única pantalla con las acciones de triaje). La insignia se ve siempre. */
 		conTriaje = false,
 		estadosTriaje = []
@@ -61,7 +63,7 @@
 	 */
 	const texto = (v: unknown) => (typeof v === 'string' ? v : JSON.stringify(v));
 
-	/* Lo que pasó, con el nombre que le da el módulo ("Contraseña rechazada") o, si no, la acción. */
+	/* Lo que pasó, con el nombre que le da el módulo ("Password rejected") o, si no, la acción. */
 	function que(e: Evento, etiquetas: Record<string, string>, campo: string | null) {
 		const nativo = campo ? e.detalle?.[campo] : undefined;
 		return (typeof nativo === 'string' && etiquetas[nativo]) || nombreAccion[e.accion];
@@ -104,20 +106,20 @@
 		return {
 			hechos: [
 				{
-					nombre: 'Origen',
+					nombre: 'Source',
 					v: [primero.origen.ip, primero.origen.puerto].filter(Boolean).join(':') || '—'
 				},
-				...(v.geo ? [{ nombre: 'De', v: textoGeo(v.geo) }] : []),
-				...(v.geo?.tor ? [{ nombre: 'Tor', v: 'nodo de salida' }] : []),
-				...(usuarios.size === 1 ? [{ nombre: 'Usuario', v: [...usuarios][0] }] : []),
-				...fijos.map((k) => ({ nombre: v.etiquetas[k] ?? k, v: [...valores.get(k)!][0] })),
+				...(v.geo ? [{ nombre: 'From', v: textoGeo(v.geo) }] : []),
+				...(v.geo?.tor ? [{ nombre: 'Tor', v: 'exit node' }] : []),
+				...(usuarios.size === 1 ? [{ nombre: 'User', v: [...usuarios][0] }] : []),
+				...fijos.map((k) => ({ nombre: v.etiquetas[k] ?? k, v: [...valores.get(k)!][0] }))
 			],
 			pasos: v.visita.map((e) => ({
 				e,
 				que: que(e, v.etiquetas, v.campoAccion),
 				datos: [
 					...(usuarios.size > 1 && e.origen.usuario
-						? [{ k: 'usuario', nombre: 'Usuario', v: e.origen.usuario }]
+						? [{ k: 'usuario', nombre: 'User', v: e.origen.usuario }]
 						: []),
 					...datos(e, v.etiquetas, [...fuera, ...fijos])
 				]
@@ -144,12 +146,12 @@
 		fallo = null;
 		cargando = true;
 		try {
-			const r = await fetch(`/eventos/${id}`);
+			const r = await fetch(`/events/${id}`);
 			if (!r.ok) throw new Error(`${r.status}`);
 			const v: Visita = await r.json();
 			if (abierto === id) visita = ordenar(v);
 		} catch {
-			if (abierto === id) fallo = 'No se ha podido cargar la visita.';
+			if (abierto === id) fallo = 'Could not load the visit.';
 		} finally {
 			cargando = false;
 		}
@@ -171,19 +173,18 @@
 					<small>{haceCuanto(e.cuando, ahora)}</small>
 				</span>
 				<span class="sevs">
-					<span class="sev sev-{e.severidad}">{e.severidad}</span>
-					{#if e.alerta}<span class="alerta" title={e.alerta}>alerta</span>{/if}
-					{#if e.prueba}<span class="prueba" title="Lo provocó «Probar»: no es un ataque"
-							>prueba</span
+					<span class="sev sev-{e.severidad}">{nombreSeveridad(e.severidad)}</span>
+					{#if e.alerta}<span class="alerta" title={e.alerta}>alert</span>{/if}
+					{#if e.prueba}<span class="prueba" title="Triggered by Test: not an attack">test</span
 						>{/if}
 					{#if e.triaje && !(e.repeticiones && e.repeticiones > 1)}<span
 							class="triaje triaje-{e.triaje.estado}"
-							title={e.triaje.nota ?? ''}
+							title={notaVisible(e.triaje.nota)}
 							>{ETIQUETA_TRIAJE[e.triaje.estado] ?? e.triaje.estado}</span
 						>{/if}
 					{#if e.repeticiones && e.repeticiones > 1}<span
 							class="repes mono"
-							title="{e.repeticiones} eventos iguales agrupados (de los cargados)"
+							title="{e.repeticiones} identical events grouped (of those loaded)"
 							>×{e.repeticiones}</span
 						>{/if}
 				</span>
@@ -195,9 +196,8 @@
 					<span class="mono"
 						>{e.origen.ip ?? '—'}{#if e.origen.ip && geos[e.origen.ip]?.tor}<span
 								class="tor"
-								title="Nodo de salida de Tor">Tor</span
-							>{/if}{#if e.origen.oculta}<span class="motor" title={AVISO_IP_MOTOR}
-								>IP del motor</span
+								title="Tor exit node">Tor</span
+							>{/if}{#if e.origen.oculta}<span class="motor" title={AVISO_IP_MOTOR}>Engine IP</span
 							>{/if}</span
 					>
 					{#if e.origen.ip && geos[e.origen.ip]}
@@ -211,8 +211,8 @@
 					{#if !e.conexionEstablecida}
 						<small
 							class="falseable"
-							title="Sin sesión TCP completa: el origen puede estar falseado. No entra en listas negras."
-							>sin sesión</small
+							title="No complete TCP session: the source may be spoofed. It is not added to blocklists."
+							>no session</small
 						>
 					{/if}
 				</span>
@@ -223,22 +223,20 @@
 				<div class="visita">
 					<div class="perfiles">
 						{#if e.origen.ip && !e.origen.oculta}
-							<a class="perfil-ip mono" href="/eventos/ip/{encodeURIComponent(e.origen.ip)}"
-								>Ver todo de {e.origen.ip} →</a
+							<a class="perfil-ip mono" href="/events/ip/{encodeURIComponent(e.origen.ip)}"
+								>View everything from {e.origen.ip} →</a
 							>
 						{/if}
 						{#if e.origen.usuario}
-							<a
-								class="perfil-ip mono"
-								href="/eventos/usuario?u={encodeURIComponent(e.origen.usuario)}"
-								>Ver todo del usuario {e.origen.usuario} →</a
+							<a class="perfil-ip mono" href="/events/user?u={encodeURIComponent(e.origen.usuario)}"
+								>View everything for user {e.origen.usuario} →</a
 							>
 						{/if}
 					</div>
 					{#if conTriaje}
 						<form method="POST" action="?/triaje" class="triaje-control" use:enhance>
 							<input type="hidden" name="evento" value={e.id} />
-							<span class="eyebrow">Triaje</span>
+							<span class="eyebrow">Triage</span>
 							<div class="chips">
 								{#each estadosTriaje as est (est)}
 									<button
@@ -252,24 +250,24 @@
 							<input
 								name="nota"
 								class="nota mono"
-								placeholder="Nota (opcional)"
-								value={e.triaje?.nota ?? ''}
+								placeholder="Note (optional)"
+								value={notaVisible(e.triaje?.nota)}
 								maxlength="2000"
 								onkeydown={(ev) => ev.key === 'Enter' && ev.preventDefault()}
 							/>
 							{#if e.triaje}
-								<button type="submit" formaction="?/quitarTriaje" class="quitar">Quitar</button>
+								<button type="submit" formaction="?/quitarTriaje" class="quitar">Remove</button>
 							{/if}
 						</form>
 					{/if}
 					{#if cargando}
-						<p class="nota">Cargando la visita…</p>
+						<p class="nota">Loading the visit…</p>
 					{:else if fallo}
 						<p class="nota error">{fallo}</p>
 					{:else if visita}
 						<p class="eyebrow">
-							Visita completa · {visita.pasos.length}
-							{visita.pasos.length === 1 ? 'evento' : 'eventos'} · {horaLarga(visita.desde)} – {horaLarga(
+							Full visit · {visita.pasos.length}
+							{visita.pasos.length === 1 ? 'event' : 'events'} · {horaLarga(visita.desde)} – {horaLarga(
 								visita.hasta
 							)}
 						</p>
@@ -288,11 +286,12 @@
 							{#each visita.pasos as p (p.e.id)}
 								<li class:este={p.e.id === e.id}>
 									<span class="mono hora">{horaLarga(p.e.cuando)}</span>
-									<span class="punto sev-{p.e.severidad}" title={p.e.severidad}></span>
+									<span class="punto sev-{p.e.severidad}" title={nombreSeveridad(p.e.severidad)}
+									></span>
 									<span class="paso">
 										<b>{p.que}</b>
 										{#if p.e.alerta}<span class="alerta">{p.e.alerta}</span>{/if}
-										{#if p.e.prueba}<span class="prueba">prueba</span>{/if}
+										{#if p.e.prueba}<span class="prueba">test</span>{/if}
 										{#each p.datos as d (d.k)}
 											<span class="dato"
 												><small>{d.nombre}</small> <code class="mono">{d.v}</code></span
@@ -302,7 +301,7 @@
 										     aquí); si no la manda, el evento entero tal como llegó del sensor. Siempre
 										     está: «Qué hacer ahora» manda a mirarlo. -->
 										<details class="crudo">
-											<summary>ver original</summary>
+											<summary>view original</summary>
 											<pre class="mono">{p.e.crudo ?? JSON.stringify(p.e, null, 2)}</pre>
 										</details>
 									</span>
@@ -646,7 +645,7 @@
 		overflow-wrap: anywhere;
 	}
 
-	@media (max-width: 860px) {
+	@media (max-width: 1108px) {
 		.fila {
 			grid-template-columns: 64px 1fr;
 			row-gap: 6px;

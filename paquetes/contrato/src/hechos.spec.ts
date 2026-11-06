@@ -474,19 +474,19 @@ describe('nombres para el cliente', () => {
 	/* Los motivos del elector y la ficha de un destino no enseñan claves (§7.4). */
 	it('cada hecho con nombre está en el catálogo, y uno sin nombre se enseña con su clave', () => {
 		for (const k of Object.keys(NOMBRE_HECHO)) expect(HECHOS, k).toHaveProperty([k]);
-		expect(nombreHecho('plataforma.so')).toBe('Sistema operativo');
+		expect(nombreHecho('plataforma.so')).toBe('Operating system');
 		expect(nombreHecho('canal.panel')).toBe('canal.panel');
 		expect(nombreHecho('__proto__')).toBe('__proto__');
 	});
 
 	it('los valores con nombre salen con él; el resto, como texto', () => {
 		expect(valorVisible('plataforma.so', 'windows')).toBe('Windows');
-		expect(valorVisible('plataforma.edicion', 'puesto')).toBe('Puesto de trabajo');
+		expect(valorVisible('plataforma.edicion', 'puesto')).toBe('Workstation');
 		expect(valorVisible('motor.modo', 'desktop')).toBe('Docker Desktop');
 		expect(valorVisible('plataforma.so', 'beos')).toBe('beos');
 		expect(valorVisible('red.ipOrigenReal', false)).toBe('no');
 		expect(valorVisible('puertos.ocupados', ['tcp/22', 'udp/53'])).toBe('tcp/22, udp/53');
-		expect(valorVisible('puertos.ocupados', [])).toBe('ninguno');
+		expect(valorVisible('puertos.ocupados', [])).toBe('none');
 		expect(valorVisible('motor.memoria', 2048)).toBe('2048');
 	});
 });

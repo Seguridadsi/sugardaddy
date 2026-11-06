@@ -234,7 +234,7 @@ func TestCuotaDeRegistrosPorTrampa(t *testing.T) {
 
 func TestLoLeidoDelRegistroActivoSeLiberaSinTocarSuPosicion(t *testing.T) {
 	if runtime.GOOS != "linux" {
-		t.Skip("perforar ficheros solo se hace en Linux")
+		t.Skip("punching holes in files is only supported on Linux")
 	}
 	antes := cuotaRegistros
 	cuotaRegistros = 1 << 20

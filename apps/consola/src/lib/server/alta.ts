@@ -139,7 +139,7 @@ async function contextoEn(
 function bloqueoDeAlta(ejecutor: string, d: Destino): string | null {
 	if (Object.hasOwn(EJECUTORES, ejecutor) && EJECUTORES[ejecutor].corre === 'agente')
 		if (d.agente && !d.agente.vivo)
-			return `El sensor de ${d.nombre} no contesta ahora, y las trampas se ponen con el sensor en línea. Vuelve cuando conteste.`;
+			return `The sensor on ${d.nombre} is not responding right now, and decoys are deployed while the sensor is online. Come back when it responds.`;
 	return null;
 }
 
@@ -305,7 +305,7 @@ async function conPasos(
 						.from(s.trampas)
 						.where(eq(s.trampas.id, id))
 				: [];
-		if (!o) return fallo(['La trampa a la que apunta ya no existe: elige otra.']);
+		if (!o) return fallo(['The decoy it points to no longer exists: choose another.']);
 		sensor = o.sensor;
 		senalTrampa = o.id;
 	} else if (fuente.tipo === 'rele') {
@@ -315,10 +315,10 @@ async function conPasos(
 		 * sin sensor). Su señal la recibe ese sensor.
 		 */
 		const r = await receptorDelNodo(tx);
-		if (!r) return fallo(['Este nodo no tiene un receptor de balizas puesto y comprobado.']);
+		if (!r) return fallo(['This node has no deployed and verified beacon receiver.']);
 		sensor = r.sensor;
 	}
-	if (!sensor) return fallo([`Nadie recibiría su señal en ${d.nombre}.`]);
+	if (!sensor) return fallo([`Nothing would receive its signal on ${d.nombre}.`]);
 	const r = await generarPasos(tx, h, via, trampa, d, parametros, balizaUrl);
 	if (!r.ok) return fallo([], [motivo('parametros.invalidos', { errores: r.errores.join('; ') })]);
 	return { sensor, senalTrampa, manual: r.valor, donde: DONDE_MANUAL };
@@ -346,11 +346,11 @@ export async function darDeAlta(
 	const h = v.honeycosa;
 	const pedida = v.via === undefined ? undefined : viaDe(h, v.via);
 	if (v.via !== undefined && !pedida)
-		return fallo(['Esa forma de ponerla no existe en este módulo.']);
+		return fallo(['That deployment method does not exist in this module.']);
 	return db.transaction(async (tx) => {
 		await bloquear(tx, { destino: v.destino, objetivos: objetivosDe(h, v.parametros) });
 		const f = await leerDestino(tx, v.destino);
-		if (!f) return fallo(['Destino: ese destino ya no existe; elige otro.']);
+		if (!f) return fallo(['Target: that target no longer exists; choose another.']);
 		const d = destinoDelElector(f.destino, f.sensor);
 		const e = elegir({
 			honeycosa: h,
@@ -372,7 +372,7 @@ export async function darDeAlta(
 			ejecutor: via.ejecutor,
 			parametros: v.parametros
 		};
-		const repetida = fallo(['Identificador: ya hay una trampa con ese nombre']);
+		const repetida = fallo(['Identifier: a decoy with that name already exists']);
 		if (via.ejecutor === 'manual@1') {
 			/*
 			 * El acuñado del documento cebo (honeycosas de fichero) y el token de
@@ -387,7 +387,7 @@ export async function darDeAlta(
 		}
 		/* contenedor@1: la despliega el sensor del destino (sin él, el elector ya da agente.falta). */
 		const sensor = d.agente?.sensor;
-		if (!sensor) return fallo([`Hace falta un sensor en ${d.nombre}.`]);
+		if (!sensor) return fallo([`A sensor is required on ${d.nombre}.`]);
 		return (await crearTrampa(quien, { ...fila, sensor }, tx)) ? 'creada' : repetida;
 	});
 }
@@ -415,22 +415,22 @@ export async function regenerarPasos(
 ): Promise<'generados' | FalloAlta> {
 	return db.transaction(async (tx: Tx) => {
 		const [antes] = await tx.select().from(s.trampas).where(eq(s.trampas.id, id));
-		if (!antes) return fallo(['Esa trampa ya no existe.']);
+		if (!antes) return fallo(['That decoy no longer exists.']);
 		const destino = await destinoDe(tx, antes);
 		await bloquear(tx, { destino, trampa: id, objetivos: objetivosDe(h, v.parametros) });
 		const [t] = await tx.select().from(s.trampas).where(eq(s.trampas.id, id));
-		if (!t || t.ejecutor !== 'manual@1') return fallo(['Esta trampa no se pone a mano.']);
+		if (!t || t.ejecutor !== 'manual@1') return fallo(['This decoy is not deployed manually.']);
 		if (t.colocacion !== 'por-colocar')
 			return fallo([
-				'Ya se ha dicho que está puesta: una trampa puesta a mano no se cambia. Retírala y pon otra.'
+				'It has already been marked as deployed: a manually deployed decoy cannot be changed. Remove it and deploy another.'
 			]);
 		const via = viaDe(h, t.via);
 		const f = destino ? await leerDestino(tx, destino) : null;
 		if (!via || via.ejecutor !== 'manual@1')
 			return fallo([
-				'La forma con que se puso ya no existe en el módulo: retírala y vuelve a ponerla.'
+				'The method it was deployed with no longer exists in the module: remove it and deploy it again.'
 			]);
-		if (!f) return fallo(['Su destino ya no existe: retírala.']);
+		if (!f) return fallo(['Its target no longer exists: remove it.']);
 		const d = destinoDelElector(f.destino, f.sensor);
 		const e = elegir({
 			honeycosa: h,
@@ -456,7 +456,7 @@ export async function regenerarPasos(
 			.where(eq(s.trampas.id, id));
 		await tx.insert(s.auditoria).values({
 			quien,
-			accion: 'pasos generados de nuevo',
+			accion: 'steps regenerated',
 			detalle: {
 				id,
 				nombre: v.nombre,
@@ -575,7 +575,7 @@ export async function modificarConElector(
 	return db.transaction(async (tx: Tx) => {
 		await bloquear(tx, { destino: await destinoDe(tx, t), trampa: t.id });
 		const [ahora] = await tx.select().from(s.trampas).where(eq(s.trampas.id, t.id));
-		if (!ahora) return fallo(['Esa trampa ya no existe.']);
+		if (!ahora) return fallo(['That decoy no longer exists.']);
 		const sembrado = await sembradoQueUsa(tx, t.id, h, ahora.parametros, v.parametros);
 		if (sembrado) return fallo([noSeCambiaPor(sembrado.dependientes, sembrado.ajustes)]);
 		const { bloquean } = await eleccionAlModificar(tx, ahora, h, v.parametros);

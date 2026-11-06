@@ -1,36 +1,36 @@
 version: 1
 id: login-web
-nombre: Portal de login web con credencial cebo
+nombre: Web login portal with decoy credential
 descripcion: >-
-  Un portal de login HTTP que finge la web interna (intranet, panel de
-  administración o portal del empleado). Sirve el formulario en /login,
-  contesta una página de error verosímil a cada credencial probada y acepta
-  la credencial cebo, enseñando contenido falso. Registra cada usuario y
-  contraseña probados completos con IP, User-Agent, ruta y método; marca las
-  inyecciones SQL y los Path Traversal; y sube a alta la entrada con la
-  credencial cebo, que solo puede venir de un robo de credenciales.
+  An HTTP login portal that pretends to be an internal website (intranet,
+  administration panel or employee portal). It serves the form at /login,
+  answers every credential tried with a believable error page and accepts the
+  decoy credential, showing fake content. It records every user and password
+  tried in full with IP, User-Agent, path and method; flags SQL injections and
+  Path Traversal; and raises to high a sign-in with the decoy credential, which
+  can only come from credential theft.
 alerta:
   fidelidad: interno
 ficha:
   detecta: >-
-    Quien ataca el formulario de login de una web interna: fuerza bruta y
-    rociado de credenciales (cada usuario y contraseña probados quedan
-    apuntados enteros, con la IP y el User-Agent), quien reutiliza la
-    credencial cebo sembrada (se le acepta, se le enseña contenido falso y el
-    acceso sube a alta: esa credencial solo puede haber salido de un robo de
-    datos) y quien prueba inyección SQL o Path Traversal contra el usuario,
-    la contraseña o la ruta. Las sondas y escáneres que barren el puerto
-    (nmap -sV, http-title) salen con severidad baja.
+    Anyone attacking the login form of an internal website: brute force and
+    credential spraying (every user and password tried is recorded in full, with
+    the IP and the User-Agent), anyone reusing the seeded decoy credential (it
+    is accepted, fake content is shown and the access rises to high: that
+    credential can only have come from a data theft) and anyone trying SQL
+    injection or Path Traversal against the user, the password or the path.
+    Probes and scanners sweeping the port (nmap -sV, http-title) come out with
+    low severity.
   donde: >-
-    En la red interna, en un 8080 o el puerto web que elijas: donde un atacante
-    que ya está dentro de la red busca la intranet, el panel de administración
-    o el portal del empleado. Cualquier credencial probada contra un portal
-    interno es señal fuerte: nadie hace login en la intranet desde una
-    herramienta de fuerza bruta por accidente.
+    On the internal network, on 8080 or the web port you choose: where an
+    attacker already inside the network looks for the intranet, the
+    administration panel or the employee portal. Any credential tried against an
+    internal portal is a strong signal: nobody signs in to the intranet from a
+    brute-force tool by accident.
   requisitos:
-    - Un sensor Linux con Docker (el del nodo o uno instalado en otra máquina).
-    - Abrir en el cortafuegos de esa máquina el puerto que elijas.
-    - El puerto elegido debe estar libre (que la máquina no tenga ya una web propia).
+    - A Linux sensor with Docker (the node's own or one installed on another machine).
+    - Open in that machine's firewall the port you choose.
+    - The chosen port must be free (the machine must not already have its own website).
   instalacion:
     automatica: true
 versionModulo: 0.1.0
@@ -73,39 +73,38 @@ parametros:
   properties:
     puertoWeb:
       type: integer
-      title: Puerto del portal
-      description: El 8080 es el más creíble para una web interna, y el más buscado por los escáneres. Solo si la máquina no lo usa ya para su web de verdad.
+      title: Portal port
+      description: 8080 is the most believable for an internal website, and the one scanners look for most. Only if the machine does not already use it for its real website.
       minimum: 1
       maximum: 65535
       default: 8080
     plantilla:
       type: string
-      title: Portal que finge ser
+      title: Portal it pretends to be
       description: >-
-        Cambia el aspecto del formulario y el contenido falso que se enseña
-        tras el login cebo. Título y textos coherentes con el portal elegido.
+        Changes the look of the form and the fake content shown after the decoy
+        login. Title and texts consistent with the chosen portal.
       enum: ['intranet', 'admin', 'portal']
       x-opciones:
-        'intranet': Intranet corporativa
-        'admin': Panel de administración
-        'portal': Portal del empleado
+        'intranet': Corporate intranet
+        'admin': Administration panel
+        'portal': Employee portal
       default: 'intranet'
     usuarioCebo:
       type: string
-      title: Usuario cebo
-      description: El usuario que la trampa acepta si se usa con la contraseña cebo. Por defecto admin, el más buscado.
+      title: Decoy user
+      description: The user the decoy accepts when used with the decoy password. admin by default, the most sought after.
       pattern: '^[\x21-\x7e]{1,63}$'
       maxLength: 63
       default: 'admin'
     contrasenaCebo:
       type: string
-      title: Contraseña cebo
+      title: Decoy password
       description: >-
-        Si la dejas vacía, la trampa NO acepta ningún login: solo detecta y
-        guarda cada intento (rociado de credenciales). Si pones una, acepta
-        ese usuario y contraseña, enseña el contenido falso del portal y
-        registra el acceso como alta: esa credencial solo puede venir de un
-        robo de datos.
+        If you leave it empty, the decoy accepts NO login: it only detects and
+        stores each attempt (credential spraying). If you set one, it accepts
+        that user and password, shows the portal's fake content and records the
+        access as high: that credential can only come from a data theft.
       pattern: '^[\x21-\x7e]{0,128}$'
       maxLength: 128
       default: 'admin'
@@ -185,39 +184,39 @@ eventos:
       duration
     ]
   etiquetas:
-    usuario: Usuario probado
-    password: Contraseña probada
-    ruta: Ruta
-    metodo: Método
-    agente: Herramienta (User-Agent)
-    resultado: Resultado
-    grave: Por qué es grave
-    motivo: Motivo
-    omitidos: Eventos no apuntados
-    omitidos_cebo: De ellos, logins cebo
-    omitidos_login: De ellos, credenciales probadas
-    rechazadas: Conexiones rechazadas
-    de_su_ip: De esta IP
-    por_tope_global: Por el tope total
-    por_tope_ip: Por el tope de su IP
-    ips_distintas: IP distintas
-    ips_sin_contar: Rechazos de otras IP sin contar
-    activas: Conexiones a la vez
-    periodo_s: En los últimos (s)
-    perdidos: Eventos perdidos (disco)
-    error: Error del registro
-    aviso: Aviso
-    tope_bytes: Tope diario (bytes)
-    duration: Duración (s)
-    session: Sesión
-    web.session.connect: Conexión
-    web.sondeo: Sonda (escáner, ruta que no existe, petición rara)
-    web.session.tope: Petición cortada por tope de tamaño
-    web.session.rechazos: Conexiones rechazadas (resumen)
-    web.login: Login rechazado (credencial probada)
-    web.login.cebo: Login ACEPTADO con la credencial cebo
-    web.comando: Inyección o Path Traversal
-    web.session.closed: Se va
-    web.log.tope: Registro de hoy lleno, no se apunta más hasta mañana
-    web.log.omitidos: Eventos que no caben (resumen)
-    web.log.error: Fallo al escribir el registro
+    usuario: User tried
+    password: Password tried
+    ruta: Path
+    metodo: Method
+    agente: Tool (User-Agent)
+    resultado: Result
+    grave: Why it is critical
+    motivo: Reason
+    omitidos: Events not recorded
+    omitidos_cebo: Of which, decoy logins
+    omitidos_login: Of which, credentials tried
+    rechazadas: Connections rejected
+    de_su_ip: From this IP
+    por_tope_global: By the total limit
+    por_tope_ip: By its IP's limit
+    ips_distintas: Distinct IPs
+    ips_sin_contar: Rejections from other IPs not counted
+    activas: Simultaneous connections
+    periodo_s: In the last (s)
+    perdidos: Events lost (disk)
+    error: Log error
+    aviso: Alert
+    tope_bytes: Daily limit (bytes)
+    duration: Duration (s)
+    session: Session
+    web.session.connect: Connection
+    web.sondeo: Probe (scanner, nonexistent path, odd request)
+    web.session.tope: Request cut off by size limit
+    web.session.rechazos: Connections rejected (summary)
+    web.login: Login rejected (credential tried)
+    web.login.cebo: Login ACCEPTED with the decoy credential
+    web.comando: Injection or Path Traversal
+    web.session.closed: Leaves
+    web.log.tope: Today's log is full; nothing more is recorded until tomorrow
+    web.log.omitidos: Events that do not fit (summary)
+    web.log.error: Failed to write the log

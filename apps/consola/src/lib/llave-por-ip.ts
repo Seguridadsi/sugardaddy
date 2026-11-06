@@ -9,5 +9,5 @@ export const esIp = (host: string) =>
 
 export const sinLlavePorIp = (host: string) =>
 	esIp(host)
-		? `Las llaves FIDO2 y las passkeys solo funcionan si entras a la consola por su nombre (un dominio), no por una IP como ${host}: el navegador no las deja. Entrando por IP, usa el código de emergencia.`
+		? `FIDO2 keys and passkeys only work if you open the console by its name (a domain), not by an IP address like ${host}: the browser does not allow them. When connecting by IP, use the emergency code.`
 		: null;

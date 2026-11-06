@@ -151,7 +151,7 @@ func TestIPPropiaTopeDeSondasPorLlamada(t *testing.T) {
 	s := plan.TrampaPlan{ID: "t1"}
 	// Primera llamada: tope de sondeos y «sigue en la siguiente».
 	_, err1 := IPPropia(o, s)
-	if err1 == nil || !strings.Contains(err1.Error(), "a la vista") {
+	if err1 == nil || !strings.Contains(err1.Error(), "in sight") {
 		t.Fatalf("primera llamada con el rango ocupado: %v", err1)
 	}
 	if sondeo.cuantas() != topeSondas {
@@ -159,7 +159,7 @@ func TestIPPropiaTopeDeSondasPorLlamada(t *testing.T) {
 	}
 	// Segunda llamada: sigue por donde se quedó y termina de ver el anillo.
 	_, err2 := IPPropia(o, s)
-	if err2 == nil || !strings.Contains(err2.Error(), "equipo en todas") {
+	if err2 == nil || !strings.Contains(err2.Error(), "device on every one") {
 		t.Fatalf("segunda llamada con el rango ocupado: %v", err2)
 	}
 	// El anillo útil de un /28 son 13 candidatas (14 menos la difusión):
@@ -182,7 +182,7 @@ func TestIPPropiaSinRangoUtil(t *testing.T) {
 	sondeo := &sondeoMentira{libres: map[string]bool{}}
 	sondeoLibre = sondeo.libre
 	_, err := IPPropia(o, plan.TrampaPlan{ID: "t1"})
-	if err == nil || !strings.Contains(err.Error(), "ninguna candidata") {
+	if err == nil || !strings.Contains(err.Error(), "no candidate") {
 		t.Fatalf("un /30 con la .6 del anfitrión no tiene candidata: %v", err)
 	}
 	if sondeo.cuantas() != 0 {
@@ -211,7 +211,7 @@ func TestConfigRechazaModoDeRedDesconocido(t *testing.T) {
 	s := trampa("t1", "r/nueva@sha256:2")
 	s.Manifiesto.Red = &plan.RedTrampa{Modo: "ip-propia"}
 	_, _, err := config(o, "s1", "", s)
-	if err == nil || !strings.Contains(err.Error(), "no lo trae") {
+	if err == nil || !strings.Contains(err.Error(), "does not support it") {
 		t.Fatalf("modo «ip-propia» en un sensor sin modo de red: %v", err)
 	}
 }

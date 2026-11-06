@@ -27,7 +27,7 @@ func abrirRegistro(ruta string) (*os.File, error) {
 	if fi, err := f.Stat(); err != nil || !fi.Mode().IsRegular() {
 		f.Close()
 		if err == nil {
-			err = errors.New(ruta + " no es un fichero normal")
+			err = errors.New(ruta + " is not a regular file")
 		}
 		return nil, err
 	}

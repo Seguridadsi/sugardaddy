@@ -15,7 +15,7 @@ import (
 // fichero viejo o el nuevo.
 func EscribirVersiones(ruta string, r Release, configuracion bool) error {
 	var b strings.Builder
-	fmt.Fprintf(&b, "# Lo escribe el actualizador tras instalar una versión. No editar a mano.\nSUGARDADDY_VERSION=%s\n", r.Version)
+	fmt.Fprintf(&b, "# Written by the updater after installing a version. Do not edit by hand.\nSUGARDADDY_VERSION=%s\n", r.Version)
 	nombres := make([]string, 0, len(r.Servicios))
 	for s := range r.Servicios {
 		nombres = append(nombres, s)

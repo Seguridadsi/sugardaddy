@@ -1,5 +1,5 @@
 /*
- * El mapa del despliegue (página /mapa): qué se enseña de cada red, equipo y
+ * El mapa del despliegue (página /map): qué se enseña de cada red, equipo y
  * trampa, y las cuentas que la página hace sin volver al servidor (buscar y
  * filtrar). Lo arma lib/server/mapa-despliegue-armar.ts con lo que ya sabe la consola.
  */
@@ -177,18 +177,18 @@ export function leerDonde(donde: string): {
 export function enumerar(nombres: string[], maximo = 3): string {
 	if (nombres.length <= 1) return nombres[0] ?? '';
 	if (nombres.length <= maximo)
-		return `${nombres.slice(0, -1).join(', ')} y ${nombres[nombres.length - 1]}`;
-	return `${nombres.slice(0, maximo).join(', ')} y ${nombres.length - maximo} más`;
+		return `${nombres.slice(0, -1).join(', ')} and ${nombres[nombres.length - 1]}`;
+	return `${nombres.slice(0, maximo).join(', ')} and ${nombres.length - maximo} more`;
 }
 
 const PLURALES: Record<Visible, [string, string]> = {
-	comprobada: ['comprobada', 'comprobadas'],
-	colocada: ['puesta, sin comprobar', 'puestas, sin comprobar'],
-	'por-colocar': ['pendiente de poner', 'pendientes de poner'],
-	degradada: ['degradada', 'degradadas'],
-	'sin-contacto': ['sin contacto', 'sin contacto'],
-	parada: ['parada', 'paradas'],
-	retirando: ['retirándose', 'retirándose']
+	comprobada: ['verified', 'verified'],
+	colocada: ['deployed, not verified', 'deployed, not verified'],
+	'por-colocar': ['pending deployment', 'pending deployment'],
+	degradada: ['degraded', 'degraded'],
+	'sin-contacto': ['offline', 'offline'],
+	parada: ['paused', 'paused'],
+	retirando: ['removing', 'removing']
 };
 export const estadoEnPlural = (estado: Visible, n: number) => PLURALES[estado][n === 1 ? 0 : 1];
 
@@ -205,33 +205,33 @@ export const ORDEN_ESTADOS: Visible[] = [
 
 /* Cómo se llama cada grupo de trampas en el grafo: su tipo de servicio. */
 export const FAMILIAS: Readonly<Record<TipoDeServicio, string>> = {
-	'bases-de-datos': 'Bases de datos',
-	ficheros: 'Ficheros',
-	'escritorio-remoto': 'Escritorio remoto',
+	'bases-de-datos': 'Databases',
+	ficheros: 'Files',
+	'escritorio-remoto': 'Remote desktop',
 	terminal: 'Terminal',
 	web: 'Web',
-	'correo-electronico': 'Correo',
-	red: 'Red',
-	directorio: 'Directorio',
-	contenedores: 'Contenedores',
-	impresoras: 'Impresoras',
-	camaras: 'Cámaras',
+	'correo-electronico': 'Email',
+	red: 'Network',
+	directorio: 'Directory',
+	contenedores: 'Containers',
+	impresoras: 'Printers',
+	camaras: 'Cameras',
 	iot: 'IoT',
-	industria: 'Industria',
-	sanidad: 'Sanidad',
-	ia: 'IA',
-	codigo: 'Código',
-	retencion: 'Retención',
-	nube: 'Nube'
+	industria: 'Industry',
+	sanidad: 'Healthcare',
+	ia: 'AI',
+	codigo: 'Code',
+	retencion: 'Retention',
+	nube: 'Cloud'
 };
 
 /* El título de una red: su nombre o, si no lo tiene, su rango. */
 export const tituloZona = (z: Pick<ZonaMapa, 'tipo' | 'nombre' | 'red'>) =>
 	z.tipo === 'fuera'
-		? 'Fuera de tu red'
+		? 'Outside your network'
 		: z.tipo === 'sin-senal'
-			? 'Sitios sin trampas'
-			: (z.nombre ?? z.red ?? 'Red sin indicar');
+			? 'Sites without decoys'
+			: (z.nombre ?? z.red ?? 'Network not set');
 
 /*
  * Lo que dice una trampa en el grafo, debajo de su icono: su servicio y su
@@ -242,8 +242,7 @@ export function etiquetaTrampa(t: TrampaMapa): {
 	abajo: string;
 	clase: 'puerto' | 'propia' | 'nombre';
 } {
-	if (t.conIpPropia)
-		return { arriba: 'IP propia', abajo: t.ipPropia ?? 'Sin IP todavía', clase: 'propia' };
+	if (t.conIpPropia) return { arriba: 'Own IP', abajo: t.ipPropia ?? 'No IP yet', clase: 'propia' };
 	if (!t.puertos.length) return { arriba: t.clase, abajo: t.nombre, clase: 'nombre' };
 	const servicios = [...new Set(t.puertos.map((p) => p.servicio))];
 	const arriba =
@@ -267,11 +266,11 @@ export function etiquetaTrampa(t: TrampaMapa): {
 export function rutaCorta(x: Pick<SistemaMapa, 'trampas'>): string {
 	const textos = [
 		...new Set(
-			x.trampas.flatMap((t) => (t.ruta ? [t.ruta.texto.replace(/,? (hacia|entra en)$/, '')] : []))
+			x.trampas.flatMap((t) => (t.ruta ? [t.ruta.texto.replace(/,? (to|land on)$/, '')] : []))
 		)
 	];
-	if (!textos.length) return x.trampas.length ? 'Señal sin ruta' : 'Sin señal todavía';
-	return textos.length === 1 ? textos[0] : `${textos.length} señales distintas`;
+	if (!textos.length) return x.trampas.length ? 'Signal with no route' : 'No signal yet';
+	return textos.length === 1 ? textos[0] : `${textos.length} different signals`;
 }
 
 /* Lo que se enseña al pinchar en un nodo. */
@@ -291,7 +290,7 @@ export function detalleNodo(mapa: Mapa, id: string): DetalleNodo | null {
 		return {
 			tipo: 'familia',
 			familia: tipo,
-			nombre: tipo ? FAMILIAS[tipo] : 'Otras',
+			nombre: tipo ? FAMILIAS[tipo] : 'Other',
 			trampas: trampas.filter((x) => x.pictograma === tipo)
 		};
 	};

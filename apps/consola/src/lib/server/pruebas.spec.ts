@@ -91,14 +91,14 @@ describe('comoProbar', () => {
 			expect(como(e, contenedor).puede, e).toBe(true);
 		expect(como('retirando', contenedor)).toEqual({
 			puede: false,
-			motivo: 'Se está retirando: ya no se prueba.'
+			motivo: 'It is being removed: it can no longer be tested.'
 		});
-		expect(como('parada', contenedor)).toMatchObject({ motivo: /reanúdala/ });
+		expect(como('parada', contenedor)).toMatchObject({ motivo: /resume it/ });
 		expect(como('sin-contacto', contenedor)).toMatchObject({ motivo: /no contesta/ });
 		expect(como('por-colocar', contenedor)).toMatchObject({ motivo: /cuando su sensor la ponga/ });
 		expect(como(null, contenedor)).toMatchObject({ puede: false });
 		expect(p.comoProbar(manual(), estado('por-colocar'), credencial, {}, fs01())).toMatchObject({
-			motivo: 'Primero ponla con sus pasos y pulsa «Ya está hecho».'
+			motivo: 'First deploy it using its steps and click "Mark as deployed".'
 		});
 	});
 
@@ -118,7 +118,7 @@ describe('comoProbar', () => {
 		);
 		expect(sin).toEqual({
 			puede: false,
-			motivo: 'Pon la dirección de Sensor local en Destinos para probarla.',
+			motivo: 'Enter the address of Sensor local under Targets to test it.',
 			destino: 'local'
 		});
 	});
@@ -126,7 +126,7 @@ describe('comoProbar', () => {
 	it('sin prueba ni puerto TCP, no se prueba: la comprobará el primer evento real', () => {
 		expect(
 			p.comoProbar(contenedor, estado('colocada'), soloUdp, parametros(soloUdp), destino())
-		).toMatchObject({ puede: false, motivo: /ningún puerto TCP/ });
+		).toMatchObject({ puede: false, motivo: /any TCP port/ });
 	});
 
 	it('con la prueba de su vía: con marca no pide IP; sin la dirección que usan sus pasos, lo dice', () => {
@@ -139,7 +139,7 @@ describe('comoProbar', () => {
 		});
 		expect(
 			p.comoProbar(contenedor, estado('colocada'), smb, parametros(smb), destino(null))
-		).toMatchObject({ puede: false, motivo: /Pon la dirección de Sensor local/ });
+		).toMatchObject({ puede: false, motivo: /Enter the address of Sensor local/ });
 	});
 
 	it('sin su módulo o sin su vía, no se prueba', () => {
@@ -176,7 +176,7 @@ describe('comoProbar', () => {
 		).toMatchObject({ puede: false, motivo: /hace falta la IP de fs01, no su nombre/ });
 		expect(
 			p.comoProbar(manual(sinMarca), estado('colocada'), credencial, {}, fs01(null))
-		).toMatchObject({ motivo: 'Pon la dirección de fs01 en Destinos para probarla.' });
+		).toMatchObject({ motivo: 'Enter the address of fs01 under Targets to test it.' });
 	});
 
 	it('una a mano sin prueba en su vía, o sin pasos, no se prueba', () => {
@@ -185,7 +185,7 @@ describe('comoProbar', () => {
 			p.comoProbar(manual(sinPrueba), estado('colocada'), credencial, {}, fs01())
 		).toMatchObject({ motivo: /no trae prueba/ });
 		expect(p.comoProbar(manual(null), estado('colocada'), credencial, {}, fs01())).toMatchObject({
-			motivo: /No tiene pasos guardados/
+			motivo: /no saved steps/
 		});
 	});
 });
@@ -297,23 +297,5 @@ describe('IP y nonce', () => {
 		const n = Array.from({ length: 50 }, () => p.nuevoNonce());
 		for (const x of n) expect(x).toMatch(/^[a-z0-9]{8}$/);
 		expect(new Set(n).size).toBe(50);
-	});
-});
-
-describe('la IP de la máquina de un sensor, si en Destinos no hay dirección', () => {
-	it('la que cae en su red, si se sabe; si no, la primera que cuenta', () => {
-		const ips = ['10.0.0.11', '192.168.5.6'];
-		expect(p.ipDeLaMaquina(ips, '192.168.5.0/24')).toBe('192.168.5.6');
-		expect(p.ipDeLaMaquina(ips, '10.0.0.0/24')).toBe('10.0.0.11');
-		expect(p.ipDeLaMaquina(ips, null)).toBe('10.0.0.11');
-		/* Una red que no casa con ninguna (o mal escrita): la primera. */
-		expect(p.ipDeLaMaquina(ips, '172.16.0.0/12')).toBe('10.0.0.11');
-		expect(p.ipDeLaMaquina(ips, 'no-es-red')).toBe('10.0.0.11');
-	});
-
-	it('sin nada que contar (un sensor anterior a la 0.17.1), ninguna', () => {
-		expect(p.ipDeLaMaquina(undefined, '10.0.0.0/24')).toBeNull();
-		expect(p.ipDeLaMaquina([], null)).toBeNull();
-		expect(p.ipDeLaMaquina(['', 'fs01', 3], null)).toBeNull();
 	});
 });

@@ -41,8 +41,8 @@
 		{/if}
 		{#if !claveLista}
 			<p class="aviso">
-				Este nodo aún no tiene su clave para guardar secretos: se crea al actualizarlo. Hasta
-				entonces, este módulo no puede guardar ninguno.
+				This node does not have its key for storing secrets yet: it is created when the node is
+				updated. Until then, this module cannot store any.
 			</p>
 		{/if}
 		{#each secretos as x (x.id)}
@@ -58,11 +58,11 @@
 					spellcheck="false"
 					required={x.obligatorio && !g?.puesto}
 					placeholder={g?.puesto
-						? `Guardado${g.final ? `, acaba en …${g.final}` : ''}: escribe otro para cambiarlo`
+						? `Saved${g.final ? `, ends in …${g.final}` : ''}: enter a new one to change it`
 						: ''}
 				/>
 				<p class="ayuda">
-					{x.descripcion} Se guarda cifrado con la clave de este nodo y no se vuelve a enseñar.
+					{x.descripcion} It is stored encrypted with this node's key and is never shown again.
 				</p>
 			</div>
 		{/each}

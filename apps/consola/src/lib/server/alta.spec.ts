@@ -53,8 +53,8 @@ const { db, schema: s } = hayBase ? await import('./db') : ({} as never);
 const { crearDestino } = hayBase ? await import('./destinos') : ({} as never);
 const { crearSensor } = hayBase ? await import('./gestion') : ({} as never);
 const { informarEstado, plan } = hayBase ? await import('./sensor') : ({} as never);
-const rutaAlta = hayBase ? await import('../../routes/trampas/nueva/[modulo]/+page.server') : null;
-const rutaAjustes = hayBase ? await import('../../routes/trampas/[id]/+page.server') : null;
+const rutaAlta = hayBase ? await import('../../routes/decoys/new/[modulo]/+page.server') : null;
+const rutaAjustes = hayBase ? await import('../../routes/decoys/[id]/+page.server') : null;
 const { and, eq, like, or } = await import('drizzle-orm');
 
 const QUIEN = 'zz-prueba-alta';
@@ -122,7 +122,7 @@ async function alta(modulo: string, campos: Record<string, string>, roles?: stri
 	try {
 		return await rutaAlta!.actions.default({
 			params: { modulo },
-			request: new Request(`http://consola/trampas/nueva/${modulo}`, { method: 'POST', body: f }),
+			request: new Request(`http://consola/decoys/new/${modulo}`, { method: 'POST', body: f }),
 			locals: locals(roles)
 		} as never);
 	} catch (e) {
@@ -137,7 +137,7 @@ async function ajustes(id: string, campos: Record<string, string>) {
 	try {
 		return await rutaAjustes!.actions.guardar({
 			params: { id },
-			request: new Request(`http://consola/trampas/${id}`, { method: 'POST', body: f }),
+			request: new Request(`http://consola/decoys/${id}`, { method: 'POST', body: f }),
 			locals: locals()
 		} as never);
 	} catch (e) {
@@ -147,7 +147,7 @@ async function ajustes(id: string, campos: Record<string, string>) {
 
 /* El load del alta: sin destino, el paso «¿dónde?»; con él, el formulario. */
 async function pagina(modulo: string, consulta: Record<string, string> = {}) {
-	const url = new URL(`http://consola/trampas/nueva/${modulo}?${new URLSearchParams(consulta)}`);
+	const url = new URL(`http://consola/decoys/new/${modulo}?${new URLSearchParams(consulta)}`);
 	return rutaAlta!.load({ params: { modulo }, url } as never);
 }
 const enDonde = async (modulo: string, destino: string) =>
@@ -226,7 +226,7 @@ describe.skipIf(!hayBase)('el alta con destino y elector', () => {
 			tipo: 'maquina',
 			plataforma: 'Ubuntu 24.04.1 LTS',
 			sensor: { nombre: `Sensor ${LOCAL}`, vivo: true },
-			elegida: { via: 'contenedor', nombre: 'En un sensor', avisos: [] },
+			elegida: { via: 'contenedor', nombre: 'On a sensor', avisos: [] },
 			motivo: null,
 			bloqueo: null
 		});
@@ -241,7 +241,7 @@ describe.skipIf(!hayBase)('el alta con destino y elector', () => {
 		/* Vale, pero ahora no: el alta exige su sensor en línea. Sin el aviso del elector, que diría otra cosa. */
 		expect(mios.find((d) => d.id === CALLADO)).toMatchObject({
 			elegida: { via: 'contenedor', avisos: [] },
-			bloqueo: expect.stringMatching(/no contesta ahora/)
+			bloqueo: expect.stringMatching(/not responding right now/)
 		});
 		/* Primero los que valen, después los que ahora no se puede y al final los que no valen. */
 		const orden = mios.map((d) => d.id);
@@ -268,7 +268,7 @@ describe.skipIf(!hayBase)('el alta con destino y elector', () => {
 			via: 'contenedor',
 			'p.puertoSsh': '2201'
 		});
-		expect(r).toMatchObject({ status: 303, location: '/trampas?creado=srv-backup01' });
+		expect(r).toMatchObject({ status: 303, location: '/decoys?creado=srv-backup01' });
 		expect(await trampa(`${P}-ssh`)).toMatchObject({
 			modulo: 'cowrie',
 			tipo: 'contenedor',
@@ -282,7 +282,7 @@ describe.skipIf(!hayBase)('el alta con destino y elector', () => {
 		const [a] = await db
 			.select()
 			.from(s.auditoria)
-			.where(and(eq(s.auditoria.quien, QUIEN), eq(s.auditoria.accion, 'trampa creada')));
+			.where(and(eq(s.auditoria.quien, QUIEN), eq(s.auditoria.accion, 'decoy created')));
 		expect(a.detalle).toMatchObject({ id: `${P}-ssh`, destino: LOCAL, via: 'contenedor' });
 		const x = await plan(LOCAL, true, '0.13.1');
 		expect(x.trampas.map((t) => t.id)).toEqual([`${P}-ssh`]);
@@ -324,14 +324,14 @@ describe.skipIf(!hayBase)('el alta con destino y elector', () => {
 		const [m] = (r as { data: { motivos: { codigo: string; texto: string; remedio?: string }[] } })
 			.data.motivos;
 		expect(m).toMatchObject({ codigo: 'requisito.no-cumple' });
-		expect(m.texto).toMatch(/\(Cómo corre el motor: sin root\)/);
-		expect(m.remedio).toMatch(/Docker con root/);
+		expect(m.texto).toMatch(/\(How the engine runs: without root\)/);
+		expect(m.remedio).toMatch(/rootful Docker/);
 		expect(await trampa(`${P}-ssh-sinroot`)).toBeUndefined();
 	});
 
 	it('con el sensor sin contacto no se pone, como siempre', async () => {
 		const f = (await pagina('cowrie', { destino: CALLADO })).forma!;
-		expect(f.bloqueo).toMatch(/no contesta ahora/);
+		expect(f.bloqueo).toMatch(/not responding right now/);
 		const r = await alta('cowrie', {
 			id: `${P}-ssh-callado`,
 			nombre: 'callado',
@@ -339,7 +339,7 @@ describe.skipIf(!hayBase)('el alta con destino y elector', () => {
 			'p.puertoSsh': '2222'
 		});
 		expect(r).toMatchObject({ status: 400 });
-		expect((r as Fallo).data.errores).toEqual([expect.stringMatching(/no contesta ahora/)]);
+		expect((r as Fallo).data.errores).toEqual([expect.stringMatching(/not responding right now/)]);
 		expect(await trampa(`${P}-ssh-callado`)).toBeUndefined();
 	});
 
@@ -359,7 +359,7 @@ describe.skipIf(!hayBase)('el alta con destino y elector', () => {
 		expect(r).toMatchObject({ status: 400 });
 		expect(codigos(r)).toEqual(['puertos.ocupado']);
 		expect((r as { data: { motivos: { texto: string }[] } }).data.motivos[0].texto).toBe(
-			`Sensor ${OCUPADO} ya usa el puerto UDP 53; elige otro o libéralo allí.`
+			`Sensor ${OCUPADO} already uses UDP port 53; choose another or free it there.`
 		);
 		/* Lo escrito vuelve al formulario. */
 		expect((r as { data: unknown }).data).toMatchObject({
@@ -384,7 +384,7 @@ describe.skipIf(!hayBase)('el alta con destino y elector', () => {
 		expect((r as { data: { motivos: unknown[] } }).data.motivos).toEqual([
 			{
 				codigo: 'puertos.otra-trampa',
-				texto: 'El puerto 2201 ya lo usa la trampa srv-backup01 en este destino.'
+				texto: 'Port 2201 is already used by the decoy srv-backup01 on this target.'
 			}
 		]);
 		/* Una que una consola anterior dejó sin destino cuenta en el de su sensor. */
@@ -406,7 +406,7 @@ describe.skipIf(!hayBase)('el alta con destino y elector', () => {
 		expect((x as { data: { motivos: unknown[] } }).data.motivos).toEqual([
 			{
 				codigo: 'puertos.otra-trampa',
-				texto: 'El puerto 2250 ya lo usa la trampa de antes en este destino.'
+				texto: 'Port 2250 is already used by the decoy de antes on this target.'
 			}
 		]);
 		await db.delete(s.trampas).where(eq(s.trampas.id, `${P}-ssh-sin-destino`));
@@ -441,13 +441,13 @@ describe.skipIf(!hayBase)('el alta con destino y elector', () => {
 		});
 		expect(x).toMatchObject({
 			status: 400,
-			data: { errores: ['Esa forma de ponerla no existe en este módulo.'] }
+			data: { errores: ['That deployment method does not exist in this module.'] }
 		});
 		/* Un destino que no existe. */
 		const d = await alta('smb', { id: `${P}-smb`, nombre: 'fs02', destino: `${P}-no` });
 		expect(d).toMatchObject({
 			status: 400,
-			data: { errores: ['Destino: ese destino ya no existe; elige otro.'] }
+			data: { errores: ['Target: that target no longer exists; choose another.'] }
 		});
 		expect(await trampa(`${P}-smb`)).toBeUndefined();
 		/* En el formulario, la otra forma sale con su motivo. */
@@ -536,9 +536,9 @@ describe.skipIf(!hayBase)('el alta con destino y elector', () => {
 			expect(f.pasos).toMatchObject({
 				lenguaje: 'powershell',
 				pasos: [
-					'Guarda en el perfil del usuario una sesión de PuTTY «Nombre de la conexión» hacia la dirección de «Trampa SSH a la que apunta».'
+					'Guarda en el perfil del usuario una sesión de PuTTY "Nombre de la conexión" hacia the address of "Trampa SSH a la que apunta".'
 				],
-				retirada: ['Borra la sesión «Nombre de la conexión» de PuTTY.']
+				retirada: ['Borra la sesión "Nombre de la conexión" de PuTTY.']
 			});
 			expect(f.objetivos.objetivo).toEqual([
 				{ id: OBJETIVO, nombre: 'Cowrie de local', destino: `Sensor ${LOCAL}`, motivo: null }
@@ -552,7 +552,7 @@ describe.skipIf(!hayBase)('el alta con destino y elector', () => {
 				'p.usuario': 'svc_sql4k7',
 				'p.sesion': 'nas42'
 			});
-			expect(r).toMatchObject({ status: 303, location: `/trampas/${P}-cred` });
+			expect(r).toMatchObject({ status: 303, location: `/decoys/${P}-cred` });
 			expect(await trampa(`${P}-cred`)).toMatchObject({
 				ejecutor: 'manual@1',
 				via: 'windows',
@@ -610,7 +610,7 @@ describe.skipIf(!hayBase)('el alta con destino y elector', () => {
 			const p = await rutaAjustes!.load({ params: { id: `${P}-ssh-viejo` } } as never);
 			if (p.tipo !== 'contenedor') throw new Error('es de contenedor');
 			expect(p.avisos.map((a) => a.codigo)).toEqual(['requisito.no-cumple', 'requisito.no-cumple']);
-			expect(p.avisos[0].remedio).toMatch(/Docker con root/);
+			expect(p.avisos[0].remedio).toMatch(/rootful Docker/);
 			const r = await ajustes(`${P}-ssh-viejo`, { nombre: 'viejo2', 'p.puertoSsh': '2223' });
 			expect(r).toMatchObject({ status: 303 });
 			expect(await trampa(`${P}-ssh-viejo`)).toMatchObject({

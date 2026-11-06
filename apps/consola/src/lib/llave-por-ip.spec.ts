@@ -8,7 +8,7 @@ describe('llaves FIDO2 y entrar por IP', () => {
 	});
 
 	it('por IP lo explica y manda al código; por nombre, nada', () => {
-		expect(sinLlavePorIp('20.115.90.87')).toContain('código de emergencia');
+		expect(sinLlavePorIp('20.115.90.87')).toContain('emergency code');
 		expect(sinLlavePorIp('consola.empresa.es')).toBeNull();
 	});
 });

@@ -114,7 +114,7 @@ const rutaLicenciaTrampa = "/sugardaddy/licencia.json"
 func config(o Opciones, sensor, licenciaRuta string, s plan.TrampaPlan) (map[string]any, []string, error) {
 	c, a := s.Manifiesto.Contenedor, s.Manifiesto.Aislamiento
 	if c == nil || a == nil {
-		return nil, nil, fmt.Errorf("a la trampa %s le falta contenedor o aislamiento", s.ID)
+		return nil, nil, fmt.Errorf("decoy %s is missing its container or isolation", s.ID)
 	}
 
 	rellenar := func(t string) string {
@@ -153,7 +153,7 @@ func config(o Opciones, sensor, licenciaRuta string, s plan.TrampaPlan) (map[str
 		// de quien firma el manifiesto — solo entiende UN modo de red. El
 		// capturar se valida igual de fuerte, al compilarlo a BPF.
 		if s.Manifiesto.Red.Modo != "ip-propia" {
-			return nil, nil, fmt.Errorf("la trampa %s trae el modo de red %q y el sensor solo entiende «ip-propia» (docs/diseno/red.md §1)", s.ID, s.Manifiesto.Red.Modo)
+			return nil, nil, fmt.Errorf("decoy %s has network mode %q and the sensor only understands ip-propia (docs/diseno/red.md §1)", s.ID, s.Manifiesto.Red.Modo)
 		}
 		var err error
 		ipPropia, err = IPPropia(o, s)
@@ -264,7 +264,7 @@ func config(o Opciones, sensor, licenciaRuta string, s plan.TrampaPlan) (map[str
 		if capturar := rellenar(s.Manifiesto.Red.Capturar); capturar != "" {
 			bpf, err := redpkg.CompilarBPF(capturar)
 			if err != nil {
-				return nil, nil, fmt.Errorf("el capturar de la trampa (%s) no vale: %v", capturar, err)
+				return nil, nil, fmt.Errorf("the decoy capture filter (%s) is not valid: %v", capturar, err)
 			}
 			entorno = append(entorno, "SD_RED_BPF="+bpf)
 			// el append puede mudar el slice: el mapa se queda con el nuevo.
@@ -353,7 +353,7 @@ func Aplicar(ctx context.Context, d *docker.Cliente, o Opciones, p plan.Plan) ([
 	licenciaRuta := licenciaFichero(o)
 	if len(p.Licencia) > 0 {
 		if err := escribirFichero(licenciaRuta, string(p.Licencia)); err != nil {
-			fallos = append(fallos, fmt.Errorf("escribir la licencia: %w", err))
+			fallos = append(fallos, fmt.Errorf("writing the license: %w", err))
 			licenciaRuta = ""
 		}
 	} else {
@@ -440,13 +440,13 @@ func Aplicar(ctx context.Context, d *docker.Cliente, o Opciones, p plan.Plan) ([
 		}
 		sigue := func(aviso string) {
 			if enMarcha {
-				estados = append(estados, Estado{ID: s.ID, Donde: aqui + " · aviso: " + aviso + "; sigue como estaba"})
+				estados = append(estados, Estado{ID: s.ID, Donde: aqui + " · warning: " + aviso + "; it keeps running as before"})
 			} else {
 				estados = append(estados, Estado{ID: s.ID, Donde: "error: " + aviso})
 			}
 		}
 		if e := errRed[redDe(o, s)]; e != nil {
-			sigue("no se pudo preparar la red de trampas (" + e.Error() + ")")
+			sigue("could not prepare the decoy network (" + e.Error() + ")")
 			continue
 		}
 		// La imagen se descarga aparte: una descarga larga no para al sensor
@@ -458,12 +458,12 @@ func Aplicar(ctx context.Context, d *docker.Cliente, o Opciones, p plan.Plan) ([
 		}
 		if existe {
 			if err := borrar(ctx, d, c.ID); err != nil {
-				sigue("no se pudo quitar el contenedor anterior (" + err.Error() + ")")
+				sigue("could not remove the previous container (" + err.Error() + ")")
 				continue
 			}
 		}
 		if err := prepararRegistros(o, s.ID); err != nil {
-			estados = append(estados, Estado{ID: s.ID, Donde: "error: carpeta de registros: " + err.Error()})
+			estados = append(estados, Estado{ID: s.ID, Donde: "error: log folder: " + err.Error()})
 			continue
 		}
 		id, err := d.Crear(ctx, "sd-"+p.Sensor+"-"+s.ID, cfg)
@@ -521,13 +521,13 @@ func Aplicar(ctx context.Context, d *docker.Cliente, o Opciones, p plan.Plan) ([
 	return estados, errors.Join(fallos...)
 }
 
-const avisoSinGarantia = "aviso: el motor de contenedores no confirma que esta trampa no salga a Internet ni que no vea a las demás"
+const avisoSinGarantia = "warning: the container engine does not confirm that this decoy cannot reach the Internet or see the other decoys"
 
 // avisoSegmento: lo que cambia el modo «IP propia» (docs/diseno/red.md §2):
 // sin puente aislado que las separe, las trampas con IP propia son equipos
 // más del segmento del cliente. Los atacantes de una trampa pueden ver a
 // las demás, como pueden ver cualquier equipo real de esa red.
-const avisoSegmento = "aviso: con IP propia la trampa va en el segmento del cliente, no aislada de las demás trampas ni de los equipos de esa red"
+const avisoSegmento = "warning: with its own IP the decoy sits on the customer segment, not isolated from the other decoys or the devices on that network"
 
 // prefijoParada encabeza el estado de una trampa que el sensor ha parado.
 const prefijoParada = "parada: "
@@ -714,10 +714,10 @@ func pedirImagen(d *docker.Cliente, img string) string {
 	defer descargas.Unlock()
 	x := descargas.en[img]
 	if x != nil && x.enCurso {
-		return "descargando la imagen nueva"
+		return "downloading the new image"
 	}
 	if x != nil && x.err != nil && time.Since(x.fin) < reintentoDescarga {
-		return "no se pudo descargar la imagen nueva (" + x.err.Error() + "); se reintenta"
+		return "could not download the new image (" + x.err.Error() + "); will retry"
 	}
 	descargas.en[img] = &descarga{enCurso: true}
 	descargas.wg.Add(1)
@@ -730,10 +730,10 @@ func pedirImagen(d *docker.Cliente, img string) string {
 		descargas.en[img] = &descarga{err: err, fin: time.Now()}
 		descargas.Unlock()
 	}()
-	return "descargando la imagen nueva"
+	return "downloading the new image"
 }
 
-const avisoAislamiento = "aviso: las trampas de esta máquina se ven entre sí (el motor de Docker no aplica el aislamiento entre contenedores)"
+const avisoAislamiento = "warning: the decoys on this machine can see each other (the Docker engine does not enforce isolation between containers)"
 
 // Último resultado de la sonda por red. Es una propiedad del motor, no de
 // las trampas: se vuelve a probar cada hora.
@@ -826,7 +826,7 @@ func sondear(ctx context.Context, d *docker.Cliente, imagen, sensor, red string)
 	r, _ := redes[red].(map[string]any)
 	ip, _ := r["IPAddress"].(string)
 	if ip == "" {
-		return false, fmt.Errorf("la sonda no tiene dirección en %s", red)
+		return false, fmt.Errorf("the probe has no address on %s", red)
 	}
 	llama, err := crear("llama", "sondear", net.JoinHostPort(ip, puertoSonda))
 	if llama != "" {
@@ -871,11 +871,11 @@ func puerto(expuesto any, rellenar func(string) string, desplazar int) (int, err
 	case string:
 		n, err := strconv.Atoi(rellenar(e))
 		if err != nil || n < 1 || n > 65535 {
-			return 0, fmt.Errorf("puerto no válido: %q", rellenar(e))
+			return 0, fmt.Errorf("invalid port: %q", rellenar(e))
 		}
 		return n, nil
 	}
-	return 0, fmt.Errorf("puerto no válido: %v", expuesto)
+	return 0, fmt.Errorf("invalid port: %v", expuesto)
 }
 
 func escribirFichero(ruta, texto string) error {

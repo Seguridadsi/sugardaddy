@@ -17,13 +17,15 @@ export const GET = async ({ params }) => {
 	try {
 		const s = await scriptSensorRemoto(params.codigo);
 		if (!s)
-			return fallo('esta línea ya se usó o ha caducado. Genera otra en Sensores de la consola.');
+			return fallo(
+				'this command has already been used or has expired. Generate a new one under Sensors in the console.'
+			);
 		return script(s);
 	} catch (e) {
 		if (e instanceof ErrorCliente) return fallo(e.message);
 		console.error('[instalar-sensor]', e);
 		return fallo(
-			'la consola no ha podido preparar la instalación. Inténtalo de nuevo en unos minutos; si sigue, avisa a quien te da soporte.'
+			'the console could not prepare the installation. Try again in a few minutes; if it keeps failing, contact your support provider.'
 		);
 	}
 };

@@ -36,8 +36,8 @@ const { crearDestino, edicionDestino, fichaDestino, leerFormulario, listaDestino
 	? await import('./destinos')
 	: ({} as never);
 const { informarEstado } = hayBase ? await import('./sensor') : ({} as never);
-const rutaNuevo = hayBase ? await import('../../routes/destinos/nuevo/+page.server') : null;
-const rutaFicha = hayBase ? await import('../../routes/destinos/[id]/+page.server') : null;
+const rutaNuevo = hayBase ? await import('../../routes/targets/new/+page.server') : null;
+const rutaFicha = hayBase ? await import('../../routes/targets/[id]/+page.server') : null;
 const { and, eq, like, or } = await import('drizzle-orm');
 
 const QUIEN = 'zz-prueba-pagina-destinos';
@@ -72,7 +72,7 @@ function formulario(campos: Record<string, string | string[]>) {
 }
 
 const peticion = (campos: Record<string, string | string[]>) =>
-	new Request('http://consola/destinos', { method: 'POST', body: formulario(campos) });
+	new Request('http://consola/targets', { method: 'POST', body: formulario(campos) });
 
 /* Una acción de SvelteKit: lo que devuelve, o el redirect o el error que lanza. */
 async function accion(
@@ -142,7 +142,7 @@ describe.skipIf(!hayBase)('la página Destinos', () => {
 			direccion: '10.20.0.7',
 			protocolos: ['smb']
 		});
-		expect(r).toMatchObject({ status: 303, location: `/destinos/${FS01}?creado` });
+		expect(r).toMatchObject({ status: 303, location: `/targets/${FS01}?creado` });
 		const [d] = await db.select().from(s.destinos).where(eq(s.destinos.id, FS01));
 		/* Un Windows no tiene shell POSIX: esa respuesta no se lee. */
 		expect(d).toMatchObject({
@@ -161,7 +161,7 @@ describe.skipIf(!hayBase)('la página Destinos', () => {
 			clave: 'plataforma.so',
 			valor: 'windows',
 			fuente: 'formulario',
-			nombre: 'Sistema operativo',
+			nombre: 'Operating system',
 			texto: 'Windows'
 		});
 		expect(await hecho(FS01, 'shell.powershell')).toMatchObject({
@@ -179,7 +179,7 @@ describe.skipIf(!hayBase)('la página Destinos', () => {
 		const [a] = await db
 			.select()
 			.from(s.auditoria)
-			.where(and(eq(s.auditoria.quien, QUIEN), eq(s.auditoria.accion, 'destino creado')));
+			.where(and(eq(s.auditoria.quien, QUIEN), eq(s.auditoria.accion, 'target created')));
 		expect(a.detalle).toMatchObject({ id: FS01, tipo: 'fileserver' });
 	});
 
@@ -191,30 +191,30 @@ describe.skipIf(!hayBase)('la página Destinos', () => {
 		});
 		expect(r).toMatchObject({ status: 400 });
 		expect((r as { data: { errores: string[] } }).data.errores).toEqual([
-			'Qué es: elige una opción de la lista.',
-			'Nombre: sin saltos de línea ni caracteres invisibles.'
+			'Type: choose an option from the list.',
+			'Name: no line breaks or invisible characters.'
 		]);
 		const v = (campos: Record<string, string | string[]>, tipo = 'maquina') =>
 			leerFormulario(formulario({ nombre: 'x', ...campos }), tipo);
-		expect(v({}).errores).toEqual(['Sistema operativo: obligatorio.']);
+		expect(v({}).errores).toEqual(['Operating system: required.']);
 		expect(v({ so: 'windows', version: '22.04' }).errores).toEqual([
-			'Versión: elige una de la lista.'
+			'Version: choose one from the list.'
 		]);
 		/* Un puesto no puede ser Windows Server 2019. */
 		expect(v({ so: 'windows', edicion: 'puesto', version: '10.0.17763' }).errores).toEqual([
-			'Versión: elige una de la lista.'
+			'Version: choose one from the list.'
 		]);
 		expect(v({ so: 'linux', version: '22.04', posix: 'zsh' }).errores).toEqual([
-			'Shell: elige una opción de la lista.'
+			'Shell: choose an option from the list.'
 		]);
 		expect(v({ so: 'linux', version: 'jammy' }).errores).toEqual([
-			'Versión: números separados por puntos, como 22.04.'
+			'Version: numbers separated by dots, like 22.04.'
 		]);
 		expect(v({ so: 'linux', direccion: 'a b' }).errores).toEqual([
-			'Dirección: una IP o un nombre de máquina, sin espacios.'
+			'Address: an IP or a machine name, without spaces.'
 		]);
 		expect(v({ so: 'nas', protocolos: ['smb', 'afp'] }, 'fileserver').errores).toEqual([
-			'Protocolos: elige de la lista.'
+			'Protocols: choose from the list.'
 		]);
 		/* Un tipo de los «solo otro corto» solo pregunta el nombre; «otro», también el texto libre. */
 		expect(v({ so: 'windows', direccion: '10.0.0.1' }, 'tenant')).toEqual({
@@ -279,7 +279,7 @@ describe.skipIf(!hayBase)('la página Destinos', () => {
 		await informarEstado(local, [], estado013());
 		expect((await fichaDestino(local))!.queCabe[0]).toMatchObject({
 			modulo: 'cowrie',
-			elegida: { via: 'contenedor', nombre: 'En un sensor', avisos: [] },
+			elegida: { via: 'contenedor', nombre: 'On a sensor', avisos: [] },
 			motivo: null,
 			vias: [{ via: 'contenedor', vale: true, motivos: [] }]
 		});
@@ -348,7 +348,7 @@ describe.skipIf(!hayBase)('la página Destinos', () => {
 			version: '10.0.22000',
 			powershell: '7.0'
 		});
-		expect(r).toEqual({ accion: 'editar', mensaje: 'Cambios guardados.' });
+		expect(r).toEqual({ accion: 'editar', mensaje: 'Changes saved.' });
 		expect(await hecho(desk, 'plataforma.so')).toMatchObject({
 			valor: 'windows',
 			fuente: 'formulario'
@@ -368,7 +368,7 @@ describe.skipIf(!hayBase)('la página Destinos', () => {
 			powershell: '5.1',
 			posix: 'bash'
 		});
-		expect(x).toMatchObject({ mensaje: 'Cambios guardados.' });
+		expect(x).toMatchObject({ mensaje: 'Changes saved.' });
 		/* El sistema lo sigue diciendo el sensor; el shell es el de un Linux. */
 		const [d] = await db.select().from(s.destinos).where(eq(s.destinos.id, local));
 		expect(d.descripcion).toEqual({ posix: 'bash' });
@@ -414,7 +414,7 @@ describe.skipIf(!hayBase)('la página Destinos', () => {
 			status: 400,
 			data: {
 				errores: [
-					'La trampa «Credencial de fs01» apunta a la dirección de este destino: retírala primero.'
+					'The decoy "Credencial de fs01" points to the address of this target: remove it first.'
 				]
 			}
 		});
@@ -425,28 +425,71 @@ describe.skipIf(!hayBase)('la página Destinos', () => {
 			so: 'linux',
 			direccion: '10.30.0.5'
 		});
-		expect(n).toMatchObject({ mensaje: 'Cambios guardados.' });
+		expect(n).toMatchObject({ mensaje: 'Changes saved.' });
 		const [a] = await db
 			.select()
 			.from(s.auditoria)
-			.where(and(eq(s.auditoria.quien, QUIEN), eq(s.auditoria.accion, 'destino modificado')))
+			.where(and(eq(s.auditoria.quien, QUIEN), eq(s.auditoria.accion, 'target modified')))
 			.orderBy(s.auditoria.id);
 		expect(a.detalle).toMatchObject({ id: `${P}-desk`, nombre: 'Portátil de Ana' });
+	});
+
+	it('con sensor, la dirección es la que cuenta él: vaciarla o repetirla no cambia nada', async () => {
+		const id = `${P}-dir`;
+		await sensorCon(id, {
+			...estado013(),
+			hechos: { ...estado013().hechos, 'red.direcciones': { valor: ['10.30.0.9'] } }
+		} as ReturnType<typeof estado013>);
+		expect(await hecho(id, 'destino.direccion')).toMatchObject({
+			valor: '10.30.0.9',
+			fuente: 'consola'
+		});
+		expect((await fichaDestino(id))!.formulario.bloqueados).not.toContain('direccion');
+		await db.insert(s.trampas).values([
+			{
+				id: `${P}-t-cowrie-dir`,
+				nombre: 'Cowrie del sensor',
+				modulo: 'cowrie',
+				tipo: 'contenedor',
+				sensor: id,
+				destino: id,
+				donde: '-'
+			},
+			{
+				id: `${P}-t-cred-dir`,
+				nombre: 'Credencial que apunta al sensor',
+				modulo: 'credencial-ssh',
+				tipo: 'identidad',
+				sensor: id,
+				destino: FS01,
+				via: 'windows',
+				ejecutor: 'manual@1',
+				senalTrampa: `${P}-t-cowrie-dir`,
+				donde: '-'
+			}
+		]);
+		const editar = (direccion: string) =>
+			accion(rutaFicha, 'editar', id, { nombre: 'Sensor', direccion });
+		expect(await editar('10.30.0.9')).toMatchObject({ mensaje: 'Changes saved.' });
+		expect(await editar('')).toMatchObject({ mensaje: 'Changes saved.' });
+		/* Otra dirección sí cambia lo sembrado: se niega. */
+		expect(await editar('10.30.0.10')).toMatchObject({ status: 400 });
+		expect(await hecho(id, 'destino.direccion')).toMatchObject({ valor: '10.30.0.9' });
 	});
 
 	it('dar de baja se niega con trampas o con sensor, y sin nada lo borra', async () => {
 		const cow = `${P}-cow`;
 		expect(await accion(rutaFicha, 'baja', cow)).toMatchObject({
 			status: 400,
-			data: { accion: 'baja', error: 'Retira antes sus trampas.' }
+			data: { accion: 'baja', error: 'Remove its decoys first.' }
 		});
 		expect(await accion(rutaFicha, 'baja', `${P}-local`)).toMatchObject({
 			status: 400,
-			data: { error: 'Este destino tiene sensor: se da de baja retirando su sensor, en Sensores.' }
+			data: { error: 'This target has a sensor: it is removed by removing its sensor, in Sensors.' }
 		});
 		expect(await accion(rutaFicha, 'baja', `${P}-fs02`)).toMatchObject({
 			status: 303,
-			location: '/sensores?baja'
+			location: '/sensors?baja'
 		});
 		expect(
 			await db
@@ -458,7 +501,7 @@ describe.skipIf(!hayBase)('la página Destinos', () => {
 		const [a] = await db
 			.select()
 			.from(s.auditoria)
-			.where(and(eq(s.auditoria.quien, QUIEN), eq(s.auditoria.accion, 'destino dado de baja')));
+			.where(and(eq(s.auditoria.quien, QUIEN), eq(s.auditoria.accion, 'target removed')));
 		expect(a.detalle).toEqual({ id: `${P}-fs02`, nombre: `${P}-fs02`, tipo: 'maquina' });
 		expect(
 			(await db.select().from(s.destinos).where(eq(s.destinos.id, cow))).map((d) => d.id)

@@ -45,29 +45,29 @@ func Capa2(o Opciones) *motor.Hecho {
 		return nil
 	}
 	if _, err := os.Stat(filepath.Join(sys, "class", "net", o.Interfaz)); err != nil {
-		return &motor.Hecho{Valor: false, Motivo: "la interfaz " + o.Interfaz +
-			" no existe en esta máquina: elige la del segmento a vigilar (por cable o VLAN)"}
+		return &motor.Hecho{Valor: false, Motivo: "interface " + o.Interfaz +
+			" does not exist on this machine: choose the one on the segment to monitor (wired or VLAN)"}
 	}
 	// /sys/class/net/<if>/phy80211 existe solo en las interfaces Wi-Fi.
 	if _, err := os.Stat(filepath.Join(sys, "class", "net", o.Interfaz, "phy80211")); err == nil {
-		return &motor.Hecho{Valor: false, Motivo: "la interfaz " + o.Interfaz +
-			" es Wi-Fi: el modo «IP propia» (macvlan) no funciona sobre Wi-Fi, porque las tramas 802.11 llevan más cabeceras de las que puede fingir. Pon el sensor en la VLAN por cable."}
+		return &motor.Hecho{Valor: false, Motivo: "interface " + o.Interfaz +
+			" is Wi-Fi: the own-IP mode (macvlan) does not work over Wi-Fi, because 802.11 frames carry more headers than can be faked. Put the sensor on the wired VLAN."}
 	}
 	if nube(sys) {
-		return &motor.Hecho{Valor: false, Motivo: "esta máquina es una VM en la nube (AWS, Azure, GCP u Oracle): " +
-			"las IP del segmento las gestiona el hipervisor y una MAC sin registrar no llega a ninguna parte. El modo «IP propia» necesita un servidor propio o en VM en la LAN del cliente."}
+		return &motor.Hecho{Valor: false, Motivo: "this machine is a cloud VM (AWS, Azure, GCP or Oracle): " +
+			"the hypervisor manages the segment IPs and an unregistered MAC goes nowhere. The own-IP mode needs a physical server or a VM on the customer LAN."}
 	}
 	if o.Rango == "" {
-		return &motor.Hecho{Valor: false, Motivo: "falta el rango de IP propias: reserva uno fuera del reparto del DHCP " +
-			"(p. ej. 10.0.0.240/28) y arranca el sensor con -rango."}
+		return &motor.Hecho{Valor: false, Motivo: "the own-IP range is missing: reserve one outside the DHCP pool " +
+			"(e.g. 10.0.0.240/28) and start the sensor with -rango."}
 	}
 	if _, err := Rangos(o.Rango); err != nil || !strings.Contains(o.Rango, "/") {
-		return &motor.Hecho{Valor: false, Motivo: "el rango de IP propias (" + o.Rango +
-			") no se entiende: tiene que ser un CIDR IPv4 (p. ej. 10.0.0.240/28)."}
+		return &motor.Hecho{Valor: false, Motivo: "the own-IP range (" + o.Rango +
+			") is not understood: it must be an IPv4 CIDR (e.g. 10.0.0.240/28)."}
 	}
-	return &motor.Hecho{Valor: true, Motivo: "la interfaz " + o.Interfaz +
-		" es un enlace por cable o VLAN de acceso y hay un rango propio reservado (" + o.Rango +
-		"): macvlan puede dar a cada trampa su propia IP en el segmento."}
+	return &motor.Hecho{Valor: true, Motivo: "interface " + o.Interfaz +
+		" is a wired or access-VLAN link and an own range is reserved (" + o.Rango +
+		"): macvlan can give each decoy its own IP on the segment."}
 }
 
 // sys: raíz de /sys, para las pruebas (que fabrican la suya).

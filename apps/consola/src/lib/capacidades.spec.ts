@@ -11,9 +11,9 @@ const motor = {
 
 describe('lo que la consola enseña del motor de cada sensor', () => {
 	it('resume el motor en una línea', () => {
-		expect(resumenMotor(motor)).toBe('Docker 27.5.1 · con root · arm64 · API 1.47');
+		expect(resumenMotor(motor)).toBe('Docker 27.5.1 · rootful · arm64 · API 1.47');
 		expect(resumenMotor({ tipo: 'podman', version: '5.2.1', modo: 'rootless' })).toBe(
-			'Podman 5.2.1 · sin root'
+			'Podman 5.2.1 · rootless'
 		);
 	});
 
@@ -37,22 +37,22 @@ describe('lo que la consola enseña del motor de cada sensor', () => {
 			hechos: {}
 		});
 		expect(a).toMatchObject({ codigo: 'motor.permiso', gravedad: 'error' });
-		expect(a.titulo).toMatch(/permiso/);
-		expect(a.texto).toMatch(/^El sensor no tiene permiso .* socket\. Hasta que se arregle/);
+		expect(a.titulo).toMatch(/permission/);
+		expect(a.texto).toMatch(/^El sensor no tiene permiso .* socket\. Until this is fixed/);
 	});
 
 	it('un código de motor que esta consola no conoce también se enseña', () => {
 		const [a] = avisosSensor({ motor: { codigo: 'motor.nuevo', error: 'algo raro.' }, hechos: {} });
 		expect(a).toMatchObject({ codigo: 'motor.nuevo', gravedad: 'error' });
-		expect(a.texto).toMatch(/^Algo raro\. Hasta/);
+		expect(a.texto).toMatch(/^Algo raro\. Until this is fixed/);
 	});
 
 	it.each([
 		['origen.pasarela', /iptables/],
 		['origen.desktop', /Docker Desktop/],
 		['origen.wsl', /WSL2/],
-		['origen.rootless', /sin root/],
-		['origen.otro-futuro', /motor de contenedores/]
+		['origen.rootless', /rootless/],
+		['origen.otro-futuro', /container engine/]
 	])('avisa de que las trampas no ven la IP real (%s)', (motivo, explica) => {
 		const [a] = avisosSensor({
 			motor,
@@ -60,7 +60,7 @@ describe('lo que la consola enseña del motor de cada sensor', () => {
 		});
 		expect(a).toMatchObject({ codigo: motivo, gravedad: 'aviso' });
 		expect(a.texto).toMatch(explica);
-		expect(a.texto).toMatch(/no bloquees/);
+		expect(a.texto).toMatch(/do not block/);
 	});
 
 	it('con la IP real no hay aviso', () => {
@@ -86,7 +86,7 @@ describe('lo que la consola enseña del motor de cada sensor', () => {
 		expect(resto).toEqual([]);
 		expect(a).toMatchObject({ codigo: 'clone3.bloqueado', gravedad: 'aviso' });
 		expect(a.texto).toMatch(/clone3/);
-		expect(a.texto).toMatch(/Actualiza Docker/);
+		expect(a.texto).toMatch(/Update Docker/);
 	});
 
 	it('con clone3 disponible no hay aviso', () => {

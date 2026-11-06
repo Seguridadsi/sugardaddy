@@ -2,7 +2,7 @@
  * Triaje automático (gratis): marcar solos, al recibirlos, los eventos nuevos
  * que casan una regla, para que el operador no tenga que triajar a mano lo
  * repetitivo (un escáner conocido como falso positivo, una IP propia como
- * revisada, un usuario de pruebas…). Las reglas las gestiona /eventos/reglas;
+ * revisada, un usuario de pruebas…). Las reglas las gestiona /events/rules;
  * se aplican SOLO a los eventos nuevos, nunca al histórico (forward-only).
  *
  * El cotejo es puro y testeable (casaReglaTriaje/triajeDeReglas).
@@ -91,7 +91,7 @@ export function triajeDeReglas(
 export function aplicarTriajeAuto(eventos: readonly Evento[]): void {
 	if (!eventos.length) return;
 	Promise.resolve(aplicarTriajeAutoAhora(eventos)).catch((err) =>
-		console.error('[triaje-auto] no se pudo aplicar el triaje automático', err)
+		console.error('[triaje-auto] could not apply automatic triage', err)
 	);
 }
 

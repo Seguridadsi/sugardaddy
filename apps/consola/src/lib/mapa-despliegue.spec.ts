@@ -22,7 +22,7 @@ const trampa = (c: Partial<TrampaMapa> = {}): TrampaMapa => ({
 	id: 't',
 	nombre: 'Trampa',
 	modulo: null,
-	clase: 'Contenedor',
+	clase: 'Container',
 	estado: 'comprobada',
 	etiqueta: 'Comprobada',
 	motivo: null,
@@ -145,23 +145,23 @@ describe('textos', () => {
 	it('enumerar une y resume', () => {
 		expect(enumerar([])).toBe('');
 		expect(enumerar(['A'])).toBe('A');
-		expect(enumerar(['A', 'B'])).toBe('A y B');
-		expect(enumerar(['A', 'B', 'C'])).toBe('A, B y C');
-		expect(enumerar(['A', 'B', 'C', 'D', 'E'])).toBe('A, B, C y 2 más');
+		expect(enumerar(['A', 'B'])).toBe('A and B');
+		expect(enumerar(['A', 'B', 'C'])).toBe('A, B and C');
+		expect(enumerar(['A', 'B', 'C', 'D', 'E'])).toBe('A, B, C and 2 more');
 	});
 
 	it('estadoEnPlural concuerda con el número', () => {
-		expect(estadoEnPlural('comprobada', 1)).toBe('comprobada');
-		expect(estadoEnPlural('comprobada', 2)).toBe('comprobadas');
-		expect(estadoEnPlural('comprobada', 0)).toBe('comprobadas');
-		expect(estadoEnPlural('sin-contacto', 2)).toBe('sin contacto');
+		expect(estadoEnPlural('comprobada', 1)).toBe('verified');
+		expect(estadoEnPlural('comprobada', 2)).toBe('verified');
+		expect(estadoEnPlural('comprobada', 0)).toBe('verified');
+		expect(estadoEnPlural('sin-contacto', 2)).toBe('offline');
 	});
 
 	it('tituloZona usa el nombre, luego el rango y luego lo dice', () => {
 		expect(tituloZona({ tipo: 'red', nombre: 'DMZ', red: '10.0.0.0/24' })).toBe('DMZ');
 		expect(tituloZona({ tipo: 'red', nombre: null, red: '10.0.0.0/24' })).toBe('10.0.0.0/24');
-		expect(tituloZona({ tipo: 'red', nombre: null, red: null })).toBe('Red sin indicar');
-		expect(tituloZona({ tipo: 'fuera', nombre: null, red: null })).toBe('Fuera de tu red');
+		expect(tituloZona({ tipo: 'red', nombre: null, red: null })).toBe('Network not set');
+		expect(tituloZona({ tipo: 'fuera', nombre: null, red: null })).toBe('Outside your network');
 	});
 });
 
@@ -294,15 +294,15 @@ describe('etiquetaTrampa', () => {
 	});
 	it('con IP propia enseña esa IP, y lo dice si aún no la tiene', () => {
 		expect(etiquetaTrampa(trampa({ conIpPropia: true, ipPropia: '10.0.0.9' }))).toEqual({
-			arriba: 'IP propia',
+			arriba: 'Own IP',
 			abajo: '10.0.0.9',
 			clase: 'propia'
 		});
-		expect(etiquetaTrampa(trampa({ conIpPropia: true })).abajo).toBe('Sin IP todavía');
+		expect(etiquetaTrampa(trampa({ conIpPropia: true })).abajo).toBe('No IP yet');
 	});
 	it('sin puertos, su clase y su nombre', () => {
-		expect(etiquetaTrampa(trampa({ clase: 'Fichero', nombre: 'KeePass' }))).toEqual({
-			arriba: 'Fichero',
+		expect(etiquetaTrampa(trampa({ clase: 'File', nombre: 'KeePass' }))).toEqual({
+			arriba: 'File',
 			abajo: 'KeePass',
 			clase: 'nombre'
 		});
@@ -327,7 +327,7 @@ describe('detalleNodo', () => {
 		expect(detalleNodo(base, 's:fs')).toMatchObject({ tipo: 'sistema', recibe: { id: 'n' } });
 		expect(detalleNodo(base, 's:nube')).toMatchObject({ tipo: 'sistema', recibe: null });
 		expect(detalleNodo(base, 'f:c:n:web')).toMatchObject({ tipo: 'familia', nombre: 'Web' });
-		expect(detalleNodo(base, 'f:s:fs:null')).toMatchObject({ tipo: 'familia', nombre: 'Otras' });
+		expect(detalleNodo(base, 'f:s:fs:null')).toMatchObject({ tipo: 'familia', nombre: 'Other' });
 		expect(detalleNodo(base, 'f:s:nube:null')).toMatchObject({
 			tipo: 'familia',
 			trampas: [lejana]
@@ -348,22 +348,16 @@ describe('detalleNodo', () => {
 describe('rutaCorta', () => {
 	const con = (texto: string) => trampa({ ruta: { texto, destino: null, rele: false } });
 	it('dice cómo llega la señal, sin la coletilla', () => {
-		expect(rutaCorta({ trampas: [con('Auditoría de Windows, hacia')] })).toBe(
-			'Auditoría de Windows'
-		);
-		expect(rutaCorta({ trampas: [con('Quien use lo sembrado entra en')] })).toBe(
-			'Quien use lo sembrado'
-		);
+		expect(rutaCorta({ trampas: [con('Windows audit, to')] })).toBe('Windows audit');
+		expect(rutaCorta({ trampas: [con('Bait users land on')] })).toBe('Bait users');
 	});
 	it('varias trampas por el mismo camino son una sola señal; por varios, lo dice', () => {
-		const a = con('Baliza del documento, hacia');
-		expect(rutaCorta({ trampas: [a, a] })).toBe('Baliza del documento');
-		expect(rutaCorta({ trampas: [a, con('Auditoría de Windows, hacia')] })).toBe(
-			'2 señales distintas'
-		);
+		const a = con('Document beacon, to');
+		expect(rutaCorta({ trampas: [a, a] })).toBe('Document beacon');
+		expect(rutaCorta({ trampas: [a, con('Windows audit, to')] })).toBe('2 different signals');
 	});
 	it('sin trampas o sin ruta, también lo dice', () => {
-		expect(rutaCorta({ trampas: [] })).toBe('Sin señal todavía');
-		expect(rutaCorta({ trampas: [trampa()] })).toBe('Señal sin ruta');
+		expect(rutaCorta({ trampas: [] })).toBe('No signal yet');
+		expect(rutaCorta({ trampas: [trampa()] })).toBe('Signal with no route');
 	});
 });

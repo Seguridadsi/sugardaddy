@@ -87,36 +87,6 @@ export function normalizarIp(ip: string | null | undefined): string | null {
 	return null;
 }
 
-/* Una IPv4 como número, o null si no lo es. */
-function ipv4(ip: string): number | null {
-	const p = ip.split('.');
-	if (p.length !== 4 || p.some((x) => !/^\d{1,3}$/.test(x) || Number(x) > 255)) return null;
-	return p.reduce((n, x) => n * 256 + Number(x), 0);
-}
-
-/* Si una IPv4 cae en una red en CIDR IPv4 (la de un sensor: 10.70.0.0/24). */
-function enRed(ip: string, red: string): boolean {
-	const [base, bits] = red.split('/');
-	const a = ipv4(ip);
-	const b = ipv4(base ?? '');
-	const n = Number(bits);
-	if (a === null || b === null || !Number.isInteger(n) || n < 0 || n > 32) return false;
-	const tramo = 2 ** (32 - n);
-	return Math.floor(a / tramo) === Math.floor(b / tramo);
-}
-
-/*
- * La IP de la máquina de un sensor, de las que cuenta él mismo (hecho
- * red.direcciones): la que cae en su red, si se sabe, y si no la primera.
- * null si no cuenta ninguna (un sensor anterior a la 0.17.1). Pura.
- */
-export function ipDeLaMaquina(direcciones: unknown, red: string | null): string | null {
-	const ips = Array.isArray(direcciones)
-		? direcciones.filter((x): x is string => typeof x === 'string' && isIP(x) !== 0)
-		: [];
-	return (red ? ips.find((x) => enRed(x, red)) : undefined) ?? ips[0] ?? null;
-}
-
 /* ---------------------------------------------------------------------------
  * Qué da «Probar» en una trampa
  * ------------------------------------------------------------------------- */
@@ -160,7 +130,7 @@ function puertoTcp(via: Via, parametros: Record<string, unknown>): number | null
 
 const sinDireccion = (d: DestinoDePrueba) => ({
 	puede: false as const,
-	motivo: `Pon la dirección de ${d.nombre} en Destinos para probarla.`,
+	motivo: `Enter the address of ${d.nombre} under Targets to test it.`,
 	destino: d.id
 });
 
@@ -181,29 +151,29 @@ export function comoProbar(
 	if (!estado || !PROBABLES.includes(estado.estado)) {
 		const motivo =
 			estado?.estado === 'retirando'
-				? 'Se está retirando: ya no se prueba.'
+				? 'It is being removed: it can no longer be tested.'
 				: estado?.estado === 'parada'
-					? 'Está parada: reanúdala para probarla.'
+					? 'It is paused: resume it to test it.'
 					: estado?.estado === 'sin-contacto'
-						? 'Su sensor no contesta: la prueba no llegaría. Pruébala cuando vuelva a contestar.'
+						? 'Its sensor is not responding, so the test would not arrive. Test it again when the sensor responds.'
 						: manual
-							? 'Primero ponla con sus pasos y pulsa «Ya está hecho».'
-							: 'Aún no está puesta: podrás probarla cuando su sensor la ponga.';
+							? 'First deploy it using its steps and click "Mark as deployed".'
+							: 'It is not deployed yet: you can test it once its sensor deploys it.';
 		return { puede: false, motivo };
 	}
 	if (manual) {
 		const p = t.manual;
-		if (!p) return { puede: false, motivo: 'No tiene pasos guardados: no se puede probar.' };
+		if (!p) return { puede: false, motivo: 'It has no saved steps, so it cannot be tested.' };
 		if (!p.marca || !t.senalTrampa)
 			return {
 				puede: false,
-				motivo: 'Su señal aún no puede llegar a la consola: no se puede probar.'
+				motivo: 'Its signal cannot reach the console yet, so it cannot be tested.'
 			};
 		if (!p.prueba)
 			return {
 				puede: false,
 				motivo:
-					'Su forma no trae prueba: quedará comprobada con el primer evento real que llegue por su señal.'
+					'Its method includes no test: it will be verified by the first real event that arrives through its signal.'
 			};
 		if (p.prueba.marca)
 			return {
@@ -219,18 +189,22 @@ export function comoProbar(
 		if (!ip)
 			return {
 				puede: false,
-				motivo: `Para probarla hace falta la IP de ${d.nombre}, no su nombre: ponla en Destinos.`,
+				motivo: `To test it, the IP of ${d.nombre} is needed, not its name: enter it under Targets.`,
 				destino: d.id
 			};
 		return { puede: true, forma: 'destino', porIp: 'destino', ip, ventanaMin: p.prueba.ventanaMin };
 	}
 	if (!h)
-		return { puede: false, motivo: 'Su módulo ya no está en el catálogo: no se puede probar.' };
+		return {
+			puede: false,
+			motivo: 'Its module is no longer in the catalog, so it cannot be tested.'
+		};
 	const via = viaDe(h, t.via);
 	if (!via || via.ejecutor !== t.ejecutor)
 		return {
 			puede: false,
-			motivo: 'La forma con que se puso ya no existe en su módulo: no se puede probar.'
+			motivo:
+				'The method it was deployed with no longer exists in its module, so it cannot be tested.'
 		};
 	const prueba = via.comprobacion?.prueba;
 	if (prueba) {
@@ -250,7 +224,7 @@ export function comoProbar(
 		return {
 			puede: false,
 			motivo:
-				'No trae prueba y no escucha en ningún puerto TCP: quedará comprobada con el primer evento real que llegue.'
+				'It includes no test and does not listen on any TCP port: it will be verified by the first real event that arrives.'
 		};
 	if (!d.direccion || !DIRECCION.test(d.direccion)) return sinDireccion(d);
 	return {
@@ -268,11 +242,8 @@ export function comoProbar(
 
 /*
  * Lo que hace falta de una trampa para su prueba: su módulo, sus ajustes y su
- * destino. La dirección del destino es la que se puso en Destinos; si no se
- * puso y el destino es la máquina de un sensor, la IP que ese sensor cuenta de
- * ella (red.direcciones), que es donde publica sus trampas. Sin esto, el
- * destino del sensor del nodo, que el instalador crea sin dirección, no se
- * podía probar: ni «Probar» ni «Prueba mi detección» tocaban nada.
+ * destino, con la dirección que da hechosDe (la de Destinos o, en la máquina
+ * de un sensor, la IP que él cuenta).
  */
 async function datosDe(t: Trampa) {
 	const h = honeycosas().find((x) => x.id === t.modulo);
@@ -284,10 +255,8 @@ async function datosDe(t: Trampa) {
 		const sensor = fila.sensor
 			? ((await db.select().from(s.sensores).where(eq(s.sensores.id, fila.sensor)))[0] ?? null)
 			: null;
-		const hechos = hechosDe(fila, sensor);
-		const v = hechos['destino.direccion']?.valor;
+		const v = hechosDe(fila, sensor)['destino.direccion']?.valor;
 		if (typeof v === 'string') direccion = v;
-		else if (sensor) direccion = ipDeLaMaquina(hechos['red.direcciones']?.valor, sensor.red);
 	}
 	const destino: DestinoDePrueba = {
 		id: fila?.id ?? t.sensor,
@@ -341,7 +310,7 @@ function pasosDePrueba(
 ): { pasos: PasosDePrueba; marca: Marca | null } | { error: string } {
 	if (forma === 'destino') {
 		const p = t.manual;
-		if (!p?.prueba) return { error: 'Su forma no trae prueba.' };
+		if (!p?.prueba) return { error: 'Its method includes no test.' };
 		const r = probar(p, nonce);
 		return {
 			pasos: {
@@ -355,7 +324,8 @@ function pasosDePrueba(
 		};
 	}
 	const via = h && viaDe(h, t.via);
-	if (!h || !via) return { error: 'La forma con que se puso ya no existe en su módulo.' };
+	if (!h || !via)
+		return { error: 'The method it was deployed with no longer exists in its module.' };
 	if (forma === 'via') {
 		const r = pruebaDeVia(
 			h,
@@ -368,7 +338,7 @@ function pasosDePrueba(
 			},
 			nonce
 		);
-		if (!r) return { error: 'Su forma no trae prueba.' };
+		if (!r) return { error: 'Its method includes no test.' };
 		if (!r.ok) return { error: r.errores.join('; ') };
 		return {
 			pasos: { forma, pasos: r.valor.pasos, variables: conOrdenes(r.valor) },
@@ -377,7 +347,7 @@ function pasosDePrueba(
 	}
 	const puerto = puertoTcp(via, parametros);
 	if (puerto === null || !d.direccion || !DIRECCION.test(d.direccion))
-		return { error: 'Ya no tiene un puerto TCP o su destino ya no tiene dirección.' };
+		return { error: 'It no longer has a TCP port, or its target no longer has an address.' };
 	return {
 		pasos: {
 			forma,
@@ -437,12 +407,12 @@ export async function abrirPrueba(
 		if (!esperadas.length)
 			return {
 				error:
-					'Escribe la IP del equipo desde el que vas a probar (por ejemplo, 10.0.0.25): es como la consola sabrá qué evento es de la prueba.'
+					'Enter the IP of the machine you will test from (for example, 10.0.0.25): that is how the console will know which event belongs to the test.'
 			};
 	}
 	const nonce = nuevoNonce();
 	const r = pasosDePrueba(t, h, parametros, destino, como.forma, nonce);
-	if ('error' in r) return { error: `No se puede preparar su prueba: ${r.error}` };
+	if ('error' in r) return { error: `Cannot prepare its test: ${r.error}` };
 	const ventanaMin = opciones.ventanaMin ?? como.ventanaMin;
 	const marca = opciones.porToque ? marcaDeToque(nonce) : r.marca;
 	const abierta = await db.transaction(async (tx) => {
@@ -460,7 +430,7 @@ export async function abrirPrueba(
 			.returning({ id: s.pruebas.id, hasta: s.pruebas.hasta });
 		await tx.insert(s.auditoria).values({
 			quien,
-			accion: 'prueba abierta',
+			accion: 'test opened',
 			detalle: {
 				id: t.id,
 				prueba: p.id,

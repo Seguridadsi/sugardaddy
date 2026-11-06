@@ -1,5 +1,5 @@
 /*
- * El mapa del despliegue (página /mapa): las redes, los sensores, los sistemas
+ * El mapa del despliegue (página /map): las redes, los sensores, los sistemas
  * sin sensor y las trampas de cada uno. Una trampa sale donde está puesta (su
  * destino), no en el sensor que recibe su señal, y un sistema sin sensor cuelga
  * del sensor que recibe la mayoría de sus señales. Aquí solo se arma, sin tocar
@@ -51,17 +51,17 @@ const ICONOS: Readonly<Record<string, IconoEquipo>> = {
 };
 
 const CLASES: Readonly<Record<string, string>> = {
-	contenedor: 'Contenedor',
-	fichero: 'Fichero',
+	contenedor: 'Container',
+	fichero: 'File',
 	token: 'Token',
-	identidad: 'Identidad'
+	identidad: 'Identity'
 };
 
 const CANALES: Readonly<Record<string, string>> = {
-	'windows-eventos': 'Registros de Windows',
-	syslog: 'Registros de syslog',
-	journald: 'Registros de journald',
-	'directorio-activo': 'Registros del directorio activo'
+	'windows-eventos': 'Windows logs',
+	syslog: 'Syslog logs',
+	journald: 'Journald logs',
+	'directorio-activo': 'Active Directory logs'
 };
 
 const CONEXIONES: Readonly<Record<string, string>> = {
@@ -69,15 +69,15 @@ const CONEXIONES: Readonly<Record<string, string>> = {
 	azure: 'Azure',
 	aws: 'AWS',
 	google: 'Google',
-	ldap: 'el directorio activo'
+	ldap: 'Active Directory'
 };
 
 const CLASES_BALIZA: Readonly<Record<string, string>> = {
-	documento: 'Baliza del documento, hacia',
-	enlace: 'Baliza del enlace, hacia',
-	webhook: 'Webhook de la nube, hacia',
-	acs: 'Inicio de sesión SAML, hacia',
-	vigia: 'Auditoría de Windows, hacia'
+	documento: 'Document beacon, to',
+	enlace: 'Link beacon, to',
+	webhook: 'Cloud webhook, to',
+	acs: 'SAML sign-in, to',
+	vigia: 'Windows audit, to'
 };
 
 /*
@@ -88,18 +88,18 @@ const CLASES_BALIZA: Readonly<Record<string, string>> = {
 const SERVICIOS: Readonly<Record<string, string>> = {
 	'almacen-s3:puertoApi': 'S3',
 	'almacen-s3:puertoConsola': 'HTTP',
-	'api-docker:puertoDocker': 'API Docker',
+	'api-docker:puertoDocker': 'Docker API',
 	'api-ia:puerto': 'HTTP',
 	'api-interna:puerto': 'HTTP',
 	'camara-ip:puertoWsd': 'WSD',
 	'clima:puertoClima': 'BACnet',
 	'consola-copias:puerto': 'HTTPS',
-	'darknet:puertoSonda': 'Testigo',
+	'darknet:puertoSonda': 'Probe',
 	'elasticsearch:puerto': 'Elastic',
 	'envenenador:puertoDetector': 'Detector',
-	'envenenador:puertoEscucha': 'Escucha',
-	'escaneo:': 'Testigo',
-	'ftp:': 'FTP pasivo',
+	'envenenador:puertoEscucha': 'Listener',
+	'escaneo:': 'Probe',
+	'ftp:': 'Passive FTP',
 	'git:puertoGit': 'Git',
 	'hipervisor:puertoWeb': 'HTTPS',
 	'impresora:puertoRaw': 'JetDirect',
@@ -122,11 +122,12 @@ const SERVICIOS: Readonly<Record<string, string>> = {
 	'webdav:puerto': 'WebDAV'
 };
 
-/* «Puerto SSH» → SSH; «Puerto MQTT (TCP)» → MQTT; «Puerto de la web» → web. */
+/* «SSH port» → SSH; «MQTT port (TCP)» → MQTT; «Web port» → Web; también con los títulos de antes («Puerto SSH»). */
 export function servicioDelTitulo(titulo: string): string {
 	return titulo
 		.replace(/\(.*?\)/g, '')
-		.replace(/^\s*Puerto(\s+del?(\s+la)?)?\s*/i, '')
+		.replace(/^\s*(Puerto(\s+del?(\s+la)?)?|Port(\s+of(\s+the)?)?)\s*/i, '')
+		.replace(/\s*\bport\s*$/i, '')
 		.trim();
 }
 
@@ -182,8 +183,12 @@ export function puertosParaMapa(
 	});
 }
 
+/* Lo último de una ruta parece un fichero: nombre, punto y extensión (.ssh es una carpeta). */
+const FICHERO_AL_FINAL = /[^\\/.][^\\/]*\.[A-Za-z][A-Za-z0-9]{1,5}$/;
+
 const unir = (carpeta: string, fichero: string) => {
-	if (carpeta.endsWith(fichero)) return carpeta;
+	/* Hay trampas que piden la ruta entera (keepass-cebo) además del nombre. */
+	if (carpeta.endsWith(fichero) || FICHERO_AL_FINAL.test(carpeta)) return carpeta;
 	if (/[\\/]$/.test(carpeta)) return carpeta + fichero;
 	return `${carpeta}${carpeta.includes('\\') ? '\\' : '/'}${fichero}`;
 };
@@ -221,7 +226,7 @@ export function destinoDeUrl(
 	}
 	const dominio = rele?.replace(/^https?:\/\//, '').split('/')[0];
 	if (dominio && u.host.toLowerCase() === dominio.toLowerCase())
-		return { destino: 'relé público', rele: true };
+		return { destino: 'public relay', rele: true };
 	return {
 		destino: `${u.hostname}:${u.port || (u.protocol === 'https:' ? '443' : '80')}/tcp`,
 		rele: false
@@ -332,7 +337,7 @@ function ordenar(ts: TrampaMapa[]) {
 		(a, b) =>
 			Number(b.problema) - Number(a.problema) ||
 			b.eventos - a.eventos ||
-			a.nombre.localeCompare(b.nombre, 'es')
+			a.nombre.localeCompare(b.nombre, 'en')
 	);
 }
 
@@ -373,32 +378,32 @@ export function armarMapa(e: EntradaMapa): Mapa {
 			const objetivo = t.senalTrampa ? trampaDe.get(t.senalTrampa) : null;
 			return objetivo
 				? {
-						texto: 'Quien use lo sembrado entra en',
+						texto: 'Bait users land on',
 						destino: direccionDe(objetivo) ?? objetivo.nombre,
 						rele: false
 					}
-				: { texto: 'Sin trampa que reciba su señal', destino: null, rele: false };
+				: { texto: 'No decoy receives its signal', destino: null, rele: false };
 		}
 		if (fuente.tipo === 'registros') {
 			const sensor = sensorDe.get(t.sensor)?.nombre;
-			const canal = CANALES[fuente.canal] ?? 'Registros del sistema';
+			const canal = CANALES[fuente.canal] ?? 'System logs';
 			return {
-				texto: sensor ? `${canal}, leídos por ${sensor}` : canal,
+				texto: sensor ? `${canal}, read by ${sensor}` : canal,
 				destino: null,
 				rele: false
 			};
 		}
 		if (fuente.tipo === 'conector')
 			return {
-				texto: `La consola consulta ${CONEXIONES[fuente.conexion] ?? fuente.conexion}`,
+				texto: `The console queries ${CONEXIONES[fuente.conexion] ?? fuente.conexion}`,
 				destino: null,
 				rele: false
 			};
 		const b = balizaDe.get(t.id);
 		const destino = b ? destinoDeUrl(b.url, e.rele) : null;
-		if (!b || !destino) return { texto: 'Baliza sin dirección', destino: null, rele: false };
+		if (!b || !destino) return { texto: 'Beacon with no address', destino: null, rele: false };
 		return {
-			texto: CLASES_BALIZA[b.clase] ?? 'Baliza, hacia',
+			texto: CLASES_BALIZA[b.clase] ?? 'Beacon, to',
 			destino: destino.destino,
 			rele: destino.rele
 		};

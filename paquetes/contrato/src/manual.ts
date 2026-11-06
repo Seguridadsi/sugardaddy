@@ -112,22 +112,22 @@ function comoTexto(v: unknown): string | undefined {
 }
 
 const ETIQUETAS = {
-	'trampa.id': 'Id de la trampa',
-	'trampa.nombre': 'Nombre de la trampa',
-	'destino.nombre': 'Nombre del destino',
-	'destino.direccion': 'Dirección del destino',
-	baliza_url: 'URL de la baliza'
+	'trampa.id': 'Decoy ID',
+	'trampa.nombre': 'Decoy name',
+	'destino.nombre': 'Target name',
+	'destino.direccion': 'Target address',
+	baliza_url: 'Beacon URL'
 } as const;
 
 /* Por qué puede faltar cada variable de contexto, con el texto que ve el cliente. */
 function faltaDe(nombre: keyof typeof ETIQUETAS, c: Omit<ContextoManual, 'generado'>): string {
 	switch (nombre) {
 		case 'destino.direccion':
-			return `${c.destino.nombre} no tiene dirección; ponla en Destinos`;
+			return `${c.destino.nombre} has no address; set it in Targets`;
 		case 'baliza_url':
-			return 'falta la URL de la baliza de esta honeycosa (se acuña al darle de alta)';
+			return 'the beacon URL of this decoy is missing (it is minted when the decoy is enrolled)';
 		default:
-			return `falta la variable ${nombre}`;
+			return `the variable ${nombre} is missing`;
 	}
 }
 
@@ -159,7 +159,7 @@ function resolver(
 		if (valor === undefined || valor === null) return { error: `${etiqueta}: ${falta}` };
 		const texto = comoTexto(valor);
 		if (texto === undefined)
-			return { error: `${etiqueta}: no es un texto, un número ni un sí o no` };
+			return { error: `${etiqueta}: is not text, a number or a yes/no value` };
 		return { clave, origen, valor: texto, etiqueta };
 	};
 	switch (v.de) {
@@ -169,7 +169,7 @@ function resolver(
 				`parametro:${v.parametro}`,
 				titulo(v.parametro),
 				Object.hasOwn(p, v.parametro) ? p[v.parametro] : undefined,
-				'falta, y lo usan los pasos'
+				'is missing, and the steps use it'
 			);
 		case 'contexto': {
 			const valores: Record<typeof v.nombre, string | undefined> = {
@@ -192,16 +192,16 @@ function resolver(
 			const etiqueta = titulo(v.parametro);
 			const id = Object.hasOwn(p, v.parametro) ? p[v.parametro] : undefined;
 			if (typeof id !== 'string' || id === '')
-				return { error: `${etiqueta}: falta la trampa a la que apunta` };
+				return { error: `${etiqueta}: the decoy it points to is missing` };
 			const t = Object.hasOwn(c.trampas, id) ? c.trampas[id] : undefined;
-			if (!t) return { error: `${etiqueta}: la trampa ${id} no existe` };
+			if (!t) return { error: `${etiqueta}: decoy ${id} does not exist` };
 			if (v.de === 'objetivo-direccion')
 				return conValor(
 					claveDe(`${v.parametro}.direccion`),
 					`objetivo:${v.parametro}:direccion`,
 					etiqueta,
 					t.direccion || undefined,
-					`el destino de la trampa ${id} no tiene dirección; ponla en Destinos`
+					`the target of decoy ${id} has no address; set it in Targets`
 				);
 			/* En sh el campo llega en mayúsculas: cómo se escribe lo dicen los parámetros del objetivo. */
 			const campo = v.exacto
@@ -212,15 +212,15 @@ function resolver(
 			if (campo === undefined) {
 				const nombre = v.exacto
 					? v.campo
-					: `el parámetro de SD_${v.parametro.toUpperCase()}_${v.campo}`;
-				return { error: `${etiqueta}: la trampa ${id} no tiene ${nombre}` };
+					: `the parameter for SD_${v.parametro.toUpperCase()}_${v.campo}`;
+				return { error: `${etiqueta}: decoy ${id} has no ${nombre}` };
 			}
 			return conValor(
 				claveDe(`${v.parametro}.${campo}`),
 				`objetivo:${v.parametro}:${campo}`,
 				etiqueta,
 				t.parametros[campo],
-				`la trampa ${id} no tiene ${campo}`
+				`decoy ${id} has no ${campo}`
 			);
 		}
 	}
@@ -308,7 +308,7 @@ export function renderizar(
 			continue;
 		}
 		if (PROHIBIDO.test(r.valor)) {
-			errores.push(`${r.etiqueta}: lleva saltos de línea o caracteres de control`);
+			errores.push(`${r.etiqueta}: contains line breaks or control characters`);
 			continue;
 		}
 		/* PowerShell no distingue mayúsculas en las claves y sh las pone todas en mayúsculas. */
@@ -319,10 +319,10 @@ export function renderizar(
 		);
 		if (otra)
 			errores.push(
-				`${r.etiqueta}: su variable ${r.clave} se confunde en el bloque con ${otra.clave} (${otra.etiqueta})`
+				`${r.etiqueta}: its variable ${r.clave} is confused with ${otra.clave} (${otra.etiqueta}) in the block`
 			);
 		else if (r.clave.toLowerCase() === 'nonce')
-			errores.push(`${r.etiqueta}: su variable ${r.clave} se confunde con el nonce de la prueba`);
+			errores.push(`${r.etiqueta}: its variable ${r.clave} is confused with the test nonce`);
 		else variables.set(r.clave, r);
 		if (u.forma === 'texto') huecos.set(u.nombre, r.valor);
 	}
@@ -331,7 +331,7 @@ export function renderizar(
 		[ETIQUETAS['destino.nombre'], c.destino.nombre]
 	])
 		if (PROHIBIDO.test(valor))
-			errores.push(`${etiqueta}: lleva saltos de línea o caracteres de control`);
+			errores.push(`${etiqueta}: contains line breaks or control characters`);
 	if (errores.length) return { ok: false, errores: [...new Set(errores)] };
 
 	/* Una sola pasada: un ${…} que venga dentro de un valor se queda tal cual. */
@@ -452,11 +452,11 @@ export function pruebaDeVia(
 			continue;
 		}
 		if (PROHIBIDO.test(r.valor)) {
-			errores.push(`${r.etiqueta}: lleva saltos de línea o caracteres de control`);
+			errores.push(`${r.etiqueta}: contains line breaks or control characters`);
 			continue;
 		}
 		if (r.clave.toLowerCase() === 'nonce') {
-			errores.push(`${r.etiqueta}: su variable ${r.clave} se confunde con el nonce de la prueba`);
+			errores.push(`${r.etiqueta}: its variable ${r.clave} is confused with the test nonce`);
 			continue;
 		}
 		variables[r.clave] = r.valor;
@@ -488,21 +488,21 @@ export function formatosDe(p: Pick<PasosGenerados, 'lenguaje'>): FormatoPasos[] 
 }
 
 const QUE: Record<PartePasos, string> = {
-	colocar: 'Colocar',
-	retirar: 'Retirar',
-	probar: 'Probar'
+	colocar: 'Deploy',
+	retirar: 'Remove',
+	probar: 'Test'
 };
 
 const FIN: Record<PartePasos, string> = {
-	colocar: 'Sugardaddy: pasos hechos. Vuelve a la consola y pulsa «Ya está hecho».',
-	retirar: 'Sugardaddy: pasos hechos. Vuelve a la consola y pulsa «Ya lo he quitado».',
-	probar: 'Sugardaddy: prueba hecha. La consola la verá cuando llegue el evento.'
+	colocar: 'Sugardaddy: steps done. Go back to the console and click "Mark as deployed".',
+	retirar: 'Sugardaddy: steps done. Go back to the console and click "I have removed it".',
+	probar: 'Sugardaddy: test done. The console will see it when the event arrives.'
 };
 
 const LENGUAJES: Record<LenguajeManual, string> = {
 	powershell: 'PowerShell',
 	sh: 'sh',
-	ninguno: 'pasos a mano, sin código'
+	ninguno: 'manual steps, no code'
 };
 
 /* Cualquier salto de línea parte un comentario: lo que va detrás nunca puede ser código. */
@@ -511,9 +511,9 @@ const comentario = (t: string) => lineas(t).map((l) => (l ? `# ${l}` : '#'));
 const codigo = (t: string) => t.split('\n');
 
 const cabecera = (p: PasosGenerados) =>
-	`Sugardaddy · trampa ${p.trampa} · destino ${p.destino} · vía ${p.via} · ${p.generado} · sha256 ${p.sha256}`;
+	`Sugardaddy · decoy ${p.trampa} · target ${p.destino} · method ${p.via} · ${p.generado} · sha256 ${p.sha256}`;
 const subtitulo = (p: PasosGenerados, parte: PartePasos) =>
-	`${QUE[parte]} «${p.nombres.trampa}» en ${p.nombres.destino} · ${p.nombres.modulo} ${p.versionModulo} · ${p.nombres.via}`;
+	`${QUE[parte]} "${p.nombres.trampa}" on ${p.nombres.destino} · ${p.nombres.modulo} ${p.versionModulo} · ${p.nombres.via}`;
 
 /* Las variables que pueden ir en el bloque de un script, en orden. */
 const delBloque = (variables: Record<string, string>) =>
@@ -545,15 +545,15 @@ function scriptPowershell(
 		'}'
 	];
 	for (const x of pasos) {
-		const de = `${x.n} de ${pasos.length}`;
-		l.push('', `# Paso ${de}`, ...comentario(x.texto));
-		l.push(`Write-Host ${literalPowershell(`Paso ${de}: ${x.texto}`)}`);
+		const de = `${x.n} of ${pasos.length}`;
+		l.push('', `# Step ${de}`, ...comentario(x.texto));
+		l.push(`Write-Host ${literalPowershell(`Step ${de}: ${x.texto}`)}`);
 		if (x.orden !== undefined)
 			l.push(
 				'try {',
 				...codigo(x.orden),
 				'} catch {',
-				`  throw (${literalPowershell(`Sugardaddy: ha fallado el paso ${de}: `)} + $_)`,
+				`  throw (${literalPowershell(`Sugardaddy: step ${de} failed: `)} + $_)`,
 				'}'
 			);
 		if (x.comprobar !== undefined)
@@ -562,7 +562,7 @@ function scriptPowershell(
 				...codigo(x.comprobar),
 				'})',
 				'if ($sdComprobado.Count -eq 0 -or $sdComprobado[-1] -isnot [bool] -or -not $sdComprobado[-1]) {',
-				`  throw ${literalPowershell(`Sugardaddy: no se cumple el paso ${de}: ${x.texto}`)}`,
+				`  throw ${literalPowershell(`Sugardaddy: step ${de} did not pass its check: ${x.texto}`)}`,
 				'}'
 			);
 	}
@@ -589,12 +589,12 @@ function scriptSh(
 		...delBloque(variables).map(([k, v]) => `SD_${k.toUpperCase()}=${literalSh(v)}`),
 		'',
 		'sd_paso=',
-		`trap 'sd_estado=$?; if [ "$sd_estado" -ne 0 ] && [ -n "$sd_paso" ]; then printf "Sugardaddy: ha fallado el paso %s.\\n" "$sd_paso" >&2; fi' EXIT`
+		`trap 'sd_estado=$?; if [ "$sd_estado" -ne 0 ] && [ -n "$sd_paso" ]; then printf "Sugardaddy: step %s failed.\\n" "$sd_paso" >&2; fi' EXIT`
 	];
 	for (const x of pasos) {
-		const de = `${x.n} de ${pasos.length}`;
-		l.push('', `# Paso ${de}`, ...comentario(x.texto));
-		l.push(`printf '%s\\n' ${literalSh(`Paso ${de}: ${x.texto}`)}`, `sd_paso=${literalSh(de)}`);
+		const de = `${x.n} of ${pasos.length}`;
+		l.push('', `# Step ${de}`, ...comentario(x.texto));
+		l.push(`printf '%s\\n' ${literalSh(`Step ${de}: ${x.texto}`)}`, `sd_paso=${literalSh(de)}`);
 		if (x.orden !== undefined) l.push(...codigo(x.orden));
 		if (x.comprobar !== undefined)
 			l.push(
@@ -602,7 +602,7 @@ function scriptSh(
 				...codigo(x.comprobar),
 				'); then',
 				'\tsd_paso=',
-				`\tprintf '%s\\n' ${literalSh(`Sugardaddy: no se cumple el paso ${de}: ${x.texto}`)} >&2`,
+				`\tprintf '%s\\n' ${literalSh(`Sugardaddy: step ${de} did not pass its check: ${x.texto}`)} >&2`,
 				'\texit 1',
 				'fi'
 			);
@@ -668,38 +668,38 @@ export function bloqueDeVariables(p: Pick<PasosGenerados, 'lenguaje' | 'variable
 }
 
 const COMPROBAR: Record<LenguajeManual, string> = {
-	powershell: 'Comprobación (tiene que dar True):',
-	sh: 'Comprobación (tiene que terminar con código 0):',
-	ninguno: 'Comprobación:'
+	powershell: 'Check (it must return True):',
+	sh: 'Check (it must exit with code 0):',
+	ninguno: 'Check:'
 };
 
 const textoMarca = (m: Marca) =>
-	'igual' in m ? `${m.campo} igual a «${m.igual}»` : `${m.campo} que contenga «${m.contiene}»`;
+	'igual' in m ? `${m.campo} equal to "${m.igual}"` : `${m.campo} containing "${m.contiene}"`;
 
 /* Lo que no puede faltar en el documento de cambios, sea .md o .txt. */
 function documento(p: PasosGenerados, nonce: string | undefined) {
-	const prueba = p.prueba ? pruebaCon(p, nonce ?? '(código de la prueba)') : undefined;
+	const prueba = p.prueba ? pruebaCon(p, nonce ?? '(test code)') : undefined;
 	return {
-		titulo: `Pasos de «${p.nombres.trampa}» en ${p.nombres.destino}`,
-		intro: `Generados por Sugardaddy el ${p.generado}, para la gestión de cambios: qué se va a hacer en ${p.nombres.destino}, cómo se comprueba y cómo se retira. Las órdenes de cada paso se pueden volver a ejecutar sin romper nada.`,
+		titulo: `Steps for "${p.nombres.trampa}" on ${p.nombres.destino}`,
+		intro: `Generated by Sugardaddy on ${p.generado} for change management: what will be done on ${p.nombres.destino}, how it is checked and how it is removed. The commands in each step can be run again without breaking anything.`,
 		ficha: [
-			['Trampa', `${p.nombres.trampa}`, p.trampa],
-			['Honeycosa', `${p.nombres.modulo}, versión ${p.versionModulo}`, p.modulo],
-			['Destino', p.nombres.destino, p.destino],
-			['Forma', `${p.nombres.via}, ${LENGUAJES[p.lenguaje]}`, p.via]
+			['Decoy', `${p.nombres.trampa}`, p.trampa],
+			['Decoy type', `${p.nombres.modulo}, version ${p.versionModulo}`, p.modulo],
+			['Target', p.nombres.destino, p.destino],
+			['Method', `${p.nombres.via}, ${LENGUAJES[p.lenguaje]}`, p.via]
 		] as const,
 		variables: (nonce ? { ...p.variables, nonce } : p.variables) as Record<string, string>,
 		senal: p.marca
-			? `La señal llega por otra trampa: un evento suyo con ${textoMarca(p.marca)} (sin distinguir mayúsculas) dice que se ha usado lo que se siembra aquí.`
+			? `The signal comes through another decoy: an event of that decoy with ${textoMarca(p.marca)} (case-insensitive) shows that what is planted here has been used.`
 			: undefined,
 		prueba: prueba
 			? {
-					intro: `Con «Probar» en la consola, que da el código de la prueba y espera el evento ${prueba.ventanaMin} minutos.`,
+					intro: `With "Test" in the console, which gives the test code and waits ${prueba.ventanaMin} minutes for the event.`,
 					pasos: prueba.pasos,
-					marca: prueba.marca ? `Cuenta el evento con ${textoMarca(prueba.marca)}.` : undefined
+					marca: prueba.marca ? `Count the event with ${textoMarca(prueba.marca)}.` : undefined
 				}
 			: undefined,
-		sinPrueba: 'Queda comprobada con el primer evento real que llegue por su señal.'
+		sinPrueba: 'It is verified by the first real event that arrives through its signal.'
 	};
 }
 
@@ -723,23 +723,23 @@ function documentoMd(p: PasosGenerados, nonce: string | undefined): string {
 		});
 	const l = [`# ${md(d.titulo)}`, '', md(d.intro), ''];
 	for (const [que, nombre, id] of d.ficha) l.push(`- **${que}:** ${md(nombre)} (${enLinea(id)})`);
-	l.push(`- **sha256 de los pasos:** ${enLinea(p.sha256)}`, '', '## Variables', '');
+	l.push(`- **sha256 of the steps:** ${enLinea(p.sha256)}`, '', '## Variables', '');
 	if (p.lenguaje === 'ninguno')
 		for (const k of Object.keys(d.variables).sort(porCodigo))
 			l.push(`- ${enLinea(k)}: ${md(d.variables[k])}`);
 	else
 		l.push(
-			'Los pasos las usan desde este bloque. En el script exportado va al principio; si copias los pasos a mano, cópialo primero.',
+			'The steps use them from this block. In the exported script it comes first; if you copy the steps by hand, copy it first.',
 			'',
 			...bloqueMd(bloqueVariables(p, d.variables), fence, '')
 		);
-	l.push('', '## Qué se va a hacer', '', ...lista(p.pasos), '## Cómo se comprueba', '');
+	l.push('', '## What will be done', '', ...lista(p.pasos), '## How it is checked', '');
 	if (d.senal) l.push(md(d.senal), '');
 	if (d.prueba) {
 		l.push(md(d.prueba.intro), '', ...lista(d.prueba.pasos));
 		if (d.prueba.marca) l.push(md(d.prueba.marca), '');
 	}
-	l.push(md(d.sinPrueba), '', '## Cómo se retira', '', ...lista(p.retirada));
+	l.push(md(d.sinPrueba), '', '## How it is removed', '', ...lista(p.retirada));
 	return `${l.join('\n').replace(/\n+$/, '')}\n`;
 }
 
@@ -758,25 +758,32 @@ function documentoTxt(p: PasosGenerados, nonce: string | undefined): string {
 	const titulo = plano(d.titulo);
 	const l = [titulo, '='.repeat([...titulo].length), '', plano(d.intro), ''];
 	for (const [que, nombre, id] of d.ficha) l.push(`${que}: ${plano(nombre)} (${plano(id)})`);
-	l.push(`sha256 de los pasos: ${p.sha256}`, '', 'VARIABLES', '');
+	l.push(`sha256 of the steps: ${p.sha256}`, '', 'VARIABLES', '');
 	if (p.lenguaje === 'ninguno')
 		for (const k of Object.keys(d.variables).sort(porCodigo))
 			l.push(`${k}: ${plano(d.variables[k])}`);
 	else
 		l.push(
-			'Los pasos las usan desde este bloque. En el script exportado va al principio; si copias los pasos a mano, cópialo primero.',
+			'The steps use them from this block. In the exported script it comes first; if you copy the steps by hand, copy it first.',
 			'',
 			...sangrar(bloqueVariables(p, d.variables), '    ')
 		);
-	l.push('', 'QUÉ SE VA A HACER', '', ...lista(p.pasos), 'CÓMO SE COMPRUEBA', '');
+	l.push('', 'WHAT WILL BE DONE', '', ...lista(p.pasos), 'HOW IT IS CHECKED', '');
 	if (d.senal) l.push(plano(d.senal), '');
 	if (d.prueba) {
 		l.push(plano(d.prueba.intro), '', ...lista(d.prueba.pasos));
 		if (d.prueba.marca) l.push(plano(d.prueba.marca), '');
 	}
-	l.push(plano(d.sinPrueba), '', 'CÓMO SE RETIRA', '', ...lista(p.retirada));
+	l.push(plano(d.sinPrueba), '', 'HOW IT IS REMOVED', '', ...lista(p.retirada));
 	return `${l.join('\n').replace(/\n+$/, '')}\n`;
 }
+
+/* Cómo se llama lo que se descarga: la parte es un valor guardado; el fichero lo lee el cliente. */
+const SUFIJO_FICHERO: Record<PartePasos, string> = {
+	colocar: 'deploy',
+	retirar: 'remove',
+	probar: 'test'
+};
 
 /*
  * Un fichero para descargar. .ps1: UTF-8 con BOM y CRLF (PowerShell 5.1 lee
@@ -819,12 +826,12 @@ export function exportar(
 	}
 	return formato === 'ps1'
 		? fichero(
-				`${base}-${parte}.ps1`,
+				`${base}-${SUFIJO_FICHERO[parte]}.ps1`,
 				'text/plain; charset=utf-8',
 				scriptPowershell(p, parte, pasos, variables)
 			)
 		: fichero(
-				`${base}-${parte}.sh`,
+				`${base}-${SUFIJO_FICHERO[parte]}.sh`,
 				'text/x-shellscript; charset=utf-8',
 				scriptSh(p, parte, pasos, variables)
 			);

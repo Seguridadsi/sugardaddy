@@ -76,20 +76,20 @@
 
 <div class="campos">
 	<div class="ancho">
-		<label for="d-nombre">Nombre</label>
+		<label for="d-nombre">Name</label>
 		<input
 			id="d-nombre"
 			name="nombre"
 			required
 			maxlength="100"
 			value={texto('nombre')}
-			placeholder="fs01, la impresora de la planta 2…"
+			placeholder="fs01, the printer on floor 2…"
 		/>
 	</div>
 
 	{#if elegirTipo}
 		<div class="ancho">
-			<label for="d-tipo">Qué es</label>
+			<label for="d-tipo">Type</label>
 			<select id="d-tipo" name="tipo" value={tipo} onchange={(e) => (tipo = e.currentTarget.value)}>
 				{#each TIPOS_DESTINO as t (t.valor)}
 					<option value={t.valor}>{t.texto}</option>
@@ -101,12 +101,12 @@
 	{#if pide('so')}
 		<div class="ancho">
 			<label for="d-so">
-				Sistema operativo
-				{#if tipo !== 'maquina' && tipo !== 'fileserver'}<small>opcional</small>{/if}
+				Operating system
+				{#if tipo !== 'maquina' && tipo !== 'fileserver'}<small>optional</small>{/if}
 			</label>
 			{#if fijo('so')}
 				<p class="fijo" id="d-so">
-					{nombreSo[delSensor.so ?? ''] ?? delSensor.so} <small>lo dice su sensor</small>
+					{nombreSo[delSensor.so ?? ''] ?? delSensor.so} <small>reported by its sensor</small>
 				</p>
 			{:else}
 				<select
@@ -116,7 +116,7 @@
 					required={tipo === 'maquina' || tipo === 'fileserver'}
 					onchange={(e) => (so = e.currentTarget.value)}
 				>
-					<option value="">Elige uno</option>
+					<option value="">Choose one</option>
 					{#each sistemasDe(tipo) as x (x.valor)}
 						<option value={x.valor}>{x.texto}</option>
 					{/each}
@@ -128,18 +128,18 @@
 
 {#if detallesVisibles}
 	<details class="mas" open={!elegirTipo || hayDetalle}>
-		<summary>Más detalles <small>opcional</small></summary>
+		<summary>More details <small>optional</small></summary>
 		<div class="campos">
 			{#if pide('edicion')}
 				<div>
-					<label for="d-edicion">Edición</label>
+					<label for="d-edicion">Edition</label>
 					<select
 						id="d-edicion"
 						name="edicion"
 						value={edicion}
 						onchange={(e) => (edicion = e.currentTarget.value)}
 					>
-						<option value="">Sin decir</option>
+						<option value="">Not specified</option>
 						{#each EDICIONES as x (x.valor)}
 							<option value={x.valor}>{x.texto}</option>
 						{/each}
@@ -149,10 +149,10 @@
 
 			{#if pide('version') && sistema}
 				<div>
-					<label for="d-version">Versión</label>
+					<label for="d-version">Version</label>
 					{#if sistema === 'windows'}
 						<select id="d-version" name="version" value={texto('version')}>
-							<option value="">Sin decir</option>
+							<option value="">Not specified</option>
 							{#each versionesWindows(tipo, edicion) as x (x.valor)}
 								<option value={x.valor}>{x.texto}</option>
 							{/each}
@@ -174,7 +174,7 @@
 				<div>
 					<label for="d-powershell">PowerShell</label>
 					<select id="d-powershell" name="powershell" value={texto('powershell')}>
-						<option value="">Sin decir</option>
+						<option value="">Not specified</option>
 						{#each POWERSHELL as x (x.valor)}
 							<option value={x.valor}>{x.texto}</option>
 						{/each}
@@ -186,7 +186,7 @@
 				<div>
 					<label for="d-posix">Shell</label>
 					<select id="d-posix" name="posix" value={texto('posix')}>
-						<option value="">Sin decir</option>
+						<option value="">Not specified</option>
 						{#each POSIX as x (x.valor)}
 							<option value={x.valor}>{x.texto}</option>
 						{/each}
@@ -196,7 +196,7 @@
 
 			{#if pide('direccion')}
 				<div class="ancho">
-					<label for="d-direccion">Dirección</label>
+					<label for="d-direccion">Address</label>
 					<input
 						id="d-direccion"
 						name="direccion"
@@ -204,7 +204,7 @@
 						autocomplete="off"
 						list={direcciones.length ? 'd-direcciones' : undefined}
 						value={texto('direccion')}
-						placeholder="10.20.0.7 o fs01.empresa.local"
+						placeholder="10.20.0.7 or fs01.company.local"
 					/>
 					{#if direcciones.length}
 						<datalist id="d-direcciones">
@@ -212,15 +212,16 @@
 						</datalist>
 					{/if}
 					<p class="ayuda">
-						La IP o el nombre con que tus equipos llegan a esta máquina. La usan los pasos manuales
-						y las pruebas.
+						The IP or name your machines use to reach this machine. It is used by the manual steps
+						and the tests.
+						{#if direcciones.length}If left blank, the IP reported by its sensor is used.{/if}
 					</p>
 				</div>
 			{/if}
 
 			{#if pide('protocolos')}
 				<fieldset class="ancho">
-					<legend>Qué comparte</legend>
+					<legend>What it shares</legend>
 					{#each PROTOCOLOS as x (x.valor)}
 						<label class="marca">
 							<input
@@ -237,7 +238,7 @@
 
 			{#if pide('nota')}
 				<div class="ancho">
-					<label for="d-nota">Descripción</label>
+					<label for="d-nota">Description</label>
 					<textarea id="d-nota" name="nota" rows="3" maxlength="500" value={texto('nota')}
 					></textarea>
 				</div>

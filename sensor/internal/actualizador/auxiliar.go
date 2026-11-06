@@ -16,7 +16,7 @@ import (
 )
 
 // ErrAuxiliarEnMarcha: ya hay una aplicación de configuración en curso.
-var ErrAuxiliarEnMarcha = errors.New("ya hay un auxiliar aplicando la configuración")
+var ErrAuxiliarEnMarcha = errors.New("a helper is already applying the configuration")
 
 // Pedido es lo que necesita el auxiliar para aplicar una versión.
 type Pedido struct {

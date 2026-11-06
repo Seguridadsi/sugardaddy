@@ -38,4 +38,4 @@ writeFileSync(
 	'src/lib/mapa/mundo.json',
 	JSON.stringify({ ancho: ANCHO, alto: ALTO, paises: salida })
 );
-console.log(`${salida.length} países`);
+console.log(`${salida.length} countries`);

@@ -77,12 +77,12 @@ async function sembrarAdmin(conexion, entorno) {
 	if (hay) return;
 	const clave = randomBytes(12).toString('base64url');
 	await conexion`insert into usuarios_locales (id, usuario, nombre, correo, clave_hash, roles, debe_cambiar, creada_por)
-		values (${randomUUID()}, 'admin', 'Administrador', 'admin@local', ${hashClaveLocal(clave)}, ${JSON.stringify(['admin'])}::text::jsonb, true, 'instalador')`;
-	await conexion`insert into auditoria (quien, accion, detalle) values ('instalador', 'primer administrador local creado', ${JSON.stringify({ usuario: 'admin' })}::text::jsonb)`;
+		values (${randomUUID()}, 'admin', 'Administrator', 'admin@local', ${hashClaveLocal(clave)}, ${JSON.stringify(['admin'])}::text::jsonb, true, 'installer')`;
+	await conexion`insert into auditoria (quien, accion, detalle) values ('installer', 'first local administrator created', ${JSON.stringify({ usuario: 'admin' })}::text::jsonb)`;
 	const barra = '='.repeat(60);
 	console.log(
-		`\n${barra}\n  PRIMER ADMINISTRADOR DE LA CONSOLA (login local)\n` +
-			`  Usuario:     admin\n  Contraseña:  ${clave}\n` +
-			`  De un solo uso: la consola te la hará cambiar al entrar.\n${barra}\n`
+		`\n${barra}\n  FIRST CONSOLE ADMINISTRATOR (local sign-in)\n` +
+			`  Username:    admin\n  Password:  ${clave}\n` +
+			`  Single use: the console will ask you to change it when you sign in.\n${barra}\n`
 	);
 }

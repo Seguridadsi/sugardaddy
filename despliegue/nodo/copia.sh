@@ -10,7 +10,7 @@
 # Conserva las últimas COPIAS_CONSERVAR (14 por defecto).
 set -euo pipefail
 cd "$(dirname "$0")"
-[[ -f clave-copias ]] || { echo "Falta clave-copias (la genera instalar.sh)"; exit 1; }
+[[ -f clave-copias ]] || { echo "clave-copias is missing (instalar.sh creates it)"; exit 1; }
 
 dc() { docker compose --env-file .env --env-file versiones.env "$@"; }
 FECHA="$(date +%Y%m%d-%H%M%S)"
@@ -19,7 +19,7 @@ trap 'rm -rf "$TMP"' EXIT
 mkdir -p copias
 
 dc exec -T postgres pg_dump -U sugardaddy -d consola -Fc > "$TMP/consola.dump"
-dc cp https:/data "$TMP/caddy" >/dev/null 2>&1 || echo "aviso: sin datos de Caddy (¿TLS con ficheros del cliente?)"
+dc cp https:/data "$TMP/caddy" >/dev/null 2>&1 || echo "warning: no Caddy data (TLS with customer files?)"
 cp .env versiones.env "$TMP/"
 [[ -f ca-raiz.crt ]] && cp ca-raiz.crt "$TMP/"
 
@@ -28,4 +28,4 @@ tar -C "$TMP" -cf - . | openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -pas
 chmod 600 "copias/sugardaddy-$FECHA.tar.enc"
 
 ls -1t copias/sugardaddy-*.tar.enc | tail -n +"$(( ${COPIAS_CONSERVAR:-14} + 1 ))" | xargs -r rm --
-echo "Copia en $(pwd)/copias/sugardaddy-$FECHA.tar.enc ($(du -h "copias/sugardaddy-$FECHA.tar.enc" | cut -f1))"
+echo "Backup in $(pwd)/copias/sugardaddy-$FECHA.tar.enc ($(du -h "copias/sugardaddy-$FECHA.tar.enc" | cut -f1))"

@@ -148,13 +148,13 @@ describe('licenciaDeRegistro', () => {
 		const f = firmada({ emitida: dias(-30), caduca: dias(-1) });
 		const v = licenciaDeRegistro(kino.publica, f);
 		expect(v.ok).toBe(false);
-		if (!v.ok) expect(v.motivo).toMatch(/caducada/);
+		if (!v.ok) expect(v.motivo).toMatch(/expired/);
 		expect(licenciaDeRegistro(kino.publica, f, 0).ok).toBe(true);
 	});
 
 	it('con el certificado caducado tampoco, y el motivo también lo dice', () => {
 		const v = licenciaDeRegistro(kino.publica, firmada({}, { caduca: dias(-1) }));
 		expect(v.ok).toBe(false);
-		if (!v.ok) expect(v.motivo).toMatch(/caducad/);
+		if (!v.ok) expect(v.motivo).toMatch(/expired/);
 	});
 });

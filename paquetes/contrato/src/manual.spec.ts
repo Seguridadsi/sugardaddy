@@ -166,7 +166,7 @@ const HOSTILES = [
 	'#comentario'
 ];
 
-const FIN = 'Sugardaddy: pasos hechos. Vuelve a la consola y pulsa «Ya está hecho».';
+const FIN = 'Sugardaddy: steps done. Go back to the console and click "Mark as deployed".';
 
 const hostiles = (lenguaje: 'sh' | 'powershell') => {
 	const h = manual(
@@ -179,7 +179,7 @@ const hostiles = (lenguaje: 'sh' | 'powershell') => {
 	);
 	const p = generar(h, 'eco', Object.fromEntries(HOSTILES.map((v, i) => [`v${i}`, v])));
 	const salida =
-		HOSTILES.flatMap((v, i) => [`Paso ${i + 1} de ${HOSTILES.length}: Valor ${v}.`, v]).join('\n') +
+		HOSTILES.flatMap((v, i) => [`Step ${i + 1} of ${HOSTILES.length}: Valor ${v}.`, v]).join('\n') +
 		`\n${FIN}\n`;
 	return { p, salida };
 };
@@ -346,10 +346,10 @@ describe('renderizar', () => {
 		const p = deCredencial();
 		const { objetivo: _, ...sinObjetivo } = p;
 		expect(errores(credencial, 'linux', sinObjetivo)).toEqual([
-			'Trampa SSH a la que apunta: falta la trampa a la que apunta'
+			'Trampa SSH a la que apunta: the decoy it points to is missing'
 		]);
 		expect(errores(credencial, 'linux', { ...p, objetivo: 'no-esta' })).toEqual([
-			'Trampa SSH a la que apunta: la trampa no-esta no existe'
+			'Trampa SSH a la que apunta: decoy no-esta does not exist'
 		]);
 		expect(
 			errores(
@@ -359,7 +359,7 @@ describe('renderizar', () => {
 				contexto({ trampas: { 'cowrie-1': { parametros: { puertoSsh: 22 } } } })
 			)
 		).toEqual([
-			'Trampa SSH a la que apunta: el destino de la trampa cowrie-1 no tiene dirección; ponla en Destinos'
+			'Trampa SSH a la que apunta: the target of decoy cowrie-1 has no address; set it in Targets'
 		]);
 		/* En sh llega como SD_OBJETIVO_PUERTOSSH: también se busca. */
 		expect(
@@ -370,7 +370,7 @@ describe('renderizar', () => {
 				contexto({ trampas: { 'cowrie-1': { direccion: '10.20.0.5', parametros: {} } } })
 			)
 		).toEqual([
-			'Trampa SSH a la que apunta: la trampa cowrie-1 no tiene el parámetro de SD_OBJETIVO_PUERTOSSH'
+			'Trampa SSH a la que apunta: decoy cowrie-1 has no the parameter for SD_OBJETIVO_PUERTOSSH'
 		]);
 		expect(
 			errores(
@@ -404,7 +404,7 @@ describe('renderizar', () => {
 			expect(
 				errores(credencial, 'linux', { ...deCredencial(), sesion: malo }),
 				JSON.stringify(malo)
-			).toEqual(['Nombre de la conexión: lleva saltos de línea o caracteres de control']);
+			).toEqual(['Nombre de la conexión: contains line breaks or control characters']);
 			expect(
 				errores(
 					credencial,
@@ -412,7 +412,7 @@ describe('renderizar', () => {
 					deCredencial(),
 					contexto({ destino: { id: 'fs01', nombre: malo, direccion: '10.20.0.9' } })
 				)
-			).toEqual(['Nombre del destino: lleva saltos de línea o caracteres de control']);
+			).toEqual(['Target name: contains line breaks or control characters']);
 			expect(
 				errores(
 					credencial,
@@ -420,7 +420,7 @@ describe('renderizar', () => {
 					deCredencial(),
 					contexto({ trampas: { 'cowrie-1': { direccion: malo, parametros: { puertoSsh: 22 } } } })
 				)
-			).toEqual(['Trampa SSH a la que apunta: lleva saltos de línea o caracteres de control']);
+			).toEqual(['Trampa SSH a la que apunta: contains line breaks or control characters']);
 		}
 		/* Un par sustituto completo (un emoji) sí vale. */
 		expect(errores(credencial, 'linux', { ...deCredencial(), sesion: 'a😀b' })).toEqual([]);
@@ -429,10 +429,10 @@ describe('renderizar', () => {
 	it('un parámetro que usan los pasos y falta, o que no se puede escribir como texto', () => {
 		const { usuario: _, ...sinUsuario } = deCredencial();
 		expect(errores(credencial, 'linux', sinUsuario)).toEqual([
-			'Usuario: falta, y lo usan los pasos'
+			'Usuario: is missing, and the steps use it'
 		]);
 		expect(errores(credencial, 'linux', { ...deCredencial(), usuario: { a: 1 } })).toEqual([
-			'Usuario: no es un texto, un número ni un sí o no'
+			'Usuario: is not text, a number or a yes/no value'
 		]);
 		/* Los números y los sí o no se escriben como texto. */
 		const p = generar(credencial, 'linux', { ...deCredencial(), usuario: 42, sesion: true });
@@ -446,7 +446,7 @@ describe('renderizar', () => {
 		const h = honeycosa(m);
 		const sinDireccion = contexto({ destino: { id: 'fs01', nombre: 'fs01' } });
 		expect(errores(h, 'linux', deCredencial(), sinDireccion)).toEqual([
-			'Dirección del destino: fs01 no tiene dirección; ponla en Destinos'
+			'Target address: fs01 has no address; set it in Targets'
 		]);
 		expect(generar(h, 'linux', deCredencial()).pasos[0].texto).toBe(
 			'En fs01 (10.20.0.9), guarda «nas42».'
@@ -464,7 +464,7 @@ describe('renderizar', () => {
 		m.vias[1].comprobacion.prueba.pasos[0].texto = 'Haz un GET a ${baliza_url}: sale la imagen.';
 		const h = honeycosa(m);
 		expect(errores(h, 'linux', deCredencial())).toEqual([
-			'URL de la baliza: falta la URL de la baliza de esta honeycosa (se acuña al darle de alta)'
+			'Beacon URL: the beacon URL of this decoy is missing (it is minted when the decoy is enrolled)'
 		]);
 		const url = 'https://nube.empresa.example/b/clave-cebo-123';
 		const p = generar(h, 'linux', deCredencial(), contexto({ baliza_url: url }));
@@ -480,21 +480,21 @@ describe('renderizar', () => {
 		m.vias[1].carga.pasos[0].orden = 'echo "$SD_DESTINO_NOMBRE" "$SD_SESION"';
 		const h = honeycosa(m);
 		expect(errores(h, 'linux', { ...deCredencial(), destino_nombre: 'x' })).toEqual([
-			'Nombre del destino: su variable destino_nombre se confunde en el bloque con destino_nombre (destino_nombre)'
+			'Target name: its variable destino_nombre is confused with destino_nombre (destino_nombre) in the block'
 		]);
 		/* PowerShell no distingue mayúsculas en las claves, y sh las pone todas en mayúsculas. */
 		const u = credencialDatos();
 		u.parametros.properties.Usuario = { type: 'string', pattern: '^[a-z]+$' };
 		u.vias[0].carga.pasos[0].orden += '\nWrite-Output $sd.Usuario';
 		expect(errores(honeycosa(u), 'windows', { ...deCredencial(), Usuario: 'otro' })).toEqual([
-			'Usuario: su variable Usuario se confunde en el bloque con usuario (Usuario)'
+			'Usuario: its variable Usuario is confused with usuario (Usuario) in the block'
 		]);
 		/* Y un parámetro que se llamaría como el nonce de la prueba. */
 		const n = credencialDatos();
 		n.parametros.properties.nonce = { type: 'string', pattern: '^[a-z]+$' };
 		n.vias[1].carga.pasos[0].texto = 'Guarda «${sesion}» con ${nonce}.';
 		expect(errores(honeycosa(n), 'linux', { ...deCredencial(), nonce: 'x' })).toEqual([
-			'nonce: su variable nonce se confunde con el nonce de la prueba'
+			'nonce: its variable nonce is confused with the test nonce'
 		]);
 	});
 
@@ -631,7 +631,7 @@ describe('pruebaDeVia', () => {
 	it('sin la dirección del destino, lo dice; sin prueba en la vía, null', () => {
 		expect(pruebaDeVia(smb, 'contenedor', parametrosSmb(), ctx(), 'abcd1234')).toEqual({
 			ok: false,
-			errores: ['Dirección del destino: local no tiene dirección; ponla en Destinos']
+			errores: ['Target address: local has no address; set it in Targets']
 		});
 		const sinPrueba = manual('sh', [{ texto: 'Uno.' }]);
 		expect(pruebaDeVia(sinPrueba, 'eco', {}, ctx(), 'abcd1234')).toBeNull();
@@ -677,10 +677,10 @@ describe('exportar', () => {
 		const t = texto(exportar(windows, 'ps1').contenido).replace(/^\uFEFF/, '');
 		const [primera, segunda, ...resto] = t.split('\r\n');
 		expect(primera).toBe(
-			`# Sugardaddy · trampa ssh-fs01 · destino fs01 · vía windows · 2026-10-17T10:00:00.000Z · sha256 ${windows.sha256}`
+			`# Sugardaddy · decoy ssh-fs01 · target fs01 · method windows · 2026-10-17T10:00:00.000Z · sha256 ${windows.sha256}`
 		);
 		expect(segunda).toBe(
-			'# Colocar «Credencial de fs01» en fs01 · Credencial SSH sembrada 0.1.0 · Pasos para Windows'
+			'# Deploy "Credencial de fs01" on fs01 · Credencial SSH sembrada 0.1.0 · Pasos para Windows'
 		);
 		expect(resto.slice(0, 4)).toEqual([
 			'#Requires -Version 5.1',
@@ -691,7 +691,7 @@ describe('exportar', () => {
 		expect(t).toContain("  'objetivo_puertoSsh' = '2222'\r\n");
 		const s = texto(exportar(linux, 'sh').contenido).split('\n');
 		expect(s[1]).toBe(
-			`# Sugardaddy · trampa ssh-fs01 · destino fs01 · vía linux · 2026-10-17T10:00:00.000Z · sha256 ${linux.sha256}`
+			`# Sugardaddy · decoy ssh-fs01 · target fs01 · method linux · 2026-10-17T10:00:00.000Z · sha256 ${linux.sha256}`
 		);
 		expect(s).toContain("SD_OBJETIVO_PUERTOSSH='2222'");
 		expect(s).toContain("SD_USUARIO='svc_sql4k7'");
@@ -710,17 +710,17 @@ describe('exportar', () => {
 
 	it('cada parte con su fichero: colocar, retirar y probar con su nonce', () => {
 		expect(exportar(windows, 'ps1')).toMatchObject({
-			nombre: 'sugardaddy-ssh-fs01-colocar.ps1',
+			nombre: 'sugardaddy-ssh-fs01-deploy.ps1',
 			tipo: 'text/plain; charset=utf-8'
 		});
 		const retirar = exportar(linux, 'sh', { parte: 'retirar' });
 		expect(retirar).toMatchObject({
-			nombre: 'sugardaddy-ssh-fs01-retirar.sh',
+			nombre: 'sugardaddy-ssh-fs01-remove.sh',
 			tipo: 'text/x-shellscript; charset=utf-8'
 		});
 		expect(texto(retirar.contenido)).toContain('awk -v h="Host $SD_SESION"');
 		expect(texto(retirar.contenido)).not.toContain('mkdir -p');
-		expect(texto(retirar.contenido)).toContain('pulsa «Ya lo he quitado»');
+		expect(texto(retirar.contenido)).toContain('click "I have removed it"');
 		const prueba = texto(exportar(linux, 'sh', { parte: 'probar', nonce: 'abcd1234' }).contenido);
 		expect(prueba).toContain("SD_NONCE='abcd1234'");
 		expect(prueba).toContain('escribe como contraseña sdpruebaabcd1234.');
@@ -758,19 +758,19 @@ describe('exportar', () => {
 
 	it('el .md para la gestión de cambios: qué, dónde, cómo se comprueba y cómo se retira', () => {
 		const t = texto(exportar(linux, 'md').contenido);
-		expect(t.startsWith('# Pasos de «Credencial de fs01» en fs01\n')).toBe(true);
+		expect(t.startsWith('# Steps for "Credencial de fs01" on fs01\n')).toBe(true);
 		for (const parte of [
-			'- **Destino:** fs01 (`fs01`)',
-			`- **sha256 de los pasos:** \`${linux.sha256}\``,
+			'- **Target:** fs01 (`fs01`)',
+			`- **sha256 of the steps:** \`${linux.sha256}\``,
 			"```sh\nSD_DESTINO_NOMBRE='fs01'",
-			'## Qué se va a hacer',
+			'## What will be done',
 			'1. Guarda en \\~/.ssh/config del usuario una conexión «nas42» hacia 10.20.0.5.',
 			'   ```sh\n   mkdir -p "$HOME/.ssh"',
-			'## Cómo se comprueba',
+			'## How it is checked',
 			'Comprueba que fs01 llega a 10.20.0.5.',
-			'   Comprobación (tiene que terminar con código 0):',
-			'contraseña sdprueba(código de la prueba).',
-			'## Cómo se retira',
+			'   Check (it must exit with code 0):',
+			'contraseña sdprueba(test code).',
+			'## How it is removed',
 			'1. Borra la conexión «nas42» de \\~/.ssh/config.'
 		])
 			expect(t, parte).toContain(parte);
@@ -792,7 +792,7 @@ describe('exportar', () => {
 		const p = generar(credencial, 'linux', { ...deCredencial(), sesion: 'a```b' }, c);
 		const t = texto(exportar(p, 'md').contenido);
 		expect(t).toContain(
-			'# Pasos de «\\*negrita\\* \\<img src=x onerror=alert(1)\\> \\[a\\](http://x) \\`c\\` \\# t» en fs01'
+			'# Steps for "\\*negrita\\* \\<img src=x onerror=alert(1)\\> \\[a\\](http://x) \\`c\\` \\# t" on fs01'
 		);
 		expect(t).not.toMatch(/(?<!\\)<img/);
 		/* El bloque de variables lleva una valla más larga que cualquier tira de ` del valor. */
@@ -805,13 +805,13 @@ describe('exportar', () => {
 		expect(t).not.toContain('```');
 		expect(t).not.toContain('**');
 		for (const parte of [
-			'Pasos de «Credencial de fs01» en fs01\n=====================================\n',
-			`sha256 de los pasos: ${linux.sha256}`,
+			'Steps for "Credencial de fs01" on fs01\n======================================\n',
+			`sha256 of the steps: ${linux.sha256}`,
 			"    SD_USUARIO='svc_sql4k7'",
-			'QUÉ SE VA A HACER',
+			'WHAT WILL BE DONE',
 			'    mkdir -p "$HOME/.ssh"',
-			'CÓMO SE COMPRUEBA',
-			'CÓMO SE RETIRA',
+			'HOW IT IS CHECKED',
+			'HOW IT IS REMOVED',
 			'1. Borra la conexión «nas42» de ~/.ssh/config.'
 		])
 			expect(t, parte).toContain(parte);
@@ -866,15 +866,17 @@ describe.each([
 	it('una orden que falla para el script y dice en qué paso', () => {
 		const r = ejecutar([...orden], exportar(dosPasos('sh', 'orden'), 'sh'));
 		expect(r.codigo).not.toBe(0);
-		expect(r.error).toContain('Sugardaddy: ha fallado el paso 1 de 2.');
-		expect(r.salida).toContain("Paso 1 de 2: Primero, con uno 'dos'.");
+		expect(r.error).toContain('Sugardaddy: step 1 of 2 failed.');
+		expect(r.salida).toContain("Step 1 of 2: Primero, con uno 'dos'.");
 		expect(r.salida).not.toContain('segundo-hecho');
 	});
 
 	it('una comprobación que no termina bien para con el texto del paso', () => {
 		const r = ejecutar([...orden], exportar(dosPasos('sh', 'comprobar'), 'sh'));
 		expect(r.codigo).toBe(1);
-		expect(r.error).toBe("Sugardaddy: no se cumple el paso 1 de 2: Primero, con uno 'dos'.\n");
+		expect(r.error).toBe(
+			"Sugardaddy: step 1 of 2 did not pass its check: Primero, con uno 'dos'.\n"
+		);
 		expect(r.salida).not.toContain('segundo-hecho');
 		const bien = ejecutar([...orden], exportar(dosPasos('sh', 'vale'), 'sh'));
 		expect([bien.codigo, bien.error]).toEqual([0, '']);
@@ -949,14 +951,16 @@ describe('el .ps1, ejecutado con pwsh', () => {
 	it('una orden que falla para el script y dice en qué paso', { timeout: 60_000 }, () => {
 		const r = ejecutar(orden, exportar(dosPasos('powershell', 'orden'), 'ps1'));
 		expect(r.codigo).not.toBe(0);
-		expect(r.error).toContain('Sugardaddy: ha fallado el paso 1 de 2: ');
+		expect(r.error).toContain('Sugardaddy: step 1 of 2 failed: ');
 		expect(r.salida).not.toContain('segundo-hecho');
 	});
 
 	it('una comprobación que no da True para con el texto del paso', { timeout: 60_000 }, () => {
 		const r = ejecutar(orden, exportar(dosPasos('powershell', 'comprobar'), 'ps1'));
 		expect(r.codigo).not.toBe(0);
-		expect(r.error).toContain("Sugardaddy: no se cumple el paso 1 de 2: Primero, con uno 'dos'.");
+		expect(r.error).toContain(
+			"Sugardaddy: step 1 of 2 did not pass its check: Primero, con uno 'dos'."
+		);
 		expect(r.salida).not.toContain('segundo-hecho');
 		const bien = ejecutar(orden, exportar(dosPasos('powershell', 'vale'), 'ps1'));
 		expect([bien.codigo, bien.error]).toEqual([0, '']);

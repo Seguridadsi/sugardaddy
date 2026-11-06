@@ -27,10 +27,10 @@ const limpio = Array.from(randomBytes(24), (x) => ALFABETO[x & 31]).join('');
 const valor = {
 	hash: createHash('sha256').update(limpio).digest('hex'),
 	creado: new Date().toISOString(),
-	por: 'instalador'
+	por: 'installer'
 };
 await sql`insert into ajustes (clave, valor) values ('emergencia_codigo', ${JSON.stringify(valor)}::text::jsonb)
 	on conflict (clave) do update set valor = excluded.valor`;
-await sql`insert into auditoria (quien, accion) values ('instalador', 'código de emergencia generado')`;
+await sql`insert into auditoria (quien, accion) values ('installer', 'emergency code generated')`;
 await sql.end();
 console.log(limpio.match(/.{4}/g).join('-'));
