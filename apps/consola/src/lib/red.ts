@@ -11,14 +11,16 @@ export { leerRed, leerVlan };
 export const redYVlan = (red: string | null, vlan: number | null) =>
 	[red, vlan ? `VLAN ${vlan}` : null].filter(Boolean).join(' · ');
 
-/* Lo que dice un formulario con «red» y «vlan», o el error que enseñar. */
+/* Lo que dice un formulario con «red», «vlan» y «redNombre», o el error que enseñar. */
 export function redDelFormulario(
 	f: FormData
-): { red: string | null; vlan: number | null } | { error: string } {
+): { red: string | null; vlan: number | null; redNombre: string | null } | { error: string } {
 	const red = leerRed(String(f.get('red') ?? ''));
 	if (red === undefined)
 		return { error: 'La red va en CIDR IPv4, de /8 a /32 (p. ej. 10.70.0.0/24).' };
 	const vlan = leerVlan(String(f.get('vlan') ?? ''));
 	if (vlan === undefined) return { error: 'La VLAN es un número del 1 al 4094.' };
-	return { red, vlan };
+	const redNombre = String(f.get('redNombre') ?? '').trim();
+	if (redNombre.length > 60) return { error: 'El nombre de la red admite hasta 60 caracteres.' };
+	return { red, vlan, redNombre: redNombre || null };
 }

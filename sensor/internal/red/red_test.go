@@ -125,6 +125,39 @@ func TestCompilarBPFRangos(t *testing.T) {
 	aprueba(corto, false, "trama corta no pasa")
 }
 
+// La máscara pisa el acumulador: sin volver a cargar el destino, un rango más
+// estrecho detrás de uno más ancho no coincidía nunca, y la trampa quedaba
+// ciega en esa red sin ningún error.
+func TestCompilarBPFRangosEnCualquierOrden(t *testing.T) {
+	casos := []struct {
+		lista  string
+		dentro [][4]byte
+		fuera  [][4]byte
+	}{
+		{"172.31.8.0/22, 10.20.30.0/24", [][4]byte{{172, 31, 9, 1}, {10, 20, 30, 5}}, [][4]byte{{10, 20, 31, 5}, {172, 31, 12, 1}}},
+		{"10.20.30.0/24, 172.31.8.0/22", [][4]byte{{172, 31, 9, 1}, {10, 20, 30, 5}}, [][4]byte{{10, 20, 31, 5}, {172, 31, 12, 1}}},
+		{"10.0.0.0/8, 192.168.0.0/16", [][4]byte{{10, 9, 9, 9}, {192, 168, 1, 1}}, [][4]byte{{192, 169, 1, 1}, {11, 0, 0, 1}}},
+		{"10.0.0.0/8, 192.168.0.0/16, 172.16.5.7/32", [][4]byte{{172, 16, 5, 7}}, [][4]byte{{172, 16, 5, 8}}},
+	}
+	for _, c := range casos {
+		filtro, err := CompilarBPF(c.lista)
+		if err != nil {
+			t.Fatalf("%s: %v", c.lista, err)
+		}
+		ins := deserializar(t, filtro)
+		for _, ip := range c.dentro {
+			if ejecutar(ins, tramaIPv4(ip, 6)) == 0 {
+				t.Errorf("%s: %v tenía que pasar", c.lista, ip)
+			}
+		}
+		for _, ip := range c.fuera {
+			if ejecutar(ins, tramaIPv4(ip, 6)) != 0 {
+				t.Errorf("%s: %v no tenía que pasar", c.lista, ip)
+			}
+		}
+	}
+}
+
 func TestCompilarBPFRangosMalos(t *testing.T) {
 	for _, lista := range []string{
 		"", "   ", "no-es-cidr", "10.20.0.0", "172.31.201.0/24,",

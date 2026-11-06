@@ -105,8 +105,9 @@
 {/if}
 
 <div class="seccion">
-	<h2>Mapa de trampas</h2>
-	<BotonPlegar id="resumen-trampas" titulo="Mapa de trampas" bind:plegado={plegado.trampas} />
+	<h2>Trampas por sensor</h2>
+	<a class="ver-mapa" href={resolve('/mapa')}>Ver el mapa del despliegue</a>
+	<BotonPlegar id="resumen-trampas" titulo="Trampas por sensor" bind:plegado={plegado.trampas} />
 </div>
 {#if !plegado.trampas}
 	<div class="mapa">
@@ -258,6 +259,12 @@
 	.seccion h2 {
 		font-size: 18px;
 		font-weight: 600;
+	}
+
+	.ver-mapa {
+		margin-right: auto;
+		font-size: 13px;
+		color: var(--ink-2);
 	}
 
 	.titulo .acciones {

@@ -4,7 +4,7 @@
  * transacción.
  */
 import { createHash, randomBytes } from 'node:crypto';
-import { and, asc, desc, eq, ilike, isNull, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, ilike, inArray, isNull, or, sql } from 'drizzle-orm';
 import { EJECUTORES } from '@sugardaddy/contrato';
 import { avisosSensor, resumenMotor } from '$lib/capacidades';
 import type { Entorno } from '$lib/entorno';
@@ -25,6 +25,7 @@ export async function sensores() {
 			id: s.sensores.id,
 			nombre: s.sensores.nombre,
 			red: s.sensores.red,
+			redNombre: s.sensores.redNombre,
 			vlan: s.sensores.vlan,
 			entorno: s.sensores.entorno,
 			ultimoLatido: s.sensores.ultimoLatido,
@@ -116,7 +117,7 @@ export async function crearSensor(
 export async function cambiarRed(
 	quien: string,
 	id: string,
-	v: { red: string | null; vlan: number | null }
+	v: { red: string | null; vlan: number | null; redNombre?: string | null }
 ) {
 	return db.transaction(async (tx) => {
 		const [f] = await tx
@@ -129,6 +130,19 @@ export async function cambiarRed(
 			.insert(s.auditoria)
 			.values({ quien, accion: 'red del sensor cambiada', detalle: { id, ...v } });
 		return true;
+	});
+}
+
+/*
+ * El nombre de una red (el mapa del despliegue): el de todos sus sensores, que
+ * es por lo que se agrupan. Nulo: se enseña por su rango.
+ */
+export async function nombrarRed(quien: string, sensores: string[], nombre: string | null) {
+	await db.transaction(async (tx) => {
+		await tx.update(s.sensores).set({ redNombre: nombre }).where(inArray(s.sensores.id, sensores));
+		await tx
+			.insert(s.auditoria)
+			.values({ quien, accion: 'nombre de red cambiado', detalle: { sensores, nombre } });
 	});
 }
 

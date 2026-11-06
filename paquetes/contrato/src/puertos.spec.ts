@@ -30,7 +30,7 @@ describe('puertosPublicados', () => {
 			puertosPublicados(m([{ interno: 9000, expuesto: '${p}', protocolo: 'udp' }] as Puertos), {
 				p: 8080
 			})
-		).toEqual([{ puerto: 8080, protocolo: 'udp', fijo: false, interno: 9000 }]);
+		).toEqual([{ puerto: 8080, protocolo: 'udp', fijo: false, interno: 9000, parametro: 'p' }]);
 	});
 
 	it('respeta los bordes del rango de puertos', () => {
@@ -74,7 +74,7 @@ describe('puertosPublicados', () => {
 		] as Puertos;
 		expect(puertosPublicados(m(puertos), { ssh: 22 }).map((x) => x.puerto)).toEqual([22]);
 		expect(puertosPublicados(m(puertos), { ssh: 22, telnet: 'yes' })).toEqual([
-			{ puerto: 22, protocolo: 'tcp', fijo: false, interno: 2222 },
+			{ puerto: 22, protocolo: 'tcp', fijo: false, interno: 2222, parametro: 'ssh' },
 			{ puerto: 23, protocolo: 'tcp', fijo: true, interno: 23 }
 		]);
 	});

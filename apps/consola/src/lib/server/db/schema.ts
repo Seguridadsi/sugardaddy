@@ -58,6 +58,12 @@ export const sensores = pgTable('sensores', {
 	red: text('red'),
 	vlan: integer('vlan'),
 	/*
+	 * Cómo llama el cliente a esa red («Servidores», «Sede de Bilbao»). Lo escribe
+	 * él, en el mapa o en Sensores; sin él, la red se enseña por su CIDR. También
+	 * separa en el mapa dos sedes que usan el mismo rango.
+	 */
+	redNombre: text('red_nombre'),
+	/*
 	 * Dónde está este sensor, para decidir qué respuesta tiene sentido (ver
 	 * lib/entorno.ts): «dentro» de la red, «perimetro-web» de cara a internet o
 	 * «aislada». Es el defecto cómodo para todas sus trampas; cada honeypot puede

@@ -54,6 +54,8 @@ const TIPO_DE_TRAMPA: Record<string, TipoDeServicio> = {
 	'volcado-mysql': 'bases-de-datos',
 	/* Carpetas y ficheros */
 	smb: 'ficheros',
+	nas: 'ficheros',
+	'almacen-s3': 'ficheros',
 	ftp: 'ficheros',
 	tftp: 'ficheros',
 	webdav: 'ficheros',
@@ -84,15 +86,22 @@ const TIPO_DE_TRAMPA: Record<string, TipoDeServicio> = {
 	sip: 'red',
 	envenenador: 'red',
 	darknet: 'red',
+	escaneo: 'red',
 	/* Directorio y llaves */
+	/* Servicio de certificados de AD (H111): inscripción web que imita AD CS */
+	'certificados-ad': 'directorio',
 	'controlador-dominio': 'directorio',
 	bmc: 'directorio',
 	/* Certificado .pfx sembrado (H88): no corre servicio, su CDP es una baliza del relé */
 	'certificado-cebo': 'directorio',
 	/* Contenedores */
+	/* Hipervisor falso (H86): ESXi, vCenter o Proxmox */
+	hipervisor: 'contenedores',
 	'api-docker': 'contenedores',
 	/* Kubeconfig sembrado (H32): no corre servicio, su clúster es una baliza del relé */
 	'kubeconfig-cebo': 'contenedores',
+	/* Secret y cuenta de servicio de Kubernetes sembrados (H108): token cebo, baliza del relé */
+	'secreto-k8s-cebo': 'contenedores',
 	/* Impresoras, cámaras, IoT e industria */
 	impresora: 'impresoras',
 	'camara-ip': 'camaras',
@@ -117,13 +126,24 @@ const TIPO_DE_TRAMPA: Record<string, TipoDeServicio> = {
 	svn: 'codigo',
 	/* Secretos en el código (.env) sembrados (H94): no corre servicio, apunta a una trampa */
 	'secretos-env': 'codigo',
+	/* Registro de paquetes privado falso (H105): npm, PyPI y OCI/Docker en un contenedor */
+	'registro-paquetes': 'codigo',
 	/* Ficheros cebo con baliza */
+	/* Paquete de botín con baliza (H104): archivo con un acceso de despliegue que apunta al relé */
+	'paquete-cifrado-cebo': 'ficheros',
+	/* Fichero técnico sembrado (H100-H102): tfstate, HAR o config con endpoint baliza del relé */
+	'fichero-tecnico-cebo': 'ficheros',
 	'fichero-word': 'ficheros',
 	'fichero-excel': 'ficheros',
 	'fichero-pdf': 'ficheros',
 	'imagen-svg': 'ficheros',
 	'centinela-ransomware': 'ficheros',
 	'keepass-cebo': 'ficheros',
+	'sysvol-cebo': 'ficheros',
+	'carpeta-cebo': 'ficheros',
+	'kerberoast-cebo': 'directorio',
+	'usuario-ad-cebo': 'directorio',
+	'laps-cebo': 'directorio',
 	/* El receptor que recoge las balizas de esos ficheros */
 	'receptor-balizas': 'ficheros',
 	/* Retención: las que hacen perder el tiempo al intruso */

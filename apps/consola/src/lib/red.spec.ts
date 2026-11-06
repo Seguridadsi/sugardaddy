@@ -44,8 +44,12 @@ describe('red y VLAN de un sensor', () => {
 			x.set('vlan', vlan);
 			return x;
 		};
-		expect(redDelFormulario(f('10.70.0.9/24', '70'))).toEqual({ red: '10.70.0.0/24', vlan: 70 });
-		expect(redDelFormulario(f('', ''))).toEqual({ red: null, vlan: null });
+		expect(redDelFormulario(f('10.70.0.9/24', '70'))).toEqual({
+			red: '10.70.0.0/24',
+			vlan: 70,
+			redNombre: null
+		});
+		expect(redDelFormulario(f('', ''))).toEqual({ red: null, vlan: null, redNombre: null });
 		expect(redDelFormulario(f('x', ''))).toHaveProperty('error');
 		expect(redDelFormulario(f('', '5000'))).toHaveProperty('error');
 	});

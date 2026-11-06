@@ -97,8 +97,9 @@
 						{/if}
 						{#if admin}
 							<details open={cambiando === x.id}>
-								<summary class:sin={!x.red && !x.vlan}
-									>{redYVlan(x.red, x.vlan) || 'sin indicar'}</summary
+								<summary class:sin={!x.red && !x.vlan && !x.redNombre}
+									>{[x.redNombre, redYVlan(x.red, x.vlan)].filter(Boolean).join(' · ') ||
+										'sin indicar'}</summary
 								>
 								<form method="POST" action="?/red" use:enhance>
 									<input type="hidden" name="id" value={x.id} />
@@ -117,12 +118,20 @@
 										inputmode="numeric"
 										value={x.vlan ?? ''}
 									/>
+									<input
+										name="redNombre"
+										aria-label="Nombre de la red"
+										placeholder="Nombre de la red"
+										maxlength="60"
+										value={x.redNombre ?? ''}
+									/>
 									<button class="boton">Guardar</button>
 								</form>
 							</details>
 						{:else}
-							<span class="mono" class:sin={!x.red && !x.vlan}
-								>{redYVlan(x.red, x.vlan) || 'sin indicar'}</span
+							<span class="mono" class:sin={!x.red && !x.vlan && !x.redNombre}
+								>{[x.redNombre, redYVlan(x.red, x.vlan)].filter(Boolean).join(' · ') ||
+									'sin indicar'}</span
 							>
 						{/if}
 						<div class="entorno">

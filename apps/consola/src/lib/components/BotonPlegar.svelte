@@ -1,5 +1,5 @@
 <!--
-	Plegar y desplegar una sección (el Resumen: eventos, mapas, mapa de trampas).
+	Plegar y desplegar una sección (el Resumen: eventos, mapas, trampas por sensor).
 	Quien lo usa enlaza `plegado` y pinta su contenido solo si no lo está. Se
 	recuerda en este navegador, por sección; sin almacenamiento, todo desplegado.
 -->

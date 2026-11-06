@@ -1,0 +1,1 @@
+ALTER TABLE "sensores" ADD COLUMN "red_nombre" text;

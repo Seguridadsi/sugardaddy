@@ -9,6 +9,7 @@
 
 	const enlaces = [
 		{ href: '/', texto: 'Resumen' },
+		{ href: '/mapa', texto: 'Mapa' },
 		{ href: '/eventos', texto: 'Eventos' },
 		{ href: '/contrasenas', texto: 'Contraseñas' },
 		{ href: '/trampas', texto: 'Trampas' },

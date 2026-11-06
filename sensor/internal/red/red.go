@@ -114,8 +114,10 @@ func Rangos(lista string) ([]netip.Prefix, error) {
 //	[0] cargar el ethertype
 //	[1] si es ARP, ACCEPT (la charla ARP del segmento hacia los rangos)
 //	[2] si no es IPv4, REJECT (IPv6 y demás, fuera)
-//	[3] cargar la dirección de destino
-//	[4…] por cada rango: A&=máscara; si A==red, ACCEPT; si no, el siguiente
+//	[3…] por cada rango: cargar la dirección de destino; A&=máscara; si A==red,
+//	     ACCEPT; si no, el siguiente. Se vuelve a cargar en cada rango: la máscara
+//	     pisa el acumulador, y si no, un rango más estrecho detrás de uno más ancho
+//	     nunca coincidiría.
 //	[·] ACCEPT: devolver 0xFFFFFFFF (la trama entera)
 //	[·] REJECT: devolver 0 (nada: el kernel la tira antes del enchufe)
 func CompilarBPF(lista string) (string, error) {
@@ -124,24 +126,24 @@ func CompilarBPF(lista string) (string, error) {
 		return "", err
 	}
 	n := len(rangos)
-	aceptar, rechazar := 4+2*n, 5+2*n
-	ins := make([]instruccion, 0, 6+2*n)
+	aceptar, rechazar := 3+3*n, 4+3*n
+	ins := make([]instruccion, 0, 5+3*n)
 	ins = append(ins,
 		instruccion{Codigo: cargarMitad, K: desplazTipo},
 		// ARP pasa entero: hace falta para que la trampa responda como un
 		// equipo vivo a las preguntas por las IP de sus rangos.
 		instruccion{Codigo: saltoIgual, Jt: uint8(aceptar - 2), K: tipoARP},
 		instruccion{Codigo: saltoIgual, Jt: 0, Jf: uint8(rechazar - 3), K: tipoIPv4},
-		instruccion{Codigo: cargarPal, K: desplazDestino},
 	)
 	for i, p := range rangos {
 		// La dirección viaja en orden de red: se compara como palabra, no
 		// byte a byte, y la máscara recorta la parte de red.
 		mascara := uint32(0xFFFFFFFF) << (32 - p.Bits())
 		ins = append(ins,
+			instruccion{Codigo: cargarPal, K: desplazDestino},
 			instruccion{Codigo: yLogico, K: mascara},
 			// el último rango que no coincide cae en REJECT, no en el vecino.
-			instruccion{Codigo: saltoIgual, Jt: uint8(aceptar - 6 - 2*i), Jf: saltoSiguiente(i, n), K: binaria(p.Addr())},
+			instruccion{Codigo: saltoIgual, Jt: uint8(aceptar - 6 - 3*i), Jf: saltoSiguiente(i, n), K: binaria(p.Addr())},
 		)
 	}
 	ins = append(ins,

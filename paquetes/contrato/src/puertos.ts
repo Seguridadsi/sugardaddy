@@ -8,7 +8,14 @@ import type { ManifiestoTrampa } from './tipos.ts';
  * Solo mira el contenedor: vale igual con la carga de una vía contenedor@1,
  * que es lo que proyectarParaSensor copia al manifiesto v1.
  */
-export type Puerto = { puerto: number; protocolo: 'tcp' | 'udp'; fijo: boolean; interno: number };
+export type Puerto = {
+	puerto: number;
+	protocolo: 'tcp' | 'udp';
+	fijo: boolean;
+	interno: number;
+	/* El parámetro que lo elige; los fijos no tienen. */
+	parametro?: string;
+};
 
 const encendido = (v: unknown) => v === true || v === 'yes' || v === 'true';
 
@@ -20,9 +27,10 @@ export function puertosPublicados(
 		if (p.si && !encendido(parametros[p.si])) return [];
 		if (typeof p.expuesto === 'number')
 			return [{ puerto: p.expuesto, protocolo: p.protocolo, fijo: true, interno: p.interno }];
-		const n = Number(parametros[p.expuesto.slice(2, -1)]);
+		const parametro = p.expuesto.slice(2, -1);
+		const n = Number(parametros[parametro]);
 		return Number.isInteger(n) && n > 0 && n < 65536
-			? [{ puerto: n, protocolo: p.protocolo, fijo: false, interno: p.interno }]
+			? [{ puerto: n, protocolo: p.protocolo, fijo: false, interno: p.interno, parametro }]
 			: [];
 	});
 }
