@@ -35,6 +35,27 @@ import type { EstadoVisible, Visible } from './colocacion';
 
 const LATIDO_MAXIMO = 5 * 60_000;
 
+/*
+ * El mapa enseña solo lo que está en marcha: sensores con latido y trampas
+ * puestas, comprobadas o no, y las puestas que fallan, que salen como problema.
+ * Lo parado, lo pendiente, lo que se retira y lo de un sensor sin latido no
+ * sale: se ve en Decoys y en Sensors.
+ */
+const EN_MARCHA: readonly Visible[] = ['comprobada', 'colocada', 'degradada'];
+
+const conLatido = (x: SensorEntrada, ahora: number) =>
+	!!x.ultimoLatido && ahora - x.ultimoLatido.getTime() < LATIDO_MAXIMO;
+
+function soloEnMarcha(e: EntradaMapa): EntradaMapa {
+	const sensores = e.sensores.filter((x) => conLatido(x, e.ahora));
+	const vivos = new Set(sensores.map((x) => x.id));
+	const trampas = e.trampas.filter((t) => {
+		const estado = e.estados.get(t.id)?.estado;
+		return !!estado && EN_MARCHA.includes(estado) && vivos.has(t.sensor);
+	});
+	return { ...e, sensores, trampas };
+}
+
 /* Lo que se enseña de cada estado como problema: «Solo con problemas» se queda con esto. */
 const ESTADOS_PROBLEMA: readonly Visible[] = ['degradada', 'sin-contacto', 'por-colocar'];
 /* Los tipos de destino que no están en la red del cliente. */
@@ -341,7 +362,8 @@ function ordenar(ts: TrampaMapa[]) {
 	);
 }
 
-export function armarMapa(e: EntradaMapa): Mapa {
+export function armarMapa(entrada: EntradaMapa): Mapa {
+	const e = soloEnMarcha(entrada);
 	const sensorDe = new Map(e.sensores.map((x) => [x.id, x]));
 	const destinoDe = new Map(e.destinos.map((d) => [d.id, d]));
 	const trampaDe = new Map(e.trampas.map((t) => [t.id, t]));
@@ -462,7 +484,7 @@ export function armarMapa(e: EntradaMapa): Mapa {
 			ip,
 			otrasIps: x.ips.filter((i) => i !== ip),
 			local: !x.remoto,
-			vivo: !!x.ultimoLatido && e.ahora - x.ultimoLatido.getTime() < LATIDO_MAXIMO,
+			vivo: conLatido(x, e.ahora),
 			ultimoLatido: x.ultimoLatido?.toISOString() ?? null,
 			plataforma: x.plataforma,
 			motor: x.motor,
@@ -502,13 +524,13 @@ export function armarMapa(e: EntradaMapa): Mapa {
 			: null;
 	}
 
-	/* Los sistemas sin sensor: fuera de la red, colgando de un sensor o sin trampas todavía. */
+	/* Los sistemas sin sensor y con trampas en marcha: fuera de la red o colgando de un sensor. */
 	const fuera: SistemaMapa[] = [];
 	const sueltos: SistemaMapa[] = [];
 	for (const d of e.destinos) {
 		if (d.sensor) continue;
 		const suyas = enSistema.get(d.id) ?? [];
-		if (!d.activo && !suyas.length) continue;
+		if (!suyas.length) continue;
 		const trampas = ordenar(suyas.flatMap((t) => trampaMapa(t) ?? []));
 		const direccion = d.descripcion.direccion?.trim() || null;
 		const ruta = trampas[0]?.ruta ?? null;
@@ -527,7 +549,6 @@ export function armarMapa(e: EntradaMapa): Mapa {
 			trampas
 		};
 		if (deFuera) fuera.push(sistema);
-		else if (!suyas.length) sueltos.push(sistema);
 		else {
 			/* Del sensor que recibe la mayoría de sus señales; a igualdad, el primero. */
 			const cuenta = new Map<string, number>();

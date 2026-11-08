@@ -662,7 +662,11 @@
 					{/if}
 				</section>
 			{:else}
-				<p class="nada">Nothing matches your search.</p>
+				<p class="nada">
+					{filtrando
+						? 'Nothing matches your search.'
+						: 'No sensor is online right now. You can see them all in Sensors.'}
+				</p>
 			{/each}
 		</div>
 	</div>
