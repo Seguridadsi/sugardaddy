@@ -28,6 +28,7 @@ export async function sensores() {
 			redNombre: s.sensores.redNombre,
 			vlan: s.sensores.vlan,
 			entorno: s.sensores.entorno,
+			registrarPropio: s.sensores.registrarPropio,
 			ultimoLatido: s.sensores.ultimoLatido,
 			remoto: s.sensores.remoto,
 			version: s.sensores.version,
@@ -162,6 +163,29 @@ export async function cambiarEntorno(quien: string, id: string, entorno: Entorno
 		await tx
 			.insert(s.auditoria)
 			.values({ quien, accion: 'sensor environment changed', detalle: { id, entorno } });
+		return true;
+	});
+}
+
+/*
+ * Si se registra lo que viene de la propia máquina del sensor. Queda en la auditoría:
+ * apagado, alguien que ya esté dentro de esa máquina toca sus trampas sin que conste.
+ */
+export async function cambiarRegistrarPropio(quien: string, id: string, registrar: boolean) {
+	return db.transaction(async (tx) => {
+		const [f] = await tx
+			.update(s.sensores)
+			.set({ registrarPropio: registrar })
+			.where(eq(s.sensores.id, id))
+			.returning({ id: s.sensores.id });
+		if (!f) return false;
+		await tx.insert(s.auditoria).values({
+			quien,
+			accion: registrar
+				? 'sensor own-machine recording enabled'
+				: 'sensor own-machine recording disabled',
+			detalle: { id }
+		});
 		return true;
 	});
 }

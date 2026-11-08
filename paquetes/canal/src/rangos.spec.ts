@@ -103,3 +103,22 @@ describe('resta contra fuerza bruta', () => {
 		expect(true).toBe(true);
 	}, 60_000);
 });
+
+describe('rango no admite nada más que una IP o una red', () => {
+	it.each([
+		'1.1.1.1/32/',
+		'1.1.1.1/32/\n0.0.0.0/0',
+		'1.1.1.1//32',
+		'10.0.0.0/8/8',
+		'2001:db8::/32/x',
+		'1.1.1.1\n',
+		'1.1.1.1/32\n'
+	])('%j no vale', (mala) => {
+		expect(rango(mala)).toBeNull();
+	});
+	it('una IP y una red, sí', () => {
+		expect(rango('1.1.1.1')).not.toBeNull();
+		expect(rango('10.0.0.0/8')).not.toBeNull();
+		expect(rango('2001:db8::/32')).not.toBeNull();
+	});
+});

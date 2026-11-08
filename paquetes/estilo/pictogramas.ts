@@ -145,6 +145,8 @@ const TIPO_DE_TRAMPA: Record<string, TipoDeServicio> = {
 	'api-ia': 'ia',
 	/* Configuración MCP sembrada (H34): no corre servicio, apunta a una trampa MCP */
 	'configuracion-mcp': 'ia',
+	/* Chatbot interno falso (H95): asistente de IA con base RAG cebo y cadena canario */
+	'chatbot-interno': 'ia',
 	/* Código */
 	git: 'codigo',
 	svn: 'codigo',

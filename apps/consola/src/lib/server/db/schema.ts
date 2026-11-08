@@ -70,6 +70,13 @@ export const sensores = pgTable('sensores', {
 	 * afinarlo. Nulo = sin entorno (el motor se comporta como antes).
 	 */
 	entorno: text('entorno', { enum: ['dentro', 'perimetro-web', 'aislada'] }),
+	/*
+	 * Si se registra lo que viene de la dirección de red de la propia máquina del
+	 * sensor. Por defecto no: lo suyo no es un ataque, salvo que se quiera probar a mano.
+	 * Las pruebas de la consola se registran siempre. Quien lo aplica es el sensor
+	 * (cmd/sensor/propio.go), porque tirar el evento en la consola rompería la cadena.
+	 */
+	registrarPropio: boolean('registrar_propio').notNull().default(false),
 	/* sha256 del token del sensor. El token solo se ve una vez, al darlo de alta. */
 	claveHash: text('clave_hash').notNull(),
 	/* Hash de la última línea aceptada: la siguiente tiene que traerlo en hashAnterior. */
@@ -272,7 +279,15 @@ export const eventos = pgTable(
 		 * (incidentes-motor.ts): los puntos de su acción según su trampa,
 		 * multiplicados por su ubicación. Los de antes, 0.
 		 */
-		puntos: integer('puntos').notNull().default(0)
+		puntos: integer('puntos').notNull().default(0),
+		/*
+		 * Lo pidió un escáner conocido: el id de su proveedor ($lib/escaner.ts). Solo lo pone
+		 * el clasificador (escaneres.ts), por la IP de la conexión. Se guarda y se ve con su
+		 * etiqueta, pero no es un ataque: no abre incidente, no pasa a Respuesta ni a las
+		 * salidas, no entra en los recuentos del perfil de esa IP y no se comparte. La línea
+		 * firmada no se toca. La consola anterior no la escribe: null.
+		 */
+		escaner: text('escaner')
 	},
 	(t) => [
 		uniqueIndex('eventos_hash').on(t.hash),
@@ -287,7 +302,11 @@ export const eventos = pgTable(
 		/* El perfil de un usuario (perfilDeUsuario) pide sus eventos por fecha, como el de IP. */
 		index('eventos_usuario_cuando').on(t.usuario, t.cuando),
 		/* El borrado por plazo de conservación (conservacion.ts) va por «recibido». */
-		index('eventos_recibido').on(t.recibido)
+		index('eventos_recibido').on(t.recibido),
+		/* Lo apartado se cuenta y se filtra por proveedor, y es muy poco: solo esas filas. */
+		index('eventos_escaner')
+			.on(t.escaner, t.recibido)
+			.where(sql`${t.escaner} is not null`)
 	]
 );
 
@@ -419,6 +438,12 @@ export const balizas = pgTable(
 		}),
 		/* La URL de baliza sembrada en el cebo. */
 		url: text('url').notNull(),
+		/*
+		 * La segunda URL del documento, la del relé, cuando lleva también la del
+		 * receptor de la red (en url): una apertura puede dar dos señales y solo vale una
+		 * (docs/diseno/rele-balizas.md). Nula en todas las demás, también las de antes.
+		 */
+		urlRele: text('url_rele'),
 		/*
 		 * El documento acuñado (base64) para descargarlo, con su nombre y su
 		 * tipo: solo las de clase «documento».
@@ -1007,6 +1032,20 @@ export const usuariosLocales = pgTable('usuarios_locales', {
 });
 
 /*
+ * Lo que cada persona elige para sí, entre por donde entre: se cuelga del oid de
+ * la sesión (`local:<id>`, `emergencia:<id>` o el de Entra), porque quien entra
+ * con Entra no tiene fila propia en el nodo. No lleva clave ajena a
+ * `usuarios_locales` por eso mismo: al retirar un usuario local, la borra `retirar`.
+ *
+ * `zonaHoraria` nula: sigue la del navegador (lib/server/zona-horaria.ts).
+ */
+export const preferenciasUsuario = pgTable('preferencias_usuario', {
+	oid: text('oid').primaryKey(),
+	zonaHoraria: text('zona_horaria'),
+	actualizada: timestamp('actualizada', { withTimezone: true }).notNull().defaultNow()
+});
+
+/*
  * Códigos para recuperar la contraseña de un usuario local (auth/recuperar.ts).
  * Solo el hash del código; caduca, aguanta pocos intentos y se cierra al usarlo
  * o al pedir otro. Origen «correo»: lo pidió alguien en /sign-in/recover.
@@ -1069,7 +1108,26 @@ export const incidentesAbiertos = pgTable(
 		subido: timestamp('subido', { withTimezone: true }),
 		/* La última vez que se escaló por falta de respuesta, y cuántas van. */
 		escalado: timestamp('escalado', { withTimezone: true }),
-		escalados: integer('escalados').notNull().default(0)
+		escalados: integer('escalados').notNull().default(0),
+		/*
+		 * Ninguna conexión ha venido de esta IP: salió del cuerpo de un POST, que escribe
+		 * cualquiera con el token. El aviso lo dice y no ofrece bloquearla. La consola
+		 * anterior no la escribe: false, como hasta ahora.
+		 */
+		sinConexion: boolean('sin_conexion').notNull().default(false),
+		/*
+		 * Cuándo lo aceptó el panel de SeguridadSI, si se escala hasta allí. Aparte de
+		 * «escalados», que cuenta los avisos al cliente: lo que no quepa en una vuelta o el
+		 * panel no acepte se vuelve a intentar en la siguiente.
+		 */
+		alPanel: timestamp('al_panel', { withTimezone: true }),
+		/*
+		 * La frase de por qué puede ser un escáner, aunque no se haya apartado
+		 * (indicioDeEscaner): el User-Agent, que cualquiera escribe, o una red de un servicio
+		 * que nadie documenta como escáner. Solo informa: el incidente se abre igual. Se borra
+		 * en cuanto llega algo suyo que no lo parece. La consola anterior no la escribe: null.
+		 */
+		posibleEscaner: text('posible_escaner')
 	},
 	(t) => [
 		/* Uno abierto por origen: dos entregas a la vez no abren dos. */

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import FormularioParametros from '$lib/components/FormularioParametros.svelte';
 	import { ENTORNOS, ENTORNO_ETIQUETA } from '$lib/entorno';
+	import { fechaCorta } from '$lib/fechas-pantalla';
 	import { nombreAccion } from '$lib/formato';
 	import type { EsquemaParametros } from '@sugardaddy/contrato';
 	import { untrack, type Snippet } from 'svelte';
@@ -120,7 +121,6 @@
 	const elegidas = $derived(new Set(valores.reglas.trampas ?? []));
 	const accionesElegidas = $derived(new Set(valores.reglas.acciones ?? []));
 	const guardado = (id: string) => guardados.find((g) => g.id === id);
-	const fecha = (iso: string) => new Date(iso).toLocaleDateString('en-GB');
 </script>
 
 <div class="campo">
@@ -173,7 +173,7 @@
 				<p class="ayuda">
 					{x.descripcion} It is stored encrypted with this node's key and is never shown again.
 					{#if g?.puesto && g.cuando}
-						Set by {g.quien} on {fecha(g.cuando)}.
+						Set by {g.quien} on {fechaCorta(g.cuando)}.
 					{/if}
 				</p>
 				{#if g?.puesto && !x.obligatorio && !x.necesario}

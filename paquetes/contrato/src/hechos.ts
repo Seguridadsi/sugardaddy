@@ -81,6 +81,16 @@ export const HECHOS: Record<string, { tipo: TipoHecho; fuentes: FuenteHecho[] }>
 	'recolector.canales': { tipo: 'lista', fuentes: ['sensor'] },
 	'canal.rele': { tipo: 'booleano', fuentes: ['consola'] },
 	/*
+	 * canal.rele vale también solo con el relé. Lo que tiene que hablar con un receptor
+	 * en la red del cliente, como la tarea de un fichero vigilado, exige este.
+	 */
+	'canal.receptor': { tipo: 'booleano', fuentes: ['consola'] },
+	/*
+	 * La consola sabe distinguir por el Referer una visita del dominio del cliente de la
+	 * de un clon. Hoy no sabe, y nada lo pone: web-clonada-cebo sale sin vía, con su motivo.
+	 */
+	'canal.clonWeb': { tipo: 'booleano', fuentes: ['consola'] },
+	/*
 	 * Hasta dónde llega esta consola (ronda conectores-tanda1, §2.4): el
 	 * webhook de H28/H29 y el ACS de H31 nacen en Internet y necesitan que
 	 * el nodo atienda su dominio público. La consola la informa según sus
@@ -130,7 +140,9 @@ export const NOMBRE_HECHO: Readonly<Record<string, string>> = Object.freeze({
 	'shell.posix': 'Shell',
 	'destino.direccion': 'Address',
 	'fileserver.protocolos': 'Protocols',
-	'canal.rele': 'Receives beacons (sensor with a receiver)',
+	'canal.rele': 'Receives beacons (receiver or relay)',
+	'canal.receptor': 'Has a verified beacon receiver on its network',
+	'canal.clonWeb': 'Tells visits from your domain apart from a clone',
 	'alcance.consola': 'Console reach (public, private or mailbox)'
 });
 

@@ -18,6 +18,7 @@
 		if (data.filtro.usuario) p.set('usuario', data.filtro.usuario);
 		if (data.filtro.q) p.set('q', data.filtro.q);
 		if (data.filtro.triaje) p.set('triaje', data.filtro.triaje);
+		if (data.filtro.escaner) p.set('escaner', data.filtro.escaner);
 		const q = p.toString();
 		return '/events/csv' + (q ? `?${q}` : '');
 	});
@@ -31,6 +32,7 @@
 		if (data.filtro.origen) p.set('origen', data.filtro.origen);
 		if (data.filtro.q) p.set('q', data.filtro.q);
 		if (data.filtro.triaje) p.set('triaje', data.filtro.triaje);
+		if (data.filtro.escaner) p.set('escaner', data.filtro.escaner);
 		if (data.filtro.agrupar) p.set('agrupar', '1');
 		const q = p.toString();
 		return '/events' + (q ? `?${q}` : '');

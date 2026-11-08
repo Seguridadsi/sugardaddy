@@ -15,7 +15,8 @@
 		repeticiones?: number;
 	};
 	import { enhance } from '$app/forms';
-	import { haceCuanto, horaCorta, horaLarga, nombreAccion, textoGeo, type Geo } from '$lib/formato';
+	import { horaCorta, horaLarga } from '$lib/fechas-pantalla';
+	import { haceCuanto, nombreAccion, textoGeo, type Geo } from '$lib/formato';
 	import { AVISO_IP_MOTOR } from '$lib/capacidades';
 
 	/* El nombre legible de cada estado de triaje. */

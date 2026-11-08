@@ -9,6 +9,8 @@ import {
 	pendientesAlEntrar
 } from '$lib/server/auth/local';
 import { cambiarCorreoSesiones, renombrarSesiones } from '$lib/server/auth/sesion';
+import { zonaValida } from '$lib/fechas';
+import { guardarZona } from '$lib/server/zona-horaria';
 
 /*
  * «Mi cuenta»: cada usuario de login LOCAL gestiona lo suyo (su nombre, su
@@ -35,6 +37,13 @@ export const load = async ({ locals }) => {
 };
 
 export const actions = {
+	/* El selector del menú lateral: de cualquiera, entre como entre. Vacía: la del navegador. */
+	zonaHoraria: async ({ request, locals }) => {
+		const zona = String((await request.formData()).get('zona') ?? '');
+		if (zona && !zonaValida(zona)) return fail(400, { error: 'That time zone does not exist.' });
+		await guardarZona(locals.usuario!, zona || null);
+		return { mensaje: 'Time zone updated.' };
+	},
 	nombre: async ({ request, locals }) => {
 		const id = idLocal(locals);
 		if (!id) return fail(403, { error: 'Only users with local sign-in can change this here.' });

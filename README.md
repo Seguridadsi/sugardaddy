@@ -3,7 +3,7 @@
 **Deception and honeypot platform.** Sugardaddy places services on your network
 that look real (an SSH server, a printer, a database) but are decoys. Nobody at
 your company has a reason to touch them: whoever does is an intruder, and you know
-it the moment it happens, with a **zero false-positive rate**.
+it the moment it happens. These are **high-confidence alerts**.
 
 The **Community** edition is free. You install it yourself, on your own network, and **everything
 stays in-house**: events, IPs and what the attacker tries never leave your node.

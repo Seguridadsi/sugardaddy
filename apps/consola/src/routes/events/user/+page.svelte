@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { nombreSeveridad } from '$lib/formato';
 	import ListaEventos from '$lib/components/ListaEventos.svelte';
-	import { haceCuanto, horaLarga, nombreAccion, textoGeo } from '$lib/formato';
+	import { horaLarga } from '$lib/fechas-pantalla';
+	import { haceCuanto, nombreAccion, textoGeo } from '$lib/formato';
 	import { AVISO_IP_MOTOR } from '$lib/capacidades';
 
 	let { data } = $props();

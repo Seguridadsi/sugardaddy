@@ -6,6 +6,7 @@ import { redDelFormulario } from '$lib/red';
 import {
 	cambiarEntorno,
 	cambiarRed,
+	cambiarRegistrarPropio,
 	retirarSensor,
 	sensores,
 	ultimaCuarentena
@@ -77,6 +78,18 @@ export const actions = {
 		if (!(await cambiarEntorno(u.correo, id, entorno)))
 			return fail(404, { error: 'That sensor no longer exists.' });
 		return { mensaje: 'Sensor environment saved.' };
+	},
+	registrarPropio: async ({ request, locals }) => {
+		const u = exigir(locals, 'ajustes');
+		const f = await request.formData();
+		const registrar = f.get('registrar') === 'si';
+		if (!(await cambiarRegistrarPropio(u.correo, String(f.get('id')), registrar)))
+			return fail(404, { error: 'That sensor no longer exists.' });
+		return {
+			mensaje: registrar
+				? 'The sensor will record connections from its own machine.'
+				: 'The sensor will stop recording connections from its own machine.'
+		};
 	},
 	retirar: async ({ request, locals }) => {
 		const u = exigir(locals, 'ajustes');

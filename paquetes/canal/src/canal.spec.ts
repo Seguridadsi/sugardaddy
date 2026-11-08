@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
 	compararVersiones,
+	direccionReleValida,
 	firmarEstado,
 	firmarRelease,
 	verificarRelease,
@@ -211,5 +212,77 @@ describe('versiones firmadas', () => {
 	it('las versiones se comparan como números, no como texto', () => {
 		expect(compararVersiones('0.10.0', '0.9.0')).toBeGreaterThan(0);
 		expect(compararVersiones('1.0.0', '1.0.0')).toBe(0);
+	});
+});
+
+describe('la dirección del relé', () => {
+	it.each(['rele-de-prueba.azurewebsites.net', 'rele.neutro.example', 'a1.xn--bcher-kva.example'])(
+		'%s es un nombre limpio',
+		(d) => {
+			expect(direccionReleValida(d)).toBe(true);
+		}
+	);
+
+	it.each([
+		'',
+		'localhost',
+		'10.0.0.1',
+		'1.2.3.4.5',
+		'http://rele.example',
+		'https://rele.example',
+		'ftp://rele.example',
+		'javascript:alert(1)',
+		'rele.example/b/x',
+		'rele.example?x=1',
+		'rele.example#x',
+		'rele.example:8443',
+		'user@rele.example',
+		'rele.example.',
+		'.rele.example',
+		'rele..example',
+		'-rele.example',
+		'rele-.example',
+		'RELE.EXAMPLE',
+		' rele.example',
+		'rele.example ',
+		'rele.example\n',
+		'rele.example\nx: y',
+		'rele example.com',
+		'relé.example',
+		`${'a'.repeat(64)}.example`,
+		`${'a.'.repeat(130)}example`
+	])('%j no entra en un documento', (d) => {
+		expect(direccionReleValida(d)).toBe(false);
+	});
+
+	it.each([null, undefined, 1, {}, ['rele.example']])('%j no es una dirección', (d) => {
+		expect(direccionReleValida(d)).toBe(false);
+	});
+
+	it('viaja firmada y los nodos anteriores la ignoran: el estado se verifica igual', () => {
+		const base: EstadoDeseado = {
+			version: 1,
+			cliente: 'acme',
+			versionObjetivo: '0.1.0',
+			release: null,
+			anillo: 'general',
+			despliegueEnPausa: false,
+			soporte: null,
+			modulos: [],
+			emitido: new Date().toISOString(),
+			caduca: new Date(Date.now() + 60_000).toISOString()
+		};
+		const conRele = verificarEstado(
+			panel.publica,
+			'acme',
+			firmarEstado(panel.privada, { ...base, rele: 'rele.example' })
+		);
+		expect(conRele).toMatchObject({ ok: true, estado: { rele: 'rele.example' } });
+		const sinRele = verificarEstado(panel.publica, 'acme', firmarEstado(panel.privada, base));
+		expect(sinRele.ok && 'rele' in sinRele.estado).toBe(false);
+		/* Cambiarla por el camino invalida la firma. */
+		const f = firmarEstado(panel.privada, { ...base, rele: 'rele.example' });
+		const trucada = { ...f, estado: f.estado.replace('rele.example', 'otro.example') };
+		expect(verificarEstado(panel.publica, 'acme', trucada).ok).toBe(false);
 	});
 });

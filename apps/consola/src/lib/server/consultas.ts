@@ -56,6 +56,8 @@ export type Triaje = { estado: EstadoTriaje; nota: string | null };
 export type EventoConsola = Evento & {
 	alerta?: string | null;
 	prueba?: boolean;
+	/* Lo pidió un escáner conocido: el id de su proveedor ($lib/escaner.ts). */
+	escaner?: string | null;
 	triaje?: Triaje | null;
 };
 const conAlerta = (f: {
@@ -63,6 +65,7 @@ const conAlerta = (f: {
 	severidad: string;
 	alerta: string | null;
 	prueba: boolean;
+	escaner?: string | null;
 	triajeEstado?: EstadoTriaje | null;
 	triajeNota?: string | null;
 }): EventoConsola => ({
@@ -70,6 +73,7 @@ const conAlerta = (f: {
 	severidad: f.severidad as Severidad,
 	alerta: f.alerta,
 	prueba: f.prueba,
+	escaner: f.escaner ?? null,
 	triaje: f.triajeEstado ? { estado: f.triajeEstado, nota: f.triajeNota ?? null } : null
 });
 /*
@@ -82,7 +86,8 @@ const COLUMNAS = {
 	linea: s.eventos.linea,
 	severidad: s.eventos.severidad,
 	alerta: s.eventos.alerta,
-	prueba: s.eventos.prueba
+	prueba: s.eventos.prueba,
+	escaner: s.eventos.escaner
 };
 /* Las columnas de triaje, solo para las consultas que unen la tabla `triaje`. */
 const COLUMNAS_TRIAJE = { triajeEstado: s.triaje.estado, triajeNota: s.triaje.nota };
@@ -127,6 +132,11 @@ export async function nombresTrampas(): Promise<Record<string, string>> {
  */
 export type FiltroTriaje = EstadoTriaje | 'sin';
 
+/* Las visitas de un escáner conocido: se ven por defecto, con su etiqueta. */
+export type FiltroEscaner = 'solo' | 'sin';
+const condicionEscaner = (f?: FiltroEscaner) =>
+	f === 'solo' ? isNotNull(s.eventos.escaner) : f === 'sin' ? isNull(s.eventos.escaner) : undefined;
+
 /* Escapa los comodines de un LIKE/ILIKE para que el texto se busque literal. */
 const sinComodines = (t: string) => t.replace(/[%_\\]/g, '\\$&');
 
@@ -140,6 +150,7 @@ export async function eventos(
 		/* Búsqueda libre dentro del evento (comando, usuario, URL, texto crudo…). */
 		q?: string;
 		triaje?: FiltroTriaje;
+		escaner?: FiltroEscaner;
 	} = {},
 	limite = 200
 ) {
@@ -157,8 +168,10 @@ export async function eventos(
 				filtro.usuario ? eq(s.eventos.usuario, filtro.usuario) : undefined,
 				/* Dentro de la línea firmada (JSON): comando, usuario, URL, contraseña, crudo. */
 				q ? ilike(s.eventos.linea, `%${sinComodines(q)}%`) : undefined,
+				condicionEscaner(filtro.escaner),
+				/* Una visita de un escáner no está por revisar: no es trabajo para nadie. */
 				filtro.triaje === 'sin'
-					? isNull(s.triaje.evento)
+					? and(isNull(s.triaje.evento), isNull(s.eventos.escaner))
 					: filtro.triaje
 						? eq(s.triaje.estado, filtro.triaje)
 						: undefined
@@ -328,14 +341,15 @@ export function agruparEventos(eventos: EventoConsola[]): EventoAgrupado[] {
 export async function perfilDeIp(ip: string) {
 	const limpia = ip.trim();
 	if (!limpia) return null;
-	const deLaIp = eq(s.eventos.ip, limpia);
+	/* Las visitas de un escáner conocido no son actividad de esta IP: aparte, y sin sumar. */
+	const deLaIp = and(eq(s.eventos.ip, limpia), isNull(s.eventos.escaner));
 	/*
 	 * Las cinco lecturas son independientes: van en paralelo (una sola espera, no
 	 * cinco seguidas), que importa para una IP con muchísimos eventos. La de
 	 * «recientes» se apoya en el índice compuesto (ip, cuando) para el ORDER BY …
 	 * LIMIT. Las fechas salen como el resto de la consola: ISO con .toISOString().
 	 */
-	const [tot, porTrampa, porAccion, porSeveridad, recientesFilas] = await Promise.all([
+	const [tot, porTrampa, porAccion, porSeveridad, recientesFilas, apartadas] = await Promise.all([
 		db
 			.select({
 				n: sql<number>`count(*)::int`,
@@ -368,10 +382,27 @@ export async function perfilDeIp(ip: string) {
 			.leftJoin(s.triaje, eq(s.triaje.evento, s.eventos.id))
 			.where(deLaIp)
 			.orderBy(desc(s.eventos.cuando))
-			.limit(50)
+			.limit(50),
+		db
+			.select({
+				escaner: s.eventos.escaner,
+				n: sql<number>`count(*)::int`,
+				primera: sql<string>`min(${s.eventos.cuando})`,
+				ultima: sql<string>`max(${s.eventos.cuando})`
+			})
+			.from(s.eventos)
+			.where(and(eq(s.eventos.ip, limpia), isNotNull(s.eventos.escaner)))
+			.groupBy(s.eventos.escaner)
 	]);
 	const t0 = tot[0];
-	if (!t0 || !t0.n) return null;
+	if ((!t0 || !t0.n) && !apartadas.length) return null;
+	/* Sin nada más que visitas de escáner, las fechas son las suyas y los recuentos, cero. */
+	const fechas = (k: 'primera' | 'ultima') =>
+		t0?.n
+			? t0[k]
+			: new Date(
+					Math[k === 'primera' ? 'min' : 'max'](...apartadas.map((a) => new Date(a[k]).getTime()))
+				).toISOString();
 	const peor = porSeveridad.reduce<Severidad>(
 		(a, r) =>
 			SEVERIDADES.indexOf(r.severidad as Severidad) > SEVERIDADES.indexOf(a)
@@ -381,10 +412,12 @@ export async function perfilDeIp(ip: string) {
 	);
 	const recientes = recientesFilas.map((f) => conAlerta(f));
 	return {
-		total: t0.n,
+		total: t0?.n ?? 0,
 		/* min/max de timestamptz: el driver lo da como Date; a ISO canónico para el navegador. */
-		primera: new Date(t0.primera).toISOString(),
-		ultima: new Date(t0.ultima).toISOString(),
+		primera: new Date(fechas('primera')).toISOString(),
+		ultima: new Date(fechas('ultima')).toISOString(),
+		/* Lo que no se cuenta arriba: las visitas de un escáner conocido desde esta IP. */
+		escaneres: apartadas.map((a) => ({ escaner: a.escaner!, n: a.n })),
 		peor,
 		trampas: porTrampa,
 		acciones: porAccion,
@@ -509,6 +542,7 @@ export async function eventosPlanos(
 		usuario?: string;
 		q?: string;
 		triaje?: FiltroTriaje;
+		escaner?: FiltroEscaner;
 	} = {},
 	limite = 50_000
 ) {
@@ -529,6 +563,7 @@ export async function eventosPlanos(
 			conexionEstablecida: s.eventos.conexionEstablecida,
 			alerta: s.eventos.alerta,
 			prueba: s.eventos.prueba,
+			escaner: s.eventos.escaner,
 			triaje: s.triaje.estado
 		})
 		.from(s.eventos)
@@ -540,8 +575,10 @@ export async function eventosPlanos(
 				filtro.origen ? like(s.eventos.ip, `${filtro.origen.replace(/[%_\\]/g, '')}%`) : undefined,
 				filtro.usuario ? eq(s.eventos.usuario, filtro.usuario) : undefined,
 				q ? ilike(s.eventos.linea, `%${sinComodines(q)}%`) : undefined,
+				condicionEscaner(filtro.escaner),
+				/* Una visita de un escáner no está por revisar: no es trabajo para nadie. */
 				filtro.triaje === 'sin'
-					? isNull(s.triaje.evento)
+					? and(isNull(s.triaje.evento), isNull(s.eventos.escaner))
 					: filtro.triaje
 						? eq(s.triaje.estado, filtro.triaje)
 						: undefined
@@ -562,7 +599,8 @@ export async function resumen() {
 		await db
 			.select(COLUMNAS)
 			.from(s.eventos)
-			.where(gte(s.eventos.cuando, new Date(ahora - DIA)))
+			/* Inicio cuenta lo que ha tocado las trampas: una visita de un escáner no lo es. */
+			.where(and(gte(s.eventos.cuando, new Date(ahora - DIA)), isNull(s.eventos.escaner)))
 			.orderBy(desc(s.eventos.cuando))
 	).map((f) => conAlerta(f));
 
@@ -674,7 +712,7 @@ export async function trampasConEventos() {
 			colocacion: s.trampas.colocacion,
 			sensorNombre: s.sensores.nombre,
 			destinoNombre: s.destinos.nombre,
-			eventos: sql<number>`(select count(*)::int from ${s.eventos} e where e.trampa = ${s.trampas.id} and e.cuando >= ${desde.toISOString()}::timestamptz)`
+			eventos: sql<number>`(select count(*)::int from ${s.eventos} e where e.trampa = ${s.trampas.id} and e.cuando >= ${desde.toISOString()}::timestamptz and e.escaner is null)`
 		})
 		.from(s.trampas)
 		.innerJoin(s.sensores, eq(s.sensores.id, s.trampas.sensor))
@@ -998,7 +1036,14 @@ export async function eventosParaWebhook(pos: WebhookPos, limite = 200) {
 		.select({ id: s.eventos.id, linea: s.eventos.linea, recibido: s.eventos.recibido })
 		.from(s.eventos)
 		.where(
-			or(gt(s.eventos.recibido, base), and(eq(s.eventos.recibido, base), gt(s.eventos.id, idBase)))
+			and(
+				/* Lo de un escáner no sale por aquí: quien escucha lo tomaría por un ataque. */
+				isNull(s.eventos.escaner),
+				or(
+					gt(s.eventos.recibido, base),
+					and(eq(s.eventos.recibido, base), gt(s.eventos.id, idBase))
+				)
+			)
 		)
 		.orderBy(asc(s.eventos.recibido), asc(s.eventos.id))
 		.limit(limite);
@@ -1158,7 +1203,9 @@ export async function mapaDeOrigenes() {
 			ultimo: sql<string>`max(${s.eventos.cuando})`
 		})
 		.from(s.eventos)
-		.where(gte(s.eventos.cuando, new Date(Date.now() - DIAS_MAPA * DIA)))
+		.where(
+			and(gte(s.eventos.cuando, new Date(Date.now() - DIAS_MAPA * DIA)), isNull(s.eventos.escaner))
+		)
 		.groupBy(s.eventos.ip);
 	const paises = new Map<string, Zona<'pais'>>();
 	const regiones = new Map<string, Zona<'region'>>();

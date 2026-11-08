@@ -163,6 +163,15 @@ export type EstadoDeseado = {
 	 */
 	releBalizas?: boolean;
 	/*
+	 * La dirección del relé público: el nombre DNS, sin esquema ni ruta, que el nodo
+	 * siembra en sus cebos para que avisen fuera de su red (docs/diseno/rele-balizas.md).
+	 * Sale de un único ajuste del panel (SD_RELE_DIRECCION). Con un nombre, el nodo lo
+	 * guarda si pasa direccionReleValida; con null, este panel no tiene relé y el nodo
+	 * olvida el que tuviera; ausente, es un panel anterior y el nodo no toca nada.
+	 * Opcional: los nodos anteriores lo ignoran.
+	 */
+	rele?: string | null;
+	/*
 	 * Código para recuperar una contraseña que SeguridadSI ha mandado desde su
 	 * panel al correo de contacto del cliente. Aquí solo viaja su hash: el código
 	 * va por correo, nunca por el canal. El nodo lo guarda para ese usuario local y
@@ -185,6 +194,19 @@ export type EstadoDeseado = {
 };
 
 export type AtencionIncidente = { id: string; por: string };
+
+/*
+ * Un nombre DNS con al menos dos etiquetas y sin nada más: ni esquema, ni puerto,
+ * ni ruta, ni usuario, ni una IP. Esta dirección acaba dentro de los documentos cebo
+ * como https://<dirección>/b/<token>, así que lo que no sea un nombre limpio no entra
+ * (lo comprueban el panel antes de firmarla y el nodo al recibirla y al usarla).
+ */
+const DIRECCION_RELE =
+	/^(?=.{4,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])$/;
+
+export function direccionReleValida(d: unknown): d is string {
+	return typeof d === 'string' && DIRECCION_RELE.test(d);
+}
 
 /*
  * Un incidente, tal como lo sube un nodo cuyo cliente ha decidido compartirlos

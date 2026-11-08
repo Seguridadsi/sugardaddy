@@ -7,6 +7,7 @@
 	import FormularioParametros from '$lib/components/FormularioParametros.svelte';
 	import ListaPasos from '$lib/components/ListaPasos.svelte';
 	import { ENTORNOS, ENTORNO_ETIQUETA, ENTORNO_EXPLICACION } from '$lib/entorno';
+	import { fechaHoraLarga, horaCorta } from '$lib/fechas-pantalla';
 	import { dondeVisible } from '$lib/formato';
 	import { puede } from '$lib/permisos';
 
@@ -30,12 +31,6 @@
 	const SCRIPTS = ['ps1', 'sh'];
 	const descarga = (formato: string, parte: 'colocar' | 'retirar' = 'colocar') =>
 		`${resolve('/decoys/[id]/steps/[formato]', { id: data.trampa.id, formato })}${parte === 'retirar' ? '?parte=retirar' : ''}`;
-	const fecha = (iso: string) =>
-		new Intl.DateTimeFormat('en-GB', { dateStyle: 'long', timeStyle: 'short' }).format(
-			new Date(iso)
-		);
-	const hora = (iso: string) =>
-		new Intl.DateTimeFormat('en-GB', { timeStyle: 'short' }).format(new Date(iso));
 
 	/* «Probar» (§8.3): mientras se espera el evento, la página se mira sola cada 10 s. */
 	const prueba = $derived(data.prueba);
@@ -155,12 +150,12 @@
 		<h2>Test it</h2>
 		{#if u?.estado === 'recibida' && u.evento}
 			<p class="llegado" role="status">
-				The test event arrived at {hora(u.evento.recibido)}{#if u.evento.ip}, from
+				The test event arrived at {horaCorta(u.evento.recibido)}{#if u.evento.ip}, from
 					<span class="mono">{u.evento.ip}</span>{/if}: the decoy alerts.
 			</p>
 		{:else if u?.estado === 'esperando'}
 			<p class="esperando" role="status">
-				Waiting for the test event until {hora(u.hasta)}.
+				Waiting for the test event until {horaCorta(u.hasta)}.
 				{#if u.ips.length}Anything arriving from <span class="mono">{u.ips.join(', ')}</span> counts.{:else}The
 					console recognizes it by the test code.{/if}
 				This page will tell you as soon as it arrives.
@@ -206,8 +201,8 @@
 			{/if}
 		{:else if u?.estado === 'caducada'}
 			<p class="caducada">
-				The last test, which ran until {hora(u.hasta)}, received nothing. Check that the decoy is
-				visible from where you tested, then test again.
+				The last test, which ran until {horaCorta(u.hasta)}, received nothing. Check that the decoy
+				is visible from where you tested, then test again.
 			</p>
 		{/if}
 
@@ -420,7 +415,7 @@
 		{/if}
 
 		<p class="huella">
-			Generated on {fecha(p.generado)} with {p.modulo}
+			Generated on {fechaHoraLarga(p.generado)} with {p.modulo}
 			{p.versionModulo} · {p.via} · sha256 <span class="mono">{p.sha256}</span>
 		</p>
 	{:else}

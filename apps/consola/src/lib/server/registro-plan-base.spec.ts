@@ -5,8 +5,10 @@
  * paran y cowrie sigue. Y en Cloud, su licencia las cubre. DATABASE_URL de .env; si
  * no hay, se salta.
  */
-import { readFileSync } from 'node:fs';
-import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
 	MODULOS_REGISTRO,
 	firmarDelegacion,
@@ -15,6 +17,7 @@ import {
 	generarClaves,
 	type Licencia
 } from '@sugardaddy/canal';
+import { conImagenPublicada } from './imagen-de-prueba';
 
 let hayBase = false;
 try {
@@ -77,6 +80,20 @@ describe.skipIf(!hayBase)('el plan con el registro de Community', async () => {
 	const enElPlan = (p: Awaited<ReturnType<typeof plan>>, id: string) =>
 		p.trampas.some((t) => t.id === id);
 
+	/* Un catálogo propio: lo que se prueba es la licencia, no si la imagen está publicada ya. */
+	let catalogo = '';
+	beforeAll(() => {
+		catalogo = mkdtempSync(join(tmpdir(), 'sd-registro-plan-'));
+		for (const id of ['cowrie', 'redis']) {
+			mkdirSync(join(catalogo, 'trampas', id), { recursive: true });
+			writeFileSync(
+				join(catalogo, 'trampas', id, 'trampa.yaml'),
+				conImagenPublicada(readFileSync(`../../modulos/trampas/${id}/trampa.yaml`, 'utf8'))
+			);
+		}
+		process.env.SUGARDADDY_MODULOS = catalogo;
+	});
+
 	beforeEach(async () => {
 		process.env.EDICION = 'community';
 		process.env.PUBLICACION_CLAVE_PUBLICA = kino.publica;
@@ -127,6 +144,8 @@ describe.skipIf(!hayBase)('el plan con el registro de Community', async () => {
 		await quitarTrampas();
 		await db.delete(s.sensores).where(eq(s.sensores.id, SENSOR));
 		delete process.env.EDICION;
+		delete process.env.SUGARDADDY_MODULOS;
+		rmSync(catalogo, { recursive: true, force: true });
 	});
 
 	it('sin registro: redis se queda fuera y cowrie sigue, sin licencia en el plan', async () => {

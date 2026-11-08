@@ -14,6 +14,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { conImagenPublicada } from './imagen-de-prueba';
 
 let hayBase = false;
 try {
@@ -178,7 +179,10 @@ describe.skipIf(!hayBase)('el alta con destino y elector', () => {
 		for (const [id, fichero] of Object.entries(modulos)) {
 			const yaml = readFileSync(fichero, 'utf8');
 			mkdirSync(join(carpeta, 'trampas', id), { recursive: true });
-			writeFileSync(join(carpeta, 'trampas', id, 'trampa.yaml'), copia[id]?.(yaml) ?? yaml);
+			writeFileSync(
+				join(carpeta, 'trampas', id, 'trampa.yaml'),
+				conImagenPublicada(copia[id]?.(yaml) ?? yaml)
+			);
 		}
 		process.env.SUGARDADDY_MODULOS = carpeta;
 

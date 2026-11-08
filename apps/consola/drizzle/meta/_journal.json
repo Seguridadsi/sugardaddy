@@ -281,6 +281,48 @@
       "when": 1793954250973,
       "tag": "0039_sensores_red_nombre",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1793981233354,
+      "tag": "0040_preferencias_usuario",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1794037202359,
+      "tag": "0041_sensores_registrar_propio",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1794040392934,
+      "tag": "0042_balizas_url_rele",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1794040882971,
+      "tag": "0043_incidentes_sin_conexion",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1794044242404,
+      "tag": "0044_incidentes_al_panel",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1794050202142,
+      "tag": "0045_eventos_escaner",
+      "breakpoints": true
     }
   ]
 }

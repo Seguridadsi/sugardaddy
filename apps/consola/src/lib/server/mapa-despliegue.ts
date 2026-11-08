@@ -35,7 +35,7 @@ export async function mapaDespliegue(origen: { host: string; puerto: number }): 
 				donde: s.trampas.donde,
 				senalTrampa: s.trampas.senalTrampa,
 				/* "trampas"."id" con su tabla: drizzle escribiría ${s.trampas.id} como "id" a secas, el de eventos. */
-				eventos: sql<number>`(select count(*)::int from ${s.eventos} e where e.trampa = "trampas"."id" and e.cuando >= ${desde.toISOString()}::timestamptz)`
+				eventos: sql<number>`(select count(*)::int from ${s.eventos} e where e.trampa = "trampas"."id" and e.cuando >= ${desde.toISOString()}::timestamptz and e.escaner is null)`
 			})
 			.from(s.trampas)
 			.orderBy(s.trampas.creado),

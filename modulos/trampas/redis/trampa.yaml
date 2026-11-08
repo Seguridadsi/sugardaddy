@@ -31,8 +31,8 @@ procedencia:
   licencia: Código propio (SeguridadSI); biblioteca estándar de Go, BSD-3-Clause
 
 contenedor:
-  imagen: ghcr.io/seguridadsi/sugardaddy-registro-redis:7.2.4-sd5@sha256:f5860e76e9e66aa8df4e0b2674ec2ea126480ca10daf2498f68b88e92824bc93
-  imagenPublica: ghcr.io/seguridadsi/sugardaddy-registro-redis:7.2.4-sd5@sha256:f5860e76e9e66aa8df4e0b2674ec2ea126480ca10daf2498f68b88e92824bc93
+  imagen: ghcr.io/seguridadsi/sugardaddy-registro-redis:7.2.4-sd6@sha256:6d1ed9f78e4b90eac04ef47dbc26dd4580a28dbed839685c7be75a47bba4f3c3
+  imagenPublica: ghcr.io/seguridadsi/sugardaddy-registro-redis:7.2.4-sd6@sha256:6d1ed9f78e4b90eac04ef47dbc26dd4580a28dbed839685c7be75a47bba4f3c3
   puertos:
     - { interno: 6379, expuesto: '${puertoRedis}', protocolo: tcp }
   entorno:

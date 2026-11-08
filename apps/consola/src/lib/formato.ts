@@ -1,11 +1,3 @@
-const hora = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit' });
-const horaSegundos = new Intl.DateTimeFormat('en-GB', {
-	hour: '2-digit',
-	minute: '2-digit',
-	second: '2-digit'
-});
-const dia = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short' });
-
 export function haceCuanto(iso: string, ahora = Date.now()): string {
 	const min = Math.round((ahora - Date.parse(iso)) / 60_000);
 	if (min < 1) return 'just now';
@@ -88,10 +80,6 @@ export const enFrase = (t: string) => {
 	if (NOMBRES_PROPIOS.has(primera) || /\p{Lu}/u.test(primera.slice(1))) return t;
 	return t.charAt(0).toLocaleLowerCase('en') + t.slice(1);
 };
-
-export const horaCorta = (iso: string) => hora.format(new Date(iso));
-export const horaLarga = (iso: string) => horaSegundos.format(new Date(iso));
-export const diaCorto = (iso: string) => dia.format(new Date(iso));
 
 /* La severidad se guarda en español (`critica`…); lo que se enseña sale de aquí. */
 export const nombreSeveridad = (severidad: string | null | undefined) =>

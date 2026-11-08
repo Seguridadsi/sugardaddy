@@ -10,10 +10,17 @@ import { cambiarUsoTor, listaTor, usoTor } from '$lib/server/tor';
  * (el dominio en minúsculas, sin punto final). null si no es nada de eso. */
 function clasificar(valor: string): { clase: 'ip' | 'red' | 'dominio'; valor: string } | null {
 	if (isIP(valor)) return { clase: 'ip', valor };
-	const [base, mascara] = valor.split('/');
+	const partes = valor.split('/');
+	const [base, mascara] = partes;
 	const bits = isIP(base);
 	const n = Number(mascara);
-	if (bits && /^\d{1,3}$/.test(mascara ?? '') && n >= 8 && n <= (bits === 4 ? 32 : 128))
+	if (
+		partes.length === 2 &&
+		bits &&
+		/^\d{1,3}$/.test(mascara ?? '') &&
+		n >= 8 &&
+		n <= (bits === 4 ? 32 : 128)
+	)
 		return { clase: 'red', valor };
 	const dominio = normalizarDominio(valor);
 	return dominio ? { clase: 'dominio', valor: dominio } : null;

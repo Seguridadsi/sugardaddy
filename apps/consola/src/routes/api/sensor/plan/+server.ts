@@ -1,6 +1,7 @@
 import { json } from '@sveltejs/kit';
 import { eq } from 'drizzle-orm';
 import { db, schema as s } from '$lib/server/db';
+import { trampasQueRegistranSiempre } from '$lib/server/pruebas';
 import { plan, sensorDe, versionAgente } from '$lib/server/sensor';
 import { toquesPendientes } from '$lib/server/toques';
 
@@ -12,7 +13,9 @@ import { toquesPendientes } from '$lib/server/toques';
  * Sugardaddy-Version dice su versión: las trampas que piden un sensor más
  * nuevo (sensorMinimo) no se le mandan, y se guarda en version_agente (el
  * hecho agente.version de su destino). Las dos se escriben solo si cambian.
- * Con el plan se lleva los toques de prueba que tenga pedidos (toques.ts).
+ * Con el plan se lleva los toques de prueba que tenga pedidos (toques.ts) y, si
+ * no registra lo que viene de su máquina, en qué trampas se registra igual. Una
+ * consola anterior no lo dice, y registra todo.
  */
 export const GET = async ({ request }) => {
 	const sensor = await sensorDe(request);
@@ -30,6 +33,9 @@ export const GET = async ({ request }) => {
 		sensor: sensor.id,
 		ultimoHash: sensor.ultimoHash,
 		...(await plan(sensor.id, registro, version ?? undefined)),
-		...(toques.length ? { toques } : {})
+		...(toques.length ? { toques } : {}),
+		...(sensor.registrarPropio
+			? {}
+			: { ignorarPropio: true, registrarSiempre: await trampasQueRegistranSiempre(sensor.id) })
 	});
 };

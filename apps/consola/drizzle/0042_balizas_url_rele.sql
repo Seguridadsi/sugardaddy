@@ -1,0 +1,1 @@
+ALTER TABLE "balizas" ADD COLUMN "url_rele" text;

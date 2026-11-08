@@ -133,7 +133,7 @@ export const MOTIVOS: Readonly<Record<CodigoMotivo, { texto: string; remedio?: s
 		},
 		'senal.sin-rele': {
 			texto:
-				'Its signal needs a sensor with a beacon receiver on this node, and it does not have one yet.'
+				'Its signal needs a beacon receiver on this node or the relay of a node enrolled in Central, and it has neither yet.'
 		},
 		'senal.sin-conexion': { texto: '{conexion} must be connected first.' },
 		'carga.imagen-sin-publicar': { texto: 'The image for this decoy has not been published yet.' },

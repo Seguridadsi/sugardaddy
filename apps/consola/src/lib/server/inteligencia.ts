@@ -3,9 +3,10 @@
  * las reglas de @sugardaddy/canal (esIpPublica); aquí además se quita lo que
  * el cliente tiene en su lista blanca: eso no se comparte nunca.
  */
-import { and, eq, gt, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
+import { and, eq, gt, inArray, isNotNull, isNull, ne, or, sql } from 'drizzle-orm';
 import {
 	contenidaEn,
+	rango,
 	restar,
 	esIpPublica,
 	verificarLista,
@@ -21,9 +22,14 @@ import { migrados } from './origenes-comun';
 
 type Marca = { hasta: string };
 
-async function marca(): Promise<Date> {
+/*
+ * Hasta dónde se ha mirado, como texto: con los microsegundos de Postgres. En una
+ * fecha de JavaScript se quedarían en milisegundos, y lo último recibido se volvería a
+ * subir en cada vuelta. Las marcas de antes, en milisegundos, se leen igual.
+ */
+async function marca(): Promise<string> {
 	const [f] = await db.select().from(s.ajustes).where(eq(s.ajustes.clave, 'indicadores'));
-	return new Date((f?.valor as Marca | undefined)?.hasta ?? 0);
+	return (f?.valor as Marca | undefined)?.hasta ?? new Date(0).toISOString();
 }
 
 /*
@@ -61,27 +67,46 @@ async function blancas(ahora = new Date()) {
 /* Lo que se subiría ahora: agrupado por IP, sin nada más que la IP, el tipo de trampa y el recuento. */
 export async function indicadoresPendientes() {
 	const desde = await marca();
+	/*
+	 * Hasta dónde se ha mirado: todo lo recibido, se suba o no. Si saliera de lo que se
+	 * sube, con solo balizas la marca no avanzaría y se volverían a mirar sin fin. Antes
+	 * de leer: lo que llegue entre medias se vuelve a mirar en la siguiente, no se pierde.
+	 */
+	const despuesDe = sql`${s.eventos.recibido} > ${desde}::timestamptz`;
+	const [{ ultimo }] = await db
+		.select({
+			ultimo: sql<
+				string | null
+			>`to_char(max(${s.eventos.recibido}) at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`
+		})
+		.from(s.eventos)
+		.where(despuesDe);
+	const hasta = ultimo ?? desde;
 	const filas = await db
 		.select({
 			ip: s.eventos.ip,
 			tipo: sql<string>`min(${s.eventos.tipo})`,
 			eventos: sql<number>`count(*)::int`,
-			primeraVez: sql<Date>`min(${s.eventos.cuando})`,
-			hasta: sql<Date>`max(${s.eventos.recibido})`
+			primeraVez: sql<Date>`min(${s.eventos.cuando})`
 		})
 		.from(s.eventos)
 		.where(
 			and(
-				gt(s.eventos.recibido, desde),
+				despuesDe,
 				eq(s.eventos.conexionEstablecida, true),
 				isNotNull(s.eventos.ip),
 				/* Lo que provoca «Probar» viene de un equipo del propio cliente: no es un indicador. */
-				eq(s.eventos.prueba, false)
+				eq(s.eventos.prueba, false),
+				/*
+				 * Ni una baliza: quien abre un cebo fuera de la red puede ser un empleado en su
+				 * casa o un escáner, y el relé es público (docs/diseno/rele-balizas.md). Es un
+				 * aviso para este cliente, no una IP para repartir a los demás.
+				 */
+				ne(s.eventos.accion, 'baliza')
 			)
 		)
 		.groupBy(s.eventos.ip);
 	const blanca = await blancas();
-	const hasta = filas.reduce((m, f) => (new Date(f.hasta) > m ? new Date(f.hasta) : m), desde);
 	const indicadores: IndicadorSubida[] = filas
 		.filter((f) => f.ip && esIpPublica(f.ip) && !contenidaEn(f.ip, blanca))
 		.map((f) => ({
@@ -94,8 +119,8 @@ export async function indicadoresPendientes() {
 	return { indicadores, hasta };
 }
 
-export async function marcarSubidos(hasta: Date) {
-	const valor: Marca = { hasta: hasta.toISOString() };
+export async function marcarSubidos(hasta: string) {
+	const valor: Marca = { hasta };
 	await db
 		.insert(s.ajustes)
 		.values({ clave: 'indicadores', valor })
@@ -156,7 +181,10 @@ export async function edl() {
 		.filter((n) => !n.caduca || n.caduca > ahora)
 		.map((n) => n.valor)
 		.concat(tor)
-		.flatMap((v) => restar(v, blanca));
+		/* Una línea por entrada: lo que no sea una IP o una red no llega a un firewall. */
+		.filter((v) => rango(v) !== null)
+		.flatMap((v) => restar(v, blanca))
+		.filter((v) => !/\s/.test(v));
 	return [...new Set(vigentes)].sort();
 }
 
@@ -187,6 +215,8 @@ export async function edlDominios(ahora = new Date()) {
 	const vigentes = negras
 		.filter((n) => !n.caduca || n.caduca > ahora)
 		.map((n) => n.valor)
-		.filter((d) => !cubreDominio(blanca, d));
+		.filter((d) => !cubreDominio(blanca, d))
+		/* Una línea por entrada, como en edl(). */
+		.filter((d) => !/\s/.test(d));
 	return [...new Set(vigentes)].sort();
 }

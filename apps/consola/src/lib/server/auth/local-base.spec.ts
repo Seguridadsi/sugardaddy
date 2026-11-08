@@ -167,6 +167,22 @@ describe.skipIf(!hayBase)('login local contra base de datos', () => {
 		expect((await local.fijarRoles('tester', jefe.id, ['operador'])).ok).toBe(true);
 	});
 
+	it('retirar a un usuario se lleva su zona horaria', async () => {
+		const c = await local.crear('tester', {
+			usuario: `${P}-viajero`,
+			nombre: 'Viajero',
+			correo: 'viajero@ejemplo.com',
+			roles: ['operador'],
+			clave: clave1
+		});
+		const oid = `local:${c.ok ? c.id : ''}`;
+		await db.insert(s.preferenciasUsuario).values({ oid, zonaHoraria: 'Asia/Tokyo' });
+		expect((await local.retirar('tester', c.ok ? c.id : '')).ok).toBe(true);
+		expect(
+			await db.select().from(s.preferenciasUsuario).where(eq(s.preferenciasUsuario.oid, oid))
+		).toEqual([]);
+	});
+
 	it('autogestión: el usuario cambia su propio nombre y su propia contraseña', async () => {
 		const c = await local.crear('tester', {
 			usuario: `${P}-yo`,

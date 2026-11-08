@@ -29,6 +29,12 @@ type Plan struct {
 	// Toques son las conexiones de prueba que pide «Prueba mi detección» y se
 	// hacen una vez (ver cmd/sensor/toques.go). Una consola anterior no los manda.
 	Toques []Toque `json:"toques,omitempty"`
+	// IgnorarPropio pide no registrar lo que venga de la dirección de red de la propia
+	// máquina del sensor (ver cmd/sensor/propio.go), salvo lo de las trampas de
+	// RegistrarSiempre: las que tienen una prueba abierta o reciben la señal de un cebo.
+	// Una consola anterior no lo manda, y se registra todo.
+	IgnorarPropio    bool     `json:"ignorarPropio,omitempty"`
+	RegistrarSiempre []string `json:"registrarSiempre,omitempty"`
 	// Senuelos es el nombre de Trampas en las consolas anteriores a la 0.8.0.
 	Senuelos    []TrampaPlan `json:"senuelos"`
 	Descartados []struct {

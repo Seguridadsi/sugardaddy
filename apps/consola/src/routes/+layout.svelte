@@ -2,12 +2,20 @@
 	import '@sugardaddy/estilo/app.css';
 	import { ICONOS_MENU, type IconoMenu } from '@sugardaddy/estilo/iconos-menu';
 	import { asset, resolve } from '$app/paths';
-	import { afterNavigate } from '$app/navigation';
+	import { afterNavigate, invalidateAll } from '$app/navigation';
 	import { page } from '$app/state';
 	import { nombreRol, puede } from '$lib/permisos';
 	import { enhance } from '$app/forms';
+	import { onMount } from 'svelte';
+	import SelectorZona from '$lib/components/SelectorZona.svelte';
+	import { anotarZonaDelNavegador, diaHora, horaCorta } from '$lib/fechas-pantalla';
 
 	let { data, children } = $props();
+
+	/* También en la pantalla de entrada: así lo primero que se ve al entrar ya sale en su zona. */
+	onMount(() => {
+		if (anotarZonaDelNavegador() && data.usuario) void invalidateAll();
+	});
 
 	const esAdmin = $derived(puede(data.usuario?.roles ?? [], 'ajustes'));
 
@@ -194,6 +202,7 @@
 						<small>{data.cliente.nombre} · {nombreRol(data.usuario.roles)}</small>
 					</span>
 				</div>
+				<SelectorZona guardada={data.zonaGuardada} navegador={data.zonaNavegador} />
 				<div class="menu-cuenta-acciones">
 					{#if data.usuario.oid?.startsWith('local:')}
 						<a class="menu-accion" href={resolve('/account')}>{@render icono('cuenta')} Account</a>
@@ -217,16 +226,9 @@
 
 						{#if avisoActual === 'pentest' && data.pentest}
 							<p class="pentest">
-								Pentest mode "{data.pentest.nombre}" until {new Date(
-									data.pentest.hasta
-								).toLocaleString('en-GB', {
-									day: 'numeric',
-									month: 'long',
-									hour: '2-digit',
-									minute: '2-digit'
-								})}: activity from {data.pentest.ips.length
-									? data.pentest.ips.join(', ')
-									: 'any IP'} does not raise alerts and is not blocked.
+								Pentest mode "{data.pentest.nombre}" until {diaHora(data.pentest.hasta)}: activity
+								from {data.pentest.ips.length ? data.pentest.ips.join(', ') : 'any IP'} does not raise
+								alerts and is not blocked.
 								<a href="/sources/pentest/{data.pentest.id}">View</a>
 							</p>
 						{/if}
@@ -236,19 +238,13 @@
 								{#if data.usuario.soporte}
 									You are signed in with the support access opened by {data.cliente.nombre}, as {data
 										.soporte.rol}{#if data.soporte.hasta}, until
-										{new Date(data.soporte.hasta).toLocaleTimeString('en-GB', {
-											hour: '2-digit',
-											minute: '2-digit'
-										})}{/if}.
+										{horaCorta(data.soporte.hasta)}{/if}.
 								{:else}
 									{data.operador} has support access ({nombreRol(
 										data.soporte.rol ? [data.soporte.rol] : []
 									)}) {#if data.soporte.hasta}
 										until
-										{new Date(data.soporte.hasta).toLocaleTimeString('en-GB', {
-											hour: '2-digit',
-											minute: '2-digit'
-										})}.
+										{horaCorta(data.soporte.hasta)}.
 									{:else}
 										until you close it.
 									{/if}

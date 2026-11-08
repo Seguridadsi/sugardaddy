@@ -3,6 +3,7 @@
 	import { page } from '$app/state';
 	import { sinLlavePorIp } from '$lib/llave-por-ip';
 	import { nombreRol } from '$lib/permisos';
+	import { fechaCorta, fechaHora, fechaLarga, horaCorta } from '$lib/fechas-pantalla';
 	import { haceCuanto } from '$lib/formato';
 	import EntraPropio from '$lib/components/EntraPropio.svelte';
 
@@ -19,8 +20,6 @@
 					? (n / 1e3).toFixed(0) + ' KB'
 					: n + ' B';
 	const miles = (n: number) => n.toLocaleString('en-GB');
-	const fechaLarga = (iso: string) =>
-		new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
 	const reg = $derived(data.registro);
 </script>
 
@@ -224,8 +223,8 @@
 	</p>
 	{#if data.ahora < Date.parse(data.conservacion.aPartirDe)}
 		<p class="ayuda">
-			Deletions start on <b>{new Date(data.conservacion.aPartirDe).toLocaleDateString('en-GB')}</b>:
-			nothing is deleted until then, so you have time to change the period.
+			Deletions start on <b>{fechaCorta(data.conservacion.aPartirDe)}</b>: nothing is deleted until
+			then, so you have time to change the period.
 		</p>
 	{/if}
 	<div class="plazo">
@@ -332,7 +331,7 @@
 	{:else if data.codigoEmergencia}
 		<p>
 			Created by {data.codigoEmergencia.por} on
-			{new Date(data.codigoEmergencia.creado).toLocaleDateString('en-GB')}.
+			{fechaCorta(data.codigoEmergencia.creado)}.
 		</p>
 	{:else}
 		<p class="mal">This node has no emergency code.</p>
@@ -367,7 +366,7 @@
 				<li>
 					<b>{l.nombre}</b>
 					<small>
-						registered by {l.registradaPor} on {new Date(l.creada).toLocaleDateString('en-GB')}
+						registered by {l.registradaPor} on {fechaCorta(l.creada)}
 						{#if l.ultimoUso}· last used {haceCuanto(l.ultimoUso, data.ahora)}{/if}
 					</small>
 					<form method="POST" action="?/retirarLlave" use:enhance>
@@ -413,7 +412,7 @@
 		<p class="ayuda">
 			Open as <b>{nombreRol(data.soporte.rol ? [data.soporte.rol] : [])}</b>
 			{#if data.soporte.hasta}
-				until {new Date(data.soporte.hasta).toLocaleString('en-GB')}.
+				until {fechaHora(data.soporte.hasta)}.
 			{:else}
 				until you close it.
 			{/if}
@@ -539,10 +538,8 @@
 						<br /><b class="aviso"
 							>sensor {data.relevo.sensor} has been switching {data.relevo.remoto
 								? 'its machine'
-								: 'the node'} to the signed configuration since {new Date(
-								data.relevo.desde
-							).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}; {data.relevo
-								.remoto
+								: 'the node'} to the signed configuration since {horaCorta(data.relevo.desde)}; {data
+								.relevo.remoto
 								? 'that sensor'
 								: 'the node'} receives no new versions until it finishes (30 minutes at most)</b
 						>

@@ -15,7 +15,7 @@
  */
 import { randomInt } from 'node:crypto';
 import { isIP } from 'node:net';
-import { and, desc, eq, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
 import {
 	EJECUTORES,
 	bloqueDeVariables,
@@ -47,7 +47,7 @@ import {
 	type FilaColocacion
 } from './colocacion';
 import { db, schema as s } from './db';
-import { destinoDeTrampa, type Tx } from './destinos';
+import { destinoDeTrampa, type Bd, type Tx } from './destinos';
 import { hechosDe } from './hechos';
 import { marcaDeToque } from './toques';
 
@@ -558,7 +558,7 @@ export type PruebaAbierta = {
  * sensor: las suyas y las manuales cuya señal recibe. Una consulta por
  * entrega, por el índice de las trampas del sensor.
  */
-export async function pruebasAbiertas(tx: Tx, sensor: string): Promise<PruebaAbierta[]> {
+export async function pruebasAbiertas(tx: Bd, sensor: string): Promise<PruebaAbierta[]> {
 	const filas = await tx
 		.select({
 			id: s.pruebas.id,
@@ -589,6 +589,32 @@ export async function pruebasAbiertas(tx: Tx, sensor: string): Promise<PruebaAbi
 			senal: porOtra && senal && typeof senal === 'object' ? senal : null
 		};
 	});
+}
+
+/*
+ * Las trampas de ese sensor en las que nada se descarta, aunque salga de su propia
+ * máquina (ignorarPropio en el plan): las que tienen una prueba abierta, porque probar
+ * desde el propio sensor es lo normal, y las que reciben la señal de un cebo. Un cebo
+ * puesto en la máquina del sensor solo puede avisar desde ella: es lo que está vigilando.
+ */
+export async function trampasQueRegistranSiempre(sensor: string): Promise<string[]> {
+	const [abiertas, sembradas, balizas] = await Promise.all([
+		pruebasAbiertas(db, sensor),
+		db
+			.selectDistinct({ de: s.trampas.senalTrampa })
+			.from(s.trampas)
+			.where(
+				inArray(
+					s.trampas.senalTrampa,
+					db.select({ id: s.trampas.id }).from(s.trampas).where(eq(s.trampas.sensor, sensor))
+				)
+			),
+		db
+			.selectDistinct({ de: s.balizas.receptor })
+			.from(s.balizas)
+			.where(and(eq(s.balizas.sensor, sensor), isNotNull(s.balizas.receptor)))
+	]);
+	return [...new Set([...abiertas, ...sembradas, ...balizas].flatMap((x) => (x.de ? [x.de] : [])))];
 }
 
 /*

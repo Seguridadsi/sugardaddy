@@ -455,6 +455,7 @@ export async function retirar(
 				error: 'This is the only local administrator: it cannot be removed.'
 			};
 		await tx.delete(s.usuariosLocales).where(eq(s.usuariosLocales.id, id));
+		await tx.delete(s.preferenciasUsuario).where(eq(s.preferenciasUsuario.oid, `local:${id}`));
 		return { ok: true as const, usuario: u.usuario };
 	});
 	if (r.ok) await auditar(quien, 'local user removed', { usuario: r.usuario });

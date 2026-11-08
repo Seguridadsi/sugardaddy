@@ -73,7 +73,7 @@ func (s *sensor) sondearAnfitrion(ctx context.Context, id string, estados []desp
 		slog.Warn("could not read the decoy ports", "err", err)
 		return
 	}
-	s.anfitrion.a, s.anfitrion.propios = a, propios
+	s.anfitrion.a, s.anfitrion.propios, s.anfitrion.medido = a, propios, time.Now()
 }
 
 // puertoAtascado dice si alguna trampa no ha podido atar su puerto en la

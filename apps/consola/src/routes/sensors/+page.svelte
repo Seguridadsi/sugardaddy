@@ -157,6 +157,29 @@
 								>
 							{/if}
 						</div>
+						<div class="propio">
+							{#if admin}
+								<form method="POST" action="?/registrarPropio" use:enhance>
+									<input type="hidden" name="id" value={x.id} />
+									<label>
+										<input
+											type="checkbox"
+											name="registrar"
+											value="si"
+											checked={x.registrarPropio}
+											onchange={(e) => e.currentTarget.form?.requestSubmit()}
+										/>
+										Record connections from this sensor's own machine
+									</label>
+								</form>
+							{:else}
+								<small
+									>{x.registrarPropio
+										? 'Records connections from its own machine'
+										: "Doesn't record connections from its own machine"}</small
+								>
+							{/if}
+						</div>
 					</td>
 					<td class="num mono">{x.trampas}</td>
 					<td>
@@ -217,6 +240,16 @@
 			{/each}
 		</tbody>
 	</table>
+	<p class="nota-propio">
+		When "Record connections from this sensor's own machine" is off, connections from the sensor's
+		own network address are neither recorded nor alerted on. Tests started from the console are
+		still recorded, and so is anything aimed at a decoy that a bait points to. Connections that
+		arrive with the container engine's address, such as <code>curl localhost</code>, are also
+		recorded, because an outside connection can look the same. Turn it on if a forwarder on that
+		machine (nginx, an SSH tunnel) points at a decoy: its clients look like the machine itself. Bear
+		in mind that anyone already inside that machine can reach its decoys through its network address
+		without leaving a record.
+	</p>
 </section>
 
 {#if !data.community}
@@ -668,5 +701,33 @@
 		.cuarentena li {
 			grid-template-columns: 1fr;
 		}
+	}
+
+	.propio {
+		margin-top: 6px;
+	}
+
+	.propio form {
+		margin: 0;
+	}
+
+	.propio label {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		font-size: 12.5px;
+		font-weight: 400;
+		color: var(--ink-2);
+	}
+
+	.propio small {
+		color: var(--ink-3);
+	}
+
+	.nota-propio {
+		margin: 10px 14px 12px;
+		font-size: 12.5px;
+		line-height: 1.5;
+		color: var(--ink-2);
 	}
 </style>

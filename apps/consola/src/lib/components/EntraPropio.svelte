@@ -6,6 +6,7 @@
 -->
 <script lang="ts">
 	import { page } from '$app/state';
+	import { fechaCorta } from '$lib/fechas-pantalla';
 	import { ROLES } from '$lib/permisos';
 
 	type Estado = {
@@ -114,7 +115,7 @@ echo "Client:    $APP"; echo "Secret:    $SECRETO"`);
 			Enabled. Tenant <code>{propio.tenant}</code>, application
 			<code>{propio.clientId}</code>{#if propio.final}, secret ending in <code>{propio.final}</code
 				>{/if}. Tested by {propio.activadoPor} on
-			{new Date(propio.activado ?? propio.guardado).toLocaleDateString('en-GB')}.
+			{fechaCorta(propio.activado ?? propio.guardado)}.
 		</p>
 		{#if !propio.legible}
 			<p class="mal">The saved secret cannot be read on this node: enter it again below.</p>

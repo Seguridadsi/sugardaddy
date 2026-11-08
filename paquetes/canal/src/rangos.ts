@@ -34,7 +34,10 @@ function numeroDe(ip: string): { familia: 4 | 6; n: bigint } | null {
 
 /* Una IP o una red en CIDR como rango; null si no lo es. La base se alinea a la máscara. */
 export function rango(entrada: string): Rango | null {
-	const [base, mascara] = entrada.split('/');
+	const partes = entrada.split('/');
+	/* Una sola barra: lo que venga detrás de una segunda no lo miraría nadie. */
+	if (partes.length > 2) return null;
+	const [base, mascara] = partes;
 	const ip = numeroDe(base);
 	if (!ip) return null;
 	const total = BITS[ip.familia];

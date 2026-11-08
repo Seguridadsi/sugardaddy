@@ -13,6 +13,7 @@ import {
 	quitarTriaje,
 	totalEventos,
 	type EstadoTriaje,
+	type FiltroEscaner,
 	type FiltroTriaje
 } from '$lib/server/consultas';
 
@@ -35,6 +36,12 @@ export const load = async ({ url, locals }) => {
 	const usuario = url.searchParams.get('usuario') ?? '';
 	const q = url.searchParams.get('q')?.trim() ?? '';
 	const triaje = triajeDe(url.searchParams.get('triaje'));
+	/* Las visitas de un escáner conocido se ven; aquí se dejan solas o se quitan. */
+	const pedidoEscaner = url.searchParams.get('escaner');
+	const escaner =
+		pedidoEscaner === 'solo' || pedidoEscaner === 'sin'
+			? (pedidoEscaner as FiltroEscaner)
+			: undefined;
 	/* Agrupar eventos repetidos (misma IP, trampa y acción) en una fila con cuenta. */
 	const agrupar = url.searchParams.get('agrupar') === '1';
 	const nombres = await nombresTrampas();
@@ -44,7 +51,8 @@ export const load = async ({ url, locals }) => {
 		origen: origen || undefined,
 		usuario: usuario || undefined,
 		q: q || undefined,
-		triaje
+		triaje,
+		escaner
 	});
 	const vistos = agrupar ? agruparEventos(lista) : lista;
 
@@ -56,7 +64,16 @@ export const load = async ({ url, locals }) => {
 		cargados: lista.length,
 		geos: await geoDe(lista),
 		total: await totalEventos(),
-		filtro: { desde, trampa, origen, usuario, q, triaje: triaje ?? '', agrupar },
+		filtro: {
+			desde,
+			trampa,
+			origen,
+			usuario,
+			q,
+			triaje: triaje ?? '',
+			escaner: escaner ?? '',
+			agrupar
+		},
 		estadosTriaje: ESTADOS_TRIAJE,
 		/* Solo quien puede triar (operador/admin) ve el control; a un lector no se
 		 * le enseña un botón que luego daría 403. Con eventos agrupados no se triaja

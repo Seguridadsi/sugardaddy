@@ -1,0 +1,1 @@
+ALTER TABLE "incidentes_motor" ADD COLUMN "sin_conexion" boolean DEFAULT false NOT NULL;

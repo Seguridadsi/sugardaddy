@@ -279,7 +279,10 @@ type sensor struct {
 		a       *motor.Anfitrion
 		propios map[string]bool
 		intento time.Time
+		medido  time.Time
 	}
+	// Lo de su máquina que espera a ver qué dice el plan siguiente (ver propio.go).
+	retenidos []retenido
 	// Fallo general del motor en el último despliegue: lo mira el punto de salud.
 	falloMotor atomic.Pointer[docker.ErrMotor]
 	// Copias de ficheros capturados pendientes de subir a la consola (captura
@@ -572,26 +575,40 @@ func (s *sensor) olvidarVigilada(ip string) {
 // origen apunta si la IP de un evento es la del atacante o la del motor y,
 // si es la del motor y la consola lo admite, lo marca en el evento.
 func (s *sensor) origen(e *evento.Evento) {
+	cuando, err := time.Parse(time.RFC3339Nano, e.Cuando)
+	if err != nil {
+		cuando = time.Now()
+	}
 	// Un toque de prueba no dice nada de lo que ven las trampas: suele llegar
-	// con la IP del motor aunque sí vean la de quien se conecta.
-	if s.toques.marcar(e, time.Now()) {
+	// con la IP del motor aunque sí vean la de quien se conecta. Por la hora del
+	// evento y no la de ahora: desplegar puede retrasar la lectura más de lo que
+	// dura el toque, y su evento se daría por ajeno. Una hora futura no alarga nada.
+	momento := cuando
+	if ahora := time.Now(); momento.After(ahora) {
+		momento = ahora
+	}
+	if s.toques.marcar(e, momento) {
 		return
 	}
 	if e.Origen.IP == "" {
 		return
 	}
-	cuando, err := time.Parse(time.RFC3339Nano, e.Cuando)
-	if err != nil {
-		cuando = time.Now()
-	}
-	if !s.conocido.Oculta(e.Origen.IP) {
-		if cuando.After(s.estado.OrigenReal) {
-			s.estado.OrigenReal = cuando
-		}
+	// La IP la dice el proxy de confianza del receptor: no es la del motor, y lo que
+	// ve el receptor tras su proxy no dice nada de lo que ven las demás trampas.
+	if _, porProxy := e.Detalle[campoIPProxy]; porProxy {
 		return
 	}
-	if cuando.After(s.estado.OrigenOculto) {
-		s.estado.OrigenOculto = cuando
+	if conexion, ok := ipDeLaConexion(*e); ok {
+		if !s.conocido.Oculta(conexion) {
+			if cuando.After(s.estado.OrigenReal) {
+				s.estado.OrigenReal = cuando
+			}
+		} else if cuando.After(s.estado.OrigenOculto) {
+			s.estado.OrigenOculto = cuando
+		}
+	}
+	if !s.conocido.Oculta(e.Origen.IP) {
+		return
 	}
 	// Una consola anterior a la 0.13.1 no conoce el campo y apartaría el
 	// evento a la cuarentena: solo se marca si el plan dice que lo admite.
@@ -600,8 +617,9 @@ func (s *sensor) origen(e *evento.Evento) {
 
 // leer pasa lo nuevo de cada registro a la cola de salida. Primero se escribe
 // la cola y después se avanza el offset: si se corta entre medias, un evento
-// se puede repetir, pero nunca perder. Con la cola en su tope, lo nuevo se
-// descarta y se resume (ver cola.go), pero la lectura sigue.
+// se puede repetir, pero nunca perder (salvo lo de su máquina que espera al plan
+// siguiente, que está en memoria: ver propio.go). Con la cola en su tope, lo
+// nuevo se descarta y se resume (ver cola.go), pero la lectura sigue.
 func (s *sensor) leer() {
 	if s.plan == nil {
 		return
@@ -647,6 +665,24 @@ func (s *sensor) leer() {
 		nuevas = append(nuevas, linea)
 		resumidas = append(resumidas, id)
 	}
+	procesar := func(sp plan.TrampaPlan, e evento.Evento) {
+		pasa, resumen := ritmo.pasa(s.plan.Sensor, sp, e)
+		if resumen != nil {
+			encolar(*resumen)
+		}
+		if pasa {
+			encolar(e)
+			// Si el nodo activó la captura, apunta la copia del fichero que
+			// el atacante descargó o subió para entregarla aparte (el
+			// evento tiene que llegar antes a la consola: ver artefactos.go).
+			s.encolarArtefacto(e)
+		}
+	}
+	// Lo de su máquina que esperaba al plan siguiente y resulta ser de una prueba.
+	listos, retenidos, olvidados := s.repartirRetenidos()
+	for _, r := range listos {
+		procesar(r.sp, r.e)
+	}
 	posiciones := map[string]seguidor.Posicion{}
 	leyendo := map[string]bool{}
 	for _, sp := range s.plan.Trampas {
@@ -672,23 +708,19 @@ func (s *sensor) leer() {
 				continue
 			}
 			s.origen(&e)
-			pasa, resumen := ritmo.pasa(s.plan.Sensor, sp, e)
-			if resumen != nil {
-				encolar(*resumen)
+			if s.ignorarPropio(sp, e) {
+				retenidos = s.retener(retenidos, sp, e)
+				continue
 			}
-			if pasa {
-				encolar(e)
-				// Si el nodo activó la captura, apunta la copia del fichero que
-				// el atacante descargó o subió para entregarla aparte (el
-				// evento tiene que llegar antes a la consola: ver artefactos.go).
-				s.encolarArtefacto(e)
-			}
+			procesar(sp, e)
 		}
 	}
 	for _, x := range ritmo.vencidos(s.plan.Sensor, time.Now(), leyendo) {
 		encolar(x)
 	}
 	if len(posiciones) == 0 && len(nuevas) == 0 {
+		s.retenidos = retenidos
+		anotarOlvidados(olvidados)
 		return
 	}
 	sinDisco := false
@@ -730,6 +762,10 @@ func (s *sensor) leer() {
 		}
 	}
 	s.ritmo = ritmo
+	// Como el ritmo, solo si esta vuelta ha quedado escrita: si no, lo soltado se
+	// perdería y lo vuelto a leer se retendría dos veces.
+	s.retenidos = retenidos
+	anotarOlvidados(olvidados)
 	s.estado.Ritmo, _ = json.Marshal(ritmo.pendientes())
 	s.descartes = cola.descartes
 	s.estado.Descartados = nil

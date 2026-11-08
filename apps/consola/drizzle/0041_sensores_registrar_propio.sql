@@ -1,0 +1,1 @@
+ALTER TABLE "sensores" ADD COLUMN "registrar_propio" boolean DEFAULT false NOT NULL;

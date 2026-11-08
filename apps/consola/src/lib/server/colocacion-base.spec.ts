@@ -12,6 +12,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { conImagenPublicada } from './imagen-de-prueba';
 
 let hayBase = false;
 try {
@@ -98,10 +99,9 @@ let catalogo = '';
  * Con la imagen privada en las dos ediciones (en community el generador la
  * declara pública): si no, un sensor sin credencial no se quedaría sin ella.
  */
-const cowrie = readFileSync('../../modulos/trampas/cowrie/trampa.yaml', 'utf8').replace(
-	/^\s*imagenPublica:.*\n/m,
-	''
-);
+const cowrie = conImagenPublicada(
+	readFileSync('../../modulos/trampas/cowrie/trampa.yaml', 'utf8')
+).replace(/^\s*imagenPublica:.*\n/m, '');
 function modulo(id: string, yaml: string) {
 	mkdirSync(join(catalogo, 'trampas', id), { recursive: true });
 	writeFileSync(join(catalogo, 'trampas', id, 'trampa.yaml'), yaml);
@@ -111,7 +111,10 @@ beforeAll(async () => {
 	if (!hayBase) return;
 	catalogo = mkdtempSync(join(tmpdir(), 'sd-colocacion-'));
 	modulo('cowrie', cowrie);
-	modulo('dns-ntp', readFileSync('../../modulos/trampas/dns-ntp/trampa.yaml', 'utf8'));
+	modulo(
+		'dns-ntp',
+		conImagenPublicada(readFileSync('../../modulos/trampas/dns-ntp/trampa.yaml', 'utf8'))
+	);
 	modulo(
 		'credencial-ssh',
 		readFileSync('../../paquetes/contrato/src/ejemplos/credencial-ssh.v2.yaml', 'utf8')

@@ -8,11 +8,13 @@ import { identidad } from '$lib/server/identidad';
 import { esCommunity } from '$lib/server/edicion';
 import { OPERADOR_POR_DEFECTO, operador } from '$lib/server/operador';
 import { sugerirDominio } from '$lib/camuflaje';
+import { zonasDe } from '$lib/server/zona-horaria';
 
 /* Sin sesión (la pantalla de entrada) no se consulta nada: ni el nombre del cliente se enseña. */
-export const load = async ({ locals, url }) =>
+export const load = async ({ locals, url, cookies }) =>
 	locals.usuario
 		? {
+				...(await zonasDe(locals.usuario, cookies)),
 				usuario: locals.usuario,
 				modoDesarrollo: locals.modoDesarrollo,
 				soporte: await soporte(),
@@ -30,6 +32,7 @@ export const load = async ({ locals, url }) =>
 				...(await cabecera())
 			}
 		: {
+				...(await zonasDe(null, cookies)),
 				usuario: null,
 				modoDesarrollo: false,
 				soporte: null,

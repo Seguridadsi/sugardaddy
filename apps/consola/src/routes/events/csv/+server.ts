@@ -5,6 +5,7 @@ import {
 	auditar,
 	eventosPlanos,
 	nombresTrampas,
+	type FiltroEscaner,
 	type FiltroTriaje
 } from '$lib/server/consultas';
 import { geo, type Geo } from '$lib/server/geo';
@@ -38,7 +39,9 @@ export const GET = async ({ url, locals }) => {
 			: undefined;
 
 	const nombres = await nombresTrampas();
-	const filas = await eventosPlanos({ desde, trampa, origen, usuario, q, triaje });
+	const pedidoE = url.searchParams.get('escaner');
+	const escaner = pedidoE === 'solo' || pedidoE === 'sin' ? (pedidoE as FiltroEscaner) : undefined;
+	const filas = await eventosPlanos({ desde, trampa, origen, usuario, q, triaje, escaner });
 
 	/* La misma geo que ya se ve en pantalla, de las bases locales: la IP no sale
 	 * del nodo. Una por IP (se reúsa entre eventos del mismo origen). */
@@ -61,7 +64,8 @@ export const GET = async ({ url, locals }) => {
 			origen: origen ?? null,
 			usuario: usuario ?? null,
 			q: q ?? null,
-			triaje: triaje ?? null
+			triaje: triaje ?? null,
+			escaner: escaner ?? null
 		}
 	});
 

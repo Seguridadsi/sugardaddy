@@ -3,7 +3,8 @@
 	import { enhance } from '$app/forms';
 	import { page } from '$app/state';
 	import ListaEventos from '$lib/components/ListaEventos.svelte';
-	import { haceCuanto, horaLarga, nombreAccion, textoGeo } from '$lib/formato';
+	import { horaLarga } from '$lib/fechas-pantalla';
+	import { haceCuanto, nombreAccion, textoGeo } from '$lib/formato';
 	import { puede } from '$lib/permisos';
 	import { AVISO_IP_MOTOR } from '$lib/capacidades';
 

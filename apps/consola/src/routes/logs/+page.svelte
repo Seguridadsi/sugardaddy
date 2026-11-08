@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { diaCorto, horaCorta } from '$lib/formato';
+	import { diaCorto, horaCorta } from '$lib/fechas-pantalla';
 
 	let { data } = $props();
 	const detalle = (d: Record<string, unknown>) =>

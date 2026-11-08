@@ -221,7 +221,7 @@ vias:
         # modulos/comun/glutton) desde el commit fijado de glutton y con
         # sugardaddy.patch. Los ceros los cambia por el digest de verdad
         # herramientas/publicar-trampa.sh smb; el banco de pruebas usa la local.
-        imagen: ghcr.io/seguridadsi/sugardaddy-registro-smb:1.0.1-sd2@sha256:2396284960015fa5f12e6b98b5a5677eeaea65b68114288a496510b7bdcac317
+        imagen: ghcr.io/seguridadsi/sugardaddy-registro-smb:1.0.1-sd3@sha256:3bef46abb3d72f70a575a2907717fecfb7da61ab366aafa5cc04796736511a02
         puertos:
           - { interno: 1445, expuesto: '${puertoSmb}', protocolo: tcp }
         entorno:

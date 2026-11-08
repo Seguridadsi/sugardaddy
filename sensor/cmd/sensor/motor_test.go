@@ -424,3 +424,121 @@ func TestWSLSinSondaTodoEsDelMotor(t *testing.T) {
 		t.Fatal("el hecho dice que no se ve el origen: el evento tiene que ir marcado")
 	}
 }
+
+// Lo que dice si las trampas ven el origen es la conexión. La IP de un POST al
+// receptor de balizas sale del cuerpo: quien llegue al puerto escribe la que quiera,
+// sin token válido. Si contara, apagaría el aviso de un sensor que no ve el origen.
+func TestLaIPDelCuerpoNoDiceQueSeVeElOrigen(t *testing.T) {
+	const pasarela, cuerpo = "172.19.0.1", "203.0.113.99"
+	delCuerpo := func(socket, cuando string) evento.Evento {
+		e := eventoDe(cuerpo, cuando)
+		e.Detalle = map[string]any{campoIPSocket: socket}
+		return e
+	}
+	hecho := func(s *sensor) *motor.Hecho {
+		h, _ := s.hechos()["red.ipOrigenReal"].(*motor.Hecho)
+		return h
+	}
+	nuevo := func(d motor.Descripcion) *sensor {
+		return &sensor{
+			estado:   &estado.Estado{},
+			plan:     &plan.Plan{Admite: []string{plan.OrigenOculta}},
+			conocido: d,
+		}
+	}
+	casos := []struct {
+		nombre string
+		d      motor.Descripcion
+		motivo string
+	}{
+		{"sin root", motor.Descripcion{Modo: motor.ModoRootless, Pasarelas: []string{pasarela}}, motor.OrigenPasarela},
+		{"reglas borradas", motor.Descripcion{Modo: motor.ModoRootful, Pasarelas: []string{pasarela}}, motor.OrigenPasarela},
+		{"WSL en NAT", motor.Descripcion{Modo: motor.ModoWSL, PuertaEnlace: pasarela}, motor.OrigenWSL},
+	}
+	for _, c := range casos {
+		t.Run(c.nombre, func(t *testing.T) {
+			s := nuevo(c.d)
+			e := delCuerpo(pasarela, "2026-10-17T10:00:00Z")
+			s.origen(&e)
+			if h := hecho(s); h == nil || h.Valor || h.Motivo != c.motivo {
+				t.Fatalf("un POST que llega con la IP del motor no enseña el origen: %+v", h)
+			}
+			if !s.estado.OrigenReal.IsZero() {
+				t.Fatalf("la IP del cuerpo no cuenta como real: %v", s.estado.OrigenReal)
+			}
+			// La IP del evento es la del atacante, no la del motor: no se marca como oculta.
+			if e.Origen.Oculta {
+				t.Fatalf("la IP del cuerpo no es la del motor: %+v", e.Origen)
+			}
+		})
+	}
+
+	t.Run("con la conexión real sí se ve el origen", func(t *testing.T) {
+		s := nuevo(motor.Descripcion{Modo: motor.ModoRootful, Pasarelas: []string{pasarela}})
+		e := delCuerpo("198.51.100.1", "2026-10-17T10:00:00Z")
+		s.origen(&e)
+		if h := hecho(s); h == nil || !h.Valor || h.Motivo != motor.OrigenReal {
+			t.Fatalf("hecho: %+v", h)
+		}
+	})
+
+	t.Run("una conexión que no se entiende no dice nada", func(t *testing.T) {
+		s := nuevo(motor.Descripcion{Modo: motor.ModoRootless, Pasarelas: []string{pasarela}})
+		e := delCuerpo("no-es-una-ip", "2026-10-17T10:00:00Z")
+		s.origen(&e)
+		if !s.estado.OrigenReal.IsZero() || !s.estado.OrigenOculto.IsZero() {
+			t.Fatalf("estado: %+v", s.estado)
+		}
+	})
+
+	t.Run("sin ipSocket decide la IP del evento", func(t *testing.T) {
+		s := nuevo(motor.Descripcion{Modo: motor.ModoRootful, Pasarelas: []string{pasarela}})
+		e := eventoDe(cuerpo, "2026-10-17T10:00:00Z")
+		s.origen(&e)
+		if h := hecho(s); h == nil || !h.Valor {
+			t.Fatalf("hecho: %+v", h)
+		}
+	})
+}
+
+// Lo que llega por el proxy de confianza del receptor dice quién se conectó, pero no qué
+// ven las demás trampas, que no van tras ese proxy: ni lo enciende ni lo apaga. Y como la
+// IP la dice el proxy, tampoco es la del motor, aunque sea un motor que nunca deja ver el origen.
+func TestLoQueLlegaPorElProxyNoDiceQueSeVeElOrigen(t *testing.T) {
+	const pasarela = "172.19.0.1"
+	porProxy := func(ip string) evento.Evento {
+		e := eventoDe(ip, "2026-10-17T10:00:00Z")
+		e.Detalle = map[string]any{campoIPProxy: pasarela}
+		return e
+	}
+	casos := []struct {
+		nombre string
+		d      motor.Descripcion
+		motivo string
+	}{
+		{"sin root", motor.Descripcion{Modo: motor.ModoRootless, Pasarelas: []string{pasarela}}, motor.OrigenRootless},
+		{"Docker Desktop", motor.Descripcion{Modo: motor.ModoDesktop}, motor.OrigenDesktop},
+		{"con root", motor.Descripcion{Modo: motor.ModoRootful, Pasarelas: []string{pasarela}}, ""},
+	}
+	for _, c := range casos {
+		t.Run(c.nombre, func(t *testing.T) {
+			s := &sensor{
+				estado:   &estado.Estado{},
+				plan:     &plan.Plan{Admite: []string{plan.OrigenOculta}},
+				conocido: c.d,
+			}
+			e := porProxy("203.0.113.99")
+			s.origen(&e)
+			if !s.estado.OrigenReal.IsZero() || !s.estado.OrigenOculto.IsZero() {
+				t.Fatalf("no dice nada de lo que ven las trampas: %+v", s.estado)
+			}
+			h, _ := s.hechos()["red.ipOrigenReal"].(*motor.Hecho)
+			if (c.motivo == "" && h != nil) || (c.motivo != "" && (h == nil || h.Valor || h.Motivo != c.motivo)) {
+				t.Fatalf("hecho: %+v", h)
+			}
+			if e.Origen.Oculta {
+				t.Fatalf("la IP la dice el proxy, no es la del motor: %+v", e.Origen)
+			}
+		})
+	}
+}

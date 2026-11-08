@@ -40,6 +40,7 @@ export const CABECERA_CSV_EVENTOS = [
 	'connection_established',
 	'alert',
 	'test',
+	'scanner',
 	'triage'
 ] as const;
 
@@ -77,6 +78,7 @@ export function construirCsvEventos(
 				f.conexionEstablecida ? 'yes' : 'no',
 				f.alerta ?? '',
 				f.prueba ? 'yes' : 'no',
+				f.escaner ?? '',
 				f.triaje ?? ''
 			]
 				.map(csvCampo)

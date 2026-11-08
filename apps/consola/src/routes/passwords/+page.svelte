@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import { diaCorto, haceCuanto } from '$lib/formato';
+	import { diaCorto } from '$lib/fechas-pantalla';
+	import { haceCuanto } from '$lib/formato';
 
 	let { data } = $props();
 </script>

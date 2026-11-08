@@ -2,7 +2,8 @@
 	import { enhance } from '$app/forms';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
-	import { diaCorto, haceCuanto } from '$lib/formato';
+	import { diaCorto } from '$lib/fechas-pantalla';
+	import { haceCuanto } from '$lib/formato';
 	import { puede } from '$lib/permisos';
 
 	let { data, form } = $props();

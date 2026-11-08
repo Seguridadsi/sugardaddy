@@ -1,0 +1,1 @@
+ALTER TABLE "incidentes_motor" ADD COLUMN "al_panel" timestamp with time zone;

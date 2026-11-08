@@ -378,7 +378,7 @@ class Omitidos:
             if c > n or (c == n and ip < mas):
                 mas, n = ip, c
         out: dict[str, Any] = {
-            "message": f"{self.total} eventos sin apuntar en cowrie.json por el tope del registro",
+            "message": f"{self.total} events not recorded in cowrie.json because of the log limit",
             "omitidos": self.total,
         }
         for motivo, c in sorted(self.motivos.items()):
@@ -400,15 +400,15 @@ class Omitidos:
 
 AVISOS = {
     "cupo_accesos": (
-        "accesos",
-        "los intentos de acceso de hoy ya han gastado su parte del registro: hasta "
-        "mañana (UTC) solo se apunta lo que pasa tras entrar, lo primero de cada "
-        "origen nuevo y un resumen de lo demás",
+        "logins",
+        "today's login attempts have used up their share of the log: until "
+        "tomorrow (UTC) only what happens after signing in, the first events of each "
+        "new source and a summary of the rest are recorded",
     ),
     "registro_lleno": (
-        "registro",
-        "registro de hoy lleno: hasta mañana (UTC) solo se apunta lo primero de "
-        "cada origen nuevo y un resumen de lo demás",
+        "log",
+        "today's log is full: until tomorrow (UTC) only the first events of "
+        "each new source and a summary of the rest are recorded",
     ),
 }
 

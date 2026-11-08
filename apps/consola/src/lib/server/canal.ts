@@ -11,10 +11,11 @@
  * latir y de aceptar estados; sigue detectando y respondiendo en local.
  */
 import { createHash } from 'node:crypto';
-import { and, eq, gte, sql } from 'drizzle-orm';
+import { and, eq, gte, isNull, sql } from 'drizzle-orm';
 import { env } from '$env/dynamic/private';
 import {
 	compararVersiones,
+	direccionReleValida,
 	firmarPeticion,
 	generarClaves,
 	huella,
@@ -522,7 +523,7 @@ async function latido(): Promise<Latido> {
 			criticos: sql<number>`count(*) filter (where ${s.eventos.severidad} = 'critica')::int`
 		})
 		.from(s.eventos)
-		.where(gte(s.eventos.cuando, new Date(ahora - 86_400_000)));
+		.where(and(gte(s.eventos.cuando, new Date(ahora - 86_400_000)), isNull(s.eventos.escaner)));
 	const cab = await cabecera();
 	const soporteLatido = await paraLatido();
 	return {
@@ -643,6 +644,17 @@ export async function latir() {
 		await aplicarAtenciones(v.estado.atenciones)
 			.then(() => subirIncidentes(c))
 			.catch((e) => (falloVigilancia = e));
+		/*
+		 * Y un cebo que ha saltado fuera de la red tampoco puede esperar a que el panel
+		 * acepte los indicadores o sirva el logotipo: es una alerta.
+		 */
+		let falloRele: unknown = null;
+		const apuntarFallo = (e: unknown) => {
+			falloRele ??= e;
+		};
+		await guardarDireccionRele(v.estado.rele, c.nodo).catch(apuntarFallo);
+		await publicarBalizasRele(c).catch(apuntarFallo);
+		if (v.estado.releBalizas) await drenarBalizasRele(c).catch(apuntarFallo);
 		await considerar(v.estado, c.nodo);
 		await recibirSolicitud(v.estado.soporte);
 		await guardarAutorizados(v.estado.modulos);
@@ -650,10 +662,9 @@ export async function latir() {
 		if (v.estado.logo !== undefined) await sincronizarLogo(c, v.estado.logo);
 		if (v.estado.tor !== undefined) await sincronizarTor(c, v.estado.tor);
 		await intercambiarInteligencia(c);
-		await publicarBalizasRele(c);
-		if (v.estado.releBalizas) await drenarBalizasRele(c);
 		await guardarRecuperacionPanel(v.estado.recuperacion);
 		if (falloVigilancia) throw falloVigilancia;
+		if (falloRele) throw falloRele;
 	} catch (e) {
 		/* Sobre lo último guardado: un fallo aquí no deshace el contacto, que sí ha habido. */
 		await guardar({ ...((await leer()) ?? c), error: (e as Error).message });
@@ -690,6 +701,27 @@ async function avisarDelCorte(c: Canal) {
 }
 
 /* ---------- balizas que vuelven por el relé público (docs/diseno/rele-balizas.md) ---------- */
+
+/*
+ * La dirección del relé, tal como viene en el estado firmado. El ajuste «rele» solo
+ * lo escribe esto: cambiarla es cambiar el ajuste del panel. Ausente (un panel
+ * anterior), no se toca nada; null, este panel no tiene relé y se olvida la que
+ * hubiera. Lo que no sea un nombre limpio no se guarda aunque venga firmado: acabaría
+ * dentro de los documentos. Los cebos ya sembrados no cambian: llevan la suya.
+ */
+export async function guardarDireccionRele(direccion: string | null | undefined, nodo: string) {
+	if (direccion === undefined) return;
+	if (direccion !== null && !direccionReleValida(direccion)) {
+		await auditar(`node ${nodo}`, 'relay address rejected', { direccion: String(direccion) });
+		return;
+	}
+	const [f] = await db.select().from(s.ajustes).where(eq(s.ajustes.clave, 'rele'));
+	const antes = f?.valor ?? null;
+	if (antes === direccion) return;
+	if (direccion === null) await db.delete(s.ajustes).where(eq(s.ajustes.clave, 'rele'));
+	else await guardarAjuste('rele', direccion);
+	await auditar('Central', 'relay address changed', { antes, ahora: direccion });
+}
 
 /*
  * El nodo publica en el panel su conjunto VIGENTE de tokens de baliza para que

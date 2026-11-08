@@ -293,7 +293,7 @@ class RegistroTests(unittest.TestCase):
             r.apuntar(*linea("cowrie.command.input", f"10.0.0.{i % 40}"))
         self.assertLessEqual(os.path.getsize(self.ruta), tope)
         avisos = [x for x in self.lineas() if x["eventid"] == sd.LOG_FULL]
-        self.assertEqual([a["lleno"] for a in avisos], ["registro"])
+        self.assertEqual([a["lleno"] for a in avisos], ["log"])
         self.assertEqual((avisos[0]["tope_bytes"], avisos[0]["sensor"]), (tope, "srv"))
         self.assertTrue(avisos[0]["timestamp"].endswith("Z"))
         # Una IP que ya ha escrito hoy no entra; una nueva, sí (lo primero).
@@ -317,7 +317,7 @@ class RegistroTests(unittest.TestCase):
         for i in range(3000):
             r.apuntar(*linea("cowrie.login.failed", f"10.0.{i // 250}.{i % 250}"))
         avisos = [x for x in self.lineas() if x["eventid"] == sd.LOG_FULL]
-        self.assertEqual([a["lleno"] for a in avisos], ["accesos"])
+        self.assertEqual([a["lleno"] for a in avisos], ["logins"])
         self.assertTrue(r.apuntar(*linea("cowrie.login.success", "10.0.0.7")))
         self.assertTrue(r.apuntar(*linea("cowrie.command.input", "10.0.0.7")))
         self.assertFalse(r.apuntar(*linea("cowrie.login.failed", "10.0.0.7")))
