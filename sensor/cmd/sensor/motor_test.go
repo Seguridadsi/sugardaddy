@@ -89,12 +89,22 @@ func TestSinAdmiteNoSeMarcaElEvento(t *testing.T) {
 type consolaDePrueba struct {
 	mu       sync.Mutex
 	informes []map[string]json.RawMessage
+	// plan es lo que contesta a /api/sensor/plan; vacío, planDePrueba.
+	plan string
 }
+
+const planDePrueba = `{"sensor":"s1","ultimoHash":"","admite":["origen.oculta"],"trampas":[{"id":"t1","manifiesto":{"id":"m","tipo":"contenedor","contenedor":{"imagen":"r/x@sha256:1","registros":"/log"},"aislamiento":{"cpu":0.5,"memoriaMb":64}}}]}`
 
 func (c *consolaDePrueba) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
 	case "/api/sensor/plan":
-		_, _ = w.Write([]byte(`{"sensor":"s1","ultimoHash":"","admite":["origen.oculta"],"trampas":[{"id":"t1","manifiesto":{"id":"m","tipo":"contenedor","contenedor":{"imagen":"r/x@sha256:1","registros":"/log"},"aislamiento":{"cpu":0.5,"memoriaMb":64}}}]}`))
+		c.mu.Lock()
+		plan := c.plan
+		c.mu.Unlock()
+		if plan == "" {
+			plan = planDePrueba
+		}
+		_, _ = w.Write([]byte(plan))
 	case "/api/sensor/estado":
 		var b map[string]json.RawMessage
 		_ = json.NewDecoder(r.Body).Decode(&b)
@@ -173,6 +183,13 @@ func motorDePrueba(t *testing.T) string {
 // por sondas y lo que contesta a /info (vacío: un Debian 12 con root).
 func motorDePruebaCon(t *testing.T, sondas *motorfalso.Sondas, info string) string {
 	t.Helper()
+	return motorDePruebaApuntando(t, sondas, info, nil)
+}
+
+// motorDePruebaApuntando es motorDePruebaCon, y pasa a creado el cuerpo de cada
+// contenedor que se crea (sin las sondas).
+func motorDePruebaApuntando(t *testing.T, sondas *motorfalso.Sondas, info string, creado func([]byte)) string {
+	t.Helper()
 	if info == "" {
 		info = `{"OperatingSystem":"Debian GNU/Linux 12 (bookworm)","SecurityOptions":["name=apparmor","name=seccomp,profile=builtin"],"NCPU":2,"MemTotal":4294967296}`
 	}
@@ -216,6 +233,10 @@ func motorDePruebaCon(t *testing.T, sondas *motorfalso.Sondas, info string) stri
 		case p == "/volumes":
 			_, _ = w.Write([]byte(`{"Volumes":[]}`))
 		case p == "/containers/create":
+			if creado != nil {
+				b, _ := io.ReadAll(r.Body)
+				creado(b)
+			}
 			_, _ = w.Write([]byte(`{"Id":"c1"}`))
 		default:
 			_, _ = w.Write([]byte(`{}`))

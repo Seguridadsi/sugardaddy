@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -181,6 +182,13 @@ func vuelta(ctx context.Context, c *http.Client, base string, ru rutas, token st
 		// Ni se intenta: la consola ha entregado algo que no es una versión auténtica.
 		d := fmt.Sprintf("verification: %v", err)
 		return final(ctx, c, base, ru, token, p.Version, "fallida", d), fmt.Errorf("version rejected: %v", err)
+	}
+	if versiones != "" {
+		if inst := actualizador.VersionInstalada(versiones); actualizador.VueltaAtras(inst, r.Version) {
+			// Firmada, pero más antigua que la instalada: no se vuelve atrás aunque la consola lo pida.
+			d := fmt.Sprintf("version %s is older than the installed %s: not applied", r.Version, inst)
+			return final(ctx, c, base, ru, token, r.Version, "fallida", d), errors.New(d)
+		}
 	}
 	slog.Info("installing", "version", r.Version)
 	_ = informar(ctx, c, base, ru, token, r.Version, "aplicando", "")

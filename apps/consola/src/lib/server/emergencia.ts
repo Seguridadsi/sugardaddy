@@ -21,9 +21,11 @@ import { db, schema as s } from './db';
 import { auditar } from './consultas';
 
 const VIDA_RETO = 5 * 60_000;
-const retos = new Map<string, { reto: string; caduca: number; nombre?: string; quien?: string }>();
+/* `alta`: el hash del código de alta con el que se pidió el reto, si fue así. Se gasta al registrar. */
+type DatosReto = { reto: string; nombre?: string; quien?: string; alta?: string };
+const retos = new Map<string, DatosReto & { caduca: number }>();
 
-function guardarReto(datos: { reto: string; nombre?: string; quien?: string }) {
+function guardarReto(datos: DatosReto) {
 	for (const [k, v] of retos) if (v.caduca < Date.now()) retos.delete(k);
 	const id = randomBytes(24).toString('base64url');
 	retos.set(id, { ...datos, caduca: Date.now() + VIDA_RETO });
@@ -61,13 +63,37 @@ export async function codigoValido(codigo: string | null) {
 	return !!v && v.hash === hash(codigo) && Date.parse(v.caduca) > Date.now();
 }
 
-async function gastarCodigo() {
-	await db.delete(s.ajustes).where(eq(s.ajustes.clave, 'emergencia_alta'));
+/*
+ * Gasta el código de alta con el que se pidió el reto. Es un solo DELETE que
+ * comprueba hash y caducidad: de dos registros en paralelo con el mismo
+ * código solo uno lo consigue. false si ya se gastó, se cambió o caducó.
+ */
+async function gastarCodigo(hashCodigo: string) {
+	const borradas = await db
+		.delete(s.ajustes)
+		.where(
+			and(
+				eq(s.ajustes.clave, 'emergencia_alta'),
+				sql`${s.ajustes.valor}->>'hash' = ${hashCodigo}`,
+				sql`(${s.ajustes.valor}->>'caduca')::timestamptz > now()`
+			)
+		)
+		.returning({ clave: s.ajustes.clave });
+	return borradas.length > 0;
 }
+
+/* Para las pruebas. */
+export const _gastarCodigoAlta = (codigo: string) => gastarCodigo(hash(codigo));
 
 /* ---------- registro ---------- */
 
-export async function opcionesRegistro(rpID: string, nombre: string, quien: string) {
+/* `codigo`: el código de alta, ya comprobado, si quien registra no es un administrador. */
+export async function opcionesRegistro(
+	rpID: string,
+	nombre: string,
+	quien: string,
+	codigo: string | null = null
+) {
 	const existentes = await llaves();
 	const opciones = await generateRegistrationOptions({
 		rpName: 'Sugardaddy',
@@ -77,18 +103,26 @@ export async function opcionesRegistro(rpID: string, nombre: string, quien: stri
 		excludeCredentials: existentes.map((l) => ({ id: l.id })),
 		authenticatorSelection: { residentKey: 'preferred', userVerification: 'required' }
 	});
-	return { opciones, reto: guardarReto({ reto: opciones.challenge, nombre, quien }) };
+	return {
+		opciones,
+		reto: guardarReto({
+			reto: opciones.challenge,
+			nombre,
+			quien,
+			alta: codigo ? hash(codigo) : undefined
+		})
+	};
 }
 
 export async function registrar(
 	retoId: string | undefined,
 	respuesta: RegistrationResponseJSON,
 	origen: string,
-	rpID: string,
-	conCodigo: boolean
+	rpID: string
 ) {
 	const r = tomarReto(retoId);
 	if (!r) return { ok: false as const, motivo: 'The challenge has expired. Start again.' };
+	const conCodigo = !!r.alta;
 	const v = await verifyRegistrationResponse({
 		response: respuesta,
 		expectedChallenge: r.reto,
@@ -99,6 +133,12 @@ export async function registrar(
 	if (!v.verified || !('registrationInfo' in v) || !v.registrationInfo)
 		return { ok: false as const, motivo: 'The key did not pass verification.' };
 	const { credential } = v.registrationInfo;
+	/* El código vale para una sola llave: se gasta antes de guardarla. */
+	if (r.alta && !(await gastarCodigo(r.alta)))
+		return {
+			ok: false as const,
+			motivo: 'The enrollment code has already been used or has expired.'
+		};
 	await db.insert(s.llavesEmergencia).values({
 		id: credential.id,
 		clavePublica: Buffer.from(credential.publicKey).toString('base64'),
@@ -106,7 +146,6 @@ export async function registrar(
 		nombre: r.nombre!,
 		registradaPor: r.quien!
 	});
-	if (conCodigo) await gastarCodigo();
 	await auditar(r.quien!, 'emergency key registered', { nombre: r.nombre, conCodigo });
 	return { ok: true as const };
 }
@@ -209,8 +248,13 @@ export async function nuevoCodigoEmergencia(quien: string) {
 	return codigo;
 }
 
+/*
+ * Solo por IP. Hubo también un tope de fallos entre todas las IP, pero lo
+ * gastaba cualquiera sin tener ningún código y dejaba sin entrada de
+ * emergencia a quien sí lo tiene. Con 120 bits de código, adivinarlo no es el
+ * riesgo; el freno por IP basta para que no se pruebe a lo loco.
+ */
 const FALLOS_POR_IP = 5;
-const FALLOS_EN_TOTAL = 30;
 const VENTANA_FALLOS = 15 * 60_000;
 const fallos = new Map<string, number[]>();
 
@@ -220,8 +264,7 @@ function frenado(ip: string, ahora: number) {
 		if (vivos.length) fallos.set(k, vivos);
 		else fallos.delete(k);
 	}
-	const total = [...fallos.values()].reduce((n, v) => n + v.length, 0);
-	return (fallos.get(ip)?.length ?? 0) >= FALLOS_POR_IP || total >= FALLOS_EN_TOTAL;
+	return (fallos.get(ip)?.length ?? 0) >= FALLOS_POR_IP;
 }
 
 export function _olvidarFallos() {

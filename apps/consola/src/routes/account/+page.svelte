@@ -40,6 +40,10 @@
 				required
 			/>
 		</label>
+		<label class="campo">
+			<span>Current password</span>
+			<input name="clave" type="password" autocomplete="current-password" required />
+		</label>
 		<button class="boton">Save email</button>
 	</form>
 </section>

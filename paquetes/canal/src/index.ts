@@ -319,6 +319,25 @@ export type Release = {
 	sensorRemoto?: Configuracion;
 };
 
+/*
+ * De qué edición es una versión, por el registro de sus imágenes: Cloud las
+ * sirve desde el registro privado de Azure (*.azurecr.io) y Community desde
+ * ghcr.io. Las dos se firman con la misma clave (SUP-1), así que el panel y la
+ * consola miran esto para que una versión de Community no llegue a un nodo de
+ * pago ni al revés (SUP-3). null: ni una ni otra (desarrollo, registro local).
+ */
+export function edicionDeRelease(r: Pick<Release, 'servicios' | 'actualizador'>) {
+	const imagenes = [
+		...Object.values(r.servicios ?? {}),
+		...(r.actualizador ? [r.actualizador] : [])
+	];
+	const host = (i: string) => i.split('/')[0].toLowerCase();
+	if (imagenes.length === 0) return null;
+	if (imagenes.every((i) => host(i).endsWith('.azurecr.io'))) return 'cloud' as const;
+	if (imagenes.some((i) => host(i) === 'ghcr.io')) return 'community' as const;
+	return null;
+}
+
 export type Configuracion = {
 	ficheros: Record<string, string>;
 	entorno?: {

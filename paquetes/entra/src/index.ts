@@ -99,6 +99,22 @@ export function urlDeCierre(c: Config, redirectUri: string) {
 	return `${AUTORIDAD}/${c.tenant}/oauth2/v2.0/logout?post_logout_redirect_uri=${encodeURIComponent(redirectUri)}`;
 }
 
-/* Solo rutas internas: nunca se redirige a un destino que venga de fuera. */
-export const volverSeguro = (v: string | null) =>
-	v?.startsWith('/') && !v.startsWith('//') && !v.startsWith('/\\') ? v : '/';
+/*
+ * Solo rutas internas: nunca se redirige a un destino que venga de fuera.
+ * Además del prefijo, no se admite ningún carácter de control, espacio ni barra
+ * invertida en ningún sitio: el navegador quita tabuladores y saltos de línea al
+ * resolver la URL, y «/\t/evil.example» pasaba el prefijo y acababa en otro
+ * dominio. Y lo que queda se resuelve contra un origen cualquiera y tiene que
+ * seguir en él; se devuelve ya normalizado.
+ */
+const ORIGEN_PRUEBA = 'http://volver.invalid';
+export function volverSeguro(v: string | null): string {
+	if (!v || !v.startsWith('/') || v.startsWith('//')) return '/';
+	if (/[\u0000-\u0020\u007f-\u009f\\]/.test(v)) return '/';
+	try {
+		const u = new URL(v, ORIGEN_PRUEBA);
+		return u.origin === ORIGEN_PRUEBA ? u.pathname + u.search + u.hash : '/';
+	} catch {
+		return '/';
+	}
+}

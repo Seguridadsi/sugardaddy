@@ -99,6 +99,37 @@
 {/if}
 
 <!--
+	Cambiar de sitio una trampa a mano sin retirarla: en qué destino está. Por
+	colocar, sus pasos se generan otra vez para el nuevo; puesta, solo cambia el
+	sitio que enseñan el mapa y las listas.
+-->
+{#if opera && data.tipo === 'manual' && data.sitios.length}
+	<section class="panel entornobloque" aria-label="Target it is on">
+		<h2>Target it is on</h2>
+		<p class="ayuda">
+			{#if data.trampa.colocacion === 'por-colocar'}
+				If you are going to deploy it on another machine, change it here: its steps are generated
+				again for that target.
+			{:else}
+				If it is really on another machine, change it here so the map and the lists show where it
+				is. What you deployed and its removal steps stay as they were.
+			{/if}
+		</p>
+		<form method="POST" action="?/sitio" use:enhance class="sitio">
+			<select name="destino" aria-label="Target it is on" required>
+				<option value="" selected disabled
+					>{data.destino ? `Now on ${data.destino.nombre}` : 'Choose a target'}</option
+				>
+				{#each data.sitios as d (d.id)}
+					<option value={d.id}>{d.nombre}{d.plataforma ? ` · ${d.plataforma}` : ''}</option>
+				{/each}
+			</select>
+			<button class="boton">Move</button>
+		</form>
+	</section>
+{/if}
+
+<!--
 	Dónde está puesta esta trampa (respuesta por entorno): decide qué respuesta
 	tiene sentido si alguien la toca. Hereda de su sensor y se puede afinar aquí
 	para este honeypot. Gana lo más específico (lib/entorno.ts).
@@ -768,6 +799,13 @@
 
 	.entornobloque select {
 		max-width: 320px;
+	}
+
+	.sitio {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 8px;
+		align-items: center;
 	}
 
 	.explica {

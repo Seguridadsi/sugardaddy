@@ -14,9 +14,9 @@
  * El formato del hash lo comparte el sembrado del primer administrador
  * (scripts/preparar-base.mjs): si cambia aquí, cámbialo también allí.
  */
-import { randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
+import { randomBytes, randomUUID, scrypt, scryptSync, timingSafeEqual } from 'node:crypto';
 import { env } from '$env/dynamic/private';
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, isNull, lte, ne, or, sql } from 'drizzle-orm';
 import { db, schema as s } from '../db';
 import { auditar } from '../consultas';
 import { ROLES, type Rol } from './permisos';
@@ -67,9 +67,11 @@ export function hashClave(clave: string): string {
 	return `scrypt$${N}$${R}$${P}$${sal.toString('base64')}$${h.toString('base64')}`;
 }
 
-export function comprobarClave(clave: string, almacenado: string): boolean {
+type PartesHash = { n: number; r: number; q: number; sal: Buffer; esperado: Buffer };
+
+function partesHash(almacenado: string): PartesHash | null {
 	const p = almacenado.split('$');
-	if (p.length !== 6 || p[0] !== 'scrypt') return false;
+	if (p.length !== 6 || p[0] !== 'scrypt') return null;
 	const n = Number(p[1]);
 	const r = Number(p[2]);
 	const q = Number(p[3]);
@@ -81,17 +83,66 @@ export function comprobarClave(clave: string, almacenado: string): boolean {
 		r < 1 ||
 		q < 1
 	)
-		return false;
+		return null;
 	const sal = Buffer.from(p[4], 'base64');
 	const esperado = Buffer.from(p[5], 'base64');
-	if (sal.length === 0 || esperado.length === 0) return false;
+	if (sal.length === 0 || esperado.length === 0) return null;
+	return { n, r, q, sal, esperado };
+}
+
+export function comprobarClave(clave: string, almacenado: string): boolean {
+	const x = partesHash(almacenado);
+	if (!x) return false;
 	let h: Buffer;
 	try {
-		h = scryptSync(clave, sal, esperado.length, { N: n, r, p: q, maxmem: MAXMEM });
+		h = scryptSync(clave, x.sal, x.esperado.length, { N: x.n, r: x.r, p: x.q, maxmem: MAXMEM });
 	} catch {
 		return false;
 	}
-	return h.length === esperado.length && timingSafeEqual(h, esperado);
+	return h.length === x.esperado.length && timingSafeEqual(h, x.esperado);
+}
+
+/*
+ * Lo mismo sin bloquear el proceso: scrypt va al pool de libuv y, como mucho,
+ * MAX_SCRYPT a la vez; el resto espera su turno. Con la versión síncrona, una
+ * ráfaga de intentos de entrada (unos 60 ms cada uno) congelaba la consola
+ * entera, también la recepción de eventos de los sensores.
+ */
+const MAX_SCRYPT = 2;
+let scryptEnCurso = 0;
+const scryptEnCola: (() => void)[] = [];
+
+async function enTurno<T>(f: () => Promise<T>): Promise<T> {
+	while (scryptEnCurso >= MAX_SCRYPT) await new Promise<void>((ok) => scryptEnCola.push(ok));
+	scryptEnCurso++;
+	try {
+		return await f();
+	} finally {
+		scryptEnCurso--;
+		scryptEnCola.shift()?.();
+	}
+}
+
+export async function comprobarClaveAsync(clave: string, almacenado: string): Promise<boolean> {
+	const x = partesHash(almacenado);
+	if (!x) return false;
+	try {
+		const h = await enTurno(
+			() =>
+				new Promise<Buffer>((ok, mal) =>
+					scrypt(
+						clave,
+						x.sal,
+						x.esperado.length,
+						{ N: x.n, r: x.r, p: x.q, maxmem: MAXMEM },
+						(e, b) => (e ? mal(e) : ok(b))
+					)
+				)
+		);
+		return h.length === x.esperado.length && timingSafeEqual(h, x.esperado);
+	} catch {
+		return false;
+	}
 }
 
 /*
@@ -117,23 +168,34 @@ function identidadDe(u: {
 }
 
 /*
- * Suma un intento fallido de forma ATÓMICA (intentos = intentos + 1 en la propia
- * base) y, si llega al umbral, fija el bloqueo según el valor REAL ya
- * incrementado. Hacerlo en SQL y no leer-sumar-escribir en JS es lo que impide
- * que varios intentos a la vez lean el mismo valor viejo y diluyan el freno.
+ * Gasta un intento ANTES de mirar la contraseña, de forma atómica y solo si no
+ * está bloqueado: la misma sentencia mira el bloqueo y suma, así que varios
+ * intentos a la vez no ven todos «sin bloquear» (Postgres vuelve a evaluar la
+ * condición de cada uno tras el anterior). Si con este llega al umbral, el
+ * bloqueo se pone ya; si la contraseña resulta buena, verificar lo quita.
+ * false si estaba bloqueado: entonces ni se mira la contraseña.
  */
-async function registrarFallo(id: string) {
+async function gastarIntento(id: string, ahora: number): Promise<boolean> {
+	const u = s.usuariosLocales;
+	const momento = new Date(ahora);
+	/*
+	 * El bloqueo va en la MISMA sentencia que el intento: si se pusiera después,
+	 * entre una y otra cabrían más intentos en paralelo. Su duración es la de
+	 * bloqueoMs, en segundos: 30 · 2^(fallos − UMBRAL), hasta BLOQUEO_MAX_MS.
+	 * El exponente va topado: con miles de fallos power() desborda el double y
+	 * Postgres da error en vez de topar, y la cuenta no volvería a entrar nunca.
+	 */
 	const [fila] = await db
-		.update(s.usuariosLocales)
-		.set({ intentosFallidos: sql`${s.usuariosLocales.intentosFallidos} + 1` })
-		.where(eq(s.usuariosLocales.id, id))
-		.returning({ fallos: s.usuariosLocales.intentosFallidos });
-	const ms = fila ? bloqueoMs(fila.fallos) : 0;
-	if (ms)
-		await db
-			.update(s.usuariosLocales)
-			.set({ bloqueadoHasta: new Date(Date.now() + ms) })
-			.where(eq(s.usuariosLocales.id, id));
+		.update(u)
+		.set({
+			intentosFallidos: sql`${u.intentosFallidos} + 1`,
+			bloqueadoHasta: sql`case when ${u.intentosFallidos} + 1 >= ${UMBRAL}
+				then ${momento.toISOString()}::timestamptz + make_interval(secs => least(${BLOQUEO_MAX_MS / 1000}, 30 * power(2, least(${u.intentosFallidos} + 1 - ${UMBRAL}, 10))))
+				else ${u.bloqueadoHasta} end`
+		})
+		.where(and(eq(u.id, id), or(isNull(u.bloqueadoHasta), lte(u.bloqueadoHasta, momento))))
+		.returning({ fallos: u.intentosFallidos });
+	return !!fila;
 }
 
 export async function verificar(usuario: string, clave: string): Promise<ResultadoEntrada> {
@@ -144,16 +206,18 @@ export async function verificar(usuario: string, clave: string): Promise<Resulta
 	const ahora = Date.now();
 
 	/* Bloqueado por intentos: ni se mira la contraseña. */
-	if (u?.bloqueadoHasta && u.bloqueadoHasta.getTime() > ahora)
-		return { ok: false, motivo: 'bloqueado', hasta: u.bloqueadoHasta };
+	if (u && !(await gastarIntento(u.id, ahora))) {
+		const [b] = await db
+			.select({ hasta: s.usuariosLocales.bloqueadoHasta })
+			.from(s.usuariosLocales)
+			.where(eq(s.usuariosLocales.id, u.id));
+		return { ok: false, motivo: 'bloqueado', hasta: b?.hasta ?? undefined };
+	}
 
 	/* Siempre se calcula un scrypt (con el hash real o con el falso): tiempo constante. */
-	const correcto = comprobarClave(clave, u?.claveHash ?? HASH_FALSO) && !!u;
+	const correcto = (await comprobarClaveAsync(clave, u?.claveHash ?? HASH_FALSO)) && !!u;
 
-	if (!u || !correcto) {
-		if (u) await registrarFallo(u.id);
-		return { ok: false, motivo: 'credenciales' };
-	}
+	if (!u || !correcto) return { ok: false, motivo: 'credenciales' };
 
 	await db
 		.update(s.usuariosLocales)
@@ -221,6 +285,34 @@ export async function pendientesAlEntrar(
 }
 
 /* Fija el correo de recuperación de un usuario (el suyo propio o el forzado al entrar). */
+/* ¿Es esta la contraseña de ahora de ese usuario? Para lo que se pide con la sesión abierta y además la contraseña. */
+export async function claveCorrecta(id: string, clave: string): Promise<boolean> {
+	return (await claveConFreno(id, clave)) === 'bien';
+}
+
+/*
+ * La contraseña actual, con el mismo freno que la entrada: cada intento cuenta y,
+ * bloqueado, ni se mira. Si no, con una sesión abierta se podría adivinar la
+ * contraseña sin límite desde el cambio de correo o de contraseña.
+ */
+async function claveConFreno(
+	id: string,
+	clave: string
+): Promise<'bien' | 'mal' | 'bloqueado' | 'no-existe'> {
+	const [u] = await db
+		.select({ claveHash: s.usuariosLocales.claveHash })
+		.from(s.usuariosLocales)
+		.where(eq(s.usuariosLocales.id, id));
+	if (!u) return 'no-existe';
+	if (!(await gastarIntento(id, Date.now()))) return 'bloqueado';
+	if (!(await comprobarClaveAsync(clave, u.claveHash))) return 'mal';
+	await db
+		.update(s.usuariosLocales)
+		.set({ intentosFallidos: 0, bloqueadoHasta: null })
+		.where(eq(s.usuariosLocales.id, id));
+	return 'bien';
+}
+
 export async function cambiarCorreo(
 	quien: string,
 	id: string,
@@ -237,6 +329,28 @@ export async function cambiarCorreo(
 	if (!u) return { ok: false, error: 'The user no longer exists.' };
 	await auditar(quien, 'recovery email changed', { usuario: u.usuario });
 	return { ok: true, identidad: identidadDe(u) };
+}
+
+/*
+ * Cierra las sesiones abiertas de un usuario local (salvo, si se dice, la de quien
+ * hace el cambio): al cambiarle o restablecerle la contraseña o al quitarlo, quien
+ * tuviera una sesión abierta con la contraseña de antes ya no sigue dentro.
+ */
+export async function cerrarSesionesDe(
+	id: string,
+	salvo?: string,
+	bd: Pick<typeof db, 'update'> = db
+) {
+	await bd
+		.update(s.sesiones)
+		.set({ cerrada: new Date() })
+		.where(
+			and(
+				eq(s.sesiones.oid, `local:${id}`),
+				isNull(s.sesiones.cerrada),
+				...(salvo ? [ne(s.sesiones.id, salvo)] : [])
+			)
+		);
 }
 
 export async function cambiarClave(
@@ -256,6 +370,7 @@ export async function cambiarClave(
 		.where(eq(s.usuariosLocales.id, id))
 		.returning();
 	if (!u) return { ok: false, error: 'The user no longer exists.' };
+	await cerrarSesionesDe(id);
 	return { ok: true, identidad: identidadDe(u) };
 }
 
@@ -270,23 +385,24 @@ export async function cambiarClavePropia(
 	quien: string,
 	id: string,
 	actual: string,
-	nueva: string
+	nueva: string,
+	sesionActual?: string
 ): Promise<{ ok: true } | { ok: false; error: string }> {
 	if (nueva.length < MIN_CLAVE)
 		return { ok: false, error: `The password needs at least ${MIN_CLAVE} characters.` };
 	if (nueva === actual)
 		return { ok: false, error: 'The new password must be different from the current one.' };
-	const [u] = await db
-		.select({ claveHash: s.usuariosLocales.claveHash })
-		.from(s.usuariosLocales)
-		.where(eq(s.usuariosLocales.id, id));
-	if (!u) return { ok: false, error: 'The user no longer exists.' };
-	if (!comprobarClave(actual, u.claveHash))
-		return { ok: false, error: 'The current password is incorrect.' };
+	const r = await claveConFreno(id, actual);
+	if (r === 'no-existe') return { ok: false, error: 'The user no longer exists.' };
+	if (r === 'bloqueado')
+		return { ok: false, error: 'Too many attempts. Wait a few minutes and try again.' };
+	if (r === 'mal') return { ok: false, error: 'The current password is incorrect.' };
 	await db
 		.update(s.usuariosLocales)
 		.set({ claveHash: hashClave(nueva), debeCambiar: false })
 		.where(eq(s.usuariosLocales.id, id));
+	/* Las demás sesiones suyas se cierran: si alguien más tenía una, ya no. */
+	await cerrarSesionesDe(id, sesionActual);
 	/* En la auditoría no va la contraseña, claro: solo que la cambió él mismo. */
 	await auditar(quien, 'own password changed');
 	return { ok: true };
@@ -429,6 +545,7 @@ export async function restablecer(
 		.where(eq(s.usuariosLocales.id, id))
 		.returning({ usuario: s.usuariosLocales.usuario });
 	if (!u) return { ok: false, error: 'That user no longer exists.' };
+	await cerrarSesionesDe(id);
 	await auditar(quien, 'local user password reset', { usuario: u.usuario });
 	return { ok: true };
 }
@@ -455,6 +572,7 @@ export async function retirar(
 				error: 'This is the only local administrator: it cannot be removed.'
 			};
 		await tx.delete(s.usuariosLocales).where(eq(s.usuariosLocales.id, id));
+		await cerrarSesionesDe(id, undefined, tx);
 		await tx.delete(s.preferenciasUsuario).where(eq(s.preferenciasUsuario.oid, `local:${id}`));
 		return { ok: true as const, usuario: u.usuario };
 	});

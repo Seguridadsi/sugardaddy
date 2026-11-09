@@ -49,10 +49,24 @@ function huecos(texto: string): string[] {
 	return [...texto.matchAll(/\$\{([^}]*)\}/g)].map((m) => m[1]);
 }
 
-function huecosSinParametro(textos: string[], parametros: Record<string, unknown>): string[] {
+/*
+ * Huecos que rellena el sensor, no un parámetro (empiezan por «sd.»):
+ *  - sd.ipsAnfitrion: las IP de la máquina por las que llega el atacante,
+ *    separadas por comas (la de escucha del sensor si es una, o las de sus
+ *    interfaces de red si escucha en todas). Para lo que una trampa anuncia
+ *    (LOCATION de SSDP, XAddrs de WS-Discovery): dentro del contenedor solo ve
+ *    la IP interna de Docker, que la delataría.
+ */
+export const HUECOS_DEL_SENSOR = ['sd.ipsAnfitrion'] as const;
+
+function huecosSinParametro(
+	textos: string[],
+	parametros: Record<string, unknown>,
+	reservados: readonly string[] = []
+): string[] {
 	return textos
 		.flatMap(huecos)
-		.filter((h) => !Object.hasOwn(parametros, h))
+		.filter((h) => !Object.hasOwn(parametros, h) && !reservados.includes(h))
 		.map((h) => `\${${h}} no es un parámetro declarado`);
 }
 
@@ -115,7 +129,7 @@ function parametrosDeContenedor(c: Contenedor | undefined, props: Record<string,
 		...(c?.puertos ?? []).flatMap((p) => (p.si ? [p.si] : []))
 	];
 	return [
-		...huecosSinParametro(textos, props),
+		...huecosSinParametro(textos, props, HUECOS_DEL_SENSOR),
 		...nombrados
 			.filter((n) => !Object.hasOwn(props, n))
 			.map((n) => `${n} no es un parámetro declarado`)
@@ -128,9 +142,82 @@ export function validarTrampa(dato: unknown): Resultado<ManifiestoTrampa> {
 	const fallos = [
 		...puertosBajos(m.contenedor),
 		...fallosDeTraductor(m.eventos),
-		...parametrosDeContenedor(m.contenedor, m.parametros.properties)
+		...parametrosDeContenedor(m.contenedor, m.parametros.properties),
+		...fallosDeSegun(m.parametros.properties as Record<string, DefParametro>)
 	];
 	return fallos.length ? { ok: false, errores: fallos } : { ok: true, valor: m };
+}
+
+/*
+ * x-segun: el valor por defecto de un parámetro que depende de lo elegido en
+ * otro, un desplegable (el puerto web de un hipervisor según el producto:
+ * 443 para ESXi, 8006 para Proxmox). Lo que no está en «valores» se queda con
+ * el default del parámetro. Solo pone el valor cuando no viene: lo que escribe
+ * quien despliega manda.
+ */
+export type XSegun = { campo: string; valores: Record<string, unknown> };
+
+/* Un x-segun bien formado de un parámetro, o undefined (lo raro lo dice fallosDeSegun). */
+function segunDe(def: unknown): XSegun | undefined {
+	const xs = def && typeof def === 'object' ? (def as DefParametro)['x-segun'] : undefined;
+	return xs &&
+		typeof xs === 'object' &&
+		typeof (xs as XSegun).campo === 'string' &&
+		(xs as XSegun).valores &&
+		typeof (xs as XSegun).valores === 'object'
+		? (xs as XSegun)
+		: undefined;
+}
+
+function fallosDeSegun(props: Record<string, DefParametro>): string[] {
+	const fallos: string[] = [];
+	for (const [nombre, def] of Object.entries(props)) {
+		if (!def || typeof def !== 'object' || def['x-segun'] === undefined) continue;
+		const xs = segunDe(def);
+		if (!xs) {
+			fallos.push(`parametros.${nombre}: x-segun necesita campo y valores`);
+			continue;
+		}
+		const de = props[xs.campo];
+		const opciones = de && typeof de === 'object' ? de.enum : undefined;
+		if (!Array.isArray(opciones)) {
+			fallos.push(`parametros.${nombre}: x-segun: ${xs.campo} no es un desplegable (enum)`);
+			continue;
+		}
+		const cumple = compilarEsquema(def);
+		if (typeof cumple !== 'function') continue;
+		for (const [opcion, valor] of Object.entries(xs.valores)) {
+			if (!opciones.includes(opcion))
+				fallos.push(`parametros.${nombre}: x-segun: ${opcion} no es una opción de ${xs.campo}`);
+			else if (!cumple(valor))
+				fallos.push(
+					`parametros.${nombre}: x-segun: ${JSON.stringify(valor)} no vale para el parámetro`
+				);
+		}
+	}
+	return fallos;
+}
+
+/* Los valores que faltan y dependen de otro parámetro (x-segun), con lo elegido en aquel o su default. */
+function conSegun(
+	esquema: EsquemaParametros,
+	valores: Record<string, unknown>
+): Record<string, unknown> {
+	const props = esquema.properties as Record<string, DefParametro>;
+	const extra: Record<string, unknown> = {};
+	for (const [nombre, def] of Object.entries(props)) {
+		const xs = segunDe(def);
+		if (!xs || Object.hasOwn(valores, nombre)) continue;
+		const de = props[xs.campo];
+		const elegido = Object.hasOwn(valores, xs.campo)
+			? valores[xs.campo]
+			: de && typeof de === 'object'
+				? de.default
+				: undefined;
+		if (typeof elegido === 'string' && Object.hasOwn(xs.valores, elegido))
+			extra[nombre] = xs.valores[elegido];
+	}
+	return { ...valores, ...extra };
 }
 
 export function validarRespuesta(dato: unknown): Resultado<ManifiestoRespuesta> {
@@ -500,6 +587,7 @@ function reglasDeVia(
 function reglasV2(m: ManifiestoTrampaV2): string[] {
 	const props = m.parametros.properties as Record<string, DefParametro>;
 	const { xTrampa, fallos } = parametrosV2(props);
+	fallos.push(...fallosDeSegun(props));
 	/* Regla 1: cada id, y cada «antes», señala una sola vía. */
 	const duenas = new Map<string, Via>();
 	for (const v of m.vias) {
@@ -685,7 +773,7 @@ export function validarParametros(
 	const validar = compilarEsquema({ ...esquema, additionalProperties: false });
 	/* Un v2 ya no llega aquí con un esquema que no compila (validarHoneycosa); un v1, como siempre. */
 	if (typeof validar !== 'function') throw new Error(validar.error);
-	const copia = structuredClone(valores);
+	const copia = structuredClone(conSegun(esquema, valores));
 	return validar(copia)
 		? { ok: true, valor: copia }
 		: {

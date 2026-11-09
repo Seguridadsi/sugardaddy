@@ -179,3 +179,26 @@ func TestConHydraLlenandoElCupoOtroAtacanteSeVe(t *testing.T) {
 		}
 	}
 }
+
+// EVT-6: una riada de datagramas falsificados (sin conexión) desde miles de IP
+// gasta sus cupos, no los del ataque real por TCP en la misma trampa, que se
+// sigue viendo entero y con su IP.
+func TestLaRiadaSinConexionNoTapaElAtaqueConConexion(t *testing.T) {
+	r, tp := ritmo{}, trampaPrueba()
+	for i := 0; i < 5000; i++ {
+		e := evc(i%50000, fmt.Sprintf("10.%d.%d.%d", i/62500, (i/250)%250, i%250), "kerberos.as_req", "autenticacion", "alta")
+		r.pasa("s", tp, e)
+	}
+	real := "203.0.113.66"
+	for i := 0; i < 300; i++ {
+		e := evc(50000+i, real, fmt.Sprintf("ldap.search.%d", i%3), "consulta", "alta")
+		e.ConexionEstablecida = true
+		if ok, _ := r.pasa("s", tp, e); !ok && i < gravesIPMinuto {
+			t.Fatalf("el evento %d del ataque con conexión se omitió tras la riada sin conexión", i)
+		}
+	}
+	// Y la riada sin conexión sigue acotada como siempre.
+	if ok, _ := r.pasa("s", tp, evc(59000, "10.250.0.1", "kerberos.as_req", "autenticacion", "alta")); ok {
+		t.Fatal("sin conexión, los cupos gastados siguen gastados")
+	}
+}

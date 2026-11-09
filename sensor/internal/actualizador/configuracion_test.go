@@ -426,3 +426,35 @@ func TestUnEnlaceEnLugarDeCaRaizSeSustituye(t *testing.T) {
 		t.Fatal("con un fichero nuevo, la consola se reinicia para verlo")
 	}
 }
+
+func TestUnaVersionMasViejaQueLaInstaladaNoSeAplica(t *testing.T) {
+	n := nuevoNodo(t)
+	if err := os.WriteFile(filepath.Join(n.dir, "versiones.env"), []byte("SUGARDADDY_VERSION=0.13.0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r := n.app.Aplicar(context.Background(), n.firmada(t, releaseConConfiguracion("services: {}\n")))
+	if r.Estado != "fallida" || !strings.Contains(r.Detalle, "older than the installed 0.13.0") {
+		t.Fatalf("una versión firmada pero más vieja no se aplica: %+v", r)
+	}
+	if _, err := os.Stat(filepath.Join(n.dir, ".llamadas")); err == nil {
+		t.Fatal("con una versión vieja no se llama a compose")
+	}
+}
+
+func TestVueltaAtras(t *testing.T) {
+	for _, c := range []struct {
+		instalada, nueva string
+		vuelta           bool
+	}{
+		{"0.24.2", "0.24.1", true},
+		{"0.24.2", "0.17.3", true},
+		{"0.24.2", "0.24.2", false},
+		{"0.24.2", "0.25.0", false},
+		{"0.9.0", "0.10.0", false},
+		{"", "0.1.0", false},
+	} {
+		if got := VueltaAtras(c.instalada, c.nueva); got != c.vuelta {
+			t.Errorf("VueltaAtras(%q, %q) = %v", c.instalada, c.nueva, got)
+		}
+	}
+}

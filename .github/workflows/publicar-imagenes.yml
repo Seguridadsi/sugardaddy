@@ -9,16 +9,21 @@ name: Publicar imágenes (trampas y nodo)
 on:
   workflow_dispatch: {}
 
-permissions:
-  contents: write
-  packages: write
+# Nada por defecto: cada trabajo pide solo lo suyo. Las acciones van fijadas
+# por SHA (las mismas que pruebas.yml) y solo se publica desde main: lo que
+# sale de aquí lo firma Kino y lo instalan los nodos (SUP-5).
+permissions: {}
 
 jobs:
   publicar:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # el commit con el digest de cowrie
+      packages: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.27'
 
@@ -34,6 +39,12 @@ jobs:
             etq=$(tr -d '[:space:]' < "modulos/trampas/$t/imagen/etiqueta")
             repo="ghcr.io/$org/sugardaddy-trampa-$t"
             echo "::group::$t -> $repo:$etq"
+            # Una etiqueta publicada no se reescribe: para otra imagen, otra etiqueta.
+            if docker manifest inspect "$repo:$etq" >/dev/null 2>&1; then
+              echo "$repo:$etq is already published: it is not overwritten"
+              echo "::endgroup::"
+              continue
+            fi
             tmp=$(mktemp -d)
             "modulos/trampas/$t/imagen/preparar.sh" "$tmp/fuente"
             df="$tmp/fuente/Dockerfile"; [ -f "$df" ] || df="$tmp/fuente/docker/Dockerfile"
@@ -54,9 +65,13 @@ jobs:
           git push
 
   nodo:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Entrar en ghcr.io
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
@@ -68,6 +83,13 @@ jobs:
           V=$(tr -d '[:space:]' < despliegue/nodo/VERSION)
           # Reutiliza el mismo molde que el build local: consola (con el catálogo
           # encima), sensor y actualizador (con docker-compose embebido).
+          # Una versión publicada no se reescribe: la firma de Kino es de esa.
+          for svc in consola sensor actualizador; do
+            if docker manifest inspect "ghcr.io/$org/sugardaddy-$svc:$V" >/dev/null 2>&1; then
+              echo "ghcr.io/$org/sugardaddy-$svc:$V is already published: bump despliegue/nodo/VERSION" >&2
+              exit 1
+            fi
+          done
           despliegue/nodo/construir-imagenes-local.sh "$V"
           for svc in consola sensor actualizador; do
             docker tag "sugardaddy-$svc:$V" "ghcr.io/$org/sugardaddy-$svc:$V"

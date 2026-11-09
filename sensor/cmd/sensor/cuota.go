@@ -26,7 +26,42 @@ const (
 	causaSinPerforar = "registros.sin-perforar"
 	causaSinPermiso  = "registros.sin-permiso"
 	causaNoLiberado  = "registros.no-liberado"
+	causaAjenos      = "registros.ajenos"
 )
+
+// La carpeta de registros es de la trampa: una trampa tomada puede escribir en
+// ella lo que quiera, también en subcarpetas que la cuota de siempre no miraba
+// (SEN-4). Lo que no es su registro (ni sus rotados) tiene un tope aparte, en
+// bytes y en entradas (ficheros vacíos que agotan los inodos y frenan cada
+// lectura de la carpeta). Las trampas de verdad solo dejan ahí ficheros
+// pequeños (su semilla, su certificado). Variables para las pruebas.
+var (
+	cuotaAjenos          int64 = 64 << 20
+	maxEntradasRegistros       = 10_000
+)
+
+// errAjenos: la carpeta de registros tiene más de lo que cabe que no es el registro.
+var errAjenos = errors.New("the logs folder holds files that are not the decoy's log")
+
+// medirRegistros recorre la carpeta de registros entera, sin seguir enlaces:
+// lo que ocupa y cuántas entradas tiene. Deja de contar pasado el tope de
+// entradas (con eso ya basta para pararla, y no tarda con millones).
+func medirRegistros(dir string) (bytes int64, entradas int) {
+	_ = filepath.WalkDir(dir, func(_ string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		entradas++
+		if entradas > maxEntradasRegistros {
+			return filepath.SkipAll
+		}
+		if fi, err := d.Info(); err == nil {
+			bytes += ocupado(fi)
+		}
+		return nil
+	})
+	return bytes, entradas
+}
 
 // perforar libera lo ya leído del registro activo (variable para las pruebas).
 var perforar = liberarLeido
@@ -42,6 +77,8 @@ func causaCuota(err error) string {
 		return causaSinPerforar
 	case errors.Is(err, syscall.EACCES), errors.Is(err, syscall.EPERM), errors.Is(err, syscall.EROFS):
 		return causaSinPermiso
+	case errors.Is(err, errAjenos):
+		return causaAjenos
 	}
 	return causaNoLiberado
 }
@@ -49,6 +86,10 @@ func causaCuota(err error) string {
 // avisoCuota es lo que ve el cliente en el estado de la trampa parada (la
 // consola guarda 200 caracteres de él).
 func avisoCuota(causa string) string {
+	if causa == causaAjenos {
+		return fmt.Sprintf("quota exceeded (%s): its logs folder holds more than %d MB or %d files that are not its log; remove them from the sensor's folder and it resumes",
+			causa, cuotaAjenos>>20, maxEntradasRegistros)
+	}
 	porque := map[string]string{
 		causaSinPerforar: "this disk cannot free read data without stopping the decoy",
 		causaSinPermiso:  "the sensor lacks permission to free read data",
@@ -97,6 +138,10 @@ func (s *sensor) reanudar(sp plan.TrampaPlan, ahora time.Time) {
 			return
 		}
 	}
+	// Lo que no es su registro no se va solo: mientras siga, sigue parada (SEN-4).
+	if s.conAjenos(sp) {
+		return
+	}
 	total := s.podarTrampa(sp, ahora)
 	if total > cuotaRegistros {
 		total -= s.quitarLeido(sp)
@@ -107,6 +152,14 @@ func (s *sensor) reanudar(sp plan.TrampaPlan, ahora time.Time) {
 	delete(s.estado.Paradas, sp.ID)
 	s.guardar()
 	slog.Info("decoy resumed: its logs fit in its quota again", "trampa", sp.ID)
+}
+
+// conAjenos dice si la carpeta de registros de la trampa tiene, aparte de su
+// registro y sus rotados, más de lo que cabe (SEN-4).
+func (s *sensor) conAjenos(sp plan.TrampaPlan) bool {
+	dir := despliegue.Registros(s.opc, sp.ID)
+	b, n := medirRegistros(dir)
+	return n > maxEntradasRegistros || b-delRegistro(dir, filepath.Base(sp.Manifiesto.Eventos.Fuente.Ruta)) > cuotaAjenos
 }
 
 // quitarLeido borra el registro activo de una trampa parada si el sensor lo

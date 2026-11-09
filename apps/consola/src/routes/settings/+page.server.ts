@@ -37,9 +37,12 @@ import {
 	guardarAutoActualizar,
 	guardarBuscarActualizaciones,
 	guardarComparticion,
+	falloWebhook,
 	guardarWebhook,
+	secretoWebhook,
 	webhook
 } from '$lib/server/consultas';
+import { cifrar, estadoClave, final } from '$lib/server/secretos';
 import { gestionado } from '$lib/server/actualizaciones';
 import {
 	activar,
@@ -98,7 +101,19 @@ export const load = async ({ locals, url }) => {
 				)
 			: [],
 		trampasDeFabrica: await trampasDeFabrica(),
-		webhook: await webhook(),
+		/* Del secreto solo si está puesto y sus 4 últimos: nunca vuelve entero a la página. */
+		webhook: await (async () => {
+			const w = await webhook();
+			const sec = secretoWebhook(w);
+			return {
+				url: w.url,
+				activo: w.activo,
+				secretoPuesto: !!(w.secretoCifrado || w.secreto),
+				secretoFinal: sec ? final(sec) : null,
+				/* El último fallo al entregar, si lo hay: un receptor que redirige o falla no se queda en silencio. */
+				fallo: w.activo ? await falloWebhook() : null
+			};
+		})(),
 		espacio: esp,
 		estimacion: estimacion(esp, cons.dias),
 		canal: await estadoCanal(),
@@ -240,14 +255,29 @@ export const actions = {
 			}
 			if (!ok) return fail(400, { error: 'Enter a valid http(s) URL to enable the webhook.' });
 		}
-		/* El secreto en blanco NO lo borra: mantiene el que hubiera (no hace falta
-		 * volver a teclearlo en cada guardado). */
+		if (secreto.length > 512) return fail(400, { error: 'The signing secret is too long.' });
+		/*
+		 * El secreto en blanco NO lo borra: mantiene el que hubiera (no hace falta
+		 * volver a teclearlo en cada guardado). Se guarda cifrado con la clave del
+		 * nodo; uno en claro de antes se cifra ahora si hay clave, y si no se deja
+		 * como estaba (guardar, o apagarlo, no puede fallar por eso). Uno cifrado que
+		 * no se puede leer (otra clave) tampoco se pierde en silencio.
+		 */
 		const previo = await webhook();
-		await guardarWebhook(u.correo, {
-			url: url || null,
-			activo,
-			secreto: secreto || previo.secreto
-		});
+		const hayClave = estadoClave() === 'lista';
+		if (secreto && !hayClave)
+			return fail(400, {
+				error:
+					'This node does not have its key for storing secrets (CLAVE_SECRETOS in its .env file). It is created when the node is updated; if you installed it by hand, add it with: openssl rand -hex 32'
+			});
+		const guardado = secreto
+			? { secreto: null, secretoCifrado: cifrar({ secreto }, 'webhook') }
+			: previo.secretoCifrado
+				? { secreto: null, secretoCifrado: previo.secretoCifrado }
+				: previo.secreto && hayClave
+					? { secreto: null, secretoCifrado: cifrar({ secreto: previo.secreto }, 'webhook') }
+					: { secreto: previo.secreto, secretoCifrado: null };
+		await guardarWebhook(u.correo, { url: url || null, activo, ...guardado });
 		return { mensaje: activo ? 'Webhook enabled.' : 'Webhook disabled.' };
 	},
 	palabras: async ({ request, locals }) => {

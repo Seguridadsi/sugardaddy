@@ -471,6 +471,81 @@ export async function regenerarPasos(
 }
 
 /*
+ * Cambiar de sitio una trampa a mano sin retirarla: el destino donde está. La
+ * vía con que se puso tiene que valer en el nuevo (el mismo sistema, un tipo
+ * de destino que admita): si el elector no la elige allí, no se mueve y
+ * vuelven sus motivos. Por colocar, sus pasos se generan otra vez para el
+ * nuevo destino, como al darla de alta. Puesta, solo cambia el destino: lo
+ * sembrado es lo que se siguió, así que sus pasos de retirar y quien recibe su
+ * señal se quedan como están. Una de contenedor no se mueve: corre en la
+ * máquina de su sensor.
+ */
+export async function cambiarSitio(
+	quien: string,
+	id: string,
+	h: Honeycosa,
+	nuevo: string,
+	parametros: Record<string, unknown>
+): Promise<'movida' | FalloAlta> {
+	return db.transaction(async (tx: Tx) => {
+		await bloquear(tx, { destino: nuevo, trampa: id, objetivos: objetivosDe(h, parametros) });
+		const [t] = await tx.select().from(s.trampas).where(eq(s.trampas.id, id));
+		if (!t) return fallo(['That decoy no longer exists.']);
+		if (t.ejecutor !== 'manual@1')
+			return fallo([
+				"A container decoy runs on its sensor's machine: to move it, remove it and deploy it on the other one."
+			]);
+		if (t.colocacion === 'retirando')
+			return fallo(['It is being removed: finish removing it, or deploy it again elsewhere.']);
+		const viejo = await destinoDe(tx, t);
+		if (viejo === nuevo) return fallo(['It is already on that target.']);
+		const via = viaDe(h, t.via);
+		if (!via || via.ejecutor !== 'manual@1')
+			return fallo([
+				'The method it was deployed with no longer exists in the module: remove it and deploy it again.'
+			]);
+		const f = await leerDestino(tx, nuevo);
+		if (!f || !f.destino.activo) return fallo(['That target no longer exists.']);
+		const d = destinoDelElector(f.destino, f.sensor);
+		const e = elegir({
+			honeycosa: h,
+			destino: d,
+			parametros: { modo: 'reales', valor: { ok: true, valor: parametros } },
+			contexto: await contextoEn(tx, d.id, { preferida: via.id, excepto: id })
+		});
+		if (e.elegida?.via !== via.id) return fallo([], motivosDe(e, via.id));
+		const detalle = { id, nombre: t.nombre, de: viejo, a: nuevo, colocacion: t.colocacion };
+		if (t.colocacion === 'por-colocar') {
+			const x = await conPasos(tx, h, via, d, { id, nombre: t.nombre }, parametros, null);
+			if ('errores' in x) return x;
+			await tx
+				.update(s.trampas)
+				.set({
+					destino: nuevo,
+					sensor: x.sensor,
+					senalTrampa: x.senalTrampa,
+					manual: x.manual
+				})
+				.where(eq(s.trampas.id, id));
+			await tx.insert(s.auditoria).values({
+				quien,
+				accion: 'decoy moved',
+				detalle: {
+					...detalle,
+					pasos: x.manual.sha256,
+					...(t.manual ? { antes: t.manual.sha256 } : {}),
+					retirar: paraRetirar(x.manual)
+				}
+			});
+			return 'movida';
+		}
+		await tx.update(s.trampas).set({ destino: nuevo }).where(eq(s.trampas.id, id));
+		await tx.insert(s.auditoria).values({ quien, accion: 'decoy moved', detalle });
+		return 'movida';
+	});
+}
+
+/*
  * Lo que dice el elector de una trampa de contenedor@1 ya puesta, con unos
  * valores (los suyos o los nuevos), sin ella entre las del destino (§7.3,
  * «modificar»). Solo impide guardar lo que depende de lo que se cambia: los

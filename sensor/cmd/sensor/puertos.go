@@ -17,7 +17,8 @@ import (
 // Cada cuánto se miden los puertos de la máquina: cambian cuando el cliente
 // arranca o para un servicio. Si una trampa no ha podido atar su puerto, se
 // vuelve a medir antes (cadaAnfitrionAtascado), para publicarla en la IP de
-// red en la siguiente vuelta si lo que estorba es local.
+// red en la siguiente vuelta si lo que estorba es local, o en las direcciones
+// que tiene ahora la máquina si se publicaba en una que ya no tiene.
 const (
 	cadaAnfitrion         = 2 * time.Minute
 	cadaAnfitrionAtascado = 30 * time.Second
@@ -77,10 +78,12 @@ func (s *sensor) sondearAnfitrion(ctx context.Context, id string, estados []desp
 }
 
 // puertoAtascado dice si alguna trampa no ha podido atar su puerto en la
-// máquina (Docker: «address already in use» o «port is already allocated»).
+// máquina (Docker: «address already in use» o «port is already allocated»,
+// o «cannot assign requested address» si la IP ya no es de la máquina).
 func puertoAtascado(estados []despliegue.Estado) bool {
 	for _, e := range estados {
-		if strings.Contains(e.Donde, "address already in use") || strings.Contains(e.Donde, "port is already allocated") {
+		if strings.Contains(e.Donde, "address already in use") || strings.Contains(e.Donde, "port is already allocated") ||
+			strings.Contains(e.Donde, "cannot assign requested address") {
 			return true
 		}
 	}

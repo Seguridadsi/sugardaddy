@@ -102,7 +102,13 @@ export async function indicadoresPendientes() {
 				 * casa o un escáner, y el relé es público (docs/diseno/rele-balizas.md). Es un
 				 * aviso para este cliente, no una IP para repartir a los demás.
 				 */
-				ne(s.eventos.accion, 'baliza')
+				ne(s.eventos.accion, 'baliza'),
+				/*
+				 * Ni lo que se apartó por un pentest o un origen conocido, ni lo que alguien
+				 * marcó como falso positivo: una empresa de pentest trabaja para varios clientes
+				 * y llegaba así al umbral de la lista común, que la bloqueaba en todos.
+				 */
+				sql`not exists (select 1 from ${s.triaje} t where t.evento = ${s.eventos.id} and (t.quien in ('modo pentest', 'origen conocido') or t.estado = 'falso-positivo'))`
 			)
 		)
 		.groupBy(s.eventos.ip);

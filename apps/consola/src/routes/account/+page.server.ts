@@ -1,8 +1,10 @@
+import { COOKIE_SESION } from '$lib/server/auth/sesion';
 import { fail, redirect } from '@sveltejs/kit';
 import {
 	MIN_CLAVE,
 	cambiarClavePropia,
 	cambiarCorreo,
+	claveCorrecta,
 	cambiarNombrePropio,
 	correoValido,
 	loginLocalHabilitado,
@@ -56,13 +58,20 @@ export const actions = {
 	correo: async ({ request, locals }) => {
 		const id = idLocal(locals);
 		if (!id) return fail(403, { error: 'Only users with local sign-in can change this here.' });
-		const correo = String((await request.formData()).get('correo') ?? '');
+		const f = await request.formData();
+		const correo = String(f.get('correo') ?? '');
+		/*
+		 * El correo es adonde va el código si se pierde la contraseña: cambiarlo con solo una
+		 * sesión robada daría la cuenta para siempre. Se pide también la contraseña de ahora.
+		 */
+		if (!(await claveCorrecta(id, String(f.get('clave') ?? ''))))
+			return fail(400, { error: 'Enter your current password to change the email.' });
 		const r = await cambiarCorreo(locals.usuario!.correo, id, correo);
 		if (!r.ok) return fail(400, { error: r.error });
 		await cambiarCorreoSesiones(locals.usuario!.oid!, r.identidad.correo);
 		return { mensaje: 'Email updated. If you lose your password, the code will be sent there.' };
 	},
-	contrasena: async ({ request, locals }) => {
+	contrasena: async ({ request, locals, cookies }) => {
 		const id = idLocal(locals);
 		if (!id) return fail(403, { error: 'Only users with local sign-in can change this here.' });
 		const f = await request.formData();
@@ -70,7 +79,13 @@ export const actions = {
 		const nueva = String(f.get('nueva') ?? '');
 		const repetir = String(f.get('repetir') ?? '');
 		if (nueva !== repetir) return fail(400, { error: 'The two new passwords do not match.' });
-		const r = await cambiarClavePropia(locals.usuario!.correo, id, actual, nueva);
+		const r = await cambiarClavePropia(
+			locals.usuario!.correo,
+			id,
+			actual,
+			nueva,
+			cookies.get(COOKIE_SESION)
+		);
 		if (!r.ok) return fail(400, { error: r.error });
 		return { mensaje: 'Password changed.' };
 	}

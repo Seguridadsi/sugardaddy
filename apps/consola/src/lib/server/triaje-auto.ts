@@ -32,9 +32,25 @@ export type CriterioTriaje = (typeof CRITERIOS_TRIAJE)[number];
  * regla «comando: input» casara TODOS los eventos SSH por la clave y auto-triara
  * ataques reales, sacándolos de la cola de «sin triar».
  */
+/*
+ * Ni la línea cruda ni lo que identifica al cliente (User-Agent, Referer): ahí el
+ * atacante pone lo que quiera, y con un «Nessus» en su User-Agent todos sus eventos
+ * casaban la regla de falsos positivos del escáner y salían de «sin triar».
+ */
+const NO_ES_COMANDO = new Set([
+	'ua',
+	'uaAtacante',
+	'user_agent',
+	'useragent',
+	'referer',
+	'crudo',
+	'claseBaliza'
+]);
+
 function textoEvento(e: Evento): string {
-	const partes = Object.values(e.detalle ?? {}).filter((v): v is string => typeof v === 'string');
-	if (typeof e.crudo === 'string') partes.push(e.crudo);
+	const partes = Object.entries(e.detalle ?? {})
+		.filter(([k, v]) => typeof v === 'string' && !NO_ES_COMANDO.has(k))
+		.map(([, v]) => v as string);
 	return partes.join(' ').toLowerCase();
 }
 

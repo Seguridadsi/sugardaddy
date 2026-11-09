@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+	edicionDeRelease,
 	compararVersiones,
 	direccionReleValida,
 	firmarEstado,
@@ -284,5 +285,38 @@ describe('la dirección del relé', () => {
 		const f = firmarEstado(panel.privada, { ...base, rele: 'rele.example' });
 		const trucada = { ...f, estado: f.estado.replace('rele.example', 'otro.example') };
 		expect(verificarEstado(panel.publica, 'acme', trucada).ok).toBe(false);
+	});
+});
+
+describe('edicionDeRelease (SUP-3)', () => {
+	const r = (servicios: Record<string, string>, actualizador?: string) => ({
+		servicios,
+		actualizador
+	});
+	it('Cloud: todas las imágenes del registro privado de Azure', () => {
+		expect(
+			edicionDeRelease(
+				r(
+					{ consola: 'ejemplo.azurecr.io/sugardaddy-consola@sha256:1' },
+					'ejemplo.azurecr.io/sugardaddy-actualizador@sha256:2'
+				)
+			)
+		).toBe('cloud');
+	});
+	it('Community: alguna de ghcr.io', () => {
+		expect(
+			edicionDeRelease(
+				r(
+					{ consola: 'ghcr.io/seguridadsi/sugardaddy-consola@sha256:1' },
+					'ejemplo.azurecr.io/sugardaddy-actualizador@sha256:2'
+				)
+			)
+		).toBe('community');
+	});
+	it('desarrollo o vacía: ni una ni otra', () => {
+		expect(edicionDeRelease(r({ consola: 'localhost:5000/sugardaddy-consola@sha256:1' }))).toBe(
+			null
+		);
+		expect(edicionDeRelease(r({}))).toBe(null);
 	});
 });

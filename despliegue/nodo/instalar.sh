@@ -69,6 +69,10 @@ fi
 [[ -f "$AQUI/imagenes.env" ]] || { echo "$AQUI/imagenes.env is missing; it holds the images of the version"; exit 1; }
 
 mkdir -p "$DIR/datos/sensor" "$DIR/certs"
+# Lo capturado (contraseñas y comandos del atacante, credenciales cebo) y los
+# registros que lee el sensor: ningún otro usuario de la máquina entra ni los
+# toca. Los contenedores no lo notan: Docker monta como root.
+chmod 700 "$DIR/datos"
 DIR="$(cd "$DIR" && pwd)"
 cp "$AQUI/compose.yml" "$AQUI/Caddyfile" "$AQUI/copia.sh" "$AQUI/restaurar.sh" "$DIR/"
 if [[ "$TLS_MODO" == ficheros && ! -f "$DIR/certs/certificado.pem" ]]; then

@@ -17,15 +17,8 @@ export const POST = async ({ url, cookies, request, locals }) => {
 	if (!admin && !conCodigo)
 		error(403, 'You must be an administrator or have a valid enrollment code');
 	const quien = admin ? locals.usuario!.correo : 'emergency code';
-	const r = await opcionesRegistro(url.hostname, nombre, quien);
+	const r = await opcionesRegistro(url.hostname, nombre, quien, conCodigo ? b.codigo : null);
 	cookies.set('sd_reto', r.reto, {
-		path: '/emergency',
-		httpOnly: true,
-		sameSite: 'strict',
-		secure: url.protocol === 'https:',
-		maxAge: 300
-	});
-	cookies.set('sd_alta_codigo', conCodigo ? '1' : '0', {
 		path: '/emergency',
 		httpOnly: true,
 		sameSite: 'strict',

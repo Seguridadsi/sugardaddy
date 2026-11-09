@@ -9,6 +9,7 @@ import { and, eq, gt, isNull } from 'drizzle-orm';
 import { db, schema as s } from '../db';
 import type { Identidad } from './entra';
 import { abierto } from '../soporte';
+import { ROLES, type Rol } from './permisos';
 
 export const COOKIE_SESION = 'sd_sesion';
 /* Media hora sin hacer nada y fuera; ocho horas como mucho aunque no pares. */
@@ -54,6 +55,28 @@ export async function leer(cookies: Cookies, ahora = Date.now()) {
 		cookies.delete(COOKIE_SESION, { path: '/' });
 		return null;
 	}
+	/*
+	 * Un usuario local: sus roles de AHORA, no los que tenía al entrar, y si ya no
+	 * existe, no hay sesión. Antes, quitar a alguien o bajarle de administrador no
+	 * le afectaba hasta que su sesión caducaba (hasta 8 horas): tiempo de sobra
+	 * para crearse otro administrador.
+	 */
+	let roles = fila.roles;
+	if (fila.oid.startsWith('local:')) {
+		const [u] = await db
+			.select({ roles: s.usuariosLocales.roles })
+			.from(s.usuariosLocales)
+			.where(eq(s.usuariosLocales.id, fila.oid.slice('local:'.length)));
+		if (!u) {
+			await db
+				.update(s.sesiones)
+				.set({ cerrada: new Date(ahora) })
+				.where(eq(s.sesiones.id, id));
+			cookies.delete(COOKIE_SESION, { path: '/' });
+			return null;
+		}
+		roles = u.roles.filter((r): r is Rol => (ROLES as readonly string[]).includes(r));
+	}
 	await db
 		.update(s.sesiones)
 		.set({ ultimaActividad: new Date(ahora) })
@@ -61,7 +84,7 @@ export async function leer(cookies: Cookies, ahora = Date.now()) {
 	return {
 		nombre: fila.nombre,
 		correo: fila.correo,
-		roles: fila.roles,
+		roles,
 		oid: fila.oid,
 		sesion: fila.id,
 		soporte: fila.soporte,

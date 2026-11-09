@@ -99,6 +99,9 @@ func (a *Aplicacion) Aplicar(ctx context.Context, f ReleaseFirmada) Resultado {
 	if err != nil {
 		return a.resultado("", "fallida", err.Error())
 	}
+	if inst := VersionInstalada(a.ruta("versiones.env")); VueltaAtras(inst, r.Version) {
+		return a.resultado(r.Version, "fallida", "version "+r.Version+" is older than the installed "+inst+": not applied")
+	}
 	c := r.Nodo
 	if a.Modo == ModoSensorRemoto {
 		c = r.SensorRemoto

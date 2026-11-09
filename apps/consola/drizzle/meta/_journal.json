@@ -323,6 +323,13 @@
       "when": 1794050202142,
       "tag": "0045_eventos_escaner",
       "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1794168882072,
+      "tag": "0046_sensores_existentes_registran",
+      "breakpoints": true
     }
   ]
 }

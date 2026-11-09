@@ -16,6 +16,7 @@ import { env } from '$env/dynamic/private';
 import {
 	compararVersiones,
 	direccionReleValida,
+	edicionDeRelease,
 	firmarPeticion,
 	generarClaves,
 	huella,
@@ -215,7 +216,9 @@ async function considerar(estado: EstadoDeseado, nodo: string) {
 			? 'the signed version is not the one the state asks for'
 			: compararVersiones(v.release.version, actual) <= 0
 				? `downgrades are not allowed (${actual} → ${v.release.version})`
-				: null;
+				: edicionDeRelease(v.release) === 'community'
+					? 'it is a Community release (images on ghcr.io): a node managed by Central only installs Cloud releases'
+					: null;
 	if (rechazo) {
 		await auditar(`node ${nodo}`, 'version rejected', { motivo: rechazo });
 		return;
@@ -261,6 +264,13 @@ export async function considerarCommunity() {
 	const v = verificarRelease(clave, firmada);
 	if (!v.ok) {
 		await auditar('auto-update', 'community release rejected', { motivo: v.motivo });
+		return;
+	}
+	/* Una de Cloud (imágenes del registro privado) no es para este nodo (SUP-3). */
+	if (edicionDeRelease(v.release) === 'cloud') {
+		await auditar('auto-update', 'community release rejected', {
+			motivo: 'it is a Cloud release (images on azurecr.io)'
+		});
 		return;
 	}
 	const actual = (await cabecera()).cliente.version;

@@ -31,6 +31,8 @@
 		'x-obligatorio'?: boolean;
 		/* Un sí/no que se pinta como casilla (con su texto al lado) en vez de desplegable. */
 		'x-casilla'?: boolean;
+		/* Su valor por defecto depende de lo elegido en otro desplegable (el puerto según el producto). */
+		'x-segun'?: { campo: string; valores: Record<string, unknown> };
 	};
 	/* Una trampa a la que puede apuntar un parámetro x-trampa; con motivo, no se puede elegir. */
 	type Objetivo = { id: string; nombre: string; destino: string; motivo: string | null };
@@ -59,6 +61,41 @@
 					.map(([k, c]) => [k, valor(k, c)])
 			)
 		);
+	/*
+	 * x-segun: el valor por defecto de un campo según lo elegido en otro. Al
+	 * cambiar aquel, el campo sigue al nuevo default si aún tenía el del
+	 * anterior; si quien despliega escribió otro, se queda el suyo.
+	 */
+	const defaultSegun = (c: Campo, opcion: string | undefined) => {
+		const xs = c['x-segun'];
+		return String(
+			(xs && opcion !== undefined && Object.hasOwn(xs.valores, opcion)
+				? xs.valores[opcion]
+				: null) ??
+				c.default ??
+				''
+		);
+	};
+	let segun = $state<Record<string, string>>(
+		untrack(() =>
+			Object.fromEntries(
+				(Object.entries(esquema.properties) as [string, Campo][])
+					.filter(([, c]) => c['x-segun'])
+					.map(([k, c]) => {
+						const de = c['x-segun']!.campo;
+						const elegido = elegidos?.[de] ?? valor(de, esquema.properties[de] as Campo);
+						return [k, valores[k] !== undefined ? String(valores[k]) : defaultSegun(c, elegido)];
+					})
+			)
+		)
+	);
+	function elegir(clave: string, nuevo: string) {
+		const antes = elegidos?.[clave];
+		for (const [k, c] of campos)
+			if (c['x-segun']?.campo === clave && segun[k] === defaultSegun(c, antes))
+				segun[k] = defaultSegun(c, nuevo);
+		elegidos = { ...elegidos, [clave]: nuevo };
+	}
 	const visible = (c: Campo | undefined, vistos: string[] = []): boolean => {
 		const si = c?.['x-si'];
 		return (
@@ -135,7 +172,7 @@
 				id="p-{clave}"
 				name="p.{clave}"
 				value={elegidos?.[clave] ?? valor(clave, c)}
-				onchange={(e) => (elegidos = { ...elegidos, [clave]: e.currentTarget.value })}
+				onchange={(e) => elegir(clave, e.currentTarget.value)}
 			>
 				{#each c.enum as op (op)}
 					<option value={op}>{c['x-opciones']?.[op] ?? op}</option>
@@ -149,7 +186,11 @@
 				step={c.type === 'integer' ? 1 : 'any'}
 				min={c.minimum}
 				max={c.maximum}
-				value={valor(clave, c)}
+				value={c['x-segun'] ? segun[clave] : valor(clave, c)}
+				oninput={c['x-segun']
+					? (e: Event & { currentTarget: HTMLInputElement }) =>
+							(segun[clave] = e.currentTarget.value)
+					: undefined}
 				required={obligatorio(clave)}
 				class="mono"
 			/>

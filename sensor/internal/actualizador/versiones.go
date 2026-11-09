@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/kinomakino/sugardaddy/sensor/internal/docker"
 )
 
 // EscribirVersiones deja en el versiones.env del compose las imágenes que
@@ -39,6 +41,15 @@ func EscribirVersiones(ruta string, r Release, configuracion bool) error {
 
 // VersionInstalada lee SUGARDADDY_VERSION de un versiones.env; "" si no hay.
 func VersionInstalada(ruta string) string { return valorDe(ruta, "SUGARDADDY_VERSION") }
+
+// VueltaAtras dice si una versión firmada es más antigua que la instalada. Una
+// así no se aplica: la firma es auténtica, pero volver a componentes viejos
+// (que tienen el socket de Docker) reabriría fallos ya corregidos, y la consola,
+// que es quien entrega la versión, no basta como guarda. Sin versión instalada
+// conocida no se impide nada; la misma versión sí se puede volver a aplicar.
+func VueltaAtras(instalada, nueva string) bool {
+	return instalada != "" && docker.CompararVersiones(nueva, instalada) < 0
+}
 
 // ConfiguracionAplicada lee de qué versión es la configuración aplicada; "" si ninguna (0.11 o anterior).
 func ConfiguracionAplicada(ruta string) string { return valorDe(ruta, "SUGARDADDY_CONFIGURACION") }

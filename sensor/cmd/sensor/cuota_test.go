@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -165,5 +166,62 @@ func TestLasParadasDeTrampasRetiradasSeOlvidan(t *testing.T) {
 	s.olvidarParadasRetiradas(plan.Plan{Trampas: []plan.TrampaPlan{{ID: "t1"}}})
 	if len(s.estado.Paradas) != 1 || s.estado.Paradas["t1"] != "x" {
 		t.Fatalf("solo quedan las del plan: %v", s.estado.Paradas)
+	}
+}
+
+// SEN-4: una trampa tomada que escribe en una subcarpeta o con otro nombre (lo
+// que la cuota de siempre no miraba) se para; lo que es su registro, no.
+func TestLoQueNoEsSuRegistroTambienCuenta(t *testing.T) {
+	conCuota(t, 1<<30, func(string, int64) error { return nil })
+	antes := cuotaAjenos
+	cuotaAjenos = 1 << 20
+	t.Cleanup(func() { cuotaAjenos = antes })
+
+	s, activo, paradas := sensorConRegistro(t, 2048)
+	// Un registro de 2 MB, más que la cuota de ajenos: es suyo, no cuenta.
+	s.vigilarCuota(time.Now())
+	if len(*paradas) != 0 {
+		t.Fatalf("su propio registro no la para: %v", s.estado.Paradas)
+	}
+	// Una subcarpeta con 2 MB de verdad (no disperso).
+	sub := filepath.Join(filepath.Dir(activo), "x")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sub, "f"), []byte(strings.Repeat("z", 2<<20)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s.vigilarCuota(time.Now())
+	if len(*paradas) != 1 || !strings.Contains(s.estado.Paradas["t1"], "(registros.ajenos)") {
+		t.Fatalf("lo de la subcarpeta la para: %v %v", *paradas, s.estado.Paradas)
+	}
+	// Sigue parada mientras esté; quitado, vuelve.
+	s.vigilarCuota(time.Now())
+	if _, sigue := s.estado.Paradas["t1"]; !sigue {
+		t.Fatal("con lo ajeno aún ahí, sigue parada")
+	}
+	if err := os.RemoveAll(sub); err != nil {
+		t.Fatal(err)
+	}
+	s.vigilarCuota(time.Now())
+	if _, sigue := s.estado.Paradas["t1"]; sigue {
+		t.Fatalf("sin lo ajeno, vuelve: %v", s.estado.Paradas)
+	}
+}
+
+func TestMillonesDeFicherosVaciosTambienLaParan(t *testing.T) {
+	conCuota(t, 1<<30, func(string, int64) error { return nil })
+	antes := maxEntradasRegistros
+	maxEntradasRegistros = 50
+	t.Cleanup(func() { maxEntradasRegistros = antes })
+	s, activo, paradas := sensorConRegistro(t, 4)
+	for i := 0; i < 60; i++ {
+		if err := os.WriteFile(filepath.Join(filepath.Dir(activo), "v"+strconv.Itoa(i)), nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s.vigilarCuota(time.Now())
+	if len(*paradas) != 1 || !strings.Contains(s.estado.Paradas["t1"], "(registros.ajenos)") {
+		t.Fatalf("demasiadas entradas la paran: %v %v", *paradas, s.estado.Paradas)
 	}
 }

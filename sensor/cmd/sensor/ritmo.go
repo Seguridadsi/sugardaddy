@@ -21,6 +21,11 @@ import (
 //     primer comando o la descarga de un atacante llegan aunque haya ruido;
 //   - y nunca se pasa de un techo por trampa.
 //
+// Lo que llega con conexión de verdad (TCP con su saludo) tiene sus propios
+// cupos y su propia reserva, iguales, aparte de lo que no la tiene (UDP, que
+// se falsifica): una riada de datagramas con miles de IP inventadas no gasta
+// lo que necesita el ataque real para verse con su IP (EVT-6).
+//
 // Lo que no pasa se resume en un evento «omitidos» con su desglose, y sigue
 // en el registro del honeypot.
 const (
@@ -39,14 +44,19 @@ const (
 var rangoSeveridad = map[string]int{"baja": 0, "media": 1, "alta": 2, "critica": 3}
 
 type ventana struct {
-	Trampa   string            `json:"trampa"`
-	Modulo   string            `json:"modulo"`
-	Tipo     string            `json:"tipo"`
-	Minuto   time.Time         `json:"minuto"`
-	N        int               `json:"n"`
-	Leves    int               `json:"leves"`
-	Graves   int               `json:"graves"`
-	Nuevas   int               `json:"nuevas"`
+	Trampa string    `json:"trampa"`
+	Modulo string    `json:"modulo"`
+	Tipo   string    `json:"tipo"`
+	Minuto time.Time `json:"minuto"`
+	N      int       `json:"n"`
+	Leves  int       `json:"leves"`
+	Graves int       `json:"graves"`
+	Nuevas int       `json:"nuevas"`
+	// Los mismos contadores para lo que llega con conexión establecida.
+	NC       int               `json:"nc,omitempty"`
+	LevesC   int               `json:"levesC,omitempty"`
+	GravesC  int               `json:"gravesC,omitempty"`
+	NuevasC  int               `json:"nuevasC,omitempty"`
 	Omitidos adaptador.Resumen `json:"omitidos"`
 	porIP    map[string]*porOrigen
 	porTipo  map[string]int
@@ -109,17 +119,22 @@ func (r ritmo) pasa(sensor string, t plan.TrampaPlan, e evento.Evento) (bool, *e
 			v.porIP[ip] = o
 		}
 	}
+	// Con conexión o sin ella, cada uno gasta sus contadores.
+	total, leves, graves, nuevas := &v.N, &v.Leves, &v.Graves, &v.Nuevas
+	if e.ConexionEstablecida {
+		total, leves, graves, nuevas = &v.NC, &v.LevesC, &v.GravesC, &v.NuevasC
+	}
 	// Los primeros de cada IP y tipo salen de su propia reserva y no gastan
 	// los cupos de la trampa; el resto, de los cupos.
 	clave := ip + "|" + e.Nativa
 	n, contado := v.porTipo[clave]
-	deReserva := n < primerosTipo && v.Nuevas < reservaNuevas && (contado || len(v.porTipo) < tiposContados)
+	deReserva := n < primerosTipo && *nuevas < reservaNuevas && (contado || len(v.porTipo) < tiposContados)
 	ok := deReserva
-	if !deReserva && v.N < techoMinuto {
+	if !deReserva && *total < techoMinuto {
 		if grave {
-			ok = v.Graves < gravesMinuto && o.graves < gravesIPMinuto
+			ok = *graves < gravesMinuto && o.graves < gravesIPMinuto
 		} else {
-			ok = v.Leves < porMinuto && o.leves < porIPMinuto
+			ok = *leves < porMinuto && o.leves < porIPMinuto
 		}
 	}
 	if !ok {
@@ -133,14 +148,14 @@ func (r ritmo) pasa(sensor string, t plan.TrampaPlan, e evento.Evento) (bool, *e
 	}
 	if deReserva {
 		v.porTipo[clave]++
-		v.Nuevas++
+		*nuevas++
 		return true, resumen
 	}
-	v.N++
+	*total++
 	if grave {
-		v.Graves++
+		*graves++
 	} else {
-		v.Leves++
+		*leves++
 	}
 	return true, resumen
 }

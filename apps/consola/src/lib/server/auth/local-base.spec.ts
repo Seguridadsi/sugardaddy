@@ -114,6 +114,71 @@ describe.skipIf(!hayBase)('login local contra base de datos', () => {
 		if (!r.ok) expect(r.motivo).toBe('bloqueado');
 	});
 
+	it('en paralelo, el freno no se diluye: como mucho cinco miran la contraseña', async () => {
+		await local.crear('tester', {
+			usuario: `${P}-paralelo`,
+			nombre: 'P',
+			correo: 'p@ejemplo.com',
+			roles: ['lector'],
+			clave: clave1
+		});
+		const r = await Promise.all(
+			Array.from({ length: 30 }, () => local.verificar(`${P}-paralelo`, 'mala'))
+		);
+		const miradas = r.filter((x) => !x.ok && x.motivo === 'credenciales').length;
+		expect(miradas).toBeLessThanOrEqual(5);
+		expect(r.filter((x) => !x.ok && x.motivo === 'bloqueado').length).toBe(30 - miradas);
+		const buena = await local.verificar(`${P}-paralelo`, clave1);
+		expect(buena.ok).toBe(false);
+	});
+
+	it('con miles de fallos el bloqueo sigue topado y vuelve a dejar entrar', async () => {
+		await local.crear('tester', {
+			usuario: `${P}-miles`,
+			nombre: 'M',
+			correo: 'm@ejemplo.com',
+			roles: ['lector'],
+			clave: clave1
+		});
+		/* Un adivinador lento durante semanas: el exponente ya no desborda. */
+		await db
+			.update(s.usuariosLocales)
+			.set({ intentosFallidos: 5000, bloqueadoHasta: null })
+			.where(eq(s.usuariosLocales.usuario, `${P}-miles`));
+		const mala = await local.verificar(`${P}-miles`, 'mala');
+		expect(mala).toMatchObject({ ok: false, motivo: 'credenciales' });
+		const [u] = await db
+			.select()
+			.from(s.usuariosLocales)
+			.where(eq(s.usuariosLocales.usuario, `${P}-miles`));
+		expect(u.bloqueadoHasta!.getTime() - Date.now()).toBeLessThanOrEqual(15 * 60_000 + 1000);
+		/* Pasado el bloqueo, la contraseña buena entra. */
+		await db
+			.update(s.usuariosLocales)
+			.set({ bloqueadoHasta: new Date(Date.now() - 1000) })
+			.where(eq(s.usuariosLocales.usuario, `${P}-miles`));
+		expect((await local.verificar(`${P}-miles`, clave1)).ok).toBe(true);
+	});
+
+	it('claveCorrecta: solo la contraseña de ahora del usuario', async () => {
+		const c = await local.crear('tester', {
+			usuario: `${P}-correo`,
+			nombre: 'C',
+			correo: 'c@ejemplo.com',
+			roles: ['lector'],
+			clave: clave1
+		});
+		if (!c.ok) throw new Error(c.error);
+		expect(await local.claveCorrecta(c.id, clave1)).toBe(true);
+		expect(await local.claveCorrecta(c.id, 'otra')).toBe(false);
+		expect(await local.claveCorrecta('no-existe', clave1)).toBe(false);
+		/* Con una sesión no se adivina sin límite: gasta intentos como la entrada. */
+		for (let i = 0; i < 5; i++) await local.claveCorrecta(c.id, 'mala');
+		expect(await local.claveCorrecta(c.id, clave1)).toBe(false);
+		const r = await local.verificar(`${P}-correo`, clave1);
+		expect(r).toMatchObject({ ok: false, motivo: 'bloqueado' });
+	});
+
 	it('restablecer: deja entrar con la nueva, pide cambiarla y quita el bloqueo', async () => {
 		const [u] = await db
 			.select({ id: s.usuariosLocales.id })

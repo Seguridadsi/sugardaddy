@@ -89,7 +89,7 @@ const locals = (roles = ['admin']) => ({
 
 /* Una acción de la ficha de una trampa: lo que devuelve, o el redirect o el error que lanza. */
 async function accion(
-	nombre: 'guardar' | 'hecho' | 'retirar' | 'quitado' | 'regenerar',
+	nombre: 'guardar' | 'hecho' | 'retirar' | 'quitado' | 'regenerar' | 'sitio',
 	id: string,
 	campos: Record<string, string> = {},
 	roles?: string[]
@@ -774,6 +774,130 @@ describe.skipIf(!hayBase)('la vía manual en la consola', () => {
 			expect(await accion('quitado', CRED)).toMatchObject({ status: 303 });
 			expect(await cambiarTrampa(QUIEN, OBJETIVO, false)).toBe('hecho');
 			expect(await cambiarTrampa(QUIEN, OBJETIVO, true)).toBe('hecho');
+		});
+	});
+
+	describe('cambiar de sitio una trampa a mano', () => {
+		const ID = `${P}-mueve`;
+		const WIN2 = `${P}-win2`;
+		const h = () => honeycosas().find((x) => x.id === 'credencial-ssh')!;
+
+		beforeAll(async () => {
+			/* La Cowrie a la que apunta, puesta y comprobada otra vez (la de antes la paró y la volvió a encender). */
+			await db
+				.update(s.trampas)
+				.set({ activo: true, colocacion: 'comprobada', comprobada: new Date() })
+				.where(eq(s.trampas.id, OBJETIVO));
+			await crearDestino(QUIEN, {
+				nombre: WIN2,
+				tipo: 'maquina',
+				descripcion: { so: 'windows', edicion: 'servidor', powershell: '5.1' }
+			});
+			const p = validarParametros(h().parametros, {
+				objetivo: OBJETIVO,
+				usuario: 'svc_mov9',
+				sesion: 'nas77'
+			});
+			if (!p.ok) throw new Error(p.errores.join('; '));
+			const r = renderizar(h(), 'windows', p.valor, {
+				trampa: { id: ID, nombre: 'Credencial que se mueve' },
+				destino: { id: WIN, nombre: WIN },
+				trampas: { [OBJETIVO]: { direccion: DIRECCION_LOCAL, parametros: { puertoSsh: 2231 } } },
+				generado: new Date().toISOString()
+			});
+			if (!r.ok) throw new Error(r.errores.join('; '));
+			await db.insert(s.trampas).values({
+				id: ID,
+				nombre: 'Credencial que se mueve',
+				modulo: 'credencial-ssh',
+				tipo: 'identidad',
+				sensor: LOCAL,
+				destino: WIN,
+				via: 'windows',
+				ejecutor: 'manual@1',
+				parametros: p.valor,
+				donde: 'pasos a mano',
+				manual: r.valor,
+				senalTrampa: OBJETIVO
+			});
+		});
+
+		it('la ficha ofrece los demás destinos, no el suyo', async () => {
+			const d = await ficha(ID);
+			const ids = d.sitios.map((x: { id: string }) => x.id);
+			expect(ids).toContain(WIN2);
+			expect(ids).not.toContain(WIN);
+		});
+
+		it('por colocar, se mueve y sus pasos se generan para el nuevo destino', async () => {
+			const antes = (await trampa(ID)).manual!;
+			const r = await accion('sitio', ID, { destino: WIN2 });
+			expect(r).toMatchObject({ hecho: expect.stringMatching(/regenerated/) });
+			const t = await trampa(ID);
+			expect(t.destino).toBe(WIN2);
+			expect(t.manual!.variables.destino_nombre).toBe(WIN2);
+			expect(t.manual!.sha256).not.toBe(antes.sha256);
+			const [a] = await auditoria('decoy moved');
+			expect(a.detalle).toMatchObject({
+				id: ID,
+				de: WIN,
+				a: WIN2,
+				colocacion: 'por-colocar',
+				pasos: t.manual!.sha256,
+				antes: antes.sha256
+			});
+		});
+
+		it('al mismo destino no se mueve', async () => {
+			const r = await accion('sitio', ID, { destino: WIN2 });
+			expect(r).toMatchObject({ status: 400, data: { aviso: 'It is already on that target.' } });
+		});
+
+		it('unos pasos de Windows no se mueven a una máquina Linux', async () => {
+			const [d] = await db.select().from(s.destinos).where(eq(s.destinos.sensor, LOCAL));
+			const r = (await accion('sitio', ID, { destino: d.id })) as {
+				status: number;
+				data: { aviso: string };
+			};
+			expect(r.status).toBe(400);
+			expect(r.data.aviso).toMatch(/Windows/);
+			expect((await trampa(ID)).destino).toBe(WIN2);
+		});
+
+		it('puesta, solo cambia el destino: lo sembrado y quien recibe su señal se quedan', async () => {
+			await db.update(s.trampas).set({ colocacion: 'colocada' }).where(eq(s.trampas.id, ID));
+			const antes = await trampa(ID);
+			const r = await accion('sitio', ID, { destino: WIN });
+			expect(r).toMatchObject({ hecho: expect.stringMatching(/stay as they were/) });
+			const t = await trampa(ID);
+			expect(t.destino).toBe(WIN);
+			expect(t.manual!.sha256).toBe(antes.manual!.sha256);
+			expect(t.sensor).toBe(antes.sensor);
+			expect(t.senalTrampa).toBe(antes.senalTrampa);
+			const movidas = await auditoria('decoy moved');
+			expect(movidas.map((x) => x.detalle)).toContainEqual({
+				id: ID,
+				nombre: 'Credencial que se mueve',
+				de: WIN2,
+				a: WIN,
+				colocacion: 'colocada'
+			});
+		});
+
+		it('una de contenedor no se mueve: corre en la máquina de su sensor', async () => {
+			const r = (await accion('sitio', OBJETIVO, { destino: WIN2 })) as {
+				status: number;
+				data: { aviso: string };
+			};
+			expect(r.status).toBe(400);
+			expect(r.data.aviso).toMatch(/container decoy/);
+			expect((await trampa(OBJETIVO)).destino).toBe(LOCAL);
+		});
+
+		it('quien no despliega no la mueve', async () => {
+			const r = (await accion('sitio', ID, { destino: WIN2 }, ['lector'])) as { status: number };
+			expect(r.status).toBe(403);
+			expect((await trampa(ID)).destino).toBe(WIN);
 		});
 	});
 });

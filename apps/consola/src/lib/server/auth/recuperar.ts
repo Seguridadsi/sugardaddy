@@ -17,19 +17,43 @@
  *  - Canjearlo cambia la contraseña y desbloquea la cuenta; queda en la auditoría.
  */
 import { randomInt, randomUUID } from 'node:crypto';
-import { and, eq, gt, inArray, isNull, lt, sql } from 'drizzle-orm';
+import { and, eq, gt, isNull, lt, sql } from 'drizzle-orm';
 import { env } from '$env/dynamic/private';
 import { codigoRecuperacionCorrecto, hashCodigoRecuperacion } from '@sugardaddy/canal';
 import { db, schema as s } from '../db';
 import { auditar } from '../consultas';
 import { mandarCodigoPorCanal, urlPanelValida } from '../canal';
+import { Freno, claveIp } from './freno';
 import { cambiarClave, correoValido, loginLocalHabilitado, MIN_CLAVE } from './local';
 import type { Identidad } from './entra';
 
 export const MINUTOS_CODIGO = 15;
 const INTENTOS = 5;
 const POR_HORA = 5;
+/*
+ * Tope de códigos por usuario y día: con 5 intentos por código, como mucho
+ * 50 intentos al día sobre un millón de códigos, y cada uno llega por correo a
+ * su dueño.
+ */
+const POR_DIA = 10;
 const ENTRE_PETICIONES_MS = 60_000;
+
+/*
+ * Frenos por IP, aparte de los de cada usuario y cada código: quien prueba
+ * códigos o pide muchos desde una misma dirección se para ahí, sea cual sea el
+ * usuario. No hay uno global: con unas pocas IP cualquiera lo gastaría y nadie
+ * podría recuperar su cuenta. Lo que se adivina desde muchas IP ya lo acotan los
+ * cinco intentos de cada código y los diez códigos al día de cada usuario.
+ */
+const PEDIR_POR_IP = new Freno(10, 3600_000);
+const CANJE_POR_IP = new Freno(10, 15 * 60_000);
+export const DEMASIADOS = 'Too many attempts. Wait a few minutes and try again.';
+
+/* Para las pruebas. */
+export function _olvidarFrenos() {
+	PEDIR_POR_IP.olvidar();
+	CANJE_POR_IP.olvidar();
+}
 
 const PANEL = (env.SUGARDADDY_PANEL_URL ?? 'https://sugardaddy-central.azurewebsites.net').replace(
 	/\/+$/,
@@ -72,9 +96,16 @@ async function enviarYApuntar(usuario: string, correo: string, codigo: string) {
  * Pide un código para `usuario`. No devuelve nada a propósito: quien llama
  * contesta siempre lo mismo. El envío no se espera (ver la cabecera).
  */
-export async function pedirCodigo(usuario: string): Promise<void> {
+export async function pedirCodigo(usuario: string, ip?: string | null): Promise<void> {
 	if (!loginLocalHabilitado()) return;
 	const nombre = norma(usuario);
+	if (ip !== undefined && !PEDIR_POR_IP.pasa(claveIp(ip))) {
+		await auditar('anonymous', 'recovery code requested', {
+			usuario: nombre,
+			resultado: 'throttled by address'
+		});
+		return;
+	}
 	const [u] = nombre
 		? await db
 				.select({ id: s.usuariosLocales.id, correo: s.usuariosLocales.correo })
@@ -97,11 +128,13 @@ export async function pedirCodigo(usuario: string): Promise<void> {
 			and(
 				eq(rc.usuarioId, u.id),
 				eq(rc.origen, 'correo'),
-				gt(rc.creada, new Date(ahora - 3600_000))
+				gt(rc.creada, new Date(ahora - 86_400_000))
 			)
 		);
+	const enLaHora = recientes.filter((r) => ahora - r.creada.getTime() < 3600_000);
 	if (
-		recientes.length >= POR_HORA ||
+		recientes.length >= POR_DIA ||
+		enLaHora.length >= POR_HORA ||
 		recientes.some((r) => ahora - r.creada.getTime() < ENTRE_PETICIONES_MS)
 	) {
 		await auditar('anonymous', 'recovery code requested', {
@@ -137,9 +170,17 @@ const NO_VALE = 'The code is not valid or has expired. Request another.';
 export async function canjearCodigo(
 	usuario: string,
 	codigo: string,
-	nueva: string
+	nueva: string,
+	ip?: string | null
 ): Promise<Canje> {
 	if (!loginLocalHabilitado()) return { ok: false, error: NO_VALE };
+	if (ip !== undefined && !CANJE_POR_IP.pasa(claveIp(ip))) {
+		await auditar('anonymous', 'recovery code failed', {
+			usuario: norma(usuario),
+			resultado: 'throttled by address'
+		});
+		return { ok: false, error: DEMASIADOS };
+	}
 	if (nueva.length < MIN_CLAVE)
 		return { ok: false, error: `The password needs at least ${MIN_CLAVE} characters.` };
 	const limpio = codigo.replace(/\s+/g, '');
@@ -152,9 +193,15 @@ export async function canjearCodigo(
 		.where(eq(s.usuariosLocales.usuario, nombre));
 	if (!u) return { ok: false, error: NO_VALE };
 
+	/*
+	 * El intento se gasta ANTES de comparar, en la misma sentencia que mira si
+	 * quedan: con peticiones a la vez, Postgres vuelve a evaluar el «intentos < 5»
+	 * de cada una tras la anterior, así que entre todas no pasan de 5 por código.
+	 * Leer primero y sumar después dejaba comparar sin límite en paralelo.
+	 */
 	const abiertas = await db
-		.select()
-		.from(rc)
+		.update(rc)
+		.set({ intentos: sql`${rc.intentos} + 1` })
 		.where(
 			and(
 				eq(rc.usuarioId, u.id),
@@ -162,19 +209,10 @@ export async function canjearCodigo(
 				gt(rc.caduca, new Date()),
 				lt(rc.intentos, INTENTOS)
 			)
-		);
+		)
+		.returning({ id: rc.id, codigoHash: rc.codigoHash, origen: rc.origen });
 	const buena = abiertas.find((r) => codigoCorrecto(limpio, r.codigoHash));
 	if (!buena) {
-		if (abiertas.length)
-			await db
-				.update(rc)
-				.set({ intentos: sql`${rc.intentos} + 1` })
-				.where(
-					inArray(
-						rc.id,
-						abiertas.map((a) => a.id)
-					)
-				);
 		await auditar('anonymous', 'recovery code failed', { usuario: nombre });
 		return { ok: false, error: NO_VALE };
 	}

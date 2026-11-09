@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"net/netip"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/kinomakino/sugardaddy/sensor/internal/evento"
@@ -70,6 +71,67 @@ func esPropio(ip string, direcciones []string, d motor.Descripcion) bool {
 		b, err := netip.ParseAddr(x)
 		return err == nil && b.Unmap() == a
 	})
+}
+
+// publicarEn da dónde publica el plan p los puertos de las trampas. Si lo de esta máquina
+// no se registra, tampoco llega: con un motor que deja ver el origen, solo en sus
+// direcciones de red, y así «curl localhost» no toca ninguna trampa. Lo que entra por la
+// IP de red con la propia máquina como origen se descarta (esPropio); lo que llega con la
+// IP del motor viene de fuera o de otro contenedor, y se registra.
+//
+// Sin direcciones medidas hace poco, o con un motor que enseña otras, como siempre: en
+// 0.0.0.0, menos los puertos que ya tiene algo local en 127.x (PublicarEn). Una trampa
+// publicada en una IP que la máquina ya no tiene no la ve nadie, y eso es peor que el ruido.
+func (s *sensor) publicarEn(p plan.Plan) func(proto string, puerto int) []string {
+	a := s.anfitrion.a
+	if p.IgnorarPropio && s.conocido.Modo == motor.ModoRootful && a != nil && len(a.Direcciones) > 0 &&
+		time.Since(s.anfitrion.medido) <= vidaDirecciones {
+		dirs := slices.Clone(a.Direcciones)
+		return func(string, int) []string { return dirs }
+	}
+	return a.PublicarEn
+}
+
+// maxDireccionesAnunciadas acota las direcciones que se recuerdan para
+// ${sd.ipsAnfitrion}: pasado el tope, se empieza de nuevo con las de ahora.
+const maxDireccionesAnunciadas = 8
+
+// unirDirecciones añade a las ya conocidas las de la medida nueva, ordenadas y sin
+// repetir; si pasan del tope, se queda solo con las nuevas.
+func unirDirecciones(conocidas, nuevas []string) []string {
+	todas := slices.Clone(conocidas)
+	for _, d := range nuevas {
+		if !slices.Contains(todas, d) {
+			todas = append(todas, d)
+		}
+	}
+	if len(todas) > maxDireccionesAnunciadas {
+		todas = slices.Clone(nuevas)
+	}
+	slices.Sort(todas)
+	return slices.Compact(todas)
+}
+
+// anunciaIPsAnfitrion dice si alguna trampa del plan pide las IP de la máquina
+// (${sd.ipsAnfitrion} en su entorno o en sus ficheros).
+func anunciaIPsAnfitrion(p plan.Plan) bool {
+	for _, t := range p.Trampas {
+		c := t.Manifiesto.Contenedor
+		if c == nil {
+			continue
+		}
+		for _, v := range c.Entorno {
+			if v, ok := v.(string); ok && strings.Contains(v, "${sd.ipsAnfitrion}") {
+				return true
+			}
+		}
+		for _, f := range c.Ficheros {
+			if strings.Contains(f.Contenido, "${sd.ipsAnfitrion}") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // filtraPropio dice si en esa trampa se descarta lo de esta máquina según el plan de

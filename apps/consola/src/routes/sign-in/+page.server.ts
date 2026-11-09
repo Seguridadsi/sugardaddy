@@ -1,3 +1,4 @@
+import { Freno, claveIp } from '$lib/server/auth/freno';
 import { fail, redirect } from '@sveltejs/kit';
 import { volverSeguro } from '@sugardaddy/entra';
 import { configActiva } from '$lib/server/auth/entra-propio';
@@ -35,9 +36,20 @@ export const load = async ({ url, locals }) => {
 	};
 };
 
+/* Intentos de entrada por IP: veinte cada cuarto de hora. */
+const ENTRADAS_POR_IP = new Freno(20, 15 * 60_000);
+
+function ipDe(getClientAddress: () => string): string | null {
+	try {
+		return getClientAddress() || null;
+	} catch {
+		return null;
+	}
+}
+
 export const actions = {
 	/* Entrada con usuario y contraseña del nodo (login local). */
-	local: async ({ request, cookies, url, locals }) => {
+	local: async ({ request, cookies, url, locals, getClientAddress }) => {
 		if (locals.usuario) redirect(303, '/');
 		if (!loginLocalHabilitado())
 			return fail(403, {
@@ -49,6 +61,14 @@ export const actions = {
 		const clave = String(f.get('clave') ?? '');
 		const volverA = volverSeguro(String(f.get('volverA') ?? '/'));
 
+		/* Por IP, aparte del bloqueo de cada usuario: probar muchos usuarios desde una dirección se para aquí. */
+		if (!ENTRADAS_POR_IP.pasa(claveIp(ipDe(getClientAddress)))) {
+			await auditar('anonymous', 'local sign-in denied', {
+				usuario: usuario.trim().toLowerCase().slice(0, 64),
+				motivo: 'throttled by address'
+			});
+			return fail(429, { error: 'Too many attempts. Wait a few minutes and try again.', usuario });
+		}
 		const r = await verificar(usuario, clave);
 		if (!r.ok) {
 			/* El motivo real (credenciales/bloqueado) va a la auditoría, pero NO al

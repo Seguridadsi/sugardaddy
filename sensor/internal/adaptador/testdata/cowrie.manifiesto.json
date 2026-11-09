@@ -14,7 +14,7 @@
       "automatica": true
     }
   },
-  "versionModulo": "0.2.2",
+  "versionModulo": "0.2.3",
   "tipo": "contenedor",
   "procedencia": {
     "proyecto": "Cowrie",
@@ -22,7 +22,7 @@
     "licencia": "BSD-3-Clause"
   },
   "contenedor": {
-    "imagen": "ghcr.io/seguridadsi/sugardaddy-trampa-cowrie:3.1.2-sd4@sha256:875bec6e48fbbe65ecc025234c8c541112ca51d1afdc7b2f436c25889fbac347",
+    "imagen": "ghcr.io/seguridadsi/sugardaddy-trampa-cowrie:3.1.2-sd5@sha256:910f0eb937fe1b3d532e846ebb44e9e084758fc7d72424dcfc0afb9800689143",
     "puertos": [
       {
         "interno": 2222,

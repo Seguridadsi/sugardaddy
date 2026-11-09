@@ -446,8 +446,11 @@
 			placeholder="https://your-endpoint.example/events"
 		/>
 		<label for="wh-secreto">
-			Signing secret (optional){#if data.webhook.secreto}
-				— <em>one is set; leave empty to keep it</em>{/if}
+			Signing secret (optional){#if data.webhook.secretoPuesto}
+				— <em
+					>one is set{data.webhook.secretoFinal ? ` (ends in ${data.webhook.secretoFinal})` : ''};
+					leave empty to keep it</em
+				>{/if}
 		</label>
 		<input
 			id="wh-secreto"
@@ -455,7 +458,7 @@
 			class="mono"
 			type="password"
 			autocomplete="off"
-			placeholder={data.webhook.secreto
+			placeholder={data.webhook.secretoPuesto
 				? '(unchanged)'
 				: 'HMAC-SHA256 signature in the X-Sugardaddy-Firma header'}
 		/>
@@ -463,6 +466,12 @@
 			<input type="checkbox" name="activo" checked={data.webhook.activo} />
 			Active
 		</label>
+		{#if data.webhook.fallo}
+			<p class="error">
+				The last delivery failed ({fechaHora(data.webhook.fallo.cuando)}): {data.webhook.fallo
+					.detalle}. Events wait and are retried.
+			</p>
+		{/if}
 		<button class="boton principal" type="submit">Save</button>
 	</form>
 </section>

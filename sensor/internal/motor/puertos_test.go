@@ -98,16 +98,18 @@ func TestDireccionesDeRedSinLocalesNiDocker(t *testing.T) {
 		{Name: "lo", Flags: net.FlagUp | net.FlagLoopback},
 		{Name: "eth0", Flags: arriba},
 		{Name: "docker0", Flags: arriba},
-		{Name: "br-0a1b2c", Flags: arriba},
+		{Name: "br-0a1b2c3d4e5f", Flags: arriba},
 		{Name: "eth1", Flags: net.FlagBroadcast}, // apagada
 		{Name: "wlan0", Flags: arriba},
+		{Name: "br-lan", Flags: arriba},
 	}
 	dirs := map[string][]string{
-		"lo":        {"127.0.0.1/8", "::1/128"},
-		"eth0":      {"10.0.0.4/24", "fe80::1/64", "169.254.3.3/16"},
-		"docker0":   {"172.17.0.1/16"},
-		"br-0a1b2c": {"172.18.0.1/16"},
-		"eth1":      {"192.168.9.9/24"},
+		"lo":              {"127.0.0.1/8", "::1/128"},
+		"eth0":            {"10.0.0.4/24", "fe80::1/64", "169.254.3.3/16"},
+		"docker0":         {"172.17.0.1/16"},
+		"br-0a1b2c3d4e5f": {"172.18.0.1/16"},
+		"eth1":            {"192.168.9.9/24"},
+		"br-lan":          {"192.168.50.2/24"},
 	}
 	got := DireccionesDeRed(interfaces, func(i net.Interface) ([]net.Addr, error) {
 		if i.Name == "wlan0" {
@@ -121,7 +123,8 @@ func TestDireccionesDeRedSinLocalesNiDocker(t *testing.T) {
 		}
 		return r, nil
 	})
-	if !reflect.DeepEqual(got, []string{"10.0.0.4"}) {
+	// br-lan es un puente de la máquina, no de Docker: su IP es de la red.
+	if !reflect.DeepEqual(got, []string{"10.0.0.4", "192.168.50.2"}) {
 		t.Fatalf("direcciones: %v", got)
 	}
 }

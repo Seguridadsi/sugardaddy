@@ -64,15 +64,23 @@ describe('casaReglaTriaje', () => {
 		expect(casaReglaTriaje(regla({ criterio: 'usuario', valor: 'roo' }), e)).toBe(false);
 	});
 
-	it('comando: subcadena dentro de lo que tecleó (detalle) o la línea cruda', () => {
+	it('comando: subcadena dentro de lo que tecleó (detalle), no de la línea cruda ni del User-Agent', () => {
 		const porDetalle = evento({ detalle: { input: 'cat /etc/passwd' } });
 		expect(casaReglaTriaje(regla({ criterio: 'comando', valor: '/etc/passwd' }), porDetalle)).toBe(
 			true
 		);
 		expect(casaReglaTriaje(regla({ criterio: 'comando', valor: 'PASSWD' }), porDetalle)).toBe(true);
-		const porCrudo = evento({ crudo: 'GET /wp-login.php' });
-		expect(casaReglaTriaje(regla({ criterio: 'comando', valor: 'wp-login' }), porCrudo)).toBe(true);
-		expect(casaReglaTriaje(regla({ criterio: 'comando', valor: 'no-está' }), porCrudo)).toBe(false);
+		const porRuta = evento({ detalle: { ruta: 'GET /wp-login.php' } });
+		expect(casaReglaTriaje(regla({ criterio: 'comando', valor: 'wp-login' }), porRuta)).toBe(true);
+		expect(casaReglaTriaje(regla({ criterio: 'comando', valor: 'no-está' }), porRuta)).toBe(false);
+		/* Lo que pone el atacante para parecerse a un escáner (User-Agent, línea cruda) no cuenta. */
+		const disfrazado = evento({
+			crudo: 'GET / HTTP/1.1 User-Agent: Nessus',
+			detalle: { ua: 'Nessus SOAP', input: 'id' }
+		});
+		expect(casaReglaTriaje(regla({ criterio: 'comando', valor: 'nessus' }), disfrazado)).toBe(
+			false
+		);
 		/* NO casa por el NOMBRE del campo (la clave «input» la fija la trampa, no el atacante). */
 		expect(casaReglaTriaje(regla({ criterio: 'comando', valor: 'input' }), porDetalle)).toBe(false);
 	});

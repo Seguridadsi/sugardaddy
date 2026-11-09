@@ -61,7 +61,13 @@ func Adaptar(sensor string, s plan.TrampaPlan, linea []byte) (evento.Evento, err
 	}
 	conexion := ev.ConexionEstablecida
 	if pc := ev.ConexionPorCampo; pc != nil {
-		if c, ok := pc.Valores[escalar(buscar(nativo, pc.Campo))]; ok {
+		if v := buscar(nativo, pc.Campo); v == nil {
+			// Sin el campo no se sabe por dónde llegó (los resúmenes de lo
+			// omitido mezclan TCP y UDP falsificable): no se da por sesión
+			// completa. Antes valía ConexionEstablecida y una IP falsificada por
+			// UDP pasaba por conexión real.
+			conexion = false
+		} else if c, ok := pc.Valores[escalar(v)]; ok {
 			conexion = c
 		}
 	}

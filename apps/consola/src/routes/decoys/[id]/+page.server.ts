@@ -3,12 +3,17 @@ import { esDeRegistro } from '@sugardaddy/canal';
 import { proyectarParaSensor, validarParametros, viaDe } from '@sugardaddy/contrato';
 import { esEntorno } from '$lib/entorno';
 import { recibeSenalDe } from '$lib/formato';
-import { avisosDeTrampa, modificarConElector, regenerarPasos } from '$lib/server/alta';
+import {
+	avisosDeTrampa,
+	cambiarSitio,
+	modificarConElector,
+	regenerarPasos
+} from '$lib/server/alta';
 import { exigir } from '$lib/server/auth/permisos';
 import { trampasAutorizadas } from '$lib/server/catalogo';
 import { estadosVisibles } from '$lib/server/colocacion';
 import { entornoDeTrampa, trampa } from '$lib/server/consultas';
-import { destinoDeTrampa, trampasDelCliente } from '$lib/server/destinos';
+import { destinoDeTrampa, listaDestinos, trampasDelCliente } from '$lib/server/destinos';
 import { esCommunity } from '$lib/server/edicion';
 import {
 	cambiarEntornoTrampa,
@@ -87,6 +92,11 @@ export const load = async ({ params, getClientAddress }) => {
 			prueba,
 			entorno,
 			destino: destino && { id: destino.id, nombre: destino.nombre },
+			/*
+			 * Adónde se puede cambiar de sitio: los demás destinos activos del tipo
+			 * que admite su vía. El sistema y lo demás lo mira el elector al mover.
+			 */
+			sitios: await sitiosPara(t, h, destino?.id),
 			objetivo: objetivo && { id: objetivo.id, nombre: objetivo.nombre },
 			pasos: t.manual ? fichaDePasos(t.manual) : null,
 			cambiar:
@@ -114,6 +124,20 @@ export const load = async ({ params, getClientAddress }) => {
 		avisos: p.ok ? await avisosDeTrampa(t, h, p.valor) : []
 	};
 };
+
+/* Los destinos a los que se puede mover una trampa a mano: activos, del tipo de su vía y no el suyo. */
+async function sitiosPara(
+	t: { via: string; colocacion: string },
+	h: Parameters<typeof viaDe>[0] | undefined,
+	actual: string | undefined
+) {
+	const via = h ? viaDe(h, t.via) : undefined;
+	if (!via || t.colocacion === 'retirando') return [];
+	const tipos = via.destino as readonly string[] | undefined;
+	return (await listaDestinos())
+		.filter((d) => d.activo && d.id !== actual && (!tipos || tipos.includes(d.tipo)))
+		.map((d) => ({ id: d.id, nombre: d.nombre, plataforma: d.plataforma }));
+}
 
 /* El módulo de una trampa a mano, para volver a generar sus pasos. */
 async function moduloDe(t: { modulo: string }) {
@@ -173,6 +197,32 @@ export const actions = {
 		if (!(await cambiarEntornoTrampa(u.correo, params.id, entorno)))
 			error(404, 'That decoy does not exist.');
 		return { hecho: 'Decoy environment saved.' };
+	},
+
+	/*
+	 * Cambiar de sitio una trampa a mano sin retirarla (alta.ts, cambiarSitio):
+	 * por colocar, con sus pasos generados otra vez para el nuevo destino;
+	 * puesta, solo el destino.
+	 */
+	sitio: async ({ params, request, locals }) => {
+		const u = exigir(locals, 'desplegar');
+		const t = await trampa(params.id);
+		if (!t) error(404, 'That decoy does not exist.');
+		const nuevo = String((await request.formData()).get('destino') ?? '');
+		if (!nuevo) return fail(400, { aviso: 'Choose the target it is on.' });
+		const h = await moduloDe(t);
+		const p = validarParametros(h.parametros, t.parametros);
+		if (!p.ok)
+			return fail(400, { aviso: `Its details are no longer valid: ${p.errores.join('; ')}` });
+		const r = await cambiarSitio(u.correo, t.id, h, nuevo, p.valor);
+		if (r !== 'movida')
+			return fail(400, { aviso: [...r.errores, ...r.motivos.map((m) => m.texto)].join(' ') });
+		return {
+			hecho:
+				t.colocacion === 'por-colocar'
+					? 'Moved. Its steps were regenerated for the new target: follow them from here.'
+					: 'Moved. What you deployed and its removal steps stay as they were.'
+		};
 	},
 
 	/*

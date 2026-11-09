@@ -28,6 +28,7 @@ import { honeycosas, traductorDeTrampa } from './catalogo';
 import { estadosVisibles, type EstadoVisible } from './colocacion';
 import type { Tx } from './destinos';
 import { geo, type Geo } from './geo';
+import { descifrar } from './secretos';
 import { ipsTor } from './tor';
 import type { CriterioTriaje } from './triaje-auto';
 
@@ -980,13 +981,43 @@ export async function guardarAutoActualizar(quien: string, valor: AutoActualizar
  * cada evento nuevo, tal cual, a una URL del cliente; él monta su fiabilidad
  * (NATS, su SIEM…) al otro lado. La entrega GESTIONADA y fiable (reglas,
  * reintentos, Sentinel/Teams/Slack/correo con formato) es de pago (Avisos y SIEM).
- * `secreto`, si se pone, firma cada envío con HMAC-SHA256 para que el cliente
- * pueda comprobar que viene del nodo.
+ * El secreto, si se pone, firma cada envío con HMAC-SHA256 para que el cliente
+ * pueda comprobar que viene del nodo. Se guarda cifrado con la clave del nodo
+ * (`secretoCifrado`, secretos.ts) y nunca vuelve a la página; `secreto` en claro
+ * es el de antes de la 0.24.3, que se sigue leyendo y se cifra al guardar.
  */
-export type Webhook = { url: string | null; activo: boolean; secreto: string | null };
+export type Webhook = {
+	url: string | null;
+	activo: boolean;
+	secreto: string | null;
+	secretoCifrado?: string | null;
+};
 
 export const webhook = () =>
 	ajuste<Webhook>('webhook', { url: null, activo: false, secreto: null });
+
+/*
+ * El último fallo al entregar (null si la última fue bien): sin él, un receptor
+ * que contesta con una redirección o un error dejaba de recibir sin que nadie lo
+ * supiera. Se enseña en Ajustes.
+ */
+export type FalloWebhook = { cuando: string; detalle: string } | null;
+export const falloWebhook = () => ajuste<FalloWebhook>('webhook-fallo', null);
+export async function guardarFalloWebhook(valor: FalloWebhook) {
+	await db
+		.insert(s.ajustes)
+		.values({ clave: 'webhook-fallo', valor })
+		.onConflictDoUpdate({ target: s.ajustes.clave, set: { valor } });
+}
+
+/* El secreto de firma en claro, para firmar: el cifrado o, si es de antes, el que había. */
+export function secretoWebhook(cfg: Webhook): string | null {
+	if (cfg.secretoCifrado) {
+		const r = descifrar(cfg.secretoCifrado, 'webhook');
+		return r.ok ? (r.valores.secreto ?? null) : null;
+	}
+	return cfg.secreto;
+}
 
 /* Hasta dónde se ha enviado ya (marca de agua): el evento con (recibido, id) más
  * reciente que salió. El par evita duplicar o perder los que comparten recibido. */
@@ -1021,7 +1052,7 @@ export async function guardarWebhook(quien: string, valor: Webhook) {
 		await tx.insert(s.auditoria).values({
 			quien,
 			accion: valor.activo ? 'event webhook enabled' : 'event webhook disabled',
-			detalle: { url: valor.url, secreto: valor.secreto ? 'yes' : 'no' }
+			detalle: { url: valor.url, secreto: valor.secreto || valor.secretoCifrado ? 'yes' : 'no' }
 		});
 	});
 }

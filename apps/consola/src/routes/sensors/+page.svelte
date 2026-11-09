@@ -242,13 +242,13 @@
 	</table>
 	<p class="nota-propio">
 		When "Record connections from this sensor's own machine" is off, connections from the sensor's
-		own network address are neither recorded nor alerted on. Tests started from the console are
-		still recorded, and so is anything aimed at a decoy that a bait points to. Connections that
-		arrive with the container engine's address, such as <code>curl localhost</code>, are also
-		recorded, because an outside connection can look the same. Turn it on if a forwarder on that
-		machine (nginx, an SSH tunnel) points at a decoy: its clients look like the machine itself. Bear
-		in mind that anyone already inside that machine can reach its decoys through its network address
-		without leaving a record.
+		own network address are neither recorded nor alerted on, and its decoys stop listening on
+		<code>localhost</code>. Tests started from the console are still recorded, and so is anything
+		aimed at a decoy that a bait points to. With Docker Desktop, WSL or rootless Docker, everything
+		is recorded. Changing it restarts the sensor's decoys. Turn it on if a forwarder on that machine
+		(nginx, an SSH tunnel) points at a decoy: its clients look like the machine itself. Bear in mind
+		that anyone already inside that machine can reach its decoys through its network address without
+		leaving a record.
 	</p>
 </section>
 

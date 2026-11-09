@@ -15,6 +15,12 @@ esperado: si Cowrie cambia, falla aquí en vez de dejar algo a medias.
    por byte (era lo más caro de un intento con una contraseña enorme).
 3. Las pruebas del parche corren al construir la imagen: si una falla, no hay
    imagen.
+4. Fuera las huellas públicas de Cowrie (SEN-8), las que miran los bots y las
+   herramientas de «¿es Cowrie?»: el usuario phil (Phil California) con su
+   hash conocido, el UUID fijo de df, y /etc/hostname y /etc/hosts con svr04 y
+   nas3 aunque el prompt diga otro nombre. El usuario pasa a admin (el de las
+   imágenes de Debian en la nube), el hash y el UUID salen al azar al construir,
+   y los dos ficheros dicen al arrancar el nombre de equipo de la trampa.
 """
 
 from pathlib import Path
@@ -330,3 +336,95 @@ RUN cd ${COWRIE_HOME}/cowrie-git && \\
 """,
 )
 print("Pruebas del parche al construir la imagen")
+
+# ---- 4. Las huellas públicas de Cowrie (SEN-8) ---------------------------------
+
+import pickle  # noqa: E402
+import re  # noqa: E402
+import secrets  # noqa: E402
+import uuid  # noqa: E402
+
+A_NAME, A_TYPE, A_SIZE, A_CONTENTS = 0, 1, 4, 7
+T_DIR, T_FILE = 1, 2
+ALFABETO_CRYPT = "./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+
+
+def al_azar(n: int) -> str:
+    return "".join(secrets.choice(ALFABETO_CRYPT) for _ in range(n))
+
+
+# El fs.pickle es el del commit fijado (preparar.sh lo comprueba): datos de
+# Cowrie, no de nadie de fuera.
+ruta_fs = Path("src/cowrie/data/fs.pickle")
+arbol = pickle.loads(ruta_fs.read_bytes())
+hash_phil = re.compile(rb"^phil:[^:]*:", re.M)
+hash_nuevo = f"admin:$6${al_azar(8)}${al_azar(86)}:".encode()
+cambiados = {"directorio": 0, "ficheros": 0}
+
+
+def limpiar(nodo: list) -> None:
+    if nodo[A_TYPE] == T_DIR and isinstance(nodo[A_CONTENTS], list):
+        for hijo in nodo[A_CONTENTS]:
+            if hijo[A_NAME] == "phil" and hijo[A_TYPE] == T_DIR:
+                hijo[A_NAME] = "admin"
+                cambiados["directorio"] += 1
+            limpiar(hijo)
+    elif nodo[A_TYPE] == T_FILE and isinstance(nodo[A_CONTENTS], bytes) and b"phil" in nodo[A_CONTENTS]:
+        c = nodo[A_CONTENTS].replace(b"Phil California,,,", b"Debian,,,")
+        c = hash_phil.sub(lambda _m: hash_nuevo, c) if b"$6$" in c else c
+        c = re.sub(rb"\bphil\b", b"admin", c)
+        nodo[A_CONTENTS] = c
+        nodo[A_SIZE] = len(c)
+        cambiados["ficheros"] += 1
+
+
+limpiar(arbol)
+nuevo = pickle.dumps(arbol, protocol=4)
+assert cambiados["directorio"] == 1 and cambiados["ficheros"] >= 3, cambiados
+assert b"phil" not in nuevo and b"ErqInBoz" not in nuevo, "queda phil en fs.pickle"
+ruta_fs.write_bytes(nuevo)
+cambiar(
+    "src/cowrie/data/txtcmds/bin/df",
+    "65626fdc-e4c5-4539-8745-edc212b9b0af",
+    str(uuid.uuid4()),
+)
+
+# /etc/hostname y /etc/hosts, con el nombre de equipo de la trampa al cargar el
+# árbol (una vez por proceso, antes de que lo vea ninguna sesión).
+cambiar(
+    "src/cowrie/shell/honeyfs.py",
+    """        with _open() as f:
+            tree = pickle.load(f, encoding="utf8")
+    return tree
+""",
+    """        with _open() as f:
+            tree = pickle.load(f, encoding="utf8")
+    _sd_nombre_de_equipo(tree)
+    return tree
+
+
+def _sd_nombre_de_equipo(tree: list[Any]) -> None:
+    \"\"\"Sugardaddy (SEN-8): /etc/hostname y /etc/hosts dicen el nombre de equipo
+    configurado, no el svr04 / nas3 de serie, que delatan a Cowrie.\"\"\"
+    try:
+        nombre = CowrieConfig.get("honeypot", "hostname").strip()
+    except configparser.Error:
+        return
+    if not nombre or len(nombre) > 63 or not all(c.isalnum() or c in "-." for c in nombre):
+        return
+    etc = _find(tree, "etc")
+    if etc is None or not isinstance(etc[A_CONTENTS], list):
+        return
+    for nodo in etc[A_CONTENTS]:
+        if nodo[A_TYPE] != T_FILE or not isinstance(nodo[A_CONTENTS], bytes):
+            continue
+        if nodo[A_NAME] == "hostname":
+            nodo[A_CONTENTS] = (nombre + "\\n").encode()
+        elif nodo[A_NAME] == "hosts":
+            nodo[A_CONTENTS] = nodo[A_CONTENTS].replace(b"nas3", nombre.encode())
+        else:
+            continue
+        nodo[4] = len(nodo[A_CONTENTS])
+""",
+)
+print("Sin las huellas públicas de Cowrie: usuario, hash, UUID de df y nombre de equipo")

@@ -110,8 +110,15 @@ func DireccionesDeRed(interfaces []net.Interface, dirs func(net.Interface) ([]ne
 	return r
 }
 
+// deDocker dice si una interfaz es de Docker: docker0, un puente de una red suya
+// («br-» y los 12 primeros dígitos del id de la red) o un extremo veth. Un puente
+// de la máquina que solo empiece por «br-» (br-lan, br-ex) es de la red de verdad:
+// si se tomara por de Docker, las trampas no se publicarían en su IP.
 func deDocker(nombre string) bool {
-	return nombre == "docker0" || strings.HasPrefix(nombre, "br-") || strings.HasPrefix(nombre, "veth")
+	if id, ok := strings.CutPrefix(nombre, "br-"); ok {
+		return len(id) == 12 && strings.Trim(id, "0123456789abcdef") == ""
+	}
+	return nombre == "docker0" || strings.HasPrefix(nombre, "veth")
 }
 
 // PublicarEn da las direcciones donde publicar un puerto que se pediría en

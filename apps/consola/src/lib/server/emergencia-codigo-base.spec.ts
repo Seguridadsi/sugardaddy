@@ -5,6 +5,7 @@
  * .env); si no hay, se salta. El ajuste que hubiera se guarda y se repone.
  */
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -114,5 +115,45 @@ describe.skipIf(!hayBase)('código de emergencia', () => {
 		});
 		/* Pasado el cuarto de hora, vuelve a poder. */
 		expect((await em.canjearCodigoEmergencia(c, '10.0.0.7', t + 16 * 60_000)).ok).toBe(true);
+	});
+});
+
+describe.skipIf(!hayBase)('código de alta de llave (scripts/emergencia.mjs)', () => {
+	const ALTA = 'emergencia_alta';
+	const poner = (codigo: string, caduca: Date) => {
+		const valor = {
+			hash: createHash('sha256').update(codigo).digest('hex'),
+			caduca: caduca.toISOString()
+		};
+		return db
+			.insert(s.ajustes)
+			.values({ clave: ALTA, valor })
+			.onConflictDoUpdate({ target: s.ajustes.clave, set: { valor } });
+	};
+	let previo: unknown;
+
+	beforeAll(async () => {
+		const [f] = await db.select().from(s.ajustes).where(eq(s.ajustes.clave, ALTA));
+		previo = f?.valor;
+	});
+
+	afterAll(async () => {
+		await db.delete(s.ajustes).where(eq(s.ajustes.clave, ALTA));
+		if (previo) await db.insert(s.ajustes).values({ clave: ALTA, valor: previo });
+	});
+
+	it('vale para una sola llave aunque se registren dos a la vez', async () => {
+		await poner('uno-solo', new Date(Date.now() + 60_000));
+		const r = await Promise.all(Array.from({ length: 5 }, () => em._gastarCodigoAlta('uno-solo')));
+		expect(r.filter(Boolean)).toHaveLength(1);
+		expect(await em.codigoValido('uno-solo')).toBe(false);
+	});
+
+	it('no se gasta si es otro código o ya caducó', async () => {
+		await poner('bueno', new Date(Date.now() + 60_000));
+		expect(await em._gastarCodigoAlta('otro')).toBe(false);
+		expect(await em.codigoValido('bueno')).toBe(true);
+		await poner('viejo', new Date(Date.now() - 1000));
+		expect(await em._gastarCodigoAlta('viejo')).toBe(false);
 	});
 });

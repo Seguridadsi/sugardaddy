@@ -74,6 +74,9 @@ type TrampaPlan struct {
 	Nombre     string         `json:"nombre"`
 	Manifiesto Manifiesto     `json:"manifiesto"`
 	Parametros map[string]any `json:"parametros"`
+	// Licencia dice si la trampa es de pago y lee la licencia (SEN-9): a las
+	// demás no se les monta. nil (una consola anterior no lo manda): a todas.
+	Licencia *bool `json:"licencia,omitempty"`
 }
 
 type Manifiesto struct {
@@ -156,7 +159,8 @@ type Eventos struct {
 	ConexionEstablecida bool `json:"conexionEstablecida"`
 	// ConexionPorCampo: si hay sesión completa según el valor de un campo (p.
 	// ej. tcp sí, udp no: por UDP el origen se puede falsificar). Si el valor
-	// no está en la lista, vale ConexionEstablecida. Desde la 0.13; un sensor
+	// no está en la lista, vale ConexionEstablecida; si la línea no trae el
+	// campo, no hay sesión completa (desde la 0.24.3). Desde la 0.13; un sensor
 	// anterior lo ignora y usa ConexionEstablecida.
 	ConexionPorCampo *SegunCampoBool `json:"conexionPorCampo,omitempty"`
 	Detalle          []string        `json:"detalle"`

@@ -19,7 +19,11 @@ export type FilaEvento = Awaited<ReturnType<typeof eventosPlanos>>[number];
 export function csvCampo(v: unknown): string {
 	let t = v === null || v === undefined ? '' : String(v);
 	if (/^[=+\-@\t\r]/.test(t)) t = "'" + t;
-	return /[",\n\r]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t;
+	/*
+	 * También con punto y coma o tabulador: un Excel en español abre el CSV con «;» de
+	 * separador, y un «;=1+1;» sin comillas acababa en una celda con la fórmula =1+1.
+	 */
+	return /[",;\t\n\r]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t;
 }
 
 export const CABECERA_CSV_EVENTOS = [

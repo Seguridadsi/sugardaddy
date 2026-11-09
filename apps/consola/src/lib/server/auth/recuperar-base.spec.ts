@@ -33,7 +33,7 @@ vi.mock('../canal', () => ({
 const { db, schema: s } = hayBase ? await import('../db') : ({} as never);
 const local = hayBase ? await import('./local') : ({} as never);
 const rec = hayBase ? await import('./recuperar') : ({} as never);
-const { eq, like } = await import('drizzle-orm');
+const { and, eq, isNull, like } = await import('drizzle-orm');
 
 const P = 'zz-recup';
 const clave1 = 'contraseña muy larga uno';
@@ -77,6 +77,7 @@ describe.skipIf(!hayBase)('recuperar la contraseña con un código por correo', 
 	});
 	beforeEach(() => {
 		mandados.length = 0;
+		rec._olvidarFrenos();
 	});
 
 	it('el hash del código: casa el bueno, no el malo ni otro formato', () => {
@@ -142,6 +143,54 @@ describe.skipIf(!hayBase)('recuperar la contraseña con un código por correo', 
 		for (let i = 0; i < 5; i++)
 			expect((await rec.canjearCodigo(`${P}-ana`, malo, clave2)).ok).toBe(false);
 		expect((await rec.canjearCodigo(`${P}-ana`, codigo!, clave2)).ok).toBe(false);
+	});
+
+	it('en paralelo tampoco pasan de cinco intentos por código', async () => {
+		await envejecer();
+		const codigo = await pedir();
+		const malo = codigo === '000000' ? '111111' : '000000';
+		const r = await Promise.all(
+			Array.from({ length: 30 }, () => rec.canjearCodigo(`${P}-ana`, malo, clave2))
+		);
+		expect(r.every((x) => !x.ok)).toBe(true);
+		const [fila] = await db
+			.select({ intentos: s.recuperacionesClave.intentos })
+			.from(s.recuperacionesClave)
+			.where(and(eq(s.recuperacionesClave.usuarioId, id), isNull(s.recuperacionesClave.cerrada)));
+		expect(fila.intentos).toBe(5);
+		expect((await rec.canjearCodigo(`${P}-ana`, codigo!, clave2)).ok).toBe(false);
+	});
+
+	it('desde una misma IP, diez canjes cada cuarto de hora', async () => {
+		await envejecer();
+		await pedir();
+		for (let i = 0; i < 10; i++)
+			expect(await rec.canjearCodigo(`${P}-nadie`, '123456', clave2, '203.0.113.9')).toEqual({
+				ok: false,
+				error: expect.not.stringMatching(/Too many/)
+			});
+		expect(await rec.canjearCodigo(`${P}-ana`, '123456', clave2, '203.0.113.9')).toEqual({
+			ok: false,
+			error: rec.DEMASIADOS
+		});
+		/* Otra IP sigue pudiendo. */
+		expect(await rec.canjearCodigo(`${P}-nadie`, '123456', clave2, '203.0.113.10')).not.toEqual({
+			ok: false,
+			error: rec.DEMASIADOS
+		});
+	});
+
+	it('diez códigos al día como mucho, aunque se espacien', async () => {
+		await db.delete(s.recuperacionesClave).where(eq(s.recuperacionesClave.usuarioId, id));
+		for (let i = 0; i < 10; i++) {
+			expect(await pedir()).not.toBeNull();
+			await db
+				.update(s.recuperacionesClave)
+				.set({ creada: new Date(Date.now() - 2 * 3600_000) })
+				.where(eq(s.recuperacionesClave.usuarioId, id));
+		}
+		expect(await pedir()).toBeNull();
+		await db.delete(s.recuperacionesClave).where(eq(s.recuperacionesClave.usuarioId, id));
 	});
 
 	it('un código caducado no vale', async () => {

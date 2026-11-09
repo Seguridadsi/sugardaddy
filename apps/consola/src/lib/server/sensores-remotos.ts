@@ -81,7 +81,14 @@ export async function lineaSensorRemoto(quien: string, sensor: string) {
 		.values({ quien, accion: 'remote sensor install line', detalle: { id: sensor } });
 	/* Sin <( ): la línea funciona en cualquier shell (bash, dash, zsh, fish). */
 	if (!ca) return `curl -fsSL ${url}/instalar-sensor/${codigo} | sudo bash`;
-	return `echo ${Buffer.from(ca).toString('base64')} | base64 -d > /tmp/sugardaddy-ca.pem && curl -fsSL --cacert /tmp/sugardaddy-ca.pem ${url}/instalar-sensor/${codigo} | sudo bash`;
+	/*
+	 * La CA va a un fichero de la carpeta de quien pega la línea, con un nombre que no se
+	 * puede adivinar. Antes era /tmp/sugardaddy-ca.pem: otro usuario de la máquina podía
+	 * crearlo antes, cambiar la CA entre el echo y el curl y, con un MITM, servir su propio
+	 * script, que corre como root.
+	 */
+	const fichero = `"$HOME/.sugardaddy-ca-${hash(codigo).slice(0, 12)}.pem"`;
+	return `echo ${Buffer.from(ca).toString('base64')} | base64 -d > ${fichero} && curl -fsSL --cacert ${fichero} ${url}/instalar-sensor/${codigo} | sudo bash; rm -f ${fichero}`;
 }
 
 /* Gasta el código; si luego algo falla del lado de la consola o el panel, lo devuelve. */
@@ -185,6 +192,7 @@ PASO="check the console"
 getent hosts ${dominio} >/dev/null || { echo "Sugardaddy: this machine cannot resolve ${dominio}. Add it to DNS (or to /etc/hosts) and run the line again." >&2; exit 1; }
 PASO="prepare the folder"
 mkdir -p "$DIR/datos"
+chmod 700 "$DIR/datos"
 cd "$DIR"
 umask 077
 echo '${b64(entorno)}' | base64 -d > .env

@@ -68,6 +68,10 @@ type Opciones struct {
 	// algo local ya lo tiene (motor.Anfitrion.PublicarEn); nil o sin función:
 	// en Escucha, como siempre.
 	EnLaRed func(proto string, puerto int) []string
+	// Direcciones son las IPv4 de red de la máquina (motor.Anfitrion), sin las
+	// locales ni las de los puentes de Docker. Con Escucha en 0.0.0.0 son las
+	// que rellenan ${sd.ipsAnfitrion}; vacías si el sensor aún no las midió.
+	Direcciones []string
 	// RedPropia es el modo «IP propia» de este sensor (desde la 0.16.0;
 	// docs/diseno/red.md): la interfaz física y el rango propio elegidos por
 	// quien instala el sensor, o el puente de banco con su IP fija. nil: el
@@ -119,7 +123,11 @@ func config(o Opciones, sensor, licenciaRuta string, s plan.TrampaPlan) (map[str
 
 	rellenar := func(t string) string {
 		return hueco.ReplaceAllStringFunc(t, func(h string) string {
-			return fmt.Sprint(s.Parametros[h[2:len(h)-1]])
+			nombre := h[2 : len(h)-1]
+			if nombre == "sd.ipsAnfitrion" {
+				return ipsAnfitrion(o)
+			}
+			return fmt.Sprint(s.Parametros[nombre])
 		})
 	}
 
@@ -203,12 +211,14 @@ func config(o Opciones, sensor, licenciaRuta string, s plan.TrampaPlan) (map[str
 			"Type": "bind", "Source": origen, "Target": f.Destino, "ReadOnly": true,
 		})
 	}
-	// La licencia de pago, de solo lectura, en ruta fija. Se monta en TODAS las
-	// trampas por simplicidad (así el sensor no clasifica pago/gratis): las
-	// gratis no leen el fichero. La ruta del anfitrión es constante, así que
-	// reemitir la licencia (mismo fichero, contenido nuevo) no rehace la trampa;
-	// que una copia envejezca se apoya en que la trampa relea al reiniciarse.
-	if licenciaRuta != "" {
+	// La licencia de pago, de solo lectura, en ruta fija, solo en las trampas de
+	// pago (la consola lo dice en el plan): en Cowrie o en una gratis solo
+	// serviría para que quien la tome lea el nombre del cliente y sus módulos
+	// (SEN-9). Con una consola anterior, que no lo dice, en todas. La ruta del
+	// anfitrión es constante, así que reemitir la licencia (mismo fichero,
+	// contenido nuevo) no rehace la trampa; que una copia envejezca se apoya en
+	// que la trampa relea al reiniciarse.
+	if licenciaRuta != "" && (s.Licencia == nil || *s.Licencia) {
 		montajes = append(montajes, map[string]any{
 			"Type": "bind", "Source": licenciaRuta, "Target": rutaLicenciaTrampa, "ReadOnly": true,
 		})
@@ -855,6 +865,19 @@ func prepararRegistros(o Opciones, id string) error {
 	// Con el bit pegajoso: nadie más que su dueño puede apartar o cambiar los
 	// ficheros del honeypot (por ejemplo, poner un FIFO en su lugar).
 	return os.Chmod(dir, 0o777|os.ModeSticky)
+}
+
+// ipsAnfitrion rellena ${sd.ipsAnfitrion} (contrato: HUECOS_DEL_SENSOR): las IP
+// de la máquina por las que llega el atacante, separadas por comas, para lo que
+// una trampa anuncia en el descubrimiento (SSDP, WS-Discovery). Dentro del
+// contenedor la trampa solo ve la IP interna de Docker, que la delataría. La de
+// escucha si el sensor publica en una; si publica en todas, las de sus
+// interfaces de red; vacío si aún no las sabe (la trampa usa la suya).
+func ipsAnfitrion(o Opciones) string {
+	if o.Escucha != "" && o.Escucha != "0.0.0.0" {
+		return o.Escucha
+	}
+	return strings.Join(o.Direcciones, ",")
 }
 
 func encendido(v any) bool {

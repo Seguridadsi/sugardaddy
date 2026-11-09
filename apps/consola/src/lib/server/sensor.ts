@@ -26,6 +26,7 @@ import type {
 } from '@sugardaddy/contrato';
 import { EN_ESPERA, enEspera } from '../espera';
 import { coberturaLicencia, licenciaGuardada } from './candado';
+import { esDePago } from './modulos-gratis';
 import { autorizados, honeycosas } from './catalogo';
 import { comprobarConEvento, trasDescarte, trasEstado, type FilaColocacion } from './colocacion';
 import { db, schema as s } from './db';
@@ -63,6 +64,13 @@ export type TrampaPlan = {
 	nombre: string;
 	manifiesto: ManifiestoTrampa;
 	parametros: Record<string, unknown>;
+	/*
+	 * Si el sensor le monta la licencia de pago (SEN-9): solo las de pago la
+	 * leen; en las demás (Cowrie, las gratis) solo serviría para que quien tome
+	 * una lea el nombre del cliente y sus módulos. Sin el campo (consolas
+	 * anteriores), el sensor la monta en todas, como antes.
+	 */
+	licencia: boolean;
 };
 
 /*
@@ -221,7 +229,8 @@ export async function plan(sensor: string, registroPrivado: boolean, versionSens
 			id: f.id,
 			nombre: f.nombre,
 			manifiesto: manifiestoPara(m, registroPrivado),
-			parametros: p.valor
+			parametros: p.valor,
+			licencia: esDePago(h.id)
 		});
 	}
 	await anotarEspera(sensor, filas, trampas, descartados);

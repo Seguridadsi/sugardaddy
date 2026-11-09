@@ -134,6 +134,13 @@ func main() {
 		slog.Error("data folder", "err", err)
 		os.Exit(1)
 	}
+	// También si ya existía (nodos instalados antes): lo capturado y los
+	// registros de las trampas no son para otros usuarios de la máquina, que
+	// podrían leerlos o escribir eventos falsos en ellos. Docker monta como
+	// root, así que las trampas no lo notan.
+	if err := os.Chmod(*datos, 0o700); err != nil {
+		slog.Warn("could not restrict the data folder", "err", err)
+	}
 
 	ctx, parar := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer parar()
@@ -366,8 +373,24 @@ func (s *sensor) actualizarPlan(ctx context.Context) {
 	s.toques.tocar(ctx, p.Toques, s.consola.InformarToque)
 	s.olvidarParadasRetiradas(p)
 	// Un puerto que la máquina ya tiene en una dirección local (el resolvedor
-	// de Ubuntu en 127.0.0.53:53) se publica en su IP de red, no en 0.0.0.0.
-	s.opc.EnLaRed = s.anfitrion.a.PublicarEn
+	// de Ubuntu en 127.0.0.53:53) se publica en su IP de red, no en 0.0.0.0, y
+	// todos si lo de la máquina no se registra (publicarEn). Eso depende del
+	// motor y de las direcciones: al arrancar se miden antes del primer
+	// despliegue, para no rehacer las trampas en 0.0.0.0 y otra vez después.
+	// También si alguna trampa anuncia las IP de la máquina (${sd.ipsAnfitrion}):
+	// sin medirlas antes, nacería sin ellas y se rehará en el ciclo siguiente.
+	if (p.IgnorarPropio || anunciaIPsAnfitrion(p)) && s.opc.ImagenSonda != "" && s.anfitrion.intento.IsZero() {
+		s.describirMotor(ctx, p.Sensor, nil)
+		s.sondearAnfitrion(ctx, p.Sensor, nil)
+	}
+	s.opc.EnLaRed = s.publicarEn(p)
+	// Las direcciones ya vistas se quedan (hasta un tope): cambiarlas rehace las
+	// trampas que las anuncian, y una interfaz que va y viene (VPN, wifi) o una
+	// sonda que falla una vez no deben rehacerlas en bucle. La trampa elige la que
+	// casa con quien pregunta, así que una que sobra no estorba.
+	if a := s.anfitrion.a; a != nil {
+		s.opc.Direcciones = unirDirecciones(s.opc.Direcciones, a.Direcciones)
+	}
 	estados, err := despliegue.Aplicar(ctx, s.docker, s.opc, p)
 	if err != nil {
 		slog.Error("deployment", "err", err)
@@ -982,6 +1005,15 @@ func (s *sensor) podarTrampa(sp plan.TrampaPlan, ahora time.Time) int64 {
 			slog.Info("rotated log removed", "trampa", sp.ID, "fichero", r.nombre)
 		}
 	}
+	// Toda la carpeta, también lo que no es su registro ni sus rotados
+	// (subcarpetas, otros nombres): eso no lo libera nada, así que se para (SEN-4).
+	if s.conAjenos(sp) {
+		if _, parada := s.estado.Paradas[sp.ID]; !parada {
+			s.pararPorCuota(sp, errAjenos)
+		}
+		b, _ := medirRegistros(dir)
+		return max(b, cuotaRegistros+1)
+	}
 	if total <= cuotaRegistros {
 		return total
 	}
@@ -1011,6 +1043,18 @@ func (s *sensor) podarTrampa(sp plan.TrampaPlan, ahora time.Time) int64 {
 	return total
 }
 
+// delRegistro: lo que ocupan, en el primer nivel, el registro activo y sus rotados.
+func delRegistro(dir, base string) int64 {
+	var b int64
+	entradas, _ := os.ReadDir(dir)
+	for _, e := range entradas {
+		if fi, err := e.Info(); err == nil && e.Type().IsRegular() && strings.HasPrefix(e.Name(), base) {
+			b += ocupado(fi)
+		}
+	}
+	return b
+}
+
 // cuotaRegistros: lo que puede ocupar en disco la carpeta de registros de
 // una trampa (variable para las pruebas).
 var cuotaRegistros int64 = 512 << 20
@@ -1027,14 +1071,9 @@ func (s *sensor) vigilarCuota(ahora time.Time) {
 			s.reanudar(sp, ahora)
 			continue
 		}
-		var total int64
-		entradas, _ := os.ReadDir(despliegue.Registros(s.opc, sp.ID))
-		for _, e := range entradas {
-			if fi, err := e.Info(); err == nil && e.Type().IsRegular() {
-				total += ocupado(fi)
-			}
-		}
-		if total > cuotaRegistros {
+		// Todo lo que hay en su carpeta, también en subcarpetas (SEN-4).
+		total, entradas := medirRegistros(despliegue.Registros(s.opc, sp.ID))
+		if total > cuotaRegistros || total > cuotaAjenos || entradas > maxEntradasRegistros {
 			s.podarTrampa(sp, ahora)
 		}
 	}

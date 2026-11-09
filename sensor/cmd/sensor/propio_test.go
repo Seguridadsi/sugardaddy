@@ -378,3 +378,25 @@ func TestUnFalloDeLaColaNoPierdeNiRepite(t *testing.T) {
 		t.Fatalf("lo de la prueba tiene que entrar una vez: %v", got)
 	}
 }
+
+// SEN-7: una interfaz que va y viene no cambia lo que se anuncia (no rehace la
+// trampa); una nueva se añade; pasado el tope se empieza con las de ahora.
+func TestUnirDirecciones(t *testing.T) {
+	a := unirDirecciones(nil, []string{"10.0.0.4", "192.168.1.4"})
+	if strings.Join(a, ",") != "10.0.0.4,192.168.1.4" {
+		t.Fatalf("primera medida: %v", a)
+	}
+	if b := unirDirecciones(a, []string{"10.0.0.4"}); strings.Join(b, ",") != strings.Join(a, ",") {
+		t.Fatalf("la VPN se fue y no cambia: %v", b)
+	}
+	if c := unirDirecciones(a, []string{"10.0.0.4", "172.20.0.9"}); len(c) != 3 {
+		t.Fatalf("una nueva se añade: %v", c)
+	}
+	var muchas []string
+	for i := 0; i < 9; i++ {
+		muchas = unirDirecciones(muchas, []string{fmt.Sprintf("10.9.0.%d", i)})
+	}
+	if len(muchas) != 1 || muchas[0] != "10.9.0.8" {
+		t.Fatalf("pasado el tope, solo las de ahora: %v", muchas)
+	}
+}

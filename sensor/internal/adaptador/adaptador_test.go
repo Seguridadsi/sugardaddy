@@ -148,9 +148,11 @@ func TestFormatosDeOtrosHoneypots(t *testing.T) {
 	}{
 		{`{"ts":"2026-10-16T10:00:00.123456","src":{"ip":"10.1.2.3","port":"51234"},"smtp.user":"ana","tipo":"auth","proto":"tcp"}`, "2026-10-16T10:00:00.123456Z", 51234, "ana", true, "media"},
 		{`{"ts":"2026-10-16 10:00:00","src":{"ip":"10.1.2.3","port":53},"tipo":"query","proto":"udp"}`, "2026-10-16T10:00:00Z", 53, "", false, "media"},
-		{`{"ts":1792152000,"src":{"ip":"10.1.2.3","port":1},"tipo":"auth","cve":"CVE-2023-20269"}`, "2026-10-16T12:00:00Z", 1, "", true, "critica"},
-		{`{"ts":"2026-10-16T12:00:00.000+0200","src":{"ip":"10.1.2.3","port":1},"tipo":"auth"}`, "2026-10-16T10:00:00Z", 1, "", true, "media"},
-		{`{"ts":"1792152000123","src":{"ip":"10.1.2.3","port":1},"tipo":"auth"}`, "2026-10-16T12:00:00.123Z", 1, "", true, "media"},
+		{`{"ts":1792152000,"src":{"ip":"10.1.2.3","port":1},"tipo":"auth","cve":"CVE-2023-20269","proto":"tcp"}`, "2026-10-16T12:00:00Z", 1, "", true, "critica"},
+		{`{"ts":"2026-10-16T12:00:00.000+0200","src":{"ip":"10.1.2.3","port":1},"tipo":"auth","proto":"tcp"}`, "2026-10-16T10:00:00Z", 1, "", true, "media"},
+		{`{"ts":"1792152000123","src":{"ip":"10.1.2.3","port":1},"tipo":"auth","proto":"tcp"}`, "2026-10-16T12:00:00.123Z", 1, "", true, "media"},
+		// Sin el campo (un resumen de lo omitido, que mezcla TCP y UDP), no hay sesión completa.
+		{`{"ts":"1792152000123","src":{"ip":"10.1.2.3","port":1},"tipo":"auth"}`, "2026-10-16T12:00:00.123Z", 1, "", false, "media"},
 	}
 	for _, c := range casos {
 		e, err := Adaptar("s", s, []byte(c.linea))

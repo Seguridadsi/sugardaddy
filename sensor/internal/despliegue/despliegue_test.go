@@ -73,6 +73,26 @@ func TestLicenciaSeMontaDeSoloLectura(t *testing.T) {
 			t.Fatal("sin licencia no se debe montar nada")
 		}
 	}
+	// SEN-9: una trampa que el plan dice que no es de pago (Cowrie, las gratis)
+	// no la lleva; una de pago, sí; sin el campo (consola anterior), todas.
+	monta := func(lic *bool) bool {
+		x := s
+		x.Licencia = lic
+		cfg, _, err := config(Opciones{Datos: "/d", Escucha: "127.0.0.1"}, "s", "/d/licencia.json", x)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range cfg["HostConfig"].(map[string]any)["Mounts"].([]map[string]any) {
+			if m["Target"] == rutaLicenciaTrampa {
+				return true
+			}
+		}
+		return false
+	}
+	si, no := true, false
+	if monta(&no) || !monta(&si) || !monta(nil) {
+		t.Fatalf("gratis %v, de pago %v, sin decir %v", monta(&no), monta(&si), monta(nil))
+	}
 }
 
 func TestPuertosEntornoYFicherosDelFormulario(t *testing.T) {
@@ -165,5 +185,39 @@ func TestPuertoLocalSePublicaEnLaIPDeRed(t *testing.T) {
 	_, donde, _ = config(o, "local", "", s)
 	if donde[0] != "10.9.9.9:53" {
 		t.Fatalf("con Escucha fija: %v", donde)
+	}
+}
+
+// ${sd.ipsAnfitrion} lo rellena el sensor (SEN-7): la IP de escucha si es una,
+// las de las interfaces de la máquina si escucha en todas, y vacío si aún no las
+// sabe. Sin esto la trampa anunciaría la IP interna de Docker.
+func TestHuecoIPsAnfitrion(t *testing.T) {
+	var c plan.Contenedor
+	if err := json.Unmarshal([]byte(`{
+		"imagen": "x@sha256:1", "registros": "/log",
+		"entorno": {"IPS": "${sd.ipsAnfitrion}"}
+	}`), &c); err != nil {
+		t.Fatal(err)
+	}
+	s := plan.TrampaPlan{
+		ID:         "camara",
+		Manifiesto: plan.Manifiesto{Contenedor: &c, Aislamiento: &plan.Aislamiento{CPU: 0.25, MemoriaMb: 128}},
+	}
+	for _, caso := range []struct {
+		o      Opciones
+		quiero string
+	}{
+		{Opciones{Escucha: "0.0.0.0", Direcciones: []string{"10.0.0.4", "192.168.1.4"}}, "IPS=10.0.0.4,192.168.1.4"},
+		{Opciones{Escucha: "10.9.9.9", Direcciones: []string{"10.0.0.4"}}, "IPS=10.9.9.9"},
+		{Opciones{Escucha: "0.0.0.0"}, "IPS="},
+	} {
+		caso.o.Datos = t.TempDir()
+		cfg, _, err := config(caso.o, "local", "", s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if env := cfg["Env"].([]string); len(env) != 1 || env[0] != caso.quiero {
+			t.Fatalf("con %+v: %v, quiero %s", caso.o, env, caso.quiero)
+		}
 	}
 }
