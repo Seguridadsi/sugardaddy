@@ -3,11 +3,18 @@ import { readFileSync } from 'node:fs';
 import { env } from '$env/dynamic/private';
 
 /*
- * La raíz de la CA propia del nodo, para instalarla como raíz de confianza en
- * los equipos que entran a la consola. Va sin sesión: es pública (un
- * certificado, sin clave), hace falta justo antes de poder entrar sin avisos
- * y en el appliance no hay shell para sacar ca-raiz.crt de la máquina. Quien
- * la descarga compara su huella con la que dio el instalador o la pantalla.
+ * La raíz de la CA del nodo que usa hoy el HTTPS de la consola, para
+ * instalarla como raíz de confianza en los equipos que entran a la consola. Va
+ * sin sesión: es pública (un certificado, sin clave), hace falta justo antes de
+ * poder entrar sin avisos y en el appliance no hay shell para sacar
+ * ca-raiz.crt de la máquina. Quien la descarga compara su huella con la que
+ * dio el instalador o la pantalla.
+ *
+ * El riesgo de instalarla (docs/diseno/ca-nodo.md): con la CA propia, la raíz
+ * solo vale para la dirección de la consola, así que quien se haga con el nodo
+ * solo puede suplantar a la consola. En un nodo instalado antes, es la de
+ * Caddy, sin límite de nombres, hasta que el administrador pasa a la propia
+ * desde Settings → Console certificate.
  */
 export const GET = () => {
 	if (env.TLS_MODO === 'ficheros')

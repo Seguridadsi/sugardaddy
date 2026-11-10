@@ -13,3 +13,4 @@ documentacion/.docusaurus/
 # Lo generan drizzle-kit y scripts/mapa-espana.ts: formatearlos a mano no sirve.
 apps/*/drizzle/meta/
 apps/consola/src/lib/mapa/espana.json
+.publicacion/

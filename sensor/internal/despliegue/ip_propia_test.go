@@ -201,7 +201,7 @@ func TestConfigRechazaModoDeRedDesconocido(t *testing.T) {
 	for _, modo := range []string{"", "macvlan", "host", "ip-propia "} {
 		s := trampa("t1", "r/nueva@sha256:2")
 		s.Manifiesto.Red = &plan.RedTrampa{Modo: modo}
-		_, _, err := config(o, "s1", "", s)
+		_, _, err := config(o, "s1", "", s, false, nil)
 		if err == nil || !strings.Contains(err.Error(), "ip-propia") {
 			t.Fatalf("modo %q: se esperaba el rechazo del sensor, salió %v", modo, err)
 		}
@@ -210,7 +210,7 @@ func TestConfigRechazaModoDeRedDesconocido(t *testing.T) {
 	// propia», es el error claro de «este sensor no lo trae»).
 	s := trampa("t1", "r/nueva@sha256:2")
 	s.Manifiesto.Red = &plan.RedTrampa{Modo: "ip-propia"}
-	_, _, err := config(o, "s1", "", s)
+	_, _, err := config(o, "s1", "", s, false, nil)
 	if err == nil || !strings.Contains(err.Error(), "does not support it") {
 		t.Fatalf("modo «ip-propia» en un sensor sin modo de red: %v", err)
 	}

@@ -1,0 +1,42 @@
+{
+	"nota": "Claves nuevas en ECDSA P-256 (como el Key Vault). release y licencia: legado en firma y la nueva en firmas. releaseSinLegado: la nueva en firma.",
+	"claves": "cloud:MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEhlNTdxU/xyOMQtadE8mZsuxi5oDA4ZL8o/jez3BZ26Ita4SiXiC0OquSo7XCZ634BgFCQEuqEHpJ5L48ML6H/A==,licencias:MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEMScemX8O9eWH4nawAVi4a+4sQmvoJUr7Ouu3NFpXV6+n+84LgGvgEeHEMS7SDuNIvffZlOd5Gkr+OBTZNWAffA==,delegaciones:MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAELXxJKKfTcMMVU1BTh8GMDZhHCktsDEuRqSersJsTR6trb67CT6KVNYzBtYumj3SfJtTmjaexV3AQUV1HQ9yM4Q==",
+	"release": {
+		"release": "{\"version\":\"0.25.0\",\"publicada\":\"2026-11-10T10:00:00Z\",\"notas\":\"vector ec\",\"servicios\":{\"consola\":\"ejemplo.azurecr.io/sugardaddy-consola@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\"catalogo\":{\"smb\":[\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"]},\"commit\":\"cccccccccccccccccccccccccccccccccccccccc\"}",
+		"firma": "gqSorbSBXX7IQxr4WrQ2AAau5xW86qDlW0t8BWuKg2kSL5aPae0ax5nYPOpzpT8+JZ6e+QMqoyLgTy417QVZAQ==",
+		"firmas": [
+			{
+				"clave": "e59539bcc3624370",
+				"firma": "FpZHJ6af/CUyUBD02wcBT20ZZXB10eJ0le+q28TixzmHb2VDb6jrA3bR++Dyh07l/AJBDIeYiGHzyBUA/ECavQ=="
+			}
+		]
+	},
+	"releaseSinLegado": {
+		"release": "{\"version\":\"0.25.0\",\"publicada\":\"2026-11-10T10:00:00Z\",\"notas\":\"vector ec\",\"servicios\":{\"consola\":\"ejemplo.azurecr.io/sugardaddy-consola@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\"catalogo\":{\"smb\":[\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"]},\"commit\":\"cccccccccccccccccccccccccccccccccccccccc\"}",
+		"firma": "/DQtIOIU1qUeQ62EMFboaLZsYPISKWAq8ShauvZCgTVgbQdoJijAhbHpuDIh9o+IgKQtPS136hW05MI54eaBtA=="
+	},
+	"licencia": {
+		"licencia": "{\"tipo\":\"licencia\",\"version\":1,\"cliente\":\"kebaps\",\"nodo\":\"nodo-1\",\"nodoClave\":\"AAAA\",\"modulos\":[\"smb\"],\"marca\":\"vector-ec\",\"emitida\":\"2026-11-01T00:00:00Z\",\"caduca\":\"2099-01-01T00:00:00Z\"}",
+		"firma": "9NcAmumDfVftHV4psJAnBergZNoEF0+AMM9RTlfgZ7y9yrPm5qYoXlkGJhBrk0KClYLdkk1eCPUBqK1b4EdjCg==",
+		"firmas": [
+			{
+				"clave": "66314a807b196e1f",
+				"firma": "SMiTRvxKb2zxitQ0W3h+OTBR8/bUIfai+EG4LpGsez+vFA9LfWjkPXS8WpUVRwO/zEwSWHWueuQPn9Ln+TDK5A=="
+			}
+		]
+	},
+	"licenciaDelegada": {
+		"licencia": "{\"tipo\":\"licencia\",\"version\":1,\"cliente\":\"kebaps\",\"nodo\":\"nodo-1\",\"nodoClave\":\"AAAA\",\"modulos\":[\"smb\"],\"marca\":\"vector-ec\",\"emitida\":\"2026-11-01T00:00:00Z\",\"caduca\":\"2099-01-01T00:00:00Z\"}",
+		"firma": "7aLoFk2neFDD5Ch+ppa6ESx1iir9pxD2tfkwHhbSjXUrCIOuIPj8ueTU8w0LoZqivyRgDSBtqMD2hTAJVjtqDQ==",
+		"delegacion": {
+			"delegacion": "{\"tipo\":\"delegacion-licencias\",\"version\":1,\"msp\":\"msp-vector\",\"clavePublica\":\"MCowBQYDK2VwAyEAE9RcjtU8Ng1xxn9gxA2AAqytC55XZRWHsTQGmPVZWgw=\",\"modulos\":[\"smb\"],\"emitida\":\"2026-11-01T00:00:00Z\",\"caduca\":\"2099-01-01T00:00:00Z\"}",
+			"firma": "WLv/ZvQNo6grJ6HqVDI7OTQF1ftkJmOlPEXsrzyXXT7LV7ZEowW2+tZZSC0+bgtGmuY/ur740NNRL2rBAlHtDg==",
+			"firmas": [
+				{
+					"clave": "60829114f19b0505",
+					"firma": "RW2Q335himc+ki2v6ltnb3mut3GHCDUiFajHmHU8Ej6aEliGj8BKztGeH6rW1g7ZN1ptrGy0jKla7XHdINVPuQ=="
+				}
+			]
+		}
+	}
+}

@@ -30,6 +30,11 @@ export const GET = async ({ params, url, locals }) => {
 			409,
 			`The saved steps no longer match their fingerprint, so they cannot be downloaded. Contact ${await operador()}.`
 		);
+	if (r === 'sin-secreto')
+		error(
+			409,
+			'The key this decoy\'s task signs its alerts with cannot be read on this node (its key for secrets, CLAVE_SECRETOS, is missing or has changed), so the deploy script cannot be downloaded. Click "Generate steps that sign" on its page to get a new key and new steps.'
+		);
 	return new Response(Buffer.from(r.contenido), {
 		headers: {
 			'content-type': r.tipo,

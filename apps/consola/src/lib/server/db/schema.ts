@@ -84,8 +84,21 @@ export const sensores = pgTable('sensores', {
 	ultimoLatido: timestamp('ultimo_latido', { withTimezone: true }),
 	/* En otra máquina (otra VLAN, sede o nube), instalado con su propia línea. */
 	remoto: boolean('remoto').notNull().default(false),
+	/*
+	 * La IP desde la que llega a la consola un sensor remoto, la última vista.
+	 * Con el acceso a la consola limitado (docs/diseno/acceso-consola.md), su
+	 * máquina tiene que estar en la lista: así se propone y se avisa si falta.
+	 */
+	direccion: text('direccion'),
 	/* Versión que dice tener su actualizador; solo los remotos, el local va con el nodo. */
 	version: text('version'),
+	/*
+	 * Las raíces en las que confía un sensor remoto para hablar con la consola:
+	 * el sha256 (hex) de su ca-consola.crt, tal como lo dice su actualizador
+	 * (docs/diseno/ca-nodo.md). Si no es el de las raíces que da la consola,
+	 * aún no tiene la nueva y el nodo no debe cambiar de raíz sin avisarlo.
+	 */
+	caConfiada: text('ca_confiada'),
 	/* Cómo quedó la configuración firmada en un sensor remoto (desde la 0.12). */
 	configuracion: jsonb('configuracion').$type<{
 		version: string;
@@ -458,9 +471,41 @@ export const balizas = pgTable(
 		nonceUsado: timestamp('nonce_usado', { withTimezone: true }),
 		/* Clase «vigia»: el último «sigo vivo» de la tarea del servidor vigilado. */
 		ultimoVivo: timestamp('ultimo_vivo', { withTimezone: true }),
+		/*
+		 * Clase «vigia» (EVT-1): la clave con que la tarea del servidor vigilado firma sus
+		 * avisos, cifrada con la del nodo (secretos.ts, contexto «baliza:<token>»). Va en la
+		 * configuración de la tarea, nunca en la URL. Nula en las de antes y en las demás clases.
+		 */
+		clave: text('clave'),
+		/*
+		 * Si un aviso sin firma buena va a la cuarentena: desde el alta en las que nacen con
+		 * clave; en las de antes que la reciben al repetir sus pasos, desde su primer aviso
+		 * firmado (hasta entonces la tarea vieja sigue avisando sin firmar).
+		 */
+		firmaExigida: boolean('firma_exigida').notNull().default(false),
 		creado: creado()
 	},
 	(t) => [uniqueIndex('balizas_trampa').on(t.trampa), index('balizas_sensor').on(t.sensor)]
+);
+
+/*
+ * Los nonces de los avisos firmados de los vigías ya recibidos (EVT-1): un aviso con
+ * firma buena que repite el nonce de otro de su baliza es una copia y va a la
+ * cuarentena. La hora es la que firmó la tarea; se borran a la semana de ella.
+ */
+export const noncesVigia = pgTable(
+	'nonces_vigia',
+	{
+		token: text('token')
+			.notNull()
+			.references(() => balizas.token, { onDelete: 'cascade' }),
+		nonce: text('nonce').notNull(),
+		hora: timestamp('hora', { withTimezone: true }).notNull()
+	},
+	(t) => [
+		primaryKey({ columns: [t.token, t.nonce] }),
+		index('nonces_vigia_hora').on(t.token, t.hora)
+	]
 );
 
 /*

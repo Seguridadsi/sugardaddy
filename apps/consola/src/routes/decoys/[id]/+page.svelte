@@ -75,6 +75,16 @@
 	</div>
 {/if}
 
+{#if data.tipo === 'manual' && data.fueraDelCatalogo}
+	<p class="error" role="alert">
+		This decoy's module is no longer in the catalog and its signals are no longer processed.
+		{#if data.trampa.colocacion === 'retirando'}
+			Follow the removal steps below, then click "I have removed it".
+		{:else}
+			Remove it: click "Remove" below and follow its steps.
+		{/if}
+	</p>
+{/if}
 {#if hecho}<p class="ok" role="status">{hecho}</p>{/if}
 {#if aviso}<p class="error" role="alert">{aviso}</p>{/if}
 

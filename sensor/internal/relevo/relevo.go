@@ -178,11 +178,11 @@ func (r *Relevo) intentar(ctx context.Context) error {
 		return err
 	}
 	env := entornoDe(vi)
-	clave, err := actualizador.ClavePublica(env["PUBLICACION_CLAVE_PUBLICA"])
-	if err != nil {
-		return fmt.Errorf("the old updater has no valid publishing key: %w", err)
+	clave := actualizador.ConfianzaDelEntorno(func(k string) string { return env[k] })
+	if clave.Legado == nil && len(clave.Claves) == 0 {
+		return errors.New("the old updater has no valid publishing key")
 	}
-	rel, err := actualizador.Verificar(clave, of.Release)
+	rel, err := actualizador.VerificarEnNodo(clave, actualizador.EdicionDelNodo(func(k string) string { return env[k] }), of.Release)
 	if err != nil {
 		return fmt.Errorf("handover version: %w", err)
 	}

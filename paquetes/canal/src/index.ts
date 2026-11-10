@@ -25,6 +25,17 @@ import {
 	type KeyObject
 } from 'node:crypto';
 import type { LicenciaFirmada } from './licencia.ts';
+import {
+	aConfianza,
+	firmadoPor,
+	firmasExtra,
+	hayClave,
+	leerConfianza,
+	motivoClaves,
+	motivoFirmas,
+	type Confianza,
+	type Firma
+} from './confianza.ts';
 
 export type ParDeClaves = { privada: string; publica: string };
 
@@ -317,6 +328,15 @@ export type Release = {
 	 */
 	nodo?: Configuracion;
 	sensorRemoto?: Configuracion;
+	/*
+	 * Desde la 0.25 (docs/diseno/claves-y-catalogo.md). confianza: las claves en las que
+	 * confiarán el nodo y el sensor remoto (PUBLICACION_CLAVES), y si se retira la de
+	 * legado. catalogo: lo único que el sensor puede arrancar, la huella de cada manifiesto
+	 * por módulo (SEN-3). commit: de qué commit sale la versión (SUP-4).
+	 */
+	confianza?: { claves: string; retirarLegado?: boolean };
+	catalogo?: Record<string, string[]>;
+	commit?: string;
 };
 
 /*
@@ -334,7 +354,8 @@ export function edicionDeRelease(r: Pick<Release, 'servicios' | 'actualizador'>)
 	const host = (i: string) => i.split('/')[0].toLowerCase();
 	if (imagenes.length === 0) return null;
 	if (imagenes.every((i) => host(i).endsWith('.azurecr.io'))) return 'cloud' as const;
-	if (imagenes.some((i) => host(i) === 'ghcr.io')) return 'community' as const;
+	/* Todas en ghcr.io: con registros mezclados no es de ninguna edición (solo el legado). */
+	if (imagenes.every((i) => host(i) === 'ghcr.io')) return 'community' as const;
 	return null;
 }
 
@@ -379,7 +400,7 @@ export function motivoConfiguracion(
 	return null;
 }
 
-export type ReleaseFirmada = { release: string; firma: string };
+export type ReleaseFirmada = { release: string; firma: string; firmas?: Firma[] };
 
 const SEMVER = /^(\d+)\.(\d+)\.(\d+)$/;
 /* Registro opcional (con puerto si hace falta), repositorio, etiqueta opcional y digest obligatorio. */
@@ -394,31 +415,89 @@ export function compararVersiones(a: string, b: string) {
 	return 0;
 }
 
-export function firmarRelease(clavePrivada: string, r: Release): ReleaseFirmada {
+/* extra: las claves nuevas, que firman además en `firmas` (docs/diseno/claves-y-catalogo.md). */
+export function firmarRelease(
+	clavePrivada: string,
+	r: Release,
+	extra: readonly { privada: string; publica: string }[] = []
+): ReleaseFirmada {
 	const texto = JSON.stringify(r);
 	return {
 		release: texto,
-		firma: sign(null, Buffer.from(texto), privada(clavePrivada)).toString('base64')
+		firma: sign(null, Buffer.from(texto), privada(clavePrivada)).toString('base64'),
+		...(extra.length ? { firmas: firmasExtra(texto, extra) } : {})
 	};
 }
 
-export function verificarRelease(
-	clavePublicaPublicacion: string,
-	f: ReleaseFirmada
-): { ok: true; release: Release } | { ok: false; motivo: string } {
-	let valida = false;
-	try {
-		valida = verify(
-			null,
-			Buffer.from(f.release),
-			publica(clavePublicaPublicacion),
-			Buffer.from(f.firma, 'base64')
-		);
-	} catch {
-		valida = false;
+const MODULO_CATALOGO = /^[a-z0-9][a-z0-9-]{0,62}$/;
+const HUELLA_MANIFIESTO = /^[0-9a-f]{64}$/;
+
+/* Qué falla en las piezas de la 0.25 de una versión (confianza, catálogo, commit), o null. */
+function motivoNovedades(r: Release, uso: ReturnType<typeof edicionDeRelease>): string | null {
+	if (r.confianza !== undefined) {
+		const c = r.confianza as Release['confianza'];
+		if (!c || typeof c !== 'object' || typeof c.claves !== 'string')
+			return 'malformed trusted keys';
+		const m = motivoClaves(c.claves);
+		if (m) return m;
+		if (c.retirarLegado !== undefined && typeof c.retirarLegado !== 'boolean')
+			return 'malformed trusted keys';
+		/* Sin una clave de su propio uso, el nodo no podría comprobar la versión siguiente. */
+		const usos = new Set(leerConfianza(c.claves).claves.map((k) => k.uso));
+		if (!uso || !usos.has(uso)) return 'the trusted keys leave this edition without a key';
+		/* Sin legado, cada cosa que el nodo comprueba necesita su clave. */
+		if (
+			c.retirarLegado &&
+			(!usos.has('delegaciones') || (uso === 'cloud' && !usos.has('licencias')))
+		)
+			return 'retiring the legacy key would leave licenses or delegations without a key';
 	}
-	if (!valida) return { ok: false, motivo: 'the version is not signed by SeguridadSI' };
-	const r = JSON.parse(f.release) as Release;
+	if (r.catalogo !== undefined) {
+		const c = r.catalogo as unknown;
+		if (!c || typeof c !== 'object' || Array.isArray(c)) return 'malformed decoy catalog';
+		const entradas = Object.entries(c as Record<string, unknown>);
+		if (entradas.length > 500) return 'the decoy catalog is too large';
+		for (const [modulo, huellas] of entradas)
+			if (
+				!MODULO_CATALOGO.test(modulo) ||
+				!Array.isArray(huellas) ||
+				huellas.length === 0 ||
+				huellas.length > 8 ||
+				huellas.some((h) => typeof h !== 'string' || !HUELLA_MANIFIESTO.test(h))
+			)
+				return `malformed decoy catalog entry (${modulo.slice(0, 64)})`;
+	}
+	if (r.commit !== undefined && (typeof r.commit !== 'string' || !/^[0-9a-f]{40}$/.test(r.commit)))
+		return 'malformed commit';
+	return null;
+}
+
+/*
+ * clave: la confianza del que comprueba (o una clave suelta, que vale como la de legado).
+ * La versión tiene que venir firmada por una clave del uso de su edición (cloud o
+ * community, por el registro de sus imágenes) o por la de legado. firmadaCon: la huella
+ * de la clave que la firmó.
+ */
+export function verificarRelease(
+	clave: string | Confianza,
+	f: ReleaseFirmada
+): { ok: true; release: Release; firmadaCon: string } | { ok: false; motivo: string } {
+	const confianza = aConfianza(clave);
+	if (!f || typeof f.release !== 'string' || motivoFirmas(f.firmas))
+		return { ok: false, motivo: 'does not have the form of a signed version' };
+	let r: Release;
+	try {
+		r = JSON.parse(f.release) as Release;
+	} catch {
+		return { ok: false, motivo: 'the version is not signed by SeguridadSI' };
+	}
+	if (!r || typeof r !== 'object')
+		return { ok: false, motivo: 'the version is not signed by SeguridadSI' };
+	const uso = edicionDeRelease(r);
+	if (!hayClave(confianza, uso))
+		return { ok: false, motivo: 'there is no trusted key to check this version' };
+	const firmadaCon = firmadoPor(confianza, uso, f.release, f.firma, f.firmas);
+	if (!firmadaCon) return { ok: false, motivo: 'the version is not signed by SeguridadSI' };
 	if (!SEMVER.test(r.version)) return { ok: false, motivo: 'malformed version number' };
 	const servicios = Object.entries(r.servicios ?? {});
 	if (servicios.length === 0) return { ok: false, motivo: 'the version includes no services' };
@@ -434,7 +513,9 @@ export function verificarRelease(
 		if (!r.actualizador)
 			return { ok: false, motivo: 'a version with configuration must include the updater' };
 	}
-	return { ok: true, release: r };
+	const m = motivoNovedades(r, uso);
+	if (m) return { ok: false, motivo: m };
+	return { ok: true, release: r, firmadaCon };
 }
 
 /* ---------- lo que sube en cada latido ---------- */
@@ -485,3 +566,4 @@ export * from './indicadores.ts';
 export * from './licencia.ts';
 export * from './planes.ts';
 export * from './registro.ts';
+export * from './confianza.ts';

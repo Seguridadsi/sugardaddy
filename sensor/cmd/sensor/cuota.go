@@ -31,7 +31,8 @@ const (
 
 // La carpeta de registros es de la trampa: una trampa tomada puede escribir en
 // ella lo que quiera, también en subcarpetas que la cuota de siempre no miraba
-// (SEN-4). Lo que no es su registro (ni sus rotados) tiene un tope aparte, en
+// (SEN-4). Con su disco de tamaño fijo (docs/diseno/discos-trampa.md) no pasa
+// de él; sin él (una máquina que no puede), esto es lo único que la frena. Lo que no es su registro (ni sus rotados) tiene un tope aparte, en
 // bytes y en entradas (ficheros vacíos que agotan los inodos y frenan cada
 // lectura de la carpeta). Las trampas de verdad solo dejan ahí ficheros
 // pequeños (su semilla, su certificado). Variables para las pruebas.

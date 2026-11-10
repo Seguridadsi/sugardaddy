@@ -28,6 +28,18 @@ type Release struct {
 	// Configuración firmada del nodo y del sensor remoto (desde la 0.12).
 	Nodo         *Configuracion `json:"nodo,omitempty"`
 	SensorRemoto *Configuracion `json:"sensorRemoto,omitempty"`
+	// Desde la 0.25 (docs/diseno/claves-y-catalogo.md): las claves en las que confiar,
+	// lo único que el sensor puede arrancar (huellas de manifiesto por módulo) y de qué
+	// commit sale.
+	Confianza *ConfianzaNueva     `json:"confianza,omitempty"`
+	Catalogo  map[string][]string `json:"catalogo,omitempty"`
+	Commit    string              `json:"commit,omitempty"`
+}
+
+// ConfianzaNueva es la lista de claves que una versión deja en el .env, y si retira la de legado.
+type ConfianzaNueva struct {
+	Claves        string `json:"claves"`
+	RetirarLegado bool   `json:"retirarLegado,omitempty"`
 }
 
 // Configuracion son los ficheros del compose (y el Caddyfile del nodo) y las
@@ -84,14 +96,19 @@ func validarConfiguracion(seccion string, c *Configuracion) error {
 }
 
 type ReleaseFirmada struct {
-	Release string `json:"release"`
-	Firma   string `json:"firma"`
+	Release string  `json:"release"`
+	Firma   string  `json:"firma"`
+	Firmas  []Firma `json:"firmas,omitempty"`
 }
 
 var (
-	semver   = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
-	imagen   = regexp.MustCompile(`^([a-z0-9.-]+(:[0-9]+)?/)?[a-z0-9._/-]+(:[A-Za-z0-9._-]+)?@sha256:[0-9a-f]{64}$`)
-	servicio = regexp.MustCompile(`^[a-z][a-z0-9-]{0,30}$`)
+	semver         = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
+	imagen         = regexp.MustCompile(`^([a-z0-9.-]+(:[0-9]+)?/)?[a-z0-9._/-]+(:[A-Za-z0-9._-]+)?@sha256:[0-9a-f]{64}$`)
+	servicio       = regexp.MustCompile(`^[a-z][a-z0-9-]{0,30}$`)
+	moduloCatalogo = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
+	huellaCatalogo = regexp.MustCompile(`^[0-9a-f]{64}$`)
+	commitRelease  = regexp.MustCompile(`^[0-9a-f]{40}$`)
+	huellaFirma    = regexp.MustCompile(`^[0-9a-f]{16}$`)
 )
 
 // ClavePublica lee una clave Ed25519 en DER (spki) base64, como la genera paquetes/canal.
@@ -111,16 +128,33 @@ func ClavePublica(b64 string) (ed25519.PublicKey, error) {
 	return pub, nil
 }
 
-// Verificar comprueba la firma sobre el texto exacto y lo que la versión
-// promete: número de versión válido e imágenes fijadas por digest.
-func Verificar(clave ed25519.PublicKey, f ReleaseFirmada) (Release, error) {
+// Verificar comprueba la firma sobre el texto exacto, con una clave del uso de su
+// edición (cloud o community) o con la de legado, y lo que la versión promete: número de
+// versión válido, imágenes fijadas por digest y la forma de lo nuevo de la 0.25.
+func Verificar(c Confianza, f ReleaseFirmada) (Release, error) {
 	var r Release
-	firma, err := base64.StdEncoding.DecodeString(f.Firma)
-	if err != nil || !ed25519.Verify(clave, []byte(f.Release), firma) {
-		return r, errors.New("the version is not signed by SeguridadSI")
-	}
 	if err := json.Unmarshal([]byte(f.Release), &r); err != nil {
-		return r, err
+		return Release{}, errors.New("the version is not signed by SeguridadSI")
+	}
+	// encoding/json casa los campos sin mirar mayúsculas: «Catalogo» valdría aquí y no en
+	// TypeScript. Una clave conocida escrita de otra forma no se acepta (paridad con TS).
+	if err := clavesExactas(f.Release); err != nil {
+		return Release{}, err
+	}
+	if len(f.Firmas) > 8 {
+		return Release{}, errors.New("malformed signature list")
+	}
+	for _, x := range f.Firmas {
+		if !huellaFirma.MatchString(x.Clave) || x.Firma == "" {
+			return Release{}, errors.New("malformed signature list")
+		}
+	}
+	uso := EdicionDeRelease(r)
+	if !c.HayClave(uso) {
+		return Release{}, errSinClave
+	}
+	if c.FirmadoPor(uso, f.Release, f.Firma, f.Firmas) == "" {
+		return Release{}, errors.New("the version is not signed by SeguridadSI")
 	}
 	if !semver.MatchString(r.Version) {
 		return r, errors.New("malformed version number")
@@ -144,5 +178,73 @@ func Verificar(clave ed25519.PublicKey, f ReleaseFirmada) (Release, error) {
 			return r, errors.New("a version with configuration must include the updater")
 		}
 	}
+	if err := validarNovedades(r, uso); err != nil {
+		return r, err
+	}
 	return r, nil
+}
+
+// validarNovedades comprueba la forma de la confianza, el catálogo y el commit.
+func validarNovedades(r Release, uso string) error {
+	if r.Confianza != nil {
+		if m := MotivoClaves(r.Confianza.Claves); m != "" {
+			return errors.New(m)
+		}
+		propia := false
+		for _, k := range LeerConfianza(r.Confianza.Claves, "").Claves {
+			if uso != "" && k.Uso == uso {
+				propia = true
+			}
+		}
+		// Sin una clave de su propio uso, el nodo no podría comprobar la versión siguiente.
+		if !propia {
+			return errors.New("the trusted keys leave this edition without a key")
+		}
+		// Sin legado, cada cosa que el nodo comprueba necesita su clave: las licencias en
+		// Cloud y las delegaciones (MSP, registro) en las dos.
+		if r.Confianza.RetirarLegado {
+			usos := map[string]bool{}
+			for _, k := range LeerConfianza(r.Confianza.Claves, "").Claves {
+				usos[k.Uso] = true
+			}
+			if !usos["delegaciones"] || (uso == "cloud" && !usos["licencias"]) {
+				return errors.New("retiring the legacy key would leave licenses or delegations without a key")
+			}
+		}
+	}
+	if len(r.Catalogo) > 500 {
+		return errors.New("the decoy catalog is too large")
+	}
+	for m, hs := range r.Catalogo {
+		if !moduloCatalogo.MatchString(m) || len(hs) == 0 || len(hs) > 8 {
+			return fmt.Errorf("malformed decoy catalog entry (%.64s)", m)
+		}
+		for _, h := range hs {
+			if !huellaCatalogo.MatchString(h) {
+				return fmt.Errorf("malformed decoy catalog entry (%.64s)", m)
+			}
+		}
+	}
+	if r.Commit != "" && !commitRelease.MatchString(r.Commit) {
+		return errors.New("malformed commit")
+	}
+	return nil
+}
+
+// clavesExactas rechaza una clave de primer nivel que coincide con un campo conocido salvo en
+// mayúsculas («Servicios», «CATALOGO»): Go la leería y TypeScript no.
+func clavesExactas(texto string) error {
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(texto), &m); err != nil {
+		return errors.New("the version is not signed by SeguridadSI")
+	}
+	conocidas := []string{"version", "publicada", "notas", "servicios", "actualizador", "nodo", "sensorRemoto", "confianza", "catalogo", "commit"}
+	for k := range m {
+		for _, c := range conocidas {
+			if k != c && strings.EqualFold(k, c) {
+				return fmt.Errorf("unexpected field %q in the version", k)
+			}
+		}
+	}
+	return nil
 }

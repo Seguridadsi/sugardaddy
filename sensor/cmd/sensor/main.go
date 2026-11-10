@@ -27,10 +27,13 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/kinomakino/sugardaddy/sensor/internal/actualizador"
 	"github.com/kinomakino/sugardaddy/sensor/internal/adaptador"
+	"github.com/kinomakino/sugardaddy/sensor/internal/catalogo"
 	"github.com/kinomakino/sugardaddy/sensor/internal/confianza"
 	"github.com/kinomakino/sugardaddy/sensor/internal/consola"
 	"github.com/kinomakino/sugardaddy/sensor/internal/despliegue"
+	"github.com/kinomakino/sugardaddy/sensor/internal/discos"
 	"github.com/kinomakino/sugardaddy/sensor/internal/docker"
 	"github.com/kinomakino/sugardaddy/sensor/internal/estado"
 	"github.com/kinomakino/sugardaddy/sensor/internal/evento"
@@ -123,6 +126,9 @@ func main() {
 	// dan su error en el despliegue en vez de ir al puente aislado rotas.
 	enlace := flag.String("enlace", "", "physical interface of the segment to monitor, for the own-IP mode (wired or VLAN, not Wi-Fi)")
 	rango := flag.String("rango", "", "range of own IPs reserved for the decoys, e.g. 10.0.0.240/28 (outside the DHCP pool)")
+	// La versión firmada instalada, que deja el actualizador: su catálogo dice lo único
+	// que se puede arrancar (SEN-3). Vacía o sin el fichero: sin catálogo, como antes.
+	firmado := flag.String("firmado", "", "signed version left by the updater, whose catalog limits the decoys (empty: no catalog)")
 	flag.Parse()
 
 	token := os.Getenv("SUGARDADDY_TOKEN")
@@ -168,8 +174,17 @@ func main() {
 			Datos: *datos, Escucha: *escucha, Desplazar: *desplazar,
 			// La sonda del aislamiento corre con la imagen del propio sensor.
 			ImagenSonda: os.Getenv("SENSOR_IMAGEN"),
+			// Un disco de tamaño fijo por trampa (SEN-4, docs/diseno/discos-trampa.md):
+			// lo monta un auxiliar con la imagen del actualizador, que le pasan los compose.
+			Discos: &discos.Gestor{Datos: *datos, Imagen: os.Getenv("ACTUALIZADOR_IMAGEN"), TamMb: discos.TamPorDefecto, Docker: d},
 		},
 		salida: filepath.Join(*datos, "salida.jsonl"),
+		catalogo: &catalogo.Lector{
+			Ruta:      *firmado,
+			Confianza: actualizador.ConfianzaDelEntorno(os.Getenv),
+			Edicion:   actualizador.EdicionDelNodo(os.Getenv),
+			Marca:     marcaCatalogo(*firmado),
+		},
 	}
 	// El modo «IP propia»: interfaz y rango juntos o ninguno. El hecho
 	// red.capa2 que se informa luego dice si la máquina de verdad puede
@@ -232,10 +247,12 @@ type sensor struct {
 	toques  toques
 	docker  *docker.Cliente
 	opc     despliegue.Opciones
-	estado  *estado.Estado
-	salida  string
-	plan    *plan.Plan
-	pausa   time.Time
+	// catalogo lee la versión firmada instalada (SEN-3).
+	catalogo *catalogo.Lector
+	estado   *estado.Estado
+	salida   string
+	plan     *plan.Plan
+	pausa    time.Time
 	// Último plan recibido de la consola, en Unix: lo que mira el punto de salud.
 	ultimoPlan atomic.Int64
 	// Tope de líneas por entrega; baja a la mitad si la consola dice que es
@@ -391,6 +408,7 @@ func (s *sensor) actualizarPlan(ctx context.Context) {
 	if a := s.anfitrion.a; a != nil {
 		s.opc.Direcciones = unirDirecciones(s.opc.Direcciones, a.Direcciones)
 	}
+	s.opc.Catalogo = s.reglaDelCatalogo()
 	estados, err := despliegue.Aplicar(ctx, s.docker, s.opc, p)
 	if err != nil {
 		slog.Error("deployment", "err", err)
@@ -485,8 +503,9 @@ func (s *sensor) sondearMotor(ctx context.Context, id string) {
 }
 
 // hechos que el sensor sabe de su máquina, con su motivo, solo los que ya
-// se saben: red.ipOrigenReal, motor.clone3 y red.capa2 (docs/diseno/red.md
-// §2.1: si esta máquina puede poner trampas con IP propia en el segmento).
+// se saben: red.ipOrigenReal, motor.clone3, red.capa2 (docs/diseno/red.md
+// §2.1: si esta máquina puede poner trampas con IP propia en el segmento) y
+// disco.trampas (si cada trampa tiene su disco de tamaño fijo y, si no, por qué).
 func (s *sensor) hechos() map[string]any {
 	// La consola le pide los toques de «Prueba mi detección» si lo dice.
 	h := map[string]any{"sensor.toques": map[string]any{"valor": true}}
@@ -495,6 +514,11 @@ func (s *sensor) hechos() map[string]any {
 	}
 	if s.sondeo.clone3 != nil {
 		h["motor.clone3"] = s.sondeo.clone3
+	}
+	if s.opc.Discos != nil {
+		if v, motivo, sabido := s.opc.Discos.Estado(); sabido {
+			h["disco.trampas"] = &motor.Hecho{Valor: v, Motivo: motivo}
+		}
 	}
 	if a := s.anfitrion.a; a != nil {
 		h["puertos.ocupados"] = map[string]any{"valor": a.Ocupados(s.anfitrion.propios)}
@@ -1247,4 +1271,28 @@ func (s *sensor) relevar(ctx context.Context, r *relevo.Relevo) {
 			}
 		}()
 	}
+}
+
+// reglaDelCatalogo: lo que el despliegue pregunta por cada trampa (SEN-3). Sin versión
+// firmada con catálogo, nada (como antes). Si la que hay no se puede leer o su firma no
+// vale, no se arranca nada nuevo: puede ser que alguien la haya tocado en la máquina.
+func (s *sensor) reglaDelCatalogo() func(plan.TrampaPlan) string {
+	c, err := s.catalogo.Leer()
+	if err != nil {
+		motivo := "cannot check the signed decoy catalog on this machine (" + err.Error() + ")"
+		slog.Error("signed catalog", "err", err)
+		return func(plan.TrampaPlan) string { return motivo }
+	}
+	if c == nil {
+		return nil
+	}
+	return c.Motivo
+}
+
+// marcaCatalogo: la marca de catálogo obligatorio va junto a la versión firmada (firmado/exigir).
+func marcaCatalogo(firmado string) string {
+	if firmado == "" {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(firmado), "exigir")
 }

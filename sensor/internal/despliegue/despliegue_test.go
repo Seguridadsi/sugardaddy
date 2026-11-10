@@ -19,7 +19,7 @@ func TestCadaContenedorLlevaSuSensor(t *testing.T) {
 			Aislamiento: &plan.Aislamiento{SoloLectura: true, CPU: 0.5, MemoriaMb: 64},
 		},
 	}
-	cfg, _, err := config(Opciones{Datos: "/d", Escucha: "127.0.0.1"}, "servidores", "", s)
+	cfg, _, err := config(Opciones{Datos: "/d", Escucha: "127.0.0.1"}, "servidores", "", s, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +49,7 @@ func TestLicenciaSeMontaDeSoloLectura(t *testing.T) {
 		},
 	}
 	// Con licencia: va montada de solo lectura en la ruta fija.
-	cfg, _, err := config(Opciones{Datos: "/d", Escucha: "127.0.0.1"}, "s", "/d/licencia.json", s)
+	cfg, _, err := config(Opciones{Datos: "/d", Escucha: "127.0.0.1"}, "s", "/d/licencia.json", s, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +67,7 @@ func TestLicenciaSeMontaDeSoloLectura(t *testing.T) {
 		t.Fatalf("la licencia tiene que entrar de solo lectura por bind: %v", lic)
 	}
 	// Sin licencia: no se monta nada (edición gratis).
-	cfg2, _, _ := config(Opciones{Datos: "/d", Escucha: "127.0.0.1"}, "s", "", s)
+	cfg2, _, _ := config(Opciones{Datos: "/d", Escucha: "127.0.0.1"}, "s", "", s, false, nil)
 	for _, m := range cfg2["HostConfig"].(map[string]any)["Mounts"].([]map[string]any) {
 		if m["Target"] == rutaLicenciaTrampa {
 			t.Fatal("sin licencia no se debe montar nada")
@@ -78,7 +78,7 @@ func TestLicenciaSeMontaDeSoloLectura(t *testing.T) {
 	monta := func(lic *bool) bool {
 		x := s
 		x.Licencia = lic
-		cfg, _, err := config(Opciones{Datos: "/d", Escucha: "127.0.0.1"}, "s", "/d/licencia.json", x)
+		cfg, _, err := config(Opciones{Datos: "/d", Escucha: "127.0.0.1"}, "s", "/d/licencia.json", x, false, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -115,7 +115,7 @@ func TestPuertosEntornoYFicherosDelFormulario(t *testing.T) {
 		Parametros: map[string]any{"ssh": float64(22), "tel": float64(23), "telnet": "no", "sistema": "centos-7", "accesos": "root:x:*"},
 		Manifiesto: plan.Manifiesto{Contenedor: &c, Aislamiento: &plan.Aislamiento{CPU: 0.5, MemoriaMb: 64}},
 	}
-	cfg, donde, err := config(Opciones{Datos: datos, Escucha: "0.0.0.0", Desplazar: 2200}, "servidores", "", s)
+	cfg, donde, err := config(Opciones{Datos: datos, Escucha: "0.0.0.0", Desplazar: 2200}, "servidores", "", s, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +132,7 @@ func TestPuertosEntornoYFicherosDelFormulario(t *testing.T) {
 	}
 	antes := huella(cfg)
 	s.Parametros["accesos"] = "root:x:!root"
-	cfg2, _, _ := config(Opciones{Datos: datos, Escucha: "0.0.0.0", Desplazar: 2200}, "servidores", "", s)
+	cfg2, _, _ := config(Opciones{Datos: datos, Escucha: "0.0.0.0", Desplazar: 2200}, "servidores", "", s, false, nil)
 	if huella(cfg2) == antes {
 		t.Fatal("cambiar las contraseñas tiene que rehacer el contenedor")
 	}
@@ -163,7 +163,7 @@ func TestPuertoLocalSePublicaEnLaIPDeRed(t *testing.T) {
 		return nil
 	}
 	o := Opciones{Datos: t.TempDir(), Escucha: "0.0.0.0", EnLaRed: enLaRed}
-	cfg, donde, err := config(o, "local", "", s)
+	cfg, donde, err := config(o, "local", "", s, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,13 +176,13 @@ func TestPuertoLocalSePublicaEnLaIPDeRed(t *testing.T) {
 	}
 	// Cambiar dónde se publica rehace el contenedor.
 	o.EnLaRed = nil
-	cfg2, _, _ := config(o, "local", "", s)
+	cfg2, _, _ := config(o, "local", "", s, false, nil)
 	if huella(cfg2) == huella(cfg) {
 		t.Fatal("publicar en otra dirección tiene que rehacer el contenedor")
 	}
 	// Con una Escucha concreta (no 0.0.0.0) manda la Escucha.
 	o.Escucha, o.EnLaRed = "10.9.9.9", enLaRed
-	_, donde, _ = config(o, "local", "", s)
+	_, donde, _ = config(o, "local", "", s, false, nil)
 	if donde[0] != "10.9.9.9:53" {
 		t.Fatalf("con Escucha fija: %v", donde)
 	}
@@ -212,7 +212,7 @@ func TestHuecoIPsAnfitrion(t *testing.T) {
 		{Opciones{Escucha: "0.0.0.0"}, "IPS="},
 	} {
 		caso.o.Datos = t.TempDir()
-		cfg, _, err := config(caso.o, "local", "", s)
+		cfg, _, err := config(caso.o, "local", "", s, false, nil)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -55,17 +55,18 @@ export const actions = {
 		const f = await request.formData();
 		const nombre = String(f.get('nombre') ?? '').trim();
 		const v = { id: identificador(String(f.get('id') ?? ''), nombre), nombre };
+		const ip = String(f.get('ip') ?? '').trim();
 		const fallo = (status: number, texto: string) =>
-			fail(status, { accion: 'instalar' as const, error: texto, ...v });
+			fail(status, { accion: 'instalar' as const, error: texto, ...v, ip });
 		if (!v.id) return fallo(400, SIN_IDENTIFICADOR);
 		if (!v.nombre) return fallo(400, 'The name is required.');
 		try {
-			const linea = await altaSensorRemoto(u.correo, v, params.id);
+			const linea = await altaSensorRemoto(u.correo, v, params.id, ip);
 			if (!linea) return fallo(400, 'A sensor with that identifier already exists.');
 			return { linea, para: v.id };
 		} catch (e) {
 			if (e instanceof DestinoNoDisponible) return fallo(409, e.message);
-			if (e instanceof ErrorCliente) return fallo(503, e.message);
+			if (e instanceof ErrorCliente) return fallo(400, e.message);
 			return fallo(500, (e as Error).message);
 		}
 	},

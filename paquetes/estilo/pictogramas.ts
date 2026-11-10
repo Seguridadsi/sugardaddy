@@ -50,6 +50,8 @@ const TIPO_DE_TRAMPA: Record<string, TipoDeServicio> = {
 	memcached: 'bases-de-datos',
 	sap: 'bases-de-datos',
 	elasticsearch: 'bases-de-datos',
+	/* Base de datos vectorial (H124): imita la API REST de Qdrant */
+	'base-vectorial': 'bases-de-datos',
 	/* Volcado de MySQL sembrado (H26): no corre servicio, apunta a una trampa MySQL */
 	'volcado-mysql': 'bases-de-datos',
 	/* Conexiones de BD guardadas cebo (H117/H118): apuntan a una trampa PostgreSQL/SQL Server */
@@ -141,8 +143,10 @@ const TIPO_DE_TRAMPA: Record<string, TipoDeServicio> = {
 	pacs: 'sanidad',
 	hl7: 'sanidad',
 	/* Inteligencia artificial */
+	'agente-hermes': 'ia',
 	mcp: 'ia',
 	'api-ia': 'ia',
+	'pasarela-openclaw': 'ia',
 	/* Configuración MCP sembrada (H34): no corre servicio, apunta a una trampa MCP */
 	'configuracion-mcp': 'ia',
 	/* Chatbot interno falso (H95): asistente de IA con base RAG cebo y cadena canario */
@@ -176,11 +180,10 @@ const TIPO_DE_TRAMPA: Record<string, TipoDeServicio> = {
 	/* Retención: las que hacen perder el tiempo al intruso */
 	'retencion-ssh': 'retencion',
 	'retencion-web': 'retencion',
-	/* Las honeycosas de nube de la tanda de conectores (H28–H31: aws-clave-cebo,
-	 * azure-spn-cebo, login-clonado, app-saml), ya en modulos/nube/. */
+	/* Las honeycosas de nube de la tanda de conectores (H28, H29 y H31: aws-clave-cebo,
+	 * azure-spn-cebo y app-saml), en modulos/nube/. */
 	'aws-clave-cebo': 'nube',
 	'azure-spn-cebo': 'nube',
-	'login-clonado': 'nube',
 	'app-saml': 'nube'
 };
 

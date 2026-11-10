@@ -107,15 +107,17 @@ sudo despliegue/nodo/instalar.sh /opt/sugardaddy nodo-01 "Your Company" 203.0.11
 
 If you have a **DNS name** that points to the machine, use it instead
 (`manage.yourcompany.com`). You can change the address later by running
-the installer again with another one (it keeps your data).
+the installer again with another one (it keeps your data; with the node's own CA it
+creates a new root, which you need to install again on your machines).
 
 The installer:
 
 - generates the **node secrets** once (it stores them in
   `/opt/sugardaddy/.env`; if the file already exists, it keeps it);
 - starts the console, the sensor, the updater and Postgres with Docker Compose;
-- sets up **HTTPS**. By default it creates the node's **own CA** and leaves its
-  root at `/opt/sugardaddy/ca-raiz.crt` so you can install it on the machines
+- sets up **HTTPS**. By default it creates the node's **own CA**, whose root only
+  works for the console's address, and leaves that root at
+  `/opt/sugardaddy/ca-raiz.crt` so you can install it on the machines
   you sign in to the console from. If you prefer your own certificate, put the
   files at `/opt/sugardaddy/certs/certificado.pem` and `.../clave.pem` and run
   the installer with `TLS_MODO=ficheros`.

@@ -62,6 +62,11 @@ export const HECHOS: Record<string, { tipo: TipoHecho; fuentes: FuenteHecho[] }>
 	'motor.clone3': { tipo: 'booleano', fuentes: ['sensor'] },
 	'red.ipOrigenReal': { tipo: 'booleano', fuentes: ['sensor'] },
 	/*
+	 * Si cada trampa del sensor tiene su disco de tamaño fijo (SEN-4,
+	 * docs/diseno/discos-trampa.md); en false, el motivo (disco.sin-loop…).
+	 */
+	'disco.trampas': { tipo: 'booleano', fuentes: ['sensor'] },
+	/*
 	 * La sección red (docs/diseno/red.md): si la máquina puede dar a una
 	 * trampa su propia IP en el segmento del cliente (macvlan sobre interfaz
 	 * física por cable o VLAN). Wi-Fi y nube lo informan en false, con su
@@ -129,6 +134,7 @@ export const NOMBRE_HECHO: Readonly<Record<string, string>> = Object.freeze({
 	'motor.error': 'Failure message',
 	'motor.clone3': 'Allows thread creation (clone3)',
 	'red.ipOrigenReal': 'Decoys see the real IP',
+	'disco.trampas': 'Each decoy has its own fixed-size disk',
 	'red.capa2': 'Can give a decoy its own IP',
 	'puertos.ocupados': 'Ports already in use',
 	'puertos.reservados': 'Reserved ports',

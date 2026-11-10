@@ -55,10 +55,30 @@ so **every alert deserves a look**.
 
 If you used the **node's own CA** during installation, browsers will warn about an
 untrusted certificate until you install its root. It is at
-`/opt/sugardaddy/ca-raiz.crt` (and the console serves it at `/ca-raiz.crt`).
-Install it as a trusted certification authority on the machines you
-sign in to the console from. If you prefer to avoid that, install the node with your own
+`/opt/sugardaddy/ca-raiz.crt`; the console serves it at `/ca-raiz.crt` and shows it,
+with its fingerprint, under **Settings → Console certificate**.
+Install it as a **trusted root certification authority** on the machines you
+sign in to the console from. On Windows you can deploy it to many computers with Group
+Policy: Computer Configuration → Policies → Windows Settings → Security Settings →
+Public Key Policies → Trusted Root Certification Authorities → Import.
+If you prefer to avoid that, install the node with your own
 certificate (`TLS_MODO=ficheros`, see [INSTALL.md](INSTALL.md)).
+
+The node's root **only works for the console's address**, and only for websites: it
+cannot sign certificates for any other website, nor software or email. If someone took
+over the node, which sits next to the decoys and is meant to attract attackers, the root
+would only let them pretend to be the console itself. Because of that, if you change the
+console's address by running the installer again, the node creates a new root, and you
+need to install that one instead.
+
+**Nodes installed before the node's own CA** use a root with no such limit, whose key
+lives on the node. The console tells administrators so, and **Settings → Console
+certificate** offers the new root with the steps to install it. Nothing changes until you
+confirm there that it is on the computers: then the node switches within a minute or two
+and destroys the old root's key, on the machine and in its backups. Remote sensors are
+given the new root before the switch, so they keep reporting. Once it is done, remove the
+old root from the computers (the console shows its name and fingerprint), and delete any
+backups you had copied off the machine before the switch.
 
 ## 4. Keep the node up to date
 

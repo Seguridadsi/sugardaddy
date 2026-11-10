@@ -6,9 +6,44 @@
 # Vive en .env y compose.yml lo pasa en CADDY_MODO, que elige el sitio de abajo:
 #  - Fijo (por defecto): solo la dirección dada al instalar.
 #  - «Cualquier IP o nombre» (ENTRAR_CUALQUIER_IP=1 al instalar): :443 para
-#    cualquier host, con certificado a demanda. En un nodo con IP pública Caddy
-#    puede emitir certificados a quien se los pida (riesgo menor; por eso NO es
-#    el modo por defecto).
+#    cualquier host, con certificado a demanda. Con la CA de Caddy de antes,
+#    en un nodo con IP pública Caddy puede emitir certificados a quien se los
+#    pida (riesgo menor; por eso NO es el modo por defecto); con la CA propia,
+#    solo para la dirección de la consola (ask, abajo).
+#
+# La CA con la que firma Caddy en TLS_MODO=interno (docs/diseno/ca-nodo.md) la
+# elige CA_NODO de .env, que compose pasa en CADDY_CA:
+#  - «nodo»: la CA propia del nodo, en ca-nodo/. Su raíz solo vale para la
+#    dirección de la consola; Caddy firma con la intermedia y no tiene la clave
+#    de la raíz.
+#  - «local» (nodos instalados antes): la CA que Caddy crea en su volumen, sin
+#    límite de nombres, hasta que el administrador pasa a la propia desde la
+#    consola.
+# Los fragmentos que elige tienen que estar antes del bloque global.
+(ca-local) {
+}
+
+(ca-nodo) {
+	pki {
+		ca nodo {
+			name "Sugardaddy node"
+			root {
+				cert /ca-nodo/raiz.crt
+			}
+			intermediate {
+				cert /ca-nodo/intermedia.crt
+				key /ca-nodo/intermedia.key
+			}
+		}
+	}
+	# Modo «cualquier IP o nombre»: Caddy solo pide certificado a demanda para
+	# la dirección de la consola, la única que permite la raíz. Contesta el
+	# sitio del 127.0.0.1 de abajo, dentro de este mismo contenedor.
+	on_demand_tls {
+		ask http://127.0.0.1:5555/permiso
+	}
+}
+
 {
 	admin off
 	# Sin peticiones a Let's Encrypt ni a ningún sitio: el nodo no sale a
@@ -19,18 +54,28 @@
 	# Caddy no sabría qué certificado presentar y abortaría el TLS (internal error).
 	# Con esto usa el de la dirección del nodo cuando no hay SNI, así se entra por IP.
 	default_sni {$CONSOLA_DOMINIO}
+	import ca-{$CADDY_CA}
 }
 
 (tls-interno) {
-	# CA propia del nodo. Su raíz queda en el volumen de Caddy y la exporta
-	# instalar.sh para instalarla en los equipos que entren a la consola.
-	tls internal
+	# CA del nodo (la elegida arriba). Su raíz la dejan en ca-raiz.crt
+	# instalar.sh o el actualizador, para instalarla en los equipos que entren
+	# a la consola.
+	tls {
+		issuer internal {
+			ca {$CADDY_CA}
+		}
+	}
 }
 
 (tls-interno-a-demanda) {
 	# Igual, pero emite el certificado del host con que te conectes (sin esto,
-	# en :443 un SNI nuevo rompería el TLS).
-	tls internal {
+	# en :443 un SNI nuevo rompería el TLS). Sin SNI (al entrar por IP), el de
+	# default_sni.
+	tls {
+		issuer internal {
+			ca {$CADDY_CA}
+		}
 		on_demand
 	}
 }
@@ -67,6 +112,14 @@
 	:443 {
 		import tls-{$TLS_MODO}-a-demanda
 		import consola
+	}
+	# El «ask» de la CA propia: sí solo a la dirección de la consola. Solo en
+	# el bucle local del contenedor; con la CA de antes nadie lo pregunta.
+	http://127.0.0.1:5555 {
+		bind 127.0.0.1
+		@consola query domain={$CONSOLA_DOMINIO}
+		respond @consola 200
+		respond 403
 	}
 }
 

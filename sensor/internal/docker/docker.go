@@ -701,6 +701,16 @@ func (c *Cliente) Conectar(ctx context.Context, red, id string, endpoint map[str
 		map[string]any{"Container": id, "EndpointConfig": endpoint}, nil)
 }
 
+// Desconectar saca un contenedor de una red; si ya no estaba, no es un error.
+func (c *Cliente) Desconectar(ctx context.Context, red, id string) error {
+	err := c.llamar(ctx, http.MethodPost, "/networks/"+url.PathEscape(red)+"/disconnect",
+		map[string]any{"Container": id, "Force": true}, nil)
+	if e, ok := err.(*ErrAPI); ok && (e.Codigo == http.StatusForbidden || e.Codigo == http.StatusNotFound) {
+		return nil
+	}
+	return err
+}
+
 func (c *Cliente) Renombrar(ctx context.Context, id, nombre string) error {
 	return c.llamar(ctx, http.MethodPost, "/containers/"+id+"/rename?name="+url.QueryEscape(nombre), nil, nil)
 }

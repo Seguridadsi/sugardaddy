@@ -24,7 +24,9 @@ import {
 	latir,
 	reanudar,
 	relevoEnCurso,
-	urlPanelValida
+	urlPanelValida,
+	guardarRecuperacionPanelActiva,
+	recuperacionPanelActiva
 } from '$lib/server/canal';
 import { eq } from 'drizzle-orm';
 import {
@@ -137,6 +139,7 @@ export const load = async ({ locals, url }) => {
 		minimoPalabra: MINIMO_PALABRA,
 		conservacion: { ...cons, minimo: DIAS_MINIMO, maximo: DIAS_MAXIMO },
 		codigoEmergencia: await estadoCodigoEmergencia(),
+		recuperacionPanel: await recuperacionPanelActiva(),
 		entra: {
 			propio: await estadoEntraPropio(),
 			seguridadsi: configuradoEnEntorno(),
@@ -371,6 +374,17 @@ export const actions = {
 	codigoEmergencia: async ({ locals }) => {
 		const u = exigir(locals, 'ajustes');
 		return { codigoEmergencia: await nuevoCodigoEmergencia(u.correo) };
+	},
+	/* SUP-12: que SeguridadSI pueda mandar un código de recuperación desde su panel. */
+	recuperacionPanel: async ({ request, locals }) => {
+		const u = exigir(locals, 'ajustes');
+		const activa = (await request.formData()).get('activa') === 'si';
+		await guardarRecuperacionPanelActiva(u.correo, activa);
+		return {
+			mensaje: activa
+				? 'Password recovery from Central allowed.'
+				: 'Password recovery from Central not allowed.'
+		};
 	},
 	/* Compartir con otros clientes (va por el canal con el panel central). */
 	comparticion: async ({ request, locals }) => {

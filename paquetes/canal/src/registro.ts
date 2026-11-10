@@ -11,6 +11,7 @@
  * salida a internet también puede activarse pegándolo.
  */
 import { verificarLicencia, type Licencia, type LicenciaFirmada } from './licencia.ts';
+import type { Confianza } from './confianza.ts';
 import { MODULOS_REGISTRO } from './planes.ts';
 
 /* El «MSP» de las licencias de registro. No se puede usar para un MSP de verdad. */
@@ -63,7 +64,7 @@ export function decodificarCodigo(texto: string): CodigoActivacion | null {
  * y así la consola dice «ha caducado» y no «no la tienes».
  */
 export function licenciaDeRegistro(
-	clavePublicaPublicacion: string,
+	clavePublicaPublicacion: string | Confianza,
 	f: unknown,
 	ahora: number = Date.now()
 ): { ok: true; licencia: Licencia } | { ok: false; motivo: string } {

@@ -98,6 +98,29 @@ describe('lo que la consola enseña del motor de cada sensor', () => {
 		).toEqual([]);
 	});
 
+	it('sin disco de tamaño fijo por trampa se avisa con su motivo, sin tumbar el sensor', () => {
+		const [a, ...resto] = avisosSensor({
+			motor,
+			hechos: { 'disco.trampas': { valor: false, motivo: 'disco.sin-loop' } }
+		});
+		expect(resto).toEqual([]);
+		expect(a).toMatchObject({ codigo: 'disco.sin-loop', gravedad: 'aviso' });
+		expect(a.texto).toMatch(/loop devices/);
+		expect(a.texto).toMatch(/every 10 seconds/);
+		const [b] = avisosSensor({
+			motor,
+			hechos: { 'disco.trampas': { valor: false, motivo: 'disco.algo-nuevo' } }
+		});
+		expect(b).toMatchObject({ codigo: 'disco.algo-nuevo', gravedad: 'aviso' });
+		expect(b.texto).toMatch(/helper that mounts the decoy disks failed/);
+	});
+
+	it('con disco por trampa no hay aviso', () => {
+		expect(
+			avisosSensor({ motor, hechos: { 'disco.trampas': { valor: true, motivo: 'disco.fijo' } } })
+		).toEqual([]);
+	});
+
 	it('el error del motor va antes que los avisos', () => {
 		const avisos = avisosSensor({
 			motor: { codigo: 'motor.inalcanzable', error: 'no responde' },

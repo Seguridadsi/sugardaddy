@@ -38,6 +38,9 @@ apps/consola/geo/
 /sensor/dist
 /sensor/probartrampa
 
+# Copias del commit exacto que hacen los scripts de publicación (herramientas/publicar-comun.sh).
+.publicacion/
+
 # Salidas de compilación
 /apps/*/build
 /apps/*/dist

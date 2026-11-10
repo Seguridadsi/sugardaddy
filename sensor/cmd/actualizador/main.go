@@ -12,6 +12,11 @@
 //
 //	actualizador [flags]        el servicio de siempre
 //	actualizador aplicar        el auxiliar (lo lanza el propio actualizador)
+//	actualizador cortafuegos    el auxiliar del acceso a la consola por IP (docs/diseno/acceso-consola.md)
+//	actualizador disco          el auxiliar de los discos de las trampas, que lanza el sensor (docs/diseno/discos-trampa.md)
+//	actualizador ca             el auxiliar que pasa el nodo a su CA propia (docs/diseno/ca-nodo.md)
+//	actualizador ca-generar <carpeta> <dirección> [nodo]
+//	                            crea la CA propia si falta o no cubre la dirección (lo llama instalar.sh)
 //	actualizador salud <url>    comprobación de salud para el healthcheck de compose
 package main
 
@@ -23,17 +28,22 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/kinomakino/sugardaddy/sensor/internal/actualizador"
 	"github.com/kinomakino/sugardaddy/sensor/internal/confianza"
+	"github.com/kinomakino/sugardaddy/sensor/internal/cortafuegos"
+	"github.com/kinomakino/sugardaddy/sensor/internal/discos"
 	"github.com/kinomakino/sugardaddy/sensor/internal/docker"
 )
 
@@ -44,6 +54,14 @@ func main() {
 		switch os.Args[1] {
 		case "aplicar":
 			os.Exit(aplicar())
+		case "cortafuegos":
+			os.Exit(cortafuegosAuxiliar())
+		case "disco":
+			os.Exit(discoAuxiliar())
+		case "ca":
+			os.Exit(caAuxiliar())
+		case "ca-generar":
+			os.Exit(caGenerar(os.Args[2:]))
 		case "salud":
 			os.Exit(comprobarSalud(os.Args[2:]))
 		}
@@ -83,9 +101,9 @@ func main() {
 		rutas, variable = rutasSensor, "SUGARDADDY_TOKEN"
 	}
 	token := os.Getenv(variable)
-	clave, err := actualizador.ClavePublica(os.Getenv("PUBLICACION_CLAVE_PUBLICA"))
-	if token == "" || err != nil {
-		slog.Error("missing "+variable+" or a valid PUBLICACION_CLAVE_PUBLICA", "err", err)
+	clave := actualizador.ConfianzaDelEntorno(os.Getenv)
+	if token == "" || (clave.Legado == nil && len(clave.Claves) == 0) {
+		slog.Error("missing " + variable + " or a valid PUBLICACION_CLAVES / PUBLICACION_CLAVE_PUBLICA")
 		os.Exit(2)
 	}
 
@@ -113,7 +131,26 @@ func main() {
 	cfg.docker = d
 	cfg.informe = actualizador.Informe{URL: *consola + rutas.resultado, Token: token, HTTP: http}
 	var pendiente *resultado
+	// Solo en el nodo: el puerto de la consola, abierto solo a las IP de su lista.
+	var acceso *actualizador.Acceso
+	// Solo en el nodo: la CA propia del HTTPS de la consola (docs/diseno/ca-nodo.md).
+	var caNodo *actualizador.CANodo
+	if *modo != "sensor" && cfg.local != "" {
+		acceso = &actualizador.Acceso{Docker: d, Consola: *consola, Token: token, HTTP: http, Local: cfg.local,
+			Log: func(m string, args ...any) { slog.Info(m, args...) }}
+		caNodo = &actualizador.CANodo{Docker: d, Consola: *consola, Token: token, HTTP: http, Local: cfg.local,
+			Anfitrion: cfg.anfitrion, Proyecto: cfg.proyecto, Red: cfg.red,
+			Log: func(m string, args ...any) { slog.Info(m, args...) }}
+	}
+	// En un sensor remoto: las raíces en las que confía para hablar con la consola.
+	var raices *actualizador.RaizRemota
+	if *modo == "sensor" && *ca != "" && cfg.local != "" {
+		raices = &actualizador.RaizRemota{Consola: *consola, Token: token, HTTP: http,
+			Fichero: filepath.Join(cfg.local, "ca-consola.crt"),
+			Log:     func(m string, args ...any) { slog.Info(m, args...) }}
+	}
 
+	var ultimaFirmada time.Time
 	for {
 		// Un resultado que no llegó a la consola (porque se estaba reiniciando)
 		// se reintenta antes que nada: si no, el nodo se quedaría en "aplicando".
@@ -122,16 +159,37 @@ func main() {
 		}
 		if actualizador.AuxiliarEnMarcha(ctx, d, cfg.proyecto) {
 			slog.Info("a helper is applying the configuration; waiting")
+		} else if actualizador.AuxiliarCAEnMarcha(ctx, d, cfg.proyecto) {
+			slog.Info("a helper is changing the node CA; waiting")
 		} else {
 			// El auxiliar recrea también este contenedor: lo que no llegó a
 			// informar a la consola se reintenta en cada vuelta.
 			cfg.reinformar(ctx)
+			if cfg.local != "" && time.Since(ultimaFirmada) > 10*time.Minute {
+				ultimaFirmada = time.Now()
+				traerFirmadaInstalada(ctx, http, *consola+rutas.firmada, token, clave, *versiones, cfg.local)
+			}
 			r, err := vuelta(ctx, http, *consola, rutas, token, clave, a, *versiones, cfg)
 			if r != nil {
 				pendiente = r
 			}
 			if err != nil {
 				slog.Warn("round", "err", err)
+			}
+			if acceso != nil {
+				if err := acceso.Vuelta(ctx); err != nil {
+					slog.Warn("console access", "err", err)
+				}
+			}
+			if caNodo != nil {
+				if err := caNodo.Vuelta(ctx); err != nil {
+					slog.Warn("node CA", "err", err)
+				}
+			}
+			if raices != nil {
+				if err := raices.Vuelta(ctx); err != nil {
+					slog.Warn("console CA roots", "err", err)
+				}
 			}
 		}
 		select {
@@ -145,15 +203,15 @@ func main() {
 type resultado struct{ version, estado, detalle string }
 
 // rutas de la consola: dónde se pregunta por la versión y dónde se informa.
-type rutas struct{ pendiente, resultado string }
+type rutas struct{ pendiente, resultado, firmada string }
 
 var (
-	rutasNodo   = rutas{"/api/actualizador/pendiente", "/api/actualizador/resultado"}
-	rutasSensor = rutas{"/api/sensor/version", "/api/sensor/version"}
+	rutasNodo   = rutas{"/api/actualizador/pendiente", "/api/actualizador/resultado", "/api/actualizador/version-firmada"}
+	rutasSensor = rutas{"/api/sensor/version", "/api/sensor/version", "/api/sensor/version-firmada"}
 )
 
 // vuelta devuelve el resultado final solo si no se pudo entregar a la consola.
-func vuelta(ctx context.Context, c *http.Client, base string, ru rutas, token string, clave []byte, a *actualizador.Aplicador, versiones string, cfg configDeAuxiliar) (*resultado, error) {
+func vuelta(ctx context.Context, c *http.Client, base string, ru rutas, token string, clave actualizador.Confianza, a *actualizador.Aplicador, versiones string, cfg configDeAuxiliar) (*resultado, error) {
 	pregunta := base + ru.pendiente
 	if versiones != "" {
 		// La consola solo contesta con una versión si es más nueva que esta.
@@ -177,7 +235,7 @@ func vuelta(ctx context.Context, c *http.Client, base string, ru rutas, token st
 		return nil, err
 	}
 
-	r, err := actualizador.Verificar(clave, p.Release)
+	r, err := actualizador.VerificarEnNodo(clave, actualizador.EdicionDelNodo(os.Getenv), p.Release)
 	if err != nil || r.Version != p.Version {
 		// Ni se intenta: la consola ha entregado algo que no es una versión auténtica.
 		d := fmt.Sprintf("verification: %v", err)
@@ -203,6 +261,12 @@ func vuelta(ctx context.Context, c *http.Client, base string, ru rutas, token st
 		// Para que un `docker compose up` posterior no devuelva el nodo a las imágenes viejas.
 		if err := actualizador.EscribirVersiones(versiones, r, false); err != nil {
 			slog.Error("could not rewrite versiones.env", "err", err)
+		}
+	}
+	// El catálogo firmado para el sensor (SEN-3), también en una versión solo de imágenes.
+	if cfg.local != "" && r.Catalogo != nil {
+		if err := actualizador.GuardarFirmada(cfg.local, p.Release); err != nil {
+			slog.Error("could not leave the signed version for the sensor", "err", err)
 		}
 	}
 	slog.Info("version installed", "version", r.Version)
@@ -357,6 +421,53 @@ func aplicar() int {
 	return 0
 }
 
+// cortafuegosAuxiliar es el auxiliar del acceso a la consola: pone (o quita) la
+// regla en el cortafuegos de la máquina y escribe el resultado en una línea JSON.
+func cortafuegosAuxiliar() int {
+	puerto, _ := strconv.Atoi(os.Getenv("ACCESO_PUERTO"))
+	var redes []string
+	for _, r := range strings.Split(os.Getenv("ACCESO_REDES"), ",") {
+		if r = strings.TrimSpace(r); r != "" {
+			redes = append(redes, r)
+		}
+	}
+	p := cortafuegos.Pedido{Abierta: os.Getenv("ACCESO_ABIERTA") == "1", Redes: redes, Puerto: puerto, Escucha: os.Getenv("ACCESO_ESCUCHA")}
+	ctx, cancelar := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancelar()
+	r := cortafuegos.Aplicar(ctx, p, cortafuegos.Exec)
+	b, _ := json.Marshal(r)
+	fmt.Println(string(b))
+	switch r.Estado {
+	case cortafuegos.Aplicada, cortafuegos.Abierta:
+		return 0
+	case cortafuegos.SinDockerUser:
+		return 3
+	}
+	return 1
+}
+
+// discoAuxiliar es el auxiliar de los discos de las trampas: lo lanza el sensor con
+// su pedido en DISCO_PEDIDO y escribe el resultado en una línea JSON marcada. Sale
+// con 0 siempre que la escribe: lo que haya pasado va en ella.
+func discoAuxiliar() int {
+	var p discos.Pedido
+	b, err := base64.StdEncoding.DecodeString(os.Getenv("DISCO_PEDIDO"))
+	if err == nil {
+		err = json.Unmarshal(b, &p)
+	}
+	var r discos.Resultado
+	if err != nil {
+		r = discos.Resultado{Codigo: discos.CodigoError, Detalle: "invalid DISCO_PEDIDO: " + err.Error()}
+	} else {
+		ctx, cancelar := context.WithTimeout(context.Background(), 9*time.Minute)
+		defer cancelar()
+		r = discos.NuevoAuxiliar().Aplicar(ctx, p)
+	}
+	salida, _ := json.Marshal(discos.LineaResultado{V: discos.VersionResultado, Resultado: r})
+	fmt.Println(string(salida))
+	return 0
+}
+
 // servirSalud responde 200 mientras el proceso esté vivo: es lo que mira el healthcheck de compose.
 func servirSalud(dir string) {
 	mux := http.NewServeMux()
@@ -382,4 +493,47 @@ func comprobarSalud(args []string) int {
 		return 1
 	}
 	return 0
+}
+
+// traerFirmadaInstalada: si la máquina no tiene la versión firmada de lo que lleva instalado
+// (una instalación nueva cuyo instalador no la dejó), se la pide a la consola, la comprueba
+// con sus propias claves y su edición, y la deja para el sensor (SEN-3, A1 de la revisión).
+// La consola no puede hacer nada con esto que no esté firmado: solo entrega.
+func traerFirmadaInstalada(ctx context.Context, c *http.Client, url, token string, clave actualizador.Confianza, versiones, dir string) {
+	if _, err := os.Stat(filepath.Join(dir, actualizador.FicheroFirmada)); err == nil {
+		return
+	}
+	inst := actualizador.VersionInstalada(versiones)
+	if inst == "" {
+		return
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url+"?version="+inst, nil)
+	if err != nil {
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := c.Do(req)
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return
+	}
+	var p *struct {
+		Release actualizador.ReleaseFirmada `json:"release"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(&p); err != nil || p == nil {
+		return
+	}
+	r, err := actualizador.VerificarEnNodo(clave, actualizador.EdicionDelNodo(os.Getenv), p.Release)
+	if err != nil || r.Version != inst || r.Catalogo == nil {
+		slog.Warn("the console did not deliver a usable signed version of the installed one", "err", err)
+		return
+	}
+	if err := actualizador.GuardarFirmada(dir, p.Release); err != nil {
+		slog.Error("could not leave the signed version for the sensor", "err", err)
+		return
+	}
+	slog.Info("signed version of the installed one left for the sensor", "version", inst)
 }

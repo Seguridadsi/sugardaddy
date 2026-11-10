@@ -10,6 +10,13 @@ import { purgar } from '$lib/server/conservacion';
 import { rellenarSiHaceFalta } from '$lib/server/credenciales';
 import { comprobarActualizacion } from '$lib/server/actualizaciones';
 import { enviarWebhookPendientes } from '$lib/server/webhook';
+import {
+	cortafuegosConfirma,
+	cortafuegosReciente,
+	leerAcceso,
+	puedeEntrar
+} from '$lib/server/acceso';
+import { normalizarIp } from '$lib/server/pruebas';
 
 /*
  * El latido hacia el panel central sale del servidor de la consola, no del
@@ -79,6 +86,30 @@ const PUBLICO = [
 ];
 
 export const handle: Handle = async ({ event, resolve }) => {
+	/*
+	 * Acceso por IP (docs/diseno/acceso-consola.md). El cortafuegos de la
+	 * máquina ya tira lo que no está en la lista; esto es la segunda barrera,
+	 * por si no pudo. Solo mira lo que llega por Caddy, que siempre pone
+	 * X-Forwarded-For: el sensor local y el actualizador hablan directamente con
+	 * consola:3000, por la red interna. Fuera de la lista, un 404 vacío. Va antes
+	 * que nada, también que las rutas antiguas, para no dar pistas. Los ficheros
+	 * estáticos los sirve adapter-node antes de llegar aquí: ese límite queda
+	 * dicho en docs/diseno/acceso-consola.md.
+	 */
+	if (event.request.headers.has('x-forwarded-for')) {
+		const acceso = await leerAcceso().catch(() => null);
+		if (acceso?.estado === 'restringida') {
+			let ip: string | null = null;
+			try {
+				ip = normalizarIp(event.getClientAddress());
+			} catch {
+				ip = null;
+			}
+			const confirmado = cortafuegosConfirma(acceso, await cortafuegosReciente().catch(() => null));
+			if (!puedeEntrar(ip, acceso, confirmado)) return new Response(null, { status: 404 });
+		}
+	}
+
 	/* 308: una ruta de antes del paso a inglés (rutas-antiguas.ts), con su método y su cuerpo. */
 	const nueva = rutaNueva(event.url.pathname);
 	if (nueva)

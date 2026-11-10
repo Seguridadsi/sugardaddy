@@ -24,6 +24,7 @@ let id = '';
 
 async function limpiar() {
 	await db.delete(s.usuariosLocales).where(like(s.usuariosLocales.usuario, `${P}%`));
+	await db.delete(s.ajustes).where(eq(s.ajustes.clave, 'recuperacion-panel'));
 }
 
 const enUnaHora = () => new Date(Date.now() + 3600_000).toISOString();
@@ -41,6 +42,24 @@ describe.skipIf(!hayBase)('código de recuperación mandado desde el panel', () 
 		id = c.ok ? c.id : '';
 	});
 	afterAll(limpiar);
+
+	it('sin permitirlo en Ajustes no se guarda nada (SUP-12)', async () => {
+		expect(await canal.recuperacionPanelActiva()).toBe(false);
+		await canal.guardarRecuperacionPanel({
+			id: `${P}-0`,
+			usuario: `${P}-admin`,
+			codigoHash: hashCodigoRecuperacion('999999'),
+			caduca: enUnaHora()
+		});
+		const filas = await db
+			.select()
+			.from(s.recuperacionesClave)
+			.where(eq(s.recuperacionesClave.usuarioId, id));
+		expect(filas).toHaveLength(0);
+		expect((await rec.canjearCodigo(`${P}-admin`, '999999', clave)).ok).toBe(false);
+		await canal.guardarRecuperacionPanelActiva('tester', true);
+		expect(await canal.recuperacionPanelActiva()).toBe(true);
+	});
 
 	it('lo guarda una sola vez aunque llegue en cada latido, y se canjea', async () => {
 		const r = {

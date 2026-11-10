@@ -20,6 +20,7 @@ import {
 	type LicenciaFirmada
 } from '@sugardaddy/canal';
 import { env } from '$env/dynamic/private';
+import { confianza } from './claves';
 import { urlPanelValida, gestionadoPorPanel } from './canal';
 import { licenciaGuardada } from './candado';
 import { auditar, cabecera, guardarAutoActualizar } from './consultas';
@@ -74,7 +75,7 @@ async function guardarLicencia(valor: LicenciaFirmada) {
 export const puedeRegistrarse = async () => esCommunity() && !(await gestionadoPorPanel());
 
 export async function estadoRegistro(ahora = Date.now()): Promise<EstadoRegistro> {
-	const clave = env.PUBLICACION_CLAVE_PUBLICA;
+	const clave = confianza();
 	const r = await guardado();
 	const base = {
 		correo: r?.correo ?? null,
@@ -132,7 +133,7 @@ export async function activar(
 			ok: false,
 			error: 'This node is managed by a Central; it does not need registration.'
 		};
-	const clave = env.PUBLICACION_CLAVE_PUBLICA;
+	const clave = confianza();
 	if (!clave)
 		return {
 			ok: false,
@@ -192,7 +193,7 @@ export type Renovacion =
  */
 export async function renovar(ahora = Date.now(), forzar = false): Promise<Renovacion> {
 	if (!(await puedeRegistrarse())) return 'no-toca';
-	const clave = env.PUBLICACION_CLAVE_PUBLICA;
+	const clave = confianza();
 	const r = await guardado();
 	if (!clave || !r) return 'no-toca';
 	const actual = await licenciaGuardada();

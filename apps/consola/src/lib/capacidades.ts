@@ -62,6 +62,25 @@ const ORIGEN: Record<string, string> = {
 		"The container engine runs rootless and its usual way of forwarding ports hides the source. Until a connection arrives with a real address, assume the decoys see the engine's address."
 };
 
+/*
+ * Por qué las trampas de un sensor no tienen su disco de tamaño fijo (SEN-4,
+ * docs/diseno/discos-trampa.md), según el motivo que da el sensor. Funcionan
+ * igual, con la cuota de siempre; lo que se pierde es el tope duro.
+ */
+const SIN_DISCO: Record<string, string> = {
+	'disco.sin-loop':
+		"This machine has no loop devices (common in LXC containers, such as Proxmox's), so each decoy cannot get its own fixed-size disk for its logs and writable folders. To get them, run the sensor on a virtual machine or allow loop devices in the container.",
+	'disco.sin-propagacion':
+		'The sensor folder does not receive the mounts of the decoy disks (mount propagation). This happens on machines whose root mount is private, such as some LXC containers, and on sensors installed before this was supported, which get it with their next update if the machine allows it.',
+	'disco.sin-permiso':
+		'Docker does not let the sensor start the privileged helper that mounts the decoy disks (for example, rootless Docker or user namespace remapping).',
+	'disco.sin-auxiliar':
+		'The sensor does not have the helper that mounts the decoy disks, because it was installed with an earlier configuration. It gets it with its next update; a Community node installed before this version has to be reinstalled.',
+	'disco.error': 'The helper that mounts the decoy disks failed on this machine.'
+};
+const SIN_DISCO_ENTRETANTO =
+	"Meanwhile, the sensor checks the size of each decoy's folders every 10 seconds and stops any decoy that exceeds its quota, but between checks a compromised decoy could fill this machine's disk.";
+
 /* El texto del sensor como frase: con mayúscula al principio y punto al final. */
 function frase(t: string) {
 	const f = t.trim();
@@ -99,6 +118,16 @@ export function avisosSensor(c: Capacidades | null | undefined): Aviso[] {
 			titulo: 'Some decoys may not start on this engine',
 			texto:
 				"The container engine on this sensor does not let programs in recent images create threads (it blocks the clone3 call in its seccomp profile). This happens with Docker 20.10 releases before 20.10.10 that lack your distribution's patch. Decoys that need it will not start and will say so in their status; the others work. Update Docker, or your distribution's docker.io package, and the warning will clear on its own."
+		});
+	}
+	const disco = c.hechos['disco.trampas'];
+	if (disco && disco.valor === false) {
+		const motivo = disco.motivo ?? 'disco.error';
+		avisos.push({
+			codigo: motivo,
+			gravedad: 'aviso',
+			titulo: 'Decoys on this sensor have no fixed-size disk',
+			texto: `${SIN_DISCO[motivo] ?? SIN_DISCO['disco.error']} ${SIN_DISCO_ENTRETANTO}`
 		});
 	}
 	if (m?.sinGarantia) {

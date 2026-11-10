@@ -9,7 +9,9 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"math/big"
+	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -113,10 +115,11 @@ func TestClienteCAValida(t *testing.T) {
 	if c.Timeout != 11*time.Second {
 		t.Errorf("espera %v, quería 11s", c.Timeout)
 	}
-	tr, ok := c.Transport.(*http.Transport)
-	if !ok || tr == nil {
-		t.Fatalf("con CA debería montar un *http.Transport, es %T", c.Transport)
+	r, ok := c.Transport.(*Recargable)
+	if !ok || r == nil {
+		t.Fatalf("con CA debería montar un *Recargable, es %T", c.Transport)
 	}
+	tr := r.Transporte()
 	if tr.TLSClientConfig == nil {
 		t.Fatal("falta TLSClientConfig")
 	}
@@ -152,5 +155,73 @@ func TestClienteCAValida(t *testing.T) {
 		DNSName: "consola.ejemplo",
 	}); err != nil {
 		t.Errorf("la CA de prueba debería estar en el pool de raíces: %v", err)
+	}
+}
+
+// servidorDe arranca un HTTPS con un certificado de esa CA para 127.0.0.1.
+func servidorDe(t *testing.T, ca *x509.Certificate, claveCA *ecdsa.PrivateKey) *httptest.Server {
+	t.Helper()
+	clave, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	der, err := x509.CreateCertificate(rand.Reader, &x509.Certificate{
+		SerialNumber: big.NewInt(time.Now().UnixNano()),
+		IPAddresses:  []net.IP{net.ParseIP("127.0.0.1")},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	}, ca, &clave.PublicKey, claveCA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok")) }))
+	srv.TLS = &tls.Config{Certificates: []tls.Certificate{{Certificate: [][]byte{der}, PrivateKey: clave}}}
+	srv.StartTLS()
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// La consola pasa a otra raíz: el actualizador deja en el fichero la vieja y la
+// nueva, y el mismo cliente, sin rehacerlo, ya confía en la nueva.
+func TestRecargaLasRaicesAlCambiarElFichero(t *testing.T) {
+	rutaVieja, vieja, claveVieja := caDePrueba(t)
+	_, nueva, claveNueva := caDePrueba(t)
+	srvViejo := servidorDe(t, vieja, claveVieja)
+	srvNuevo := servidorDe(t, nueva, claveNueva)
+	c, err := Cliente(rutaVieja, 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pide := func(url string) error {
+		resp, err := c.Get(url)
+		if err == nil {
+			resp.Body.Close()
+		}
+		return err
+	}
+	if err := pide(srvViejo.URL); err != nil {
+		t.Fatalf("old root: %v", err)
+	}
+	if err := pide(srvNuevo.URL); err == nil {
+		t.Fatal("the new root is not trusted yet")
+	}
+	pemVieja, _ := os.ReadFile(rutaVieja)
+	pemNueva := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: nueva.Raw})
+	f, _ := os.OpenFile(rutaVieja, os.O_WRONLY|os.O_TRUNC, 0)
+	_, _ = f.Write(append(append([]byte{}, pemVieja...), pemNueva...))
+	f.Close()
+	if err := pide(srvNuevo.URL); err != nil {
+		t.Fatalf("after the change both roots must be trusted: %v", err)
+	}
+	if err := pide(srvViejo.URL); err != nil {
+		t.Fatalf("the old one too, until the switch: %v", err)
+	}
+	// Después solo la nueva.
+	_ = os.WriteFile(rutaVieja, pemNueva, 0o600)
+	if err := pide(srvViejo.URL); err == nil {
+		t.Fatal("the old root must no longer be trusted")
+	}
+	// Un fichero roto no deja al sensor sin conexión: sigue con lo que tenía.
+	_ = os.WriteFile(rutaVieja, []byte("basura que no es un certificado, más larga\n"), 0o600)
+	if err := pide(srvNuevo.URL); err != nil {
+		t.Fatalf("a broken file must keep the previous roots: %v", err)
 	}
 }

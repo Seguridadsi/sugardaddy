@@ -37,8 +37,8 @@ procedencia:
   licencia: Código propio (SeguridadSI); biblioteca estándar de Go, BSD-3-Clause
 
 contenedor:
-  imagen: ghcr.io/seguridadsi/sugardaddy-registro-impresora:0.1.2@sha256:21b5d4ff810b092a85c9bec9d8ce0b886518eb66a10335845c6da8f11e56f9cb
-  imagenPublica: ghcr.io/seguridadsi/sugardaddy-registro-impresora:0.1.2@sha256:21b5d4ff810b092a85c9bec9d8ce0b886518eb66a10335845c6da8f11e56f9cb
+  imagen: ghcr.io/seguridadsi/sugardaddy-registro-impresora:0.1.3@sha256:50c461007684e4f68f699ce59432865c9a61fcae4824e1d5a53c3c3ad0c3cdb8
+  imagenPublica: ghcr.io/seguridadsi/sugardaddy-registro-impresora:0.1.3@sha256:50c461007684e4f68f699ce59432865c9a61fcae4824e1d5a53c3c3ad0c3cdb8
   puertos:
     - { interno: 9100, expuesto: '${puertoRaw}', protocolo: tcp }
     - { interno: 1631, expuesto: '${puertoIpp}', protocolo: tcp, si: ipp }

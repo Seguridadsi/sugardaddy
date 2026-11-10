@@ -13,6 +13,7 @@
 import { createHash } from 'node:crypto';
 import { and, eq, gte, isNull, sql } from 'drizzle-orm';
 import { env } from '$env/dynamic/private';
+import { confianza } from './claves';
 import {
 	compararVersiones,
 	direccionReleValida,
@@ -72,7 +73,7 @@ async function leer(): Promise<Canal | null> {
 
 /* ¿Este nodo lo gestiona un panel? = está dado de alta (existe Canal). Un nodo
  * community NO tiene Canal, aunque tenga la clave pública para verificar. No es
- * lo mismo que «tiene PUBLICACION_CLAVE_PUBLICA». */
+ * lo mismo que «tiene claves de publicación». */
 export async function gestionadoPorPanel() {
 	return (await leer()) !== null;
 }
@@ -205,7 +206,7 @@ async function guardarActualizacion(a: Actualizacion) {
  */
 async function considerar(estado: EstadoDeseado, nodo: string) {
 	if (!estado.release) return;
-	const clave = env.PUBLICACION_CLAVE_PUBLICA;
+	const clave = confianza();
 	if (!clave) return;
 	const actual = (await cabecera()).cliente.version;
 	const previa = await actualizacion();
@@ -249,7 +250,7 @@ const URL_RELEASE_COMMUNITY =
 
 export async function considerarCommunity() {
 	if (await gestionadoPorPanel()) return;
-	const clave = env.PUBLICACION_CLAVE_PUBLICA;
+	const clave = confianza();
 	if (!clave) return;
 	if (!(await autoActualizar()).activo) return;
 	let firmada: ReleaseFirmada;
@@ -811,6 +812,22 @@ async function intercambiarInteligencia(c: Canal) {
  */
 export async function guardarRecuperacionPanel(r: RecuperacionPanel | null | undefined) {
 	if (!r || typeof r.usuario !== 'string' || typeof r.codigoHash !== 'string') return;
+	/*
+	 * Solo si el cliente lo ha permitido en Ajustes (SUP-12): con la clave del panel se
+	 * firma un estado para cualquier cliente, así que un panel tomado podría cambiar la
+	 * contraseña de administrador de todas las consolas. Por defecto, no.
+	 */
+	if (!(await recuperacionPanelActiva())) {
+		const [ya] = await db
+			.select({ id: s.recuperacionesClave.id })
+			.from(s.recuperacionesClave)
+			.where(eq(s.recuperacionesClave.id, `panel:${r.id}`));
+		if (!ya)
+			await auditar('Central', 'recovery code from Central ignored: not allowed in Settings', {
+				usuario: r.usuario
+			});
+		return;
+	}
 	const caduca = new Date(r.caduca);
 	if (!(caduca.getTime() > Date.now())) return;
 	if (!/^sha256\$[0-9a-f]{32}\$[0-9a-f]{64}$/.test(r.codigoHash)) return;
@@ -834,6 +851,25 @@ export async function guardarRecuperacionPanel(r: RecuperacionPanel | null | und
 		await auditar('Central', 'recovery code received from Central', {
 			usuario: r.usuario
 		});
+}
+
+/* Si el cliente deja que SeguridadSI le mande un código de recuperación desde el panel. */
+export async function recuperacionPanelActiva(): Promise<boolean> {
+	const [f] = await db.select().from(s.ajustes).where(eq(s.ajustes.clave, 'recuperacion-panel'));
+	return (f?.valor as { activa?: boolean } | undefined)?.activa === true;
+}
+
+export async function guardarRecuperacionPanelActiva(quien: string, activa: boolean) {
+	const valor = { activa };
+	await db
+		.insert(s.ajustes)
+		.values({ clave: 'recuperacion-panel', valor })
+		.onConflictDoUpdate({ target: s.ajustes.clave, set: { valor } });
+	await auditar(
+		quien,
+		activa ? 'recovery from Central allowed' : 'recovery from Central not allowed',
+		{}
+	);
 }
 
 /* Los módulos autorizados, tal como vienen en el estado firmado. Si cambian, queda en la auditoría. */
@@ -936,7 +972,7 @@ async function pedirAlPanel(sensor?: string) {
 	const r = await enviar(c, '/api/nodo/sensor-remoto', JSON.stringify({ sensor, version }));
 	if (!r.ok) throw new Error(`Central responded ${r.status}: ${(await r.text()).slice(0, 200)}`);
 	const b = (await r.json()) as { descarga: Descarga | null; release: ReleaseFirmada };
-	const clave = env.PUBLICACION_CLAVE_PUBLICA;
+	const clave = confianza();
 	const v = clave ? verificarRelease(clave, b.release) : null;
 	if (!v?.ok || v.release.version !== version)
 		throw new Error(
@@ -946,12 +982,42 @@ async function pedirAlPanel(sensor?: string) {
 	return { descarga: b.descarga, firmada: b.release, release: v.release };
 }
 
+/*
+ * La versión firmada de una versión concreta, si es la del nodo: la que deja el actualizador
+ * para el sensor cuando una instalación nueva no la trajo (SEN-3, A1 de la revisión). En un
+ * nodo de un panel, la que guardó o pide al panel; en Community, la publicada en el repo
+ * público, solo si es esa misma versión. null si no la hay. El actualizador la vuelve a
+ * comprobar con sus propias claves: aquí no se decide nada.
+ */
+export async function versionFirmadaDe(version: string): Promise<ReleaseFirmada | null> {
+	if (!/^\d+\.\d+\.\d+$/.test(version)) return null;
+	if (await gestionadoPorPanel()) {
+		try {
+			const { firmada, release } = await releaseDelNodo();
+			return release.version === version ? firmada : null;
+		} catch {
+			return null;
+		}
+	}
+	const clave = confianza();
+	if (!clave) return null;
+	try {
+		const res = await fetch(URL_RELEASE_COMMUNITY, { signal: AbortSignal.timeout(10_000) });
+		if (!res.ok) return null;
+		const firmada = (await res.json()) as ReleaseFirmada;
+		const v = verificarRelease(clave, firmada);
+		return v.ok && v.release.version === version ? firmada : null;
+	} catch {
+		return null;
+	}
+}
+
 /* La versión firmada en la que está el nodo: la que tienen que llevar sus sensores remotos. */
 export async function releaseDelNodo() {
 	const version = (await cabecera()).cliente.version;
 	const [f] = await db.select().from(s.ajustes).where(eq(s.ajustes.clave, 'release'));
 	const guardada = f?.valor as { version: string; firmada: ReleaseFirmada } | undefined;
-	const clave = env.PUBLICACION_CLAVE_PUBLICA;
+	const clave = confianza();
 	if (guardada?.version === version && clave) {
 		const v = verificarRelease(clave, guardada.firmada);
 		if (v.ok) return { firmada: guardada.firmada, release: v.release };

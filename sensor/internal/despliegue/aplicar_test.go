@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -435,10 +436,83 @@ func TestUnFalloGeneralDelMotorNoTapaUnaParada(t *testing.T) {
 	if len(estados) != 2 {
 		t.Fatalf("cada trampa del plan tiene su estado: %+v", estados)
 	}
-	if estados[0] != (Estado{ID: "t1", Donde: "parada: " + aviso}) {
+	if !reflect.DeepEqual(estados[0], Estado{ID: "t1", Donde: "parada: " + aviso}) {
 		t.Fatalf("la parada sigue diciendo por qué, sin el fallo del motor: %+v", estados[0])
 	}
 	if estados[1].Codigo != docker.MotorInalcanzable || !strings.HasPrefix(estados[1].Donde, "error: "+docker.MotorInalcanzable+": ") {
 		t.Fatalf("las demás llevan el fallo del motor: %+v", estados[1])
+	}
+}
+
+// SEN-3: lo que no está en el catálogo firmado no se arranca (la que ya estaba en marcha
+// sigue como estaba), un id que podría salir de su carpeta no se toca y ninguna trampa
+// sale a internet.
+func TestCatalogoIdYSalida(t *testing.T) {
+	m := &motorFalso{redes: map[string]map[string]any{}}
+	d := preparar(t, m)
+	fuera := map[string]bool{"t1": true, "t2": true}
+	o := Opciones{Datos: t.TempDir(), Escucha: "0.0.0.0", Catalogo: func(s plan.TrampaPlan) string {
+		if fuera[s.ID] {
+			return "not in the signed catalog"
+		}
+		return ""
+	}}
+	conSalida := trampa("t4", "r/x@sha256:3")
+	conSalida.Manifiesto.Aislamiento.Salida = true
+	p := plan.Plan{Sensor: "s1", Trampas: []plan.TrampaPlan{
+		trampa("t1", "r/x@sha256:3"), trampa("t2", "r/x@sha256:3"), trampa("t3", "r/x@sha256:3"),
+		trampa("../x", "r/x@sha256:3"), conSalida,
+	}}
+	estados, err := Aplicar(context.Background(), d, o, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	por := map[string]Estado{}
+	for _, e := range estados {
+		por[e.ID] = e
+	}
+	if e := por["t1"]; e.Codigo != CodigoCatalogo || !strings.Contains(e.Donde, "keeps running as before") {
+		t.Fatalf("la que estaba en marcha sigue, con el aviso: %+v", e)
+	}
+	if m.hizo("DELETE /containers/c-t1") || m.hizo("POST /containers/c-t1/stop") {
+		t.Fatalf("no se toca la que estaba en marcha: %v", m.llamadas)
+	}
+	if e := por["t2"]; e.Codigo != CodigoCatalogo || !strings.HasPrefix(e.Donde, "error: ") {
+		t.Fatalf("la nueva fuera del catálogo da error: %+v", e)
+	}
+	if e := por["../x"]; e.Codigo != CodigoID {
+		t.Fatalf("id con ruta: %+v", e)
+	}
+	if e := por["t4"]; e.Codigo != CodigoSalida {
+		t.Fatalf("con salida a internet: %+v", e)
+	}
+	if len(m.creados) != 1 || m.creados[0]["Labels"].(map[string]any)[etiquetaTrampa] != "t3" {
+		t.Fatalf("solo se crea la del catálogo: %v", m.creados)
+	}
+	if _, err := os.Stat(filepath.Join(o.Datos, "registros", "..", "x")); err == nil {
+		t.Fatal("el id con ruta creó una carpeta fuera de registros")
+	}
+}
+
+// A2 de la revisión: una trampa en marcha que el catálogo rechaza no ve reescritos sus
+// ficheros de configuración con lo que mandó la consola.
+func TestCatalogoRechazadoNoEscribeFicheros(t *testing.T) {
+	m := &motorFalso{redes: map[string]map[string]any{}}
+	d := preparar(t, m)
+	o := Opciones{Datos: t.TempDir(), Escucha: "0.0.0.0", Catalogo: func(plan.TrampaPlan) string { return "not in the signed catalog" }}
+	tr := trampa("t1", "r/x@sha256:3")
+	tr.Manifiesto.Contenedor.Ficheros = append(tr.Manifiesto.Contenedor.Ficheros, struct {
+		Destino   string `json:"destino"`
+		Contenido string `json:"contenido"`
+	}{Destino: "/etc/x.conf", Contenido: "CONTENIDO DEL ATACANTE"})
+	estados, err := Aplicar(context.Background(), d, o, plan.Plan{Sensor: "s1", Trampas: []plan.TrampaPlan{tr}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if estados[0].Codigo != CodigoCatalogo {
+		t.Fatalf("%+v", estados[0])
+	}
+	if _, err := os.Stat(filepath.Join(o.Datos, "config", "t1", "0")); err == nil {
+		t.Fatal("el fichero de la trampa rechazada se ha escrito en el anfitrión")
 	}
 }

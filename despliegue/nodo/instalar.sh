@@ -4,10 +4,12 @@
 #
 #   despliegue/nodo/instalar.sh /opt/sugardaddy nodo-mad01 "Grupo Aldanza" gestion.aldanza.local
 #
-# HTTPS: por defecto con una CA propia del nodo (su raíz se deja en
-# <carpeta>/ca-raiz.crt para instalarla en los equipos). Con TLS_MODO=ficheros
-# se usa el certificado del cliente, que hay que dejar antes en
-# <carpeta>/certs/certificado.pem y <carpeta>/certs/clave.pem.
+# HTTPS: por defecto con una CA propia del nodo, cuya raíz solo vale para la
+# dirección de la consola (docs/diseno/ca-nodo.md); se deja en
+# <carpeta>/ca-raiz.crt para instalarla en los equipos. Un nodo instalado antes
+# que ella sigue con la CA de Caddy hasta que el administrador pasa a la propia
+# desde la consola. Con TLS_MODO=ficheros se usa el certificado del cliente,
+# que hay que dejar antes en <carpeta>/certs/certificado.pem y clave.pem.
 #
 # Las imágenes se toman de imagenes.env (al lado de este script): las de una
 # versión firmada, siempre por digest. Genera los secretos del nodo una sola
@@ -105,6 +107,21 @@ grep -E '^(SUGARDADDY_VERSION|CONSOLA_IMAGEN|SENSOR_IMAGEN|ACTUALIZADOR_IMAGEN)=
 mv "$DIR/versiones.env.tmp" "$DIR/versiones.env"
 
 secreto() { openssl rand -base64 48 | tr -d '\n/+=' | cut -c1-48; }
+# Acceso a la consola por IP (docs/diseno/acceso-consola.md): la IP de la sesión
+# SSH desde la que se instala, como propuesta para la primera entrada. sudo
+# borra SSH_CLIENT del entorno, así que se busca en los procesos de los que
+# cuelga este (root puede leer su entorno). Instalando en local, no hay.
+ip_ssh() {
+	local pid=$$ ip
+	for _ in 1 2 3 4 5 6 7 8; do
+		pid="$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')"
+		[[ -n "$pid" && "$pid" -gt 1 ]] || return 0
+		ip="$(tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | sed -n 's/^SSH_CLIENT=\([^ ]*\).*/\1/p' | head -1)"
+		[[ -n "$ip" ]] && { echo "$ip"; return 0; }
+	done
+}
+ENV_ANTERIOR=""
+[[ -f "$DIR/.env" ]] && ENV_ANTERIOR=1
 if [[ ! -f "$DIR/.env" ]]; then
 	umask 077
 	cat > "$DIR/.env" <<FIN
@@ -117,6 +134,9 @@ CONSOLA_URL=$URL
 CONSOLA_DOMINIO=$DOMINIO
 CONSOLA_PUERTO=$PUERTO
 TLS_MODO=$TLS_MODO
+# La CA del HTTPS de la consola (docs/diseno/ca-nodo.md): «nodo», la propia, en
+# ca-nodo/. Un nodo de antes no la tiene y usa la de Caddy hasta que se cambia.
+CA_NODO=$([[ "$TLS_MODO" == interno ]] && echo nodo)
 POSTGRES_PASSWORD=$(secreto)
 SENSOR_LOCAL_TOKEN=$(secreto)
 ACTUALIZADOR_TOKEN=$(secreto)
@@ -124,6 +144,8 @@ ACTUALIZADOR_TOKEN=$(secreto)
 CLAVE_SECRETOS=$(openssl rand -hex 32)
 ACTUALIZADOR_IMAGEN=$(grep '^ACTUALIZADOR_IMAGEN=' "$AQUI/imagenes.env" | cut -d= -f2-)
 PUBLICACION_CLAVE_PUBLICA=$(grep '^PUBLICACION_CLAVE_PUBLICA=' "$AQUI/imagenes.env" | cut -d= -f2-)
+# Las claves de publicación por uso (docs/diseno/claves-y-catalogo.md); las renueva una versión firmada.
+PUBLICACION_CLAVES=$(grep '^PUBLICACION_CLAVES=' "$AQUI/imagenes.env" | cut -d= -f2- || true)
 # Registro privado de imágenes y su credencial de solo descarga.
 REGISTRO=${REGISTRO:-ghcr.io}
 REGISTRO_USUARIO=${REGISTRO_USUARIO:-}
@@ -148,6 +170,11 @@ LOGIN_LOCAL=${LOGIN_LOCAL:-}
 ENTRAR_CUALQUIER_IP=${ENTRAR_CUALQUIER_IP:-}
 # Panel central: el nodo se da de alta solo con este código la primera vez.
 PANEL_URL=${PANEL_URL:-}
+# Quién puede abrir la consola (docs/diseno/acceso-consola.md): IP o redes CIDR
+# separadas por comas. Vacío = se decide en la primera entrada a la consola, que
+# propone la IP de la sesión SSH desde la que se instaló (CONSOLA_ACCESO_PROPUESTA).
+CONSOLA_ACCESO=${CONSOLA_ACCESO:-}
+CONSOLA_ACCESO_PROPUESTA=$(ip_ssh)
 PANEL_ALTA_CODIGO=${PANEL_ALTA_CODIGO:-}
 # Solo para pruebas contra un panel de desarrollo sin TLS.
 PANEL_HTTP_PERMITIDO=${PANEL_HTTP_PERMITIDO:-}
@@ -224,23 +251,64 @@ if [[ ! -f "$DIR/clave-copias" ]]; then
 fi
 
 cd "$DIR"
+# La versión firmada de la que se instala, si la trae el instalador (el del panel la trae):
+# su catálogo es lo único que el sensor arranca, desde el primer minuto (SEN-3). Sin ella
+# (Community), el actualizador la pide a la consola en cuanto arranca.
+if [[ -s "$AQUI/version-firmada.json" ]]; then
+	mkdir -p "$DIR/firmado"
+	cp "$AQUI/version-firmada.json" "$DIR/firmado/version.json"
+	chmod 644 "$DIR/firmado/version.json"
+	grep -q '"catalogo' "$DIR/firmado/version.json" && echo 1 > "$DIR/firmado/exigir"
+fi
 PASO="download the images"
 # Con imágenes privadas, docker necesita el token para la primera descarga.
 if grep -q '^REGISTRO_TOKEN=.' .env; then
 	grep '^REGISTRO_TOKEN=' .env | cut -d= -f2- | docker login "$(grep '^REGISTRO=' .env | cut -d= -f2-)" \
 		-u "$(grep '^REGISTRO_USUARIO=' .env | cut -d= -f2-)" --password-stdin >/dev/null
 fi
+# Los discos de las trampas (docs/diseno/discos-trampa.md): el sensor los ve si su
+# carpeta le llega con propagación desde la máquina. Solo se pide si la máquina la
+# admite (lo prueba un contenedor de un instante con la imagen del sensor): en una
+# que no, como un contenedor LXC con la raíz privada, Docker no arrancaría el
+# sensor con ella, y sus trampas siguen con el vigilante de 10 s. Si ya estaba, se queda.
+PASO="check mount propagation"
+if docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
+	--mount "type=bind,source=$DIR/datos/sensor,target=/sd,readonly,bind-propagation=rslave" \
+	"$(grep '^SENSOR_IMAGEN=' versiones.env | cut -d= -f2-)" version >/dev/null 2>&1; then
+	fijar_env SENSOR_PROPAGACION rslave
+fi
 PASO="start the node"
 # La consola monta la raíz de la CA: tiene que existir, como fichero normal
-# (vacío hasta que Caddy la cree). Nunca un enlace.
+# (vacío hasta que haya raíz). Nunca un enlace.
 [[ -L ca-raiz.crt ]] && rm -f ca-raiz.crt
 [[ -e ca-raiz.crt ]] || : > ca-raiz.crt
+CA_PROPIA="" CA_NUEVA=""
+if [[ "$TLS_MODO" == interno ]] && grep -q '^CA_NODO=nodo$' .env; then
+	# La CA propia: la que ya hay si cubre la dirección de la consola, o una
+	# nueva (la primera vez, o si la dirección cambió). La crea el actualizador
+	# de esta versión; la clave de la raíz no se escribe en ningún sitio.
+	PASO="create the node CA"
+	CA_PROPIA=1
+	ca="$(docker compose --env-file .env --env-file versiones.env run --rm --no-deps -T actualizador ca-generar /nodo/ca-nodo "$DOMINIO" "$NODO_ID" | tail -1)"
+	case "$ca" in
+	new\ *) CA_NUEVA=1 ;;
+	kept\ *) ;;
+	*) echo "Sugardaddy: could not create the node certificate authority: $ca" >&2; exit 1 ;;
+	esac
+	if [[ -n "$CA_NUEVA" ]]; then
+		# Los certificados que Caddy guardó de una CA anterior ya no casan con la nueva.
+		docker compose --env-file .env --env-file versiones.env run --rm --no-deps -T --entrypoint rm https -rf /data/caddy/certificates/nodo
+	fi
+	openssl x509 -in ca-nodo/raiz.crt > ca-raiz.crt
+	chmod 644 ca-raiz.crt
+fi
+PASO="start the node"
 docker compose --env-file .env --env-file versiones.env up -d --wait
 # El Caddyfile es un bind-mount y Caddy no recarga su contenido solo (admin off):
 # `up` no recrea Caddy si solo cambió el CONTENIDO del fichero (p. ej. un arreglo
 # o la dirección). Se fuerza su recreación para que lo relea, sin tocar el resto.
 docker compose --env-file .env --env-file versiones.env up -d --no-deps --force-recreate https
-if [[ "$TLS_MODO" == interno ]]; then
+if [[ "$TLS_MODO" == interno && -z "$CA_PROPIA" ]]; then
 	# La raíz de la CA del nodo, para instalarla en los equipos que entren a la
 	# consola. Lo que sale de Caddy no se copia tal cual: se saca a una carpeta
 	# temporal y solo pasa un certificado de CA, escrito encima de ca-raiz.crt
@@ -259,9 +327,18 @@ if [[ "$TLS_MODO" == interno ]]; then
 		sleep 2
 	done
 	rm -rf "$tmp"
-	[[ -s ca-raiz.crt ]] && echo "Node CA root in $DIR/ca-raiz.crt (fingerprint $(openssl x509 -in ca-raiz.crt -noout -fingerprint -sha256 | cut -d= -f2))"
+fi
+# El appliance lee la huella de esta línea: no cambiar su forma.
+if [[ "$TLS_MODO" == interno && -s ca-raiz.crt ]]; then
+	echo "Node CA root in $DIR/ca-raiz.crt (fingerprint $(openssl x509 -in ca-raiz.crt -noout -fingerprint -sha256 | cut -d= -f2))"
+	[[ -n "$CA_PROPIA" ]] && echo "It only works for $DOMINIO: install it as a trusted root on the computers that open the console."
+	if [[ -n "$CA_NUEVA" && -n "$ENV_ANTERIOR" ]]; then
+		echo "Sugardaddy: the console address is not covered by the previous node root, so a new one was created. Install it on the computers that open the console: browsers will not open it until they trust it." >&2
+	fi
 fi
 echo "Node running. Console at $URL"
+echo "The first time you sign in, choose which IP addresses can open the console."
+echo "If you ever lock yourself out, run this on this machine: sudo touch $DIR/abrir-consola"
 
 # Lo que el cliente tiene que guardar, junto y una sola vez: la contraseña del
 # primer administrador (si el nodo la acaba de crear, sale en el registro de la

@@ -129,3 +129,14 @@ describe('lista de Tor firmada', () => {
 		expect(verificarListaTor(panel.publica, global).ok).toBe(false);
 	});
 });
+
+describe('los módulos de un indicador', () => {
+	it('solo identificadores de módulo, sin repetir, ordenados y con tope', async () => {
+		const { modulosValidos, MAXIMO_MODULOS } = await import('./indicadores.ts');
+		expect(modulosValidos(['rdp', 'cowrie', 'rdp'])).toEqual(['cowrie', 'rdp']);
+		expect(modulosValidos(['Cowrie', 'srv backup acme', '../x', 7, null, ''])).toEqual([]);
+		expect(modulosValidos('cowrie')).toEqual([]);
+		const muchos = Array.from({ length: 30 }, (_, i) => `m${i}`);
+		expect(modulosValidos(muchos)).toHaveLength(MAXIMO_MODULOS);
+	});
+});

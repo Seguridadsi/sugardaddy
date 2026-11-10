@@ -51,6 +51,12 @@ services:
       # consola, al final de X-Forwarded-For («Probar» la propone).
       ADDRESS_HEADER: X-Forwarded-For
       XFF_DEPTH: '1'
+      # Acceso a la consola por IP (docs/diseno/acceso-consola.md): la lista que
+      # dio quien instaló, si la dio, y la IP de su sesión SSH como propuesta.
+      # NODO_DIR, para decir dónde está el fichero de emergencia (abrir-consola).
+      CONSOLA_ACCESO: ${CONSOLA_ACCESO:-}
+      CONSOLA_ACCESO_PROPUESTA: ${CONSOLA_ACCESO_PROPUESTA:-}
+      NODO_DIR: ${NODO_DIR:-}
       NODO_ID: ${NODO_ID:?falta en .env}
       NODO_NOMBRE: ${NODO_NOMBRE:?falta en .env}
       SENSOR_LOCAL_TOKEN: ${SENSOR_LOCAL_TOKEN}
@@ -59,7 +65,10 @@ services:
       SENSOR_LOCAL_RED: ${SENSOR_LOCAL_RED:-}
       SENSOR_LOCAL_VLAN: ${SENSOR_LOCAL_VLAN:-}
       ACTUALIZADOR_TOKEN: ${ACTUALIZADOR_TOKEN}
-      PUBLICACION_CLAVE_PUBLICA: ${PUBLICACION_CLAVE_PUBLICA}
+      # Las claves de publicación en las que se confía, por uso, y la de legado
+      # (docs/diseno/claves-y-catalogo.md): las renueva una versión firmada.
+      PUBLICACION_CLAVES: ${PUBLICACION_CLAVES:-}
+      PUBLICACION_CLAVE_PUBLICA: ${PUBLICACION_CLAVE_PUBLICA:-}
       # Cifra los secretos que el cliente pone en su consola (avisos y SIEM).
       # La generan instalar.sh y, en un nodo de antes, el actualizador
       # (entorno.json); vacía, la consola no guarda secretos.
@@ -121,11 +130,17 @@ services:
       # nombre» lo marca HOST_HEADER, que instalar.sh solo pone en ese modo (la
       # consola saca entonces el origen de las cabeceras de Caddy); vacío = fijo.
       CADDY_MODO: ${HOST_HEADER:+-cualquier-ip}
+      # La CA con la que firma (docs/diseno/ca-nodo.md): «nodo», la propia, en
+      # ca-nodo/; vacío (nodo instalado antes que ella), la de Caddy, «local».
+      CADDY_CA: ${CA_NODO:-local}
     ports:
       - '${CONSOLA_ESCUCHA:-0.0.0.0}:${CONSOLA_PUERTO:-443}:443'
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - ./certs:/certs:ro
+      # La raíz, la intermedia y su clave. Solo Caddy la monta: la consola
+      # recibe la raíz (pública) en ca-raiz.crt.
+      - ./ca-nodo:/ca-nodo:ro
       - datos-caddy:/data
     tmpfs: [/config]
     networks: [nodo]
@@ -144,10 +159,19 @@ services:
       - -escucha=${TRAMPAS_ESCUCHA:-0.0.0.0}
       - -desplazar=${TRAMPAS_DESPLAZAR:-0}
       - -salud=:9100
+      # La versión firmada instalada: su catálogo es lo único que se arranca (SEN-3).
+      - -firmado=/firmado/version.json
     environment:
       SUGARDADDY_TOKEN: ${SENSOR_LOCAL_TOKEN}
+      # Con ellas comprueba la firma de esa versión, que tiene que ser de su edición.
+      EDICION: ${EDICION:-}
+      PUBLICACION_CLAVES: ${PUBLICACION_CLAVES:-}
+      PUBLICACION_CLAVE_PUBLICA: ${PUBLICACION_CLAVE_PUBLICA:-}
       # Con su propia imagen comprueba que las trampas no se ven entre sí.
       SENSOR_IMAGEN: ${SENSOR_IMAGEN}
+      # Con la del actualizador lanza el auxiliar que monta el disco de tamaño
+      # fijo de cada trampa (docs/diseno/discos-trampa.md).
+      ACTUALIZADOR_IMAGEN: ${ACTUALIZADOR_IMAGEN}
       # Las imágenes de las trampas propias están en el registro privado (solo lectura).
       REGISTRO: ${REGISTRO:-ghcr.io}
       REGISTRO_USUARIO: ${REGISTRO_USUARIO:-}
@@ -155,8 +179,20 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       # Misma ruta dentro y fuera: el sensor monta en las trampas carpetas
-      # que el motor de Docker tiene que encontrar en el anfitrión.
-      - ${DATOS}/sensor:${DATOS}/sensor
+      # que el motor de Docker tiene que encontrar en el anfitrión. Con
+      # propagación (rslave) ve los discos de las trampas que su auxiliar monta
+      # después de que arranque (docs/diseno/discos-trampa.md). Solo si la
+      # máquina la admite: lo prueban el instalador y el auxiliar de cada
+      # versión, que dejan SENSOR_PROPAGACION en .env; si no, Docker no
+      # arrancaría el sensor (un contenedor LXC con la raíz privada).
+      - type: bind
+        source: ${DATOS}/sensor
+        target: ${DATOS}/sensor
+        bind:
+          propagation: ${SENSOR_PROPAGACION:-rprivate}
+          create_host_path: true
+      # La deja el actualizador; una carpeta y no el fichero, que se reescribe con un rename.
+      - ${NODO_DIR}/firmado:/firmado:ro
     networks: [nodo]
     labels:
       sugardaddy.servicio: sensor
@@ -182,7 +218,10 @@ services:
       # La carpeta del nodo vista desde el anfitrión: la necesita el auxiliar
       # que aplica la configuración, que la monta en la misma ruta.
       NODO_DIR: ${NODO_DIR}
-      PUBLICACION_CLAVE_PUBLICA: ${PUBLICACION_CLAVE_PUBLICA}
+      # Su edición: solo acepta versiones de ella (Community o Cloud).
+      EDICION: ${EDICION:-}
+      PUBLICACION_CLAVES: ${PUBLICACION_CLAVES:-}
+      PUBLICACION_CLAVE_PUBLICA: ${PUBLICACION_CLAVE_PUBLICA:-}
       # Para descargar las versiones nuevas de un registro privado (solo lectura).
       REGISTRO: ${REGISTRO:-ghcr.io}
       REGISTRO_USUARIO: ${REGISTRO_USUARIO:-}
@@ -207,5 +246,7 @@ networks:
 
 volumes:
   datos-postgres: {}
-  # La CA interna del nodo: si se pierde, hay que volver a repartir su raíz.
+  # Los certificados que emite Caddy y, en un nodo instalado antes de la CA
+  # propia (docs/diseno/ca-nodo.md), la CA de Caddy, que se destruye al pasar
+  # a la propia. Si se pierde esa CA, hay que volver a repartir su raíz.
   datos-caddy: {}

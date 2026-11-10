@@ -458,3 +458,56 @@ func TestVueltaAtras(t *testing.T) {
 		}
 	}
 }
+
+// La versión que trae confianza la deja en .env (cambiando lo que había), y la versión
+// firmada queda para el sensor. Si algo falla, las dos cosas vuelven a como estaban.
+func TestConfianzaYVersionFirmadaParaElSensor(t *testing.T) {
+	n := nuevoNodo(t)
+	nueva, _ := claveB64(t)
+	r := releaseConConfiguracion("services: {}\n")
+	r.Servicios = map[string]string{"consola": "ejemplo.azurecr.io/consola@sha256:" + strings.Repeat("a", 64)}
+	r.Actualizador = "ejemplo.azurecr.io/actualizador@sha256:" + strings.Repeat("b", 64)
+	r.Confianza = &ConfianzaNueva{Claves: "cloud:" + nueva}
+	f := n.firmada(t, r)
+	res := n.app.Aplicar(context.Background(), f)
+	if res.Estado != "aplicada" {
+		t.Fatalf("%+v", res)
+	}
+	// Lo que hace el auxiliar al acabar: si no, la pasada siguiente se creería a medias.
+	_ = GuardarResultado(n.dir, res)
+	env := leer(t, n.dir, ".env")
+	if !strings.Contains(env, "\nPUBLICACION_CLAVES=cloud:"+nueva+"\n") || !strings.Contains(env, "PUBLICACION_CLAVE_PUBLICA=MC") {
+		t.Fatalf("la confianza nueva va al .env y la de legado se queda:\n%s", env)
+	}
+	guardada := leer(t, n.dir, FicheroFirmada)
+	var g ReleaseFirmada
+	if err := json.Unmarshal([]byte(guardada), &g); err != nil || g.Release != f.Release || g.Firma != f.Firma {
+		t.Fatalf("la versión firmada para el sensor: %s", guardada)
+	}
+
+	// Una segunda que cambia la lista y retira el legado, pero no queda sana.
+	otra, _ := claveB64(t)
+	r.Version = "0.13.0"
+	lista := "cloud:" + otra + ",licencias:" + otra + ",delegaciones:" + otra
+	r.Confianza = &ConfianzaNueva{Claves: lista, RetirarLegado: true}
+	_ = os.WriteFile(filepath.Join(n.dir, "FALLA"), nil, 0o644)
+	if res := n.app.Aplicar(context.Background(), n.firmada(t, r)); res.Estado != "fallida" {
+		t.Fatalf("%+v", res)
+	}
+	if e := leer(t, n.dir, ".env"); e != env {
+		t.Fatalf("al volver atrás, .env queda como estaba:\n%s\n---\n%s", env, e)
+	}
+	if leer(t, n.dir, FicheroFirmada) != guardada {
+		t.Fatal("al volver atrás, la versión firmada queda como estaba")
+	}
+	_ = os.Remove(filepath.Join(n.dir, "FALLA"))
+
+	// Y bien aplicada: cambia la lista y la de legado queda vacía.
+	if res := n.app.Aplicar(context.Background(), n.firmada(t, r)); res.Estado != "aplicada" {
+		t.Fatalf("%+v", res)
+	}
+	env = leer(t, n.dir, ".env")
+	if !strings.Contains(env, "PUBLICACION_CLAVES="+lista+"\n") || !strings.Contains(env, "PUBLICACION_CLAVE_PUBLICA=\n") || strings.Count(env, "PUBLICACION_CLAVES=") != 1 {
+		t.Fatalf("lista cambiada y legado retirado:\n%s", env)
+	}
+}

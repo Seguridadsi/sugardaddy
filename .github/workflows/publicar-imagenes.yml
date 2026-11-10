@@ -70,6 +70,10 @@ jobs:
     permissions:
       contents: read
       packages: write
+      # Procedencia firmada de cada imagen: antes de firmar la versión, publicar-community.sh
+      # comprueba con «gh attestation verify» que la construyó este Action (SUP-4).
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -77,6 +81,7 @@ jobs:
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
       - name: Construir y publicar las imágenes del nodo en ghcr
+        id: publicar
         run: |
           set -euo pipefail
           org=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
@@ -91,8 +96,31 @@ jobs:
             fi
           done
           despliegue/nodo/construir-imagenes-local.sh "$V"
+          echo "org=$org" >> "$GITHUB_OUTPUT"
           for svc in consola sensor actualizador; do
             docker tag "sugardaddy-$svc:$V" "ghcr.io/$org/sugardaddy-$svc:$V"
             docker push "ghcr.io/$org/sugardaddy-$svc:$V"
             docker inspect --format="$svc -> {{index .RepoDigests 0}}" "ghcr.io/$org/sugardaddy-$svc:$V"
+            echo "$svc=$(docker inspect --format='{{index .RepoDigests 0}}' "ghcr.io/$org/sugardaddy-$svc:$V" | cut -d@ -f2)" >> "$GITHUB_OUTPUT"
           done
+
+      - name: Procedencia firmada de la consola
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/${{ steps.publicar.outputs.org }}/sugardaddy-consola
+          subject-digest: ${{ steps.publicar.outputs.consola }}
+          push-to-registry: true
+
+      - name: Procedencia firmada del sensor
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/${{ steps.publicar.outputs.org }}/sugardaddy-sensor
+          subject-digest: ${{ steps.publicar.outputs.sensor }}
+          push-to-registry: true
+
+      - name: Procedencia firmada del actualizador
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/${{ steps.publicar.outputs.org }}/sugardaddy-actualizador
+          subject-digest: ${{ steps.publicar.outputs.actualizador }}
+          push-to-registry: true

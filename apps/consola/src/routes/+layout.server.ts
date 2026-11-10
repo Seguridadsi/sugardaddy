@@ -9,11 +9,35 @@ import { esCommunity } from '$lib/server/edicion';
 import { OPERADOR_POR_DEFECTO, operador } from '$lib/server/operador';
 import { sugerirDominio } from '$lib/camuflaje';
 import { zonasDe } from '$lib/server/zona-horaria';
+import { redirect } from '@sveltejs/kit';
+import { puede } from '$lib/permisos';
+import { cortafuegos, cortafuegosConfirma, leerAcceso } from '$lib/server/acceso';
+import { avisoCa } from '$lib/server/ca-nodo';
+
+/*
+ * El acceso a la consola por IP (docs/diseno/acceso-consola.md): sin decidir,
+ * quien puede decidirlo va a esa pantalla antes que a ninguna otra.
+ */
+async function acceso(usuario: App.Locals['usuario'], ruta: string) {
+	const a = await leerAcceso();
+	const admin = !!usuario && puede(usuario.roles, 'ajustes');
+	if (admin && a.estado === 'pendiente' && !ruta.startsWith('/settings/access'))
+		redirect(303, '/settings/access');
+	return {
+		estado: a.estado,
+		emergencia: !!a.emergencia,
+		/* Limitada en la consola, pero el cortafuegos de la máquina no confirma que aplique esta lista. */
+		cortafuegosMal: a.estado === 'restringida' && !cortafuegosConfirma(a, await cortafuegos())
+	};
+}
 
 /* Sin sesión (la pantalla de entrada) no se consulta nada: ni el nombre del cliente se enseña. */
 export const load = async ({ locals, url, cookies }) =>
 	locals.usuario
 		? {
+				acceso: await acceso(locals.usuario, url.pathname),
+				/* La raíz nueva del HTTPS de la consola (docs/diseno/ca-nodo.md), solo para quien decide. */
+				ca: await avisoCa(puede(locals.usuario.roles, 'ajustes')),
 				...(await zonasDe(locals.usuario, cookies)),
 				usuario: locals.usuario,
 				modoDesarrollo: locals.modoDesarrollo,
@@ -32,6 +56,8 @@ export const load = async ({ locals, url, cookies }) =>
 				...(await cabecera())
 			}
 		: {
+				acceso: { estado: 'restringida' as const, emergencia: false, cortafuegosMal: false },
+				ca: null,
 				...(await zonasDe(null, cookies)),
 				usuario: null,
 				modoDesarrollo: false,

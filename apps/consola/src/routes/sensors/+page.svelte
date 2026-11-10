@@ -221,6 +221,15 @@
 							{#if x.remoto}
 								<form method="POST" action="?/linea" use:enhance>
 									<input type="hidden" name="id" value={x.id} />
+									{#if data.acceso.estado === 'restringida'}
+										<input
+											name="ip"
+											class="mono ip-maquina"
+											placeholder="Machine IP"
+											aria-label="IP address of the sensor machine"
+											title="Only if it is a different machine: its address joins the console access list"
+										/>
+									{/if}
 									<button class="boton" title="To reinstall it, or if the previous one was lost"
 										>New line</button
 									>
@@ -333,12 +342,34 @@
 					value={form?.nombre ?? ''}
 				/>
 			</div>
+			<div>
+				<label for="ip">IP address of the sensor machine</label>
+				<input
+					id="ip"
+					name="ip"
+					class="mono"
+					placeholder="10.70.0.15"
+					required={data.acceso.estado === 'restringida'}
+					value={form?.ip ?? ''}
+				/>
+			</div>
 		</div>
+		<p class="ayuda">
+			{#if data.acceso.estado === 'restringida'}
+				Required: access to this console is limited, and this address joins the list so the sensor
+				can connect.
+			{:else}
+				Optional: if you later limit who can open the console, this address is already in the list.
+			{/if}
+		</p>
 		<button class="boton principal">Enroll and generate the line</button>
 	</form>
 {/if}
 
 <style>
+	.ip-maquina {
+		width: 9rem;
+	}
 	.cabecera {
 		margin-bottom: 18px;
 	}

@@ -9,6 +9,7 @@ import {
 	rango,
 	restar,
 	esIpPublica,
+	modulosValidos,
 	verificarLista,
 	type IndicadorSubida,
 	type ListaFirmada
@@ -64,7 +65,7 @@ async function blancas(ahora = new Date()) {
 	];
 }
 
-/* Lo que se subiría ahora: agrupado por IP, sin nada más que la IP, el tipo de trampa y el recuento. */
+/* Lo que se subiría ahora: agrupado por IP, sin nada más que la IP, el tipo y los módulos de trampa y el recuento. */
 export async function indicadoresPendientes() {
 	const desde = await marca();
 	/*
@@ -86,6 +87,7 @@ export async function indicadoresPendientes() {
 		.select({
 			ip: s.eventos.ip,
 			tipo: sql<string>`min(${s.eventos.tipo})`,
+			modulos: sql<string[]>`array_agg(distinct ${s.eventos.modulo})`,
 			eventos: sql<number>`count(*)::int`,
 			primeraVez: sql<Date>`min(${s.eventos.cuando})`
 		})
@@ -119,6 +121,7 @@ export async function indicadoresPendientes() {
 			valor: f.ip!,
 			clase: 'ip',
 			tipo: f.tipo as IndicadorSubida['tipo'],
+			modulos: modulosValidos(f.modulos),
 			primeraVez: new Date(f.primeraVez).toISOString(),
 			eventos: f.eventos
 		}));

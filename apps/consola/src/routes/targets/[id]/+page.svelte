@@ -268,6 +268,23 @@
 					required
 					value={form?.accion === 'instalar' ? form.nombre : d.nombre}
 				/>
+				<label for="s-ip">IP address of this machine</label>
+				<input
+					id="s-ip"
+					name="ip"
+					class="mono"
+					placeholder="10.70.0.15"
+					required={data.acceso.estado === 'restringida'}
+					value={form?.accion === 'instalar' ? (form.ip ?? '') : ''}
+				/>
+				<p class="ayuda">
+					{#if data.acceso.estado === 'restringida'}
+						Required: access to the console is limited, and this address joins the list so the
+						sensor can connect.
+					{:else}
+						Optional: if you later limit who can open the console, it is already in the list.
+					{/if}
+				</p>
 				<button class="boton enviar">Enroll and generate the line</button>
 			</form>
 		{/if}

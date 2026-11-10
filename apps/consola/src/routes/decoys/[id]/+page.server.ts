@@ -10,7 +10,7 @@ import {
 	regenerarPasos
 } from '$lib/server/alta';
 import { exigir } from '$lib/server/auth/permisos';
-import { trampasAutorizadas } from '$lib/server/catalogo';
+import { honeycosas, trampasAutorizadas } from '$lib/server/catalogo';
 import { estadosVisibles } from '$lib/server/colocacion';
 import { entornoDeTrampa, trampa } from '$lib/server/consultas';
 import { destinoDeTrampa, listaDestinos, trampasDelCliente } from '$lib/server/destinos';
@@ -88,6 +88,12 @@ export const load = async ({ params, getClientAddress }) => {
 		return {
 			tipo: 'manual' as const,
 			trampa: { id: t.id, nombre: t.nombre, colocacion: t.colocacion, modulo: t.modulo },
+			/*
+			 * Su módulo ya no está en el catálogo (como el píxel del login de Entra, retirado
+			 * porque Microsoft quita el CSS del branding): la ficha pide retirarla con sus
+			 * pasos, que se guardaron al generarla.
+			 */
+			fueraDelCatalogo: !honeycosas().some((x) => x.id === t.modulo),
 			estado,
 			prueba,
 			entorno,

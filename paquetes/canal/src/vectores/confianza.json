@@ -1,0 +1,38 @@
+{
+	"nota": "Firmados con una clave de legado que no se da y, en firmas, con las nuevas: quien solo confía en PUBLICACION_CLAVES tiene que aceptarlos.",
+	"claves": "cloud:MCowBQYDK2VwAyEA72ZKehYFyqGGIbNYIA+GuKriRdFA1baup80feCDYleA=,licencias:MCowBQYDK2VwAyEAONtLM+hAOyxh4YT8xTXEDVSIRsf2WLlj8hDPSSXH2ts=,delegaciones:MCowBQYDK2VwAyEAyQq5wjplLEXr0ihGC6XsnYHZNchhIfzbUu/zsMIOBQw=",
+	"release": {
+		"release": "{\"version\":\"0.25.0\",\"publicada\":\"2026-11-10T10:00:00Z\",\"notas\":\"vector\",\"servicios\":{\"consola\":\"ejemplo.azurecr.io/sugardaddy-consola@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\"catalogo\":{\"smb\":[\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"]},\"commit\":\"cccccccccccccccccccccccccccccccccccccccc\"}",
+		"firma": "yEedBT/3/2q20L1Ls9P9t5+mRxWui1F0jNPCiyhaUrXjaqFh2A486mt9A+FdkX3G6k8Olwf2ZhalWTdNe7DnDw==",
+		"firmas": [
+			{
+				"clave": "00104ac16ad4d3a7",
+				"firma": "tszk2k8kciXu+4fCTFqz9z0D/G1ZMebbAgqOZh8MAggkRTu7Ablqu7p+EAFynpp0KtTdRrMlU8RaicL+dllhBA=="
+			}
+		]
+	},
+	"licencia": {
+		"licencia": "{\"tipo\":\"licencia\",\"version\":1,\"cliente\":\"kebaps\",\"nodo\":\"nodo-1\",\"nodoClave\":\"AAAA\",\"modulos\":[\"smb\"],\"marca\":\"vector\",\"emitida\":\"2026-11-01T00:00:00Z\",\"caduca\":\"2099-01-01T00:00:00Z\"}",
+		"firma": "JE8JWaBn54F/sUfiZ4lLAoPUymZovSUbdgcJSoBKYGjN94HM9/IU5FtfIlBBx23Z/fIbT//5P1UHMv2mucR1Aw==",
+		"firmas": [
+			{
+				"clave": "8820f233b903ce14",
+				"firma": "Fe5o0bGVyNIo6jGGdY5JIjq+zTL8WYAPdgrflxxdLAe0f3xHsmexg6Vx/fgpoI8jcizyHppD0ag7Q6C1D8tYDA=="
+			}
+		]
+	},
+	"licenciaDelegada": {
+		"licencia": "{\"tipo\":\"licencia\",\"version\":1,\"cliente\":\"kebaps\",\"nodo\":\"nodo-1\",\"nodoClave\":\"AAAA\",\"modulos\":[\"smb\"],\"marca\":\"vector\",\"emitida\":\"2026-11-01T00:00:00Z\",\"caduca\":\"2099-01-01T00:00:00Z\"}",
+		"firma": "1AlSgwA9IR7vhKfPntt9bCPWpVSZ2PdZsP+B0qx8ybOXm1/lDeOOFuAQp5fkHYOeyfLBJvzFGyNpWpR4MOjhBA==",
+		"delegacion": {
+			"delegacion": "{\"tipo\":\"delegacion-licencias\",\"version\":1,\"msp\":\"msp-vector\",\"clavePublica\":\"MCowBQYDK2VwAyEAJuSgf4Dny1us7BGi805+lOzv+FODYIYR8AjiEM5bOnw=\",\"modulos\":[\"smb\"],\"emitida\":\"2026-11-01T00:00:00Z\",\"caduca\":\"2099-01-01T00:00:00Z\"}",
+			"firma": "M63eS95C5rcYaPuVmD9CQM1vfE5YJq47UhBmBsdOtNMby0abUymfC/r2swOOSZytAh/upinQSBxYPqs7NF+cBw==",
+			"firmas": [
+				{
+					"clave": "b31281358e571e51",
+					"firma": "QVWjJLNAGmoCWnZQlnO1+zRwEd5sHe7GtZkTsIgzRJce3zxGVD96Fb0p/sYGkNRk+h5wHQxOpTqUVWrDYY2XDw=="
+				}
+			]
+		}
+	}
+}

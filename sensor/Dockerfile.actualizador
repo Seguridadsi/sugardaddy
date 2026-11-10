@@ -12,9 +12,17 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$VERSION" -o /out/actualizador ./cmd/actualizador
 
-# Distroless: sin shell ni gestor de paquetes. Corre como root porque habla
-# con el socket de Docker, que ya equivale a root en la máquina.
-FROM gcr.io/distroless/static:nonroot@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3
+# Alpine con iptables: el actualizador también hace de auxiliar del acceso a la
+# consola (orden «cortafuegos», docs/diseno/acceso-consola.md), que pone la regla
+# en el cortafuegos de la máquina con el iptables que use Docker allí (nft o
+# legacy). Y del de los discos de las trampas (orden «disco»,
+# docs/diseno/discos-trampa.md), con e2fsprogs (mkfs.ext4, e2fsck) y el mount,
+# umount y losetup de util-linux, que reutiliza el dispositivo loop de un fichero
+# que ya lo tiene en vez de montarlo dos veces. Corre como root porque habla con
+# el socket de Docker, que ya equivale a root en la máquina: la shell de Alpine
+# no le da nada que no tuviera.
+FROM alpine:3.22@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8
+RUN apk add --no-cache iptables iptables-legacy e2fsprogs mount umount losetup
 # El binario de compose de la arquitectura de la imagen (en producción, amd64).
 ARG COMPOSE=dist/docker-compose-linux-amd64
 COPY --from=construccion /out/actualizador /app

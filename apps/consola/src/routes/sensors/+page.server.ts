@@ -13,7 +13,9 @@ import {
 } from '$lib/server/gestion';
 import { listaDestinos } from '$lib/server/destinos';
 import { esCommunity } from '$lib/server/edicion';
-import { altaSensorRemoto, lineaSensorRemoto } from '$lib/server/sensores-remotos';
+import { ErrorCliente, altaSensorRemoto, lineaSensorRemoto } from '$lib/server/sensores-remotos';
+import { esLocal, quitarSensorDelAcceso } from '$lib/server/acceso';
+import { normalizarIp } from '$lib/server/pruebas';
 
 export const load = async ({ url }) => {
 	const destinos = await listaDestinos();
@@ -36,25 +38,31 @@ export const actions = {
 		const f = await request.formData();
 		const nombre = String(f.get('nombre') ?? '').trim();
 		const v = { id: identificador(String(f.get('id') ?? ''), nombre), nombre };
-		if (!v.id) return fail(400, { error: SIN_IDENTIFICADOR, ...v });
-		if (!v.nombre) return fail(400, { error: 'The name is required.', ...v });
+		/* La IP de su máquina: con el acceso a la consola limitado, entra en la lista. */
+		const ip = String(f.get('ip') ?? '').trim();
+		if (!v.id) return fail(400, { error: SIN_IDENTIFICADOR, ...v, ip });
+		if (!v.nombre) return fail(400, { error: 'The name is required.', ...v, ip });
 		try {
-			const linea = await altaSensorRemoto(u.correo, v);
+			const linea = await altaSensorRemoto(u.correo, v, undefined, ip);
 			if (!linea)
-				return fail(400, { error: 'A sensor with that identifier already exists.', ...v });
+				return fail(400, { error: 'A sensor with that identifier already exists.', ...v, ip });
 			return { linea, para: v.id };
 		} catch (e) {
-			return fail(500, { error: (e as Error).message, ...v });
+			return fail(e instanceof ErrorCliente ? 400 : 500, { error: (e as Error).message, ...v, ip });
 		}
 	},
 	linea: async ({ request, locals }) => {
 		const u = exigir(locals, 'ajustes');
-		const id = String((await request.formData()).get('id'));
+		const f = await request.formData();
+		const id = String(f.get('id'));
 		try {
-			const linea = await lineaSensorRemoto(u.correo, id);
+			const linea = await lineaSensorRemoto(u.correo, id, String(f.get('ip') ?? '').trim());
 			return linea ? { linea, para: id } : fail(404, { error: 'That sensor is not remote.' });
 		} catch (e) {
-			return fail(500, { error: (e as Error).message });
+			return fail(e instanceof ErrorCliente ? 400 : 500, {
+				error: (e as Error).message,
+				cambiando: id
+			});
 		}
 	},
 	red: async ({ request, locals }) => {
@@ -91,11 +99,19 @@ export const actions = {
 				: 'The sensor will stop recording connections from its own machine.'
 		};
 	},
-	retirar: async ({ request, locals }) => {
+	retirar: async ({ request, locals, getClientAddress }) => {
 		const u = exigir(locals, 'ajustes');
 		const id = String((await request.formData()).get('id'));
 		const r = await retirarSensor(u.correo, id);
 		if (r === 'tiene trampas') return fail(400, { error: 'Remove its decoys first.' });
+		/* Su máquina deja de poder entrar al puerto de la consola (salvo que eso deje fuera a quien lo borra). */
+		let ip: string | null = null;
+		try {
+			ip = normalizarIp(getClientAddress());
+		} catch {
+			ip = null;
+		}
+		await quitarSensorDelAcceso(u.correo, id, ip, esLocal(ip));
 		return {
 			mensaje:
 				r === 'desactivado'

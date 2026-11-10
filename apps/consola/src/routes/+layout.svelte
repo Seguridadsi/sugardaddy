@@ -96,9 +96,11 @@
 				(data.soporte?.estado === 'abierto' ||
 					(data.soporte?.estado === 'solicitado' && esAdmin)) &&
 					'soporte',
+				(data.acceso.estado !== 'restringida' || data.acceso.cortafuegosMal) && 'acceso',
 				data.pentest && 'pentest',
 				data.modoDesarrollo && 'desarrollo',
 				!data.identidad.decidido && esAdmin && 'dominio',
+				data.ca && 'ca',
 				data.actualizacion?.version && 'actualizacion',
 				data.community && !data.gestionado && !data.autoActualizar.decidido && esAdmin && 'oferta'
 			] as (string | false | null | undefined)[]
@@ -221,6 +223,37 @@
 							<p class="emergencia">
 								Emergency sign-in ({data.usuario.nombre}). It lasts one hour and everything you do
 								is recorded in the audit logs.
+							</p>
+						{/if}
+
+						{#if avisoActual === 'acceso'}
+							<p class="emergencia">
+								{#if data.acceso.estado === 'restringida'}
+									The console is limited to a list of addresses, but this machine's firewall does
+									not apply it: anyone who reaches the machine can still find the console port.
+								{:else if data.acceso.emergencia}
+									The console was opened to everyone from the machine itself.
+								{:else}
+									Anyone who reaches this machine can see the console, and that it sits next to the
+									decoys.
+								{/if}
+								{#if esAdmin}<a href="/settings/access">Choose who can open it</a>{:else}Ask an
+									administrator to limit who can open it.{/if}
+							</p>
+						{/if}
+
+						{#if avisoActual === 'ca'}
+							<p class="actualizacion">
+								{#if data.ca === 'fallida'}
+									Switching the console to its new certificate root failed: nothing changed on the
+									computers.
+								{:else if data.ca === 'cambiando'}
+									The console is switching to its new certificate root.
+								{:else}
+									The console has a new certificate root that only works for this console. Install
+									it on the computers that open the console, then confirm.
+								{/if}
+								<a href="/settings/certificate">Review</a>
 							</p>
 						{/if}
 

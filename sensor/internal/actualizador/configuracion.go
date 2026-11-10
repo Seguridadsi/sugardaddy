@@ -65,7 +65,7 @@ type Resultado struct {
 }
 
 // Ficheros que se copian antes de tocar nada y se restauran si algo falla.
-var respaldados = []string{"compose.yml", "Caddyfile", ".env", "versiones.env", "ca-consola.crt"}
+var respaldados = []string{"compose.yml", "Caddyfile", ".env", "versiones.env", "ca-consola.crt", FicheroFirmada}
 
 const copiasQueSeGuardan = 3
 
@@ -134,7 +134,9 @@ func (a *Aplicacion) Aplicar(ctx context.Context, f ReleaseFirmada) Resultado {
 	// https se reinicia otra vez al volver atrás solo si llegó a arrancar con
 	// el Caddyfile nuevo (aquí o en la pasada que se retoma).
 	reiniciado := caddyCambia && retomada
-	salida, err := a.escribirYLevantar(ctx, r, c)
+	// La versión firmada que lee el sensor (su catálogo) va en la copia, como el resto: una
+	// vuelta atrás, también la de una pasada retomada, la deja como estaba.
+	salida, err := a.escribirYLevantar(ctx, r, c, f)
 	if err == nil && caddyCambia {
 		reiniciado = true
 		salida, err = a.reiniciarHttps(ctx)
@@ -234,11 +236,12 @@ func (a *Aplicacion) verificar(f ReleaseFirmada) (Release, error) {
 	if err != nil {
 		return Release{}, fmt.Errorf("cannot read .env: %w", err)
 	}
-	clave, err := ClavePublica(env["PUBLICACION_CLAVE_PUBLICA"])
-	if err != nil {
-		return Release{}, errors.New("a valid PUBLICACION_CLAVE_PUBLICA is missing in .env")
+	get := func(k string) string { return env[k] }
+	clave := ConfianzaDelEntorno(get)
+	if clave.Legado == nil && len(clave.Claves) == 0 {
+		return Release{}, errors.New("a valid PUBLICACION_CLAVES or PUBLICACION_CLAVE_PUBLICA is missing in .env")
 	}
-	return Verificar(clave, f)
+	return VerificarEnNodo(clave, EdicionDelNodo(get), f)
 }
 
 // comprobarMotor: antes de tocar nada, el motor tiene que contestar y no ser
@@ -264,6 +267,9 @@ func (a *Aplicacion) respaldar() (string, error) {
 		if err != nil {
 			return "", err
 		}
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, n)), 0o700); err != nil {
+			return "", err
+		}
 		if err := os.WriteFile(filepath.Join(dir, n), b, permisoDe(a.ruta(n))); err != nil {
 			return "", err
 		}
@@ -282,8 +288,10 @@ func (a *Aplicacion) respaldar() (string, error) {
 }
 
 // restaurar devuelve los ficheros a como estaban en la copia; los que no
-// existían antes se quitan.
-func (a *Aplicacion) restaurar(copia string) error {
+// existían antes se quitan. La CA del nodo de ahora se conserva (conservarCA).
+func (a *Aplicacion) restaurar(copia string) (err error) {
+	volverCA := a.conservarCA()
+	defer func() { err = errors.Join(err, volverCA()) }()
 	for _, n := range respaldados {
 		b, err := os.ReadFile(filepath.Join(copia, n))
 		if errors.Is(err, os.ErrNotExist) {
@@ -293,6 +301,9 @@ func (a *Aplicacion) restaurar(copia string) error {
 			continue
 		}
 		if err != nil {
+			return err
+		}
+		if err := os.MkdirAll(filepath.Dir(a.ruta(n)), 0o755); err != nil {
 			return err
 		}
 		if err := escribirAtomico(a.ruta(n), b, permisoDe(filepath.Join(copia, n))); err != nil {
@@ -322,7 +333,7 @@ func (a *Aplicacion) guardaPostgres(c *Configuracion) error {
 	return nil
 }
 
-func (a *Aplicacion) escribirYLevantar(ctx context.Context, r Release, c *Configuracion) (string, error) {
+func (a *Aplicacion) escribirYLevantar(ctx context.Context, r Release, c *Configuracion, f ReleaseFirmada) (string, error) {
 	if err := a.borrarAnteriores(ctx); err != nil {
 		return "", err
 	}
@@ -338,6 +349,12 @@ func (a *Aplicacion) escribirYLevantar(ctx context.Context, r Release, c *Config
 	}
 	if err := a.completarEnv(c); err != nil {
 		return "", fmt.Errorf(".env: %w", err)
+	}
+	if err := a.aplicarConfianza(r); err != nil {
+		return "", fmt.Errorf(".env (trusted keys): %w", err)
+	}
+	if err := a.guardarFirmada(f); err != nil {
+		return "", fmt.Errorf("signed version for the sensor: %w", err)
 	}
 	if err := EscribirVersiones(a.ruta("versiones.env"), r, true); err != nil {
 		return "", fmt.Errorf("versiones.env: %w", err)
@@ -359,6 +376,9 @@ func (a *Aplicacion) escribirYLevantar(ctx context.Context, r Release, c *Config
 	if err := a.descargarImagenes(ctx); err != nil {
 		return "", err
 	}
+	// Con la imagen del sensor de la versión ya descargada: si la máquina deja que su
+	// carpeta reciba los montajes de los discos de las trampas (docs/diseno/discos-trampa.md).
+	a.asegurarPropagacion(ctx)
 	if _, ok := c.Ficheros["Caddyfile"]; ok && a.Modo == ModoNodo {
 		// Antes de levantar nada: que Caddy, con su imagen de esta versión, lo acepte.
 		if out, err := a.compose(ctx, "run", "--rm", "--no-deps", "-T", "--pull", "never",
@@ -434,6 +454,96 @@ func (a *Aplicacion) completarEnv(c *Configuracion) error {
 	}
 	actual = append(actual, []byte(strings.Join(nuevas, "\n")+"\n")...)
 	return escribirAtomico(a.ruta(".env"), actual, 0o600)
+}
+
+// FicheroFirmada es donde queda la versión firmada aplicada, tal cual: el sensor la lee de
+// solo lectura (carpeta firmado/ montada en /firmado) y se queda con su catálogo (SEN-3).
+// Es una carpeta y no un fichero suelto porque montar un fichero ata su inodo, y se
+// reescribe con un rename.
+const FicheroFirmada = "firmado/version.json"
+
+func (a *Aplicacion) guardarFirmada(f ReleaseFirmada) error { return GuardarFirmada(a.Dir, f) }
+
+// MarcaCatalogo, junto a la versión firmada: desde que existe, el sensor exige el catálogo
+// (sin él, o sin fichero, no arranca nada nuevo). La dejan los instaladores y el
+// actualizador; la consola no puede escribir en la máquina, así que no la puede quitar.
+const MarcaCatalogo = "firmado/exigir"
+
+// GuardarFirmada deja la versión firmada en <dir>/firmado/version.json. También la usa el
+// actualizador cuando la versión solo cambia imágenes (la de Community, sin configuración).
+// Una versión sin catálogo no sustituye a una que lo tiene: apagaría SEN-3 sin decir nada.
+func GuardarFirmada(dir string, f ReleaseFirmada) error {
+	b, err := json.Marshal(f)
+	if err != nil {
+		return err
+	}
+	var nueva Release
+	_ = json.Unmarshal([]byte(f.Release), &nueva)
+	ruta := filepath.Join(dir, FicheroFirmada)
+	if nueva.Catalogo == nil {
+		if previa, err := os.ReadFile(ruta); err == nil {
+			var pf ReleaseFirmada
+			var pr Release
+			if json.Unmarshal(previa, &pf) == nil && json.Unmarshal([]byte(pf.Release), &pr) == nil && pr.Catalogo != nil {
+				return nil
+			}
+		}
+	}
+	if err := os.MkdirAll(filepath.Dir(ruta), 0o755); err != nil {
+		return err
+	}
+	if err := escribirAtomico(ruta, b, 0o644); err != nil {
+		return err
+	}
+	if nueva.Catalogo != nil {
+		return escribirAtomico(filepath.Join(dir, MarcaCatalogo), []byte("1\n"), 0o644)
+	}
+	return nil
+}
+
+// aplicarConfianza deja en .env las claves en las que confiar que trae la versión
+// (PUBLICACION_CLAVES) y, si lo dice, vacía la de legado. A diferencia de completarEnv, sí
+// cambia lo que ya hay: es lo que permite cambiar de clave sin reinstalar. La versión ya
+// se comprobó con lo que se confiaba antes, y una versión firmada ya puede cambiar el
+// compose entero, así que esto no da poder nuevo a quien la firma.
+func (a *Aplicacion) aplicarConfianza(r Release) error {
+	if r.Confianza == nil {
+		return nil
+	}
+	fijar := map[string]string{"PUBLICACION_CLAVES": strings.TrimSpace(r.Confianza.Claves)}
+	if r.Confianza.RetirarLegado {
+		fijar["PUBLICACION_CLAVE_PUBLICA"] = ""
+	}
+	return fijarVariables(a.ruta(".env"), fijar)
+}
+
+// fijarVariables cambia (o añade al final) esas variables de un .env, sin tocar el resto.
+// A diferencia de fijarEnv (ca.go), un valor vacío deja la variable vacía, no la quita.
+func fijarVariables(ruta string, fijar map[string]string) error {
+	actual, err := os.ReadFile(ruta)
+	if err != nil {
+		return err
+	}
+	hecho := map[string]bool{}
+	lineas := strings.Split(strings.TrimRight(string(actual), "\n"), "\n")
+	for i, l := range lineas {
+		k, _, ok := strings.Cut(l, "=")
+		if v, cambia := fijar[strings.TrimSpace(k)]; ok && cambia {
+			lineas[i] = strings.TrimSpace(k) + "=" + v
+			hecho[strings.TrimSpace(k)] = true
+		}
+	}
+	claves := make([]string, 0, len(fijar))
+	for k := range fijar {
+		claves = append(claves, k)
+	}
+	slices.Sort(claves)
+	for _, k := range claves {
+		if !hecho[k] {
+			lineas = append(lineas, k+"="+fijar[k])
+		}
+	}
+	return escribirAtomico(ruta, []byte(strings.Join(lineas, "\n")+"\n"), 0o600)
 }
 
 func (a *Aplicacion) descargarImagenes(ctx context.Context) error {

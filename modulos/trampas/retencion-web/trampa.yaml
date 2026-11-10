@@ -34,8 +34,8 @@ procedencia:
   licencia: MIT
 
 contenedor:
-  imagen: ghcr.io/seguridadsi/sugardaddy-registro-retencion-web:1.1.2-sd6@sha256:47948a614687d6b9962fa870599fca253a3affc7a648fe9184562cd8be979648
-  imagenPublica: ghcr.io/seguridadsi/sugardaddy-registro-retencion-web:1.1.2-sd6@sha256:47948a614687d6b9962fa870599fca253a3affc7a648fe9184562cd8be979648
+  imagen: ghcr.io/seguridadsi/sugardaddy-registro-retencion-web:1.1.2-sd7@sha256:9d18a8df394f2d0b48a56a15ffe8c5767a0a6ea210d4dc404b56f883f52d3cef
+  imagenPublica: ghcr.io/seguridadsi/sugardaddy-registro-retencion-web:1.1.2-sd7@sha256:9d18a8df394f2d0b48a56a15ffe8c5767a0a6ea210d4dc404b56f883f52d3cef
   puertos:
     - { interno: 8080, expuesto: '${puerto}', protocolo: tcp }
   entorno:

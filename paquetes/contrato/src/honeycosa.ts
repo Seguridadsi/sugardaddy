@@ -182,6 +182,21 @@ export function viasEstables(antes: Honeycosa, ahora: Honeycosa): string[] {
 }
 
 /*
+ * El manifiesto que de verdad recibe un sensor: sin imagenPublica, con la imagen del registro
+ * privado si el sensor puede descargar de él y, si no, con la pública. Lo usan el plan de la
+ * consola y el catálogo firmado (herramientas/catalogo-firmado.ts, SEN-3): tienen que dar
+ * exactamente lo mismo, o el sensor rechazaría trampas buenas.
+ */
+export function manifiestoParaSensor(
+	m: ManifiestoTrampa,
+	registroPrivado: boolean
+): ManifiestoTrampa {
+	if (!m.contenedor?.imagenPublica) return m;
+	const { imagenPublica, ...c } = m.contenedor;
+	return { ...m, contenedor: registroPrivado ? c : { ...c, imagen: imagenPublica } };
+}
+
+/*
  * El manifiesto v1 que entiende cualquier sensor (0.8 en adelante) para una vía
  * contenedor@1. Para un módulo v1 devuelve exactamente lo que leyó leerTrampa,
  * con las claves en el mismo orden. Es una copia: quien la recibe puede

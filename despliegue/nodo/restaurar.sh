@@ -19,6 +19,13 @@ if [[ ! -f .env ]]; then
 	echo "New machine: restoring .env, versiones.env and the CA root"
 	cp "$TMP/.env" "$TMP/versiones.env" .
 	[[ -f "$TMP/ca-raiz.crt" ]] && cp "$TMP/ca-raiz.crt" .
+	[[ -d "$TMP/ca-nodo" && ! -e ca-nodo ]] && cp -a "$TMP/ca-nodo" .
+fi
+# Un nodo que ya pasó a su CA propia no vuelve a recibir la de Caddy, que se
+# destruyó al cambiar (docs/diseno/ca-nodo.md): una copia anterior, sacada de
+# la máquina antes del cambio, aún la llevaría.
+if grep -q '^CA_NODO=nodo$' .env && [[ -d "$TMP/caddy" ]]; then
+	find "$TMP/caddy" -depth \( -path '*/pki/authorities/local' -o -path '*/certificates/local' \) -exec rm -rf {} +
 fi
 dc() { docker compose --env-file .env --env-file versiones.env "$@"; }
 

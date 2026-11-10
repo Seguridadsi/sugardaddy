@@ -25,19 +25,19 @@ func TestVerificar(t *testing.T) {
 	}
 	buena := `{"version":"0.3.0","publicada":"2026-10-13T00:00:00Z","notas":"x","servicios":{"consola":"ghcr.io/seguridadsi/consola@sha256:` + strings.Repeat("a", 64) + `"}}`
 
-	if _, err := Verificar(clave, firmar(t, priv, buena)); err != nil {
+	if _, err := Verificar(Confianza{Legado: clave}, firmar(t, priv, buena)); err != nil {
 		t.Fatalf("una versión bien firmada debería pasar: %v", err)
 	}
-	if _, err := Verificar(clave, firmar(t, otra, buena)); err == nil {
+	if _, err := Verificar(Confianza{Legado: clave}, firmar(t, otra, buena)); err == nil {
 		t.Fatal("firmada con otra clave no debería pasar")
 	}
 	tocada := firmar(t, priv, buena)
 	tocada.Release = strings.Replace(tocada.Release, "aaaa", "bbbb", 1)
-	if _, err := Verificar(clave, tocada); err == nil {
+	if _, err := Verificar(Confianza{Legado: clave}, tocada); err == nil {
 		t.Fatal("una versión cambiada tras firmar no debería pasar")
 	}
 	sinDigest := strings.Replace(buena, "@sha256:"+strings.Repeat("a", 64), ":latest", 1)
-	if _, err := Verificar(clave, firmar(t, priv, sinDigest)); err == nil {
+	if _, err := Verificar(Confianza{Legado: clave}, firmar(t, priv, sinDigest)); err == nil {
 		t.Fatal("una imagen por etiqueta no debería pasar aunque esté firmada")
 	}
 }

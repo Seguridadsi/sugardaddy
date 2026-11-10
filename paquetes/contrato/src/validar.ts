@@ -267,6 +267,17 @@ const CONTEXTO_PS = CONTEXTO.map((c) => c.replace('.', '_'));
 const CONTEXTO_SH = CONTEXTO_PS.map((c) => c.toUpperCase());
 
 /*
+ * Los secretos de los pasos: hoy, la clave con que la tarea de una trampa vigía firma
+ * sus avisos (EVT-1, docs/diseno/receptor-baliza.md). Solo en las órdenes de colocar
+ * ($sd.baliza_clave, SD_BALIZA_CLAVE): nunca en un texto, que se enseña, ni en la
+ * prueba o la retirada, que no la necesitan. No se guardan con los pasos (manual.ts):
+ * la consola pone su valor en el script de colocar al descargarlo, y en lo demás
+ * (la ficha, el documento de cambios) sale tapado.
+ */
+export const SECRETOS = ['baliza_clave'] as const;
+export type Secreto = (typeof SECRETOS)[number];
+
+/*
  * Un parámetro que acaba en una orden es numérico o tiene sus valores
  * cerrados: un enum o un pattern anclado de principio a fin. El valor entra
  * como literal escapado en el bloque de variables; así, además, no puede
@@ -295,7 +306,8 @@ export type VariableDeVia =
 	| { de: 'contexto'; nombre: Contexto }
 	| { de: 'objetivo-direccion'; parametro: string }
 	| { de: 'objetivo'; parametro: string; campo: string; exacto: boolean }
-	| { de: 'nonce' };
+	| { de: 'nonce' }
+	| { de: 'secreto'; nombre: Secreto };
 
 export type UsoDeVia = Uso & { variable: VariableDeVia };
 
@@ -371,10 +383,16 @@ function resolver(
 	const nonce = u.prueba
 		? { variable: { de: 'nonce' } as const }
 		: { fallo: `${donde} solo vale en comprobacion.prueba` };
+	const secreto = (nombre: Secreto) =>
+		u.forma !== 'texto' && u.donde.startsWith('carga.pasos[')
+			? { variable: { de: 'secreto', nombre } as const }
+			: { fallo: `${donde} es un secreto: solo vale en las órdenes de colocar` };
 	if (u.forma === 'texto') {
 		if (Object.hasOwn(props, u.nombre)) return parametro(u.nombre);
 		const c = CONTEXTO.find((x) => x === u.nombre);
 		if (c) return contexto(c);
+		const k = SECRETOS.find((x) => x === u.nombre);
+		if (k) return secreto(k);
 		if (u.nombre === 'nonce') return nonce;
 		const i = u.nombre.indexOf('.');
 		return i > 0 ? deObjetivo(u.nombre.slice(0, i), u.nombre.slice(i + 1), true) : noDeclarado;
@@ -395,12 +413,16 @@ function resolver(
 	if (u.forma === 'ps') {
 		const i = CONTEXTO_PS.indexOf(u.nombre);
 		if (i >= 0) return contexto(CONTEXTO[i]);
+		const k = SECRETOS.find((x) => x === u.nombre);
+		if (k) return secreto(k);
 		if (u.nombre === 'nonce') return nonce;
 		const j = u.nombre.indexOf('_');
 		return j > 0 ? deObjetivo(u.nombre.slice(0, j), u.nombre.slice(j + 1), true) : noDeclarado;
 	}
 	const i = CONTEXTO_SH.indexOf(u.nombre);
 	if (i >= 0) return contexto(CONTEXTO[i]);
+	const k = SECRETOS.find((x) => x.toUpperCase() === u.nombre);
+	if (k) return secreto(k);
 	if (u.nombre === 'NONCE') return nonce;
 	const x = [...xTrampa].find((p) => u.nombre.startsWith(`${p.toUpperCase()}_`));
 	return x ? deObjetivo(x, u.nombre.slice(x.length + 1), false) : noDeclarado;

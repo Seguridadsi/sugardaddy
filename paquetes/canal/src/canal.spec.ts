@@ -303,7 +303,15 @@ describe('edicionDeRelease (SUP-3)', () => {
 			)
 		).toBe('cloud');
 	});
-	it('Community: alguna de ghcr.io', () => {
+	it('Community: todas de ghcr.io; mezcladas, de ninguna (A3 de la revisión)', () => {
+		expect(
+			edicionDeRelease(
+				r(
+					{ consola: 'ghcr.io/seguridadsi/sugardaddy-consola@sha256:1' },
+					'ghcr.io/seguridadsi/sugardaddy-actualizador@sha256:2'
+				)
+			)
+		).toBe('community');
 		expect(
 			edicionDeRelease(
 				r(
@@ -311,7 +319,7 @@ describe('edicionDeRelease (SUP-3)', () => {
 					'ejemplo.azurecr.io/sugardaddy-actualizador@sha256:2'
 				)
 			)
-		).toBe('community');
+		).toBe(null);
 	});
 	it('desarrollo o vacía: ni una ni otra', () => {
 		expect(edicionDeRelease(r({ consola: 'localhost:5000/sugardaddy-consola@sha256:1' }))).toBe(

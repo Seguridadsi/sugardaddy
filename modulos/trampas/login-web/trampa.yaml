@@ -41,8 +41,8 @@ procedencia:
   licencia: Código propio (SeguridadSI); biblioteca estándar de Go, BSD-3-Clause
 
 contenedor:
-  imagen: ghcr.io/seguridadsi/sugardaddy-registro-login-web:0.1.2@sha256:9fec2ebd1cd63f6b20008a8e41bc3b618e7f85f9e89ebe177ad748e4a48f3926
-  imagenPublica: ghcr.io/seguridadsi/sugardaddy-registro-login-web:0.1.2@sha256:9fec2ebd1cd63f6b20008a8e41bc3b618e7f85f9e89ebe177ad748e4a48f3926
+  imagen: ghcr.io/seguridadsi/sugardaddy-registro-login-web:0.1.3@sha256:eeea0eabc2b90f9256b3d0bb061ec7461e34b8475a60b591dd1b90eadcd6205f
+  imagenPublica: ghcr.io/seguridadsi/sugardaddy-registro-login-web:0.1.3@sha256:eeea0eabc2b90f9256b3d0bb061ec7461e34b8475a60b591dd1b90eadcd6205f
   puertos:
     - { interno: 8080, expuesto: '${puertoWeb}', protocolo: tcp }
   entorno:

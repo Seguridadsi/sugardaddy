@@ -129,6 +129,7 @@ const SERVICIOS: Readonly<Record<string, string>> = {
 	'mcp:puertoMcp': 'MCP',
 	'memcached:puertoMemcached': 'Memcached',
 	'oracle:puertoOracle': 'Oracle',
+	'pasarela-openclaw:puerto': 'HTTP',
 	'plc-ab:puertoPlcAb': 'ENIP',
 	'portal-vpn:puerto': 'HTTPS',
 	'proxy-http:puertoProxy': 'Proxy',

@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { EJECUTORES } from './ejecutores.ts';
 import { viaDe } from './honeycosa.ts';
 import type { CargaManual, Honeycosa, Marca, Paso } from './tipos.ts';
-import { variablesDeVia, type Resultado, type VariableDeVia } from './validar.ts';
+import { SECRETOS, variablesDeVia, type Resultado, type VariableDeVia } from './validar.ts';
 
 /*
  * La vía manual (docs/diseno/modulo-despliegue.md §6.3): los pasos que da la
@@ -16,6 +16,11 @@ import { variablesDeVia, type Resultado, type VariableDeVia } from './validar.ts
  * script empieza con un bloque de variables con cada valor como literal entre
  * comillas simples, y el código las usa ($sd.<clave> en PowerShell, SD_<CLAVE>
  * en sh). Un valor con saltos de línea o caracteres de control no se acepta.
+ *
+ * Un secreto (la clave con que firma la tarea de una trampa vigía, SECRETOS en
+ * validar.ts) no se guarda con los pasos: solo su nombre, en «secretos». Su valor lo
+ * da quien exporta el script de colocar; en la ficha y en el documento de cambios
+ * sale tapado (SECRETO_TAPADO), así que copiar los pasos a mano no lo lleva.
  */
 
 export type LenguajeManual = CargaManual['lenguaje'];
@@ -61,6 +66,12 @@ export interface PasosGenerados {
 	generado: string;
 	/* Las del bloque, ya como texto: clave (con _ en lugar de .) → valor. */
 	variables: Record<string, string>;
+	/*
+	 * Los secretos que usan los pasos de colocar (baliza_clave), sin su valor: van en el
+	 * bloque del script de colocar solo al exportarlo con ellos. Sin ninguno, no está
+	 * (así el sha256 de los pasos de antes no cambia).
+	 */
+	secretos?: string[];
 	pasos: PasoGenerado[];
 	retirada: PasoGenerado[];
 	/* Fuente «trampa»: la marca con los valores reales, con la que se le atribuyen los eventos del objetivo (§8.5). */
@@ -88,6 +99,9 @@ const IDENTIFICADOR = /^[A-Za-z_][A-Za-z0-9_]*$/;
  * del texto, que harían que un literal se viera distinto de lo que es.
  */
 const PROHIBIDO = /[\p{Cc}\p{Cs}\u2028\u2029\u202A-\u202E\u2066-\u2069]/u;
+
+/* Lo que se ve en lugar de un secreto: en la ficha, en el documento de cambios y al copiar a mano. */
+export const SECRETO_TAPADO = '(secret: only in the deploy script downloaded from the console)';
 
 /* La clave en el bloque de variables: destino.direccion → destino_direccion. */
 const claveDe = (nombre: string) => nombre.replaceAll('.', '_');
@@ -144,7 +158,7 @@ function tituloDe(h: Honeycosa): (parametro: string) => string {
 
 /* El valor de una variable de la vía, o por qué no lo tiene. */
 function resolver(
-	v: Exclude<VariableDeVia, { de: 'nonce' }>,
+	v: Exclude<VariableDeVia, { de: 'nonce' } | { de: 'secreto' }>,
 	p: Record<string, unknown>,
 	c: Omit<ContextoManual, 'generado'>,
 	titulo: (parametro: string) => string
@@ -300,8 +314,14 @@ export function renderizar(
 	const variables = new Map<string, Resuelta>();
 	/* Cada hueco de un texto, por su nombre (${objetivo.direccion}), con su valor. */
 	const huecos = new Map<string, string>();
+	/* Los secretos que usan sus órdenes: solo el nombre (su valor llega al exportar). */
+	const secretos = new Set<string>();
 	for (const u of usos) {
 		if (u.variable.de === 'nonce') continue;
+		if (u.variable.de === 'secreto') {
+			secretos.add(u.variable.nombre);
+			continue;
+		}
 		const r = resolver(u.variable, parametros, c, titulo);
 		if ('error' in r) {
 			errores.push(r.error);
@@ -323,6 +343,8 @@ export function renderizar(
 			);
 		else if (r.clave.toLowerCase() === 'nonce')
 			errores.push(`${r.etiqueta}: its variable ${r.clave} is confused with the test nonce`);
+		else if (SECRETOS.some((k) => k.toLowerCase() === r.clave.toLowerCase()))
+			errores.push(`${r.etiqueta}: its variable ${r.clave} is confused with a secret of the steps`);
 		else variables.set(r.clave, r);
 		if (u.forma === 'texto') huecos.set(u.nombre, r.valor);
 	}
@@ -358,6 +380,7 @@ export function renderizar(
 		variables: Object.fromEntries(
 			[...variables.keys()].sort(porCodigo).map((k) => [k, variables.get(k)!.valor])
 		),
+		...(secretos.size ? { secretos: [...secretos].sort(porCodigo) } : {}),
 		pasos: carga.pasos.map((p, i) => paso(p, i, sustituir(p.texto))),
 		retirada:
 			via.retirada.tipo === 'manual'
@@ -445,7 +468,7 @@ export function pruebaDeVia(
 	const variables: Record<string, string> = {};
 	const huecos = new Map<string, string>([['nonce', nonce]]);
 	for (const u of usos) {
-		if (!u.prueba || u.variable.de === 'nonce') continue;
+		if (!u.prueba || u.variable.de === 'nonce' || u.variable.de === 'secreto') continue;
 		const r = resolver(u.variable, parametros, c, titulo);
 		if ('error' in r) {
 			errores.push(r.error);
@@ -657,14 +680,22 @@ function bloqueVariables(
 		.join('\n');
 }
 
+/* Las variables con cada secreto tapado: lo que se enseña y lo que va al documento de cambios. */
+const conTapados = (p: Pick<PasosGenerados, 'variables' | 'secretos'>): Record<string, string> => ({
+	...p.variables,
+	...Object.fromEntries((p.secretos ?? []).map((k) => [k, SECRETO_TAPADO]))
+});
+
 /*
  * El bloque de variables de unos pasos tal como empieza su script ($sd = @{…}
  * en PowerShell, SD_<CLAVE>='…' en sh): la consola lo enseña arriba de los
  * pasos, para copiarlo primero (§6.3). Con lenguaje «ninguno» no hay código
- * que lo use: vacío.
+ * que lo use: vacío. Un secreto sale tapado: solo lo lleva el script de colocar.
  */
-export function bloqueDeVariables(p: Pick<PasosGenerados, 'lenguaje' | 'variables'>): string {
-	return p.lenguaje === 'ninguno' ? '' : bloqueVariables(p, p.variables);
+export function bloqueDeVariables(
+	p: Pick<PasosGenerados, 'lenguaje' | 'variables' | 'secretos'>
+): string {
+	return p.lenguaje === 'ninguno' ? '' : bloqueVariables(p, conTapados(p));
 }
 
 const COMPROBAR: Record<LenguajeManual, string> = {
@@ -688,7 +719,7 @@ function documento(p: PasosGenerados, nonce: string | undefined) {
 			['Target', p.nombres.destino, p.destino],
 			['Method', `${p.nombres.via}, ${LENGUAJES[p.lenguaje]}`, p.via]
 		] as const,
-		variables: (nonce ? { ...p.variables, nonce } : p.variables) as Record<string, string>,
+		variables: (nonce ? { ...conTapados(p), nonce } : conTapados(p)) as Record<string, string>,
 		senal: p.marca
 			? `The signal comes through another decoy: an event of that decoy with ${textoMarca(p.marca)} (case-insensitive) shows that what is planted here has been used.`
 			: undefined,
@@ -794,11 +825,15 @@ const SUFIJO_FICHERO: Record<PartePasos, string> = {
  * se retira), con el nonce si se da. Lanza si los pasos no cuadran con su
  * sha256 (no se exporta algo distinto de lo que se generó) o si el formato no
  * es de su lenguaje.
+ *
+ * El script de colocar de unos pasos con secretos los lleva en su bloque: se dan
+ * en «secretos» y, si falta alguno, lanza. Ningún otro fichero los lleva: el
+ * documento los tapa y los scripts de retirar y de probar no los usan.
  */
 export function exportar(
 	p: PasosGenerados,
 	formato: FormatoPasos,
-	opciones: { parte?: PartePasos; nonce?: string } = {}
+	opciones: { parte?: PartePasos; nonce?: string; secretos?: Record<string, string> } = {}
 ): { nombre: string; tipo: string; contenido: Uint8Array } {
 	if (sha256Pasos(p) !== p.sha256)
 		throw new Error(`los pasos de ${p.trampa} no cuadran con su sha256: no se exportan`);
@@ -819,6 +854,17 @@ export function exportar(
 		return fichero(`${base}.txt`, 'text/plain; charset=utf-8', documentoTxt(p, nonce));
 	let pasos = parte === 'colocar' ? p.pasos : p.retirada;
 	let variables = p.variables;
+	if (parte === 'colocar' && p.secretos?.length) {
+		const dados = opciones.secretos ?? {};
+		const valores: Record<string, string> = {};
+		for (const k of p.secretos) {
+			const v = Object.hasOwn(dados, k) ? dados[k] : undefined;
+			if (typeof v !== 'string' || v === '' || PROHIBIDO.test(v))
+				throw new Error(`los pasos de ${p.trampa} se exportan con su secreto ${k}`);
+			valores[k] = v;
+		}
+		variables = { ...p.variables, ...valores };
+	}
 	if (parte === 'probar') {
 		if (nonce === undefined) throw new Error('la prueba se exporta con su nonce');
 		pasos = pruebaCon(p, nonce).pasos;

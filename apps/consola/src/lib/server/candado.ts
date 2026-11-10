@@ -19,6 +19,7 @@ import {
 	type LicenciaFirmada
 } from '@sugardaddy/canal';
 import { env } from '$env/dynamic/private';
+import { confianza } from './claves';
 import { db, schema as s } from './db';
 import { esCommunity } from './edicion';
 import { esDePago, esDeRegistro } from './modulos-gratis';
@@ -36,7 +37,7 @@ export async function licenciaGuardada(): Promise<LicenciaFirmada | null> {
  * de abajo es la que la deja fuera). Sin clave para cotejar, ninguno.
  */
 export async function modulosDeRegistro(): Promise<string[]> {
-	const clave = env.PUBLICACION_CLAVE_PUBLICA;
+	const clave = confianza();
 	if (!clave) return [];
 	const lic = await licenciaGuardada();
 	if (!lic) return [];
@@ -50,7 +51,7 @@ export type Cobertura =
 
 /* Cómo cubre la licencia de este nodo cada módulo: se lee y se verifica una vez. */
 export async function coberturaLicencia(): Promise<(modulo: string) => Cobertura> {
-	const clave = env.PUBLICACION_CLAVE_PUBLICA;
+	const clave = confianza();
 	const community = esCommunity();
 	const deRegistro = (modulo: string) => community && esDeRegistro(modulo);
 	const sin = (modulo: string): Cobertura => (deRegistro(modulo) ? 'registro.sin' : 'licencia.sin');

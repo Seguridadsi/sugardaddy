@@ -11,6 +11,7 @@ import {
 	CODIGO,
 	hashEvento,
 	motivo,
+	manifiestoParaSensor,
 	proyectarParaSensor,
 	validarEvento,
 	validarParametros,
@@ -125,11 +126,7 @@ async function capturaDeCopias(): Promise<boolean> {
  * si la recibe, se queda sin trampa: se le manda la pública, si la hay.
  * imagenPublica no sale de la consola, para no mezclar.
  */
-function manifiestoPara(m: ManifiestoTrampa, registroPrivado: boolean): ManifiestoTrampa {
-	if (!m.contenedor?.imagenPublica) return m;
-	const { imagenPublica, ...c } = m.contenedor;
-	return { ...m, contenedor: registroPrivado ? c : { ...c, imagen: imagenPublica } };
-}
+const manifiestoPara = manifiestoParaSensor;
 
 /*
  * El plan solo lleva lo que el sensor sabe desplegar (las trampas de
@@ -644,7 +641,7 @@ async function guardarEntrega(
 			}
 
 			/*
-			 * Las balizas (cebos de fichero y el píxel §5.3) son una pieza de
+			 * Las balizas (cebos de fichero y URL con token) son una pieza de
 			 * pago, ausente en la edición community: aquí no hay receptor ni
 			 * tokens, así que un evento es de prueba solo por «Probar».
 			 */

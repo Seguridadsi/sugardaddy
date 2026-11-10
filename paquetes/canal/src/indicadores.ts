@@ -25,7 +25,25 @@ export type IndicadorSubida = {
 	tipo: 'contenedor' | 'fichero' | 'token' | 'identidad';
 	primeraVez: string;
 	eventos: number;
+	/*
+	 * Qué módulos de trampa la vieron (cowrie, rdp…), para saber el servicio
+	 * atacado. El módulo, nunca el nombre de la trampa: ese lo pone el cliente o
+	 * sale de su dominio, y diría de quién es. Opcional: los nodos anteriores a
+	 * la 0.26 no lo mandan.
+	 */
+	modulos?: string[];
 };
+
+export const MAXIMO_MODULOS = 10;
+const MODULO = /^[a-z0-9][a-z0-9-]{0,40}$/;
+
+/* Los módulos que se aceptan: identificadores de módulo, sin repetir, como mucho 10. */
+export function modulosValidos(x: unknown): string[] {
+	if (!Array.isArray(x)) return [];
+	return [...new Set(x.filter((m): m is string => typeof m === 'string' && MODULO.test(m)))]
+		.sort()
+		.slice(0, MAXIMO_MODULOS);
+}
 
 export type IndicadorGlobal = {
 	valor: string;
@@ -79,7 +97,7 @@ export function esIpPublica(ip: string): boolean {
 }
 
 /* Contención y resta de IPs y redes (IPv4 e IPv6): en rangos.ts. */
-export { contenidaEn, rango, restar } from './rangos.ts';
+export { aCidrs, contenidaEn, rango, restar } from './rangos.ts';
 
 /* ---------- la lista global, firmada por el panel ---------- */
 

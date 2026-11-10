@@ -26,6 +26,18 @@
  * clave de publicación, así que un MSP nunca puede firmar una versión.
  */
 import { createPrivateKey, createPublicKey, sign, verify } from 'node:crypto';
+import {
+	aConfianza,
+	firmadoPor,
+	firmasExtra,
+	hayClave,
+	motivoFirmas,
+	type Confianza,
+	type Firma
+} from './confianza.ts';
+
+/* Las claves nuevas que firman además en `firmas` (docs/diseno/claves-y-catalogo.md). */
+type Extra = readonly { privada: string; publica: string }[];
 
 export type Licencia = {
 	tipo: 'licencia';
@@ -58,10 +70,15 @@ export type Delegacion = {
 	caduca: string;
 };
 
-export type DelegacionFirmada = { delegacion: string; firma: string };
+export type DelegacionFirmada = { delegacion: string; firma: string; firmas?: Firma[] };
 
 /* Sin delegacion, firmada con la clave de publicación; con ella, con la del MSP. */
-export type LicenciaFirmada = { licencia: string; firma: string; delegacion?: DelegacionFirmada };
+export type LicenciaFirmada = {
+	licencia: string;
+	firma: string;
+	firmas?: Firma[];
+	delegacion?: DelegacionFirmada;
+};
 
 const ID = /^[a-z0-9][a-z0-9-]{0,62}$/;
 const MODULO = /^[a-z0-9][a-z0-9-]{0,62}$/;
@@ -72,20 +89,30 @@ const privada = (b64: string) =>
 const publica = (b64: string) =>
 	createPublicKey({ key: Buffer.from(b64, 'base64'), format: 'der', type: 'spki' });
 
-export function firmarLicencia(clavePrivada: string, l: Licencia): LicenciaFirmada {
+export function firmarLicencia(
+	clavePrivada: string,
+	l: Licencia,
+	extra: Extra = []
+): LicenciaFirmada {
 	const texto = JSON.stringify(l);
 	return {
 		licencia: texto,
-		firma: sign(null, Buffer.from(texto), privada(clavePrivada)).toString('base64')
+		firma: sign(null, Buffer.from(texto), privada(clavePrivada)).toString('base64'),
+		...(extra.length ? { firmas: firmasExtra(texto, extra) } : {})
 	};
 }
 
 /* El certificado de un MSP, firmado con la clave de publicación. */
-export function firmarDelegacion(clavePrivada: string, d: Delegacion): DelegacionFirmada {
+export function firmarDelegacion(
+	clavePrivada: string,
+	d: Delegacion,
+	extra: Extra = []
+): DelegacionFirmada {
 	const texto = JSON.stringify(d);
 	return {
 		delegacion: texto,
-		firma: sign(null, Buffer.from(texto), privada(clavePrivada)).toString('base64')
+		firma: sign(null, Buffer.from(texto), privada(clavePrivada)).toString('base64'),
+		...(extra.length ? { firmas: firmasExtra(texto, extra) } : {})
 	};
 }
 
@@ -117,9 +144,12 @@ function motivoDelegacion(x: unknown): string | null {
 	return null;
 }
 
-/* Firma (de la clave de publicación), forma y caducidad del certificado de un MSP. */
+/*
+ * Firma (de una clave de uso «delegaciones» o de la de legado), forma y caducidad del
+ * certificado de un MSP o del registro.
+ */
 export function verificarDelegacion(
-	clavePublicaPublicacion: string,
+	clavePublicaPublicacion: string | Confianza,
 	f: unknown,
 	ahora: number = Date.now()
 ): { ok: true; delegacion: Delegacion } | { ok: false; motivo: string } {
@@ -128,10 +158,14 @@ export function verificarDelegacion(
 		!x ||
 		typeof x !== 'object' ||
 		typeof x.delegacion !== 'string' ||
-		typeof x.firma !== 'string'
+		typeof x.firma !== 'string' ||
+		motivoFirmas(x.firmas)
 	)
 		return { ok: false, motivo: 'does not have the form of a signed certificate' };
-	if (!firmaValida(clavePublicaPublicacion, x.delegacion, x.firma))
+	const confianza = aConfianza(clavePublicaPublicacion);
+	if (!hayClave(confianza, 'delegaciones'))
+		return { ok: false, motivo: 'there is no trusted key to check the certificate' };
+	if (!firmadoPor(confianza, 'delegaciones', x.delegacion, x.firma, x.firmas))
 		return { ok: false, motivo: 'the certificate is not signed by SeguridadSI' };
 	let d: unknown;
 	try {
@@ -180,26 +214,34 @@ export function motivoLicencia(x: unknown): string | null {
  * certificado y no pasar de sus módulos. msp: de quién es, si es de un MSP.
  */
 export function verificarLicencia(
-	clavePublicaPublicacion: string,
+	clavePublicaPublicacion: string | Confianza,
 	f: unknown,
 	ahora: number = Date.now()
 ): { ok: true; licencia: Licencia; msp?: string } | { ok: false; motivo: string } {
 	const x = f as LicenciaFirmada;
-	if (!x || typeof x !== 'object' || typeof x.licencia !== 'string' || typeof x.firma !== 'string')
+	if (
+		!x ||
+		typeof x !== 'object' ||
+		typeof x.licencia !== 'string' ||
+		typeof x.firma !== 'string' ||
+		motivoFirmas(x.firmas)
+	)
 		return { ok: false, motivo: 'does not have the form of a signed license' };
-	let clave = clavePublicaPublicacion;
+	const confianza = aConfianza(clavePublicaPublicacion);
 	let delegada: Delegacion | null = null;
 	if (x.delegacion !== undefined) {
-		const d = verificarDelegacion(clavePublicaPublicacion, x.delegacion, ahora);
+		const d = verificarDelegacion(confianza, x.delegacion, ahora);
 		if (!d.ok) return { ok: false, motivo: d.motivo };
 		delegada = d.delegacion;
-		clave = delegada.clavePublica;
+		/* La licencia de un MSP la firma su clave, la del certificado: solo esa. */
+		if (!firmaValida(delegada.clavePublica, x.licencia, x.firma))
+			return { ok: false, motivo: 'not signed by the MSP key' };
+	} else {
+		if (!hayClave(confianza, 'licencias'))
+			return { ok: false, motivo: 'there is no trusted key to check the license' };
+		if (!firmadoPor(confianza, 'licencias', x.licencia, x.firma, x.firmas))
+			return { ok: false, motivo: 'not signed by SeguridadSI' };
 	}
-	if (!firmaValida(clave, x.licencia, x.firma))
-		return {
-			ok: false,
-			motivo: delegada ? 'not signed by the MSP key' : 'not signed by SeguridadSI'
-		};
 	let l: unknown;
 	try {
 		l = JSON.parse(x.licencia);

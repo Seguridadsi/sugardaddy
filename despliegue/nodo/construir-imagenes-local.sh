@@ -75,12 +75,18 @@ CLAVE_PUB=""
 if [[ -f "$AQUI/PUBLICACION_CLAVE_PUBLICA" ]]; then
 	CLAVE_PUB="$(tr -d '[:space:]' < "$AQUI/PUBLICACION_CLAVE_PUBLICA")"
 fi
+# Y la lista de claves por uso (docs/diseno/claves-y-catalogo.md), si construir-community.sh la dejó.
+CLAVES=""
+if [[ -f "$AQUI/PUBLICACION_CLAVES" ]]; then
+	CLAVES="$(tr -d '[:space:]' < "$AQUI/PUBLICACION_CLAVES")"
+fi
 cat > "$AQUI/imagenes.env" <<ENV
 SUGARDADDY_VERSION=$V
 CONSOLA_IMAGEN=sugardaddy-consola:$V
 SENSOR_IMAGEN=sugardaddy-sensor:$V
 ACTUALIZADOR_IMAGEN=sugardaddy-actualizador:$V
 PUBLICACION_CLAVE_PUBLICA=$CLAVE_PUB
+PUBLICACION_CLAVES=$CLAVES
 ENV
 
 echo

@@ -34,6 +34,33 @@
 {#if form?.mensaje}<p class="mensaje" role="status">{form.mensaje}</p>{/if}
 {#if form?.error}<p class="error" role="alert">{form.error}</p>{/if}
 
+<section class="panel bloque" id="acceso">
+	<h2>Console access</h2>
+	<p class="ayuda">
+		{#if data.acceso.estado === 'restringida'}
+			Only the addresses in your list can open this console{#if data.acceso.cortafuegosMal}, but
+				this machine's firewall does not apply the list{/if}.
+		{:else}
+			Anyone who reaches this machine can see the console.
+		{/if}
+	</p>
+	<a class="boton" href="/settings/access">Choose who can open the console</a>
+</section>
+
+<section class="panel bloque" id="certificado">
+	<h2>Console certificate</h2>
+	<p class="ayuda">
+		{#if data.ca === 'pendiente' || data.ca === 'fallida'}
+			A new root for the console certificate is waiting to be installed on your computers.
+		{:else if data.ca === 'cambiando'}
+			The console is switching to its new certificate root.
+		{:else}
+			The root your computers need to trust so the browser does not warn about this console.
+		{/if}
+	</p>
+	<a class="boton" href="/settings/certificate">View the certificate root</a>
+</section>
+
 <section class="panel bloque" id="dominio">
 	<h2>Your company domain</h2>
 	<p class="ayuda">
@@ -350,6 +377,22 @@
 		>
 	</form>
 </section>
+
+{#if data.gestionado}
+	<section class="panel bloque" id="recuperacion-panel">
+		<h2>Password recovery from Central</h2>
+		<p class="ayuda">
+			If you allow it, {data.operador} can send a recovery code for a local user from Central to your
+			contact email. Leave it off unless you need it: if Central were compromised, it could be used to
+			reset administrator passwords.
+		</p>
+		<form method="POST" action="?/recuperacionPanel" use:enhance>
+			<input type="hidden" name="activa" value={data.recuperacionPanel ? 'no' : 'si'} />
+			<p>{data.recuperacionPanel ? 'Allowed.' : 'Not allowed.'}</p>
+			<button class="boton">{data.recuperacionPanel ? 'Do not allow it' : 'Allow it'}</button>
+		</form>
+	</section>
+{/if}
 
 <section class="panel bloque">
 	<h2>Emergency keys</h2>

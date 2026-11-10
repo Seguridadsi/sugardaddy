@@ -13,6 +13,7 @@ import {
 	probar,
 	pruebaDeVia,
 	renderizar,
+	SECRETO_TAPADO,
 	sha256Pasos,
 	validarHoneycosa,
 	validarParametros,
@@ -730,6 +731,99 @@ describe('exportar', () => {
 		).toContain("  'nonce' = 'abcd1234'\r\n");
 		expect(exportar(linux, 'md').nombre).toBe('sugardaddy-ssh-fs01.md');
 		expect(exportar(linux, 'txt').nombre).toBe('sugardaddy-ssh-fs01.txt');
+	});
+
+	describe('con un secreto (la clave con que firma la tarea de una trampa vigía)', () => {
+		const CLAVE = 'q83vEjRWeJq83vEjRWeJq83vEjRWeJq83vEjRWeJq80=';
+		const conClave = (lenguaje: 'sh' | 'powershell') =>
+			generar(
+				manual(lenguaje, [
+					{
+						texto: 'Guarda la clave.',
+						orden:
+							lenguaje === 'sh' ? 'printf %s "$SD_BALIZA_CLAVE"' : 'Write-Host $sd.baliza_clave'
+					}
+				]),
+				'eco',
+				{}
+			);
+
+		it('no se guarda con los pasos: solo su nombre, y el sha256 lo cubre', () => {
+			const p = conClave('powershell');
+			expect(p.secretos).toEqual(['baliza_clave']);
+			expect(Object.keys(p.variables)).not.toContain('baliza_clave');
+			expect(sha256Pasos({ ...p, secretos: undefined })).not.toBe(p.sha256);
+			/* Sin secretos no está: el sha256 de unos pasos de antes no cambia. */
+			expect(linux.secretos).toBeUndefined();
+		});
+
+		it('solo el script de colocar lo lleva, y sin él no se exporta', () => {
+			const p = conClave('powershell');
+			expect(() => exportar(p, 'ps1')).toThrow(/secreto baliza_clave/);
+			expect(() => exportar(p, 'ps1', { secretos: { baliza_clave: '' } })).toThrow(/secreto/);
+			expect(() => exportar(p, 'ps1', { secretos: { baliza_clave: 'a\nb' } })).toThrow(/secreto/);
+			const ps1 = texto(exportar(p, 'ps1', { secretos: { baliza_clave: CLAVE } }).contenido);
+			expect(ps1).toContain(`  'baliza_clave' = '${CLAVE}'\r\n`);
+			const sh = texto(
+				exportar(conClave('sh'), 'sh', { secretos: { baliza_clave: CLAVE } }).contenido
+			);
+			expect(sh).toContain(`SD_BALIZA_CLAVE='${CLAVE}'`);
+			for (const f of [
+				exportar(p, 'ps1', { parte: 'retirar', secretos: { baliza_clave: CLAVE } }),
+				exportar(p, 'md', { secretos: { baliza_clave: CLAVE } }),
+				exportar(p, 'txt', { secretos: { baliza_clave: CLAVE } })
+			])
+				expect(texto(f.contenido), f.nombre).not.toContain(CLAVE);
+		});
+
+		it('la ficha y el documento de cambios lo enseñan tapado', () => {
+			const p = conClave('powershell');
+			expect(bloqueDeVariables(p)).toContain(`'baliza_clave' = '${SECRETO_TAPADO}'`);
+			expect(texto(exportar(p, 'md').contenido)).toContain(`'baliza_clave' = '${SECRETO_TAPADO}'`);
+		});
+
+		it('solo vale en las órdenes de colocar: ni en un texto, ni en la prueba, ni al retirar', () => {
+			const vale = (via: Record<string, unknown>) =>
+				validarHoneycosa({
+					version: 2,
+					id: 'eco',
+					nombre: 'Eco',
+					descripcion: 'Repite lo que se le da.',
+					versionModulo: '0.1.0',
+					siembra: { clase: 'fichero' },
+					senal: { clase: 'baliza' },
+					parametros: { type: 'object', properties: {} },
+					vias: [
+						{
+							id: 'eco',
+							nombre: 'Eco a mano',
+							ejecutor: 'manual@1',
+							carga: { lenguaje: 'powershell', pasos: [{ texto: 'Uno.', orden: '$null = 0' }] },
+							senal: { fuente: { tipo: 'rele' } },
+							retirada: { tipo: 'manual', pasos: [{ texto: 'Nada.', orden: '$null = 0' }] },
+							...via
+						}
+					]
+				});
+			expect(
+				vale({ carga: { lenguaje: 'powershell', pasos: [{ texto: 'La ${baliza_clave}.' }] } })
+			).toMatchObject({ ok: false, errores: [expect.stringContaining('es un secreto')] });
+			expect(
+				vale({
+					retirada: {
+						tipo: 'manual',
+						pasos: [{ texto: 'Quita.', orden: 'Write-Host $sd.baliza_clave' }]
+					}
+				})
+			).toMatchObject({ ok: false, errores: [expect.stringContaining('es un secreto')] });
+			expect(
+				vale({
+					comprobacion: {
+						prueba: { pasos: [{ texto: 'Prueba.', orden: 'Write-Host $sd.baliza_clave' }] }
+					}
+				})
+			).toMatchObject({ ok: false, errores: [expect.stringContaining('es un secreto')] });
+		});
 	});
 
 	it('no exporta unos pasos que no cuadran con su sha256', () => {

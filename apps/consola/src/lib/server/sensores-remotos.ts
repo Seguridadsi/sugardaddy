@@ -8,14 +8,18 @@
  * salvo las trampas. Todo lo abre el sensor hacia la consola.
  */
 import { createHash, randomBytes } from 'node:crypto';
-import { readFileSync } from 'node:fs';
 import { and, eq, gt, isNull } from 'drizzle-orm';
 import { env } from '$env/dynamic/private';
+import { lineasDeClaves } from './claves';
+import { esCommunity } from './edicion';
 import { db, schema as s } from './db';
 import { credencialSensorRemoto } from './canal';
 import { crearSensor, regenerarToken } from './gestion';
 import { comprobarArquitectura } from './arquitectura-sh';
 import { detectarRed } from './red-sh';
+import { anadirSensorAlAcceso, entradaValida, leerAcceso } from './acceso';
+import { raicesParaSensores } from './ca-nodo';
+import { contenidaEn } from '@sugardaddy/canal';
 
 const VIDA = 24 * 60 * 60_000;
 const hash = (t: string) => createHash('sha256').update(t).digest('hex');
@@ -31,15 +35,16 @@ const LINEA_GASTADA =
  */
 export class ErrorCliente extends Error {}
 
-/* La raíz de la CA de la consola, o null si su certificado es de una CA en la que ya se confía. */
-function caRaiz(): string | null {
+/*
+ * La raíz de la CA de la consola, o null si su certificado es de una CA en la
+ * que ya se confía. Mientras el nodo tiene preparada su CA propia
+ * (docs/diseno/ca-nodo.md), también la nueva: el sensor sigue conectando
+ * después del cambio.
+ */
+async function caRaiz(): Promise<string | null> {
 	if (env.TLS_MODO === 'ficheros') return null;
-	try {
-		const pem = readFileSync(env.CA_RAIZ ?? '', 'utf8');
-		if (pem.includes('BEGIN CERTIFICATE')) return pem;
-	} catch {
-		/* se explica abajo */
-	}
+	const raices = await raicesParaSensores();
+	if (raices) return raices;
 	throw new ErrorCliente(
 		'This node is updating its configuration to the latest version. Try again in a few minutes.'
 	);
@@ -54,22 +59,60 @@ function caRaiz(): string | null {
 export async function altaSensorRemoto(
 	quien: string,
 	v: { id: string; nombre: string },
-	destino?: string
+	destino?: string,
+	ip?: string
 ) {
-	caRaiz();
+	await caRaiz();
+	await comprobarAcceso(v.id, ip);
 	/* Su red y su VLAN las cuenta su instalador (detectarRed); hasta entonces, sin indicar. */
 	if (!(await crearSensor(quien, { ...v, red: null, vlan: null, remoto: true }, destino)))
 		return null;
-	return lineaSensorRemoto(quien, v.id);
+	return lineaSensorRemoto(quien, v.id, ip);
+}
+
+/*
+ * Con el acceso a la consola limitado (docs/diseno/acceso-consola.md), la
+ * máquina del sensor tiene que estar en la lista: si no, ni la línea de
+ * instalación ni sus eventos llegarían al puerto de la consola.
+ */
+async function comprobarAcceso(sensor: string, ip?: string) {
+	if (ip?.trim()) {
+		const r = entradaValida(ip);
+		if (!r || r.includes('/'))
+			throw new ErrorCliente('Enter the IP address of the sensor machine.');
+		return;
+	}
+	const a = await leerAcceso();
+	if (a.estado !== 'restringida' || a.entradas.some((e) => e.sensor === sensor)) return;
+	/* Ya conectaba desde una dirección que la lista cubre. */
+	const [f] = await db
+		.select({ direccion: s.sensores.direccion })
+		.from(s.sensores)
+		.where(eq(s.sensores.id, sensor));
+	if (
+		!f?.direccion ||
+		!contenidaEn(
+			f.direccion,
+			a.entradas.map((e) => e.red)
+		)
+	)
+		throw new ErrorCliente(
+			'Access to this console is limited to a list of addresses: enter the IP address of the sensor machine so it can connect.'
+		);
 }
 
 /* Una línea nueva para un sensor remoto que ya existe (otra máquina, o reinstalar). */
-export async function lineaSensorRemoto(quien: string, sensor: string) {
-	const ca = caRaiz();
+export async function lineaSensorRemoto(quien: string, sensor: string, ip?: string) {
+	const ca = await caRaiz();
 	const url = env.ORIGIN;
 	if (!url?.startsWith('https://')) throw new Error('The console has no HTTPS address (ORIGIN).');
 	const [f] = await db.select().from(s.sensores).where(eq(s.sensores.id, sensor));
 	if (!f?.remoto) return null;
+	await comprobarAcceso(sensor, ip);
+	if (ip?.trim()) {
+		const e = await anadirSensorAlAcceso(quien, sensor, f.nombre, ip);
+		if (e) throw new ErrorCliente(e);
+	}
 	const codigo = randomBytes(24).toString('base64url');
 	await db.insert(s.instaladoresSensor).values({
 		codigoHash: hash(codigo),
@@ -133,7 +176,7 @@ export async function scriptSensorRemoto(codigo: string) {
 			.where(eq(s.instaladoresSensor.codigoHash, inst.codigoHash));
 		throw e;
 	}
-	const ca = caRaiz();
+	const ca = await caRaiz();
 	const r = cred.release;
 	const conf = r.sensorRemoto;
 	if (!r.servicios.sensor || !r.actualizador || !conf)
@@ -150,7 +193,9 @@ export async function scriptSensorRemoto(codigo: string) {
 		`DATOS=${CARPETA}/datos`,
 		`CARPETA=${CARPETA}`,
 		`SUGARDADDY_TOKEN=${token}`,
-		`PUBLICACION_CLAVE_PUBLICA=${env.PUBLICACION_CLAVE_PUBLICA ?? ''}`,
+		...lineasDeClaves(),
+		/* Su edición: su actualizador y su sensor solo aceptan versiones de ella. */
+		`EDICION=${esCommunity() ? 'community' : 'cloud'}`,
 		`REGISTRO=${cred.descarga.registro}`,
 		`REGISTRO_USUARIO=${cred.descarga.usuario}`,
 		`REGISTRO_TOKEN=${cred.descarga.token}`,
@@ -200,8 +245,21 @@ umask 022
 echo '${b64(versiones)}' | base64 -d > versiones.env
 echo '${b64(compose)}' | base64 -d > compose.yml
 ${ca ? `echo '${b64(ca)}' | base64 -d > ca-consola.crt` : ': > ca-consola.crt'}
+# La versión firmada de la que se instala: su catálogo es lo único que este sensor arranca.
+mkdir -p firmado
+echo '${b64(JSON.stringify(cred.firmada))}' | base64 -d > firmado/version.json
+${r.catalogo ? 'echo 1 > firmado/exigir' : ': # sin catálogo en esta versión'}
 PASO="download the images"
 grep '^REGISTRO_TOKEN=' .env | cut -d= -f2- | docker login '${cred.descarga.registro}' -u '${cred.descarga.usuario}' --password-stdin >/dev/null
+# Los discos de las trampas (docs/diseno/discos-trampa.md): el sensor los ve si su carpeta le
+# llega con propagación. Solo si la máquina la admite; si no (un contenedor LXC con la raíz
+# privada), Docker no arrancaría el sensor con ella.
+PASO="check mount propagation"
+if docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges \\
+	--mount "type=bind,source=$DIR/datos,target=/sd,readonly,bind-propagation=rslave" \\
+	"$(grep '^SENSOR_IMAGEN=' versiones.env | cut -d= -f2-)" version >/dev/null 2>&1; then
+	echo 'SENSOR_PROPAGACION=rslave' >> .env
+fi
 echo "==> Starting the sensor"
 PASO="start the sensor"
 docker compose --env-file .env --env-file versiones.env up -d --wait

@@ -215,8 +215,11 @@ export type FichaDePasos = ReturnType<typeof fichaDePasos>;
  * Un fichero de los pasos de una trampa (exportar, §6.3): el script de una
  * parte en su lenguaje o el documento para la gestión de cambios. La parte de
  * probar lleva el código (nonce) de su prueba abierta (§8.3): sin prueba
- * abierta no hay script de prueba. Cada descarga deja su línea en la
- * auditoría con la huella de lo descargado.
+ * abierta no hay script de prueba. El script de colocar de unos pasos con
+ * secretos lleva su valor (la clave con que firma la tarea de un vigía, que
+ * no se guarda con los pasos ni se enseña en la ficha): si no se puede leer,
+ * no se descarga. Cada descarga deja su línea en la auditoría con la huella
+ * de lo descargado, nunca el secreto.
  */
 export async function descargarPasos(
 	quien: string,
@@ -230,6 +233,7 @@ export async function descargarPasos(
 	| 'sin-prueba'
 	| 'otro-lenguaje'
 	| 'no-cuadran'
+	| 'sin-secreto'
 > {
 	const [t] = await db
 		.select({ manual: s.trampas.manual })
@@ -242,7 +246,15 @@ export async function descargarPasos(
 	if (parte === 'probar' && !nonce) return 'sin-prueba';
 	if (!formatosDe(p).includes(formato)) return 'otro-lenguaje';
 	if (sha256Pasos(p) !== p.sha256) return 'no-cuadran';
-	const f = exportar(p, formato, { parte, ...(nonce ? { nonce } : {}) });
+	const conSecretos = parte === 'colocar' && (formato === 'ps1' || formato === 'sh');
+	const secretos: Record<string, string> | null | undefined =
+		conSecretos && p.secretos?.length ? null : undefined;
+	if (secretos === null) return 'sin-secreto';
+	const f = exportar(p, formato, {
+		parte,
+		...(nonce ? { nonce } : {}),
+		...(secretos ? { secretos } : {})
+	});
 	await db.insert(s.auditoria).values({
 		quien,
 		accion: 'steps downloaded',
