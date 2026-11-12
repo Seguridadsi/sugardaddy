@@ -74,4 +74,11 @@ grep -q '^            marcar_agente(ev, token_nota())$' "$DEST/src/cowrie/core/e
 	&& grep -q '/sdroot/home/__SD_USER__/AGENTS.md' "$DEST/docker/Dockerfile" \
 	&& grep -q -- '--agent __SD_AGENT_TOKEN__' "$DEST/docker/Dockerfile" \
 	|| { echo "Falta alguna pieza de la nota para agentes de IA: no se construye"; exit 1; }
+# Quién hay al otro lado: la versión del cliente junto a su huella y el ritmo de
+# la sesión (parche.py, punto 8).
+grep -q '^            seguir_sesion(ev)$' "$DEST/src/cowrie/core/events.py" \
+	&& grep -q 'def seguir_sesion(' "$DEST/src/cowrie/core/sugardaddy.py" \
+	&& grep -q 'def anotar_tecla(' "$DEST/src/cowrie/core/sugardaddy.py" \
+	&& grep -q 'self._sd_tecla(borrado=True)' "$DEST/src/cowrie/shell/protocol.py" \
+	|| { echo "Falta alguna pieza del ritmo de la sesión: no se construye"; exit 1; }
 echo "Cowrie $VERSION ($COMMIT), sin FoxIO, con tope en lo que apunta, sin huellas de serie (SEN-8) y con la nota para agentes de IA, en $DEST"

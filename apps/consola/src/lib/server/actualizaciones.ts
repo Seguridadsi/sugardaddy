@@ -8,8 +8,15 @@
  */
 import { env } from '$env/dynamic/private';
 import { compararVersiones } from '@sugardaddy/canal';
-import { buscarActualizaciones, cabecera, guardarActualizacionDisponible } from './consultas';
-import { gestionadoPorPanel } from './canal';
+import {
+	buscarActualizaciones,
+	cabecera,
+	guardarActualizacionDisponible,
+	guardarComprobacionVersion,
+	type ComprobacionVersion
+} from './consultas';
+import { considerarCommunity, gestionadoPorPanel } from './canal';
+import { avisarContacto } from './registro';
 
 /* «Gestionado» = dado de alta en un panel (hay Canal), NO «tiene clave»: un nodo
  * community tiene la clave pública para verificar pero no tiene panel. Se reexpone
@@ -22,23 +29,51 @@ const URL_VERSION =
 
 const SEMVER = /^\d+\.\d+\.\d+$/;
 
-export async function comprobarActualizacion() {
+/* Qué versión hay publicada, o null si no se pudo leer; 'no-aplica' si este nodo no la mira. */
+export async function comprobarActualizacion(): Promise<string | null | 'no-aplica'> {
 	if (
 		(await gestionadoPorPanel()) ||
 		env.BUSCAR_ACTUALIZACIONES === '0' ||
 		!(await buscarActualizaciones())
 	) {
 		await guardarActualizacionDisponible(null);
-		return;
+		return 'no-aplica';
 	}
 	try {
 		const res = await fetch(URL_VERSION, { signal: AbortSignal.timeout(10_000) });
-		if (!res.ok) return;
+		if (!res.ok) return null;
 		const remota = (await res.text()).trim();
 		const actual = (await cabecera()).cliente.version;
-		if (!SEMVER.test(remota) || !SEMVER.test(actual)) return;
+		if (!SEMVER.test(remota) || !SEMVER.test(actual)) return null;
 		await guardarActualizacionDisponible(compararVersiones(remota, actual) > 0 ? remota : null);
+		return remota;
 	} catch {
 		/* Sin red o GitHub caído: se deja como estaba, sin romper nada. */
+		return null;
 	}
+}
+
+/*
+ * Las dos miradas de un nodo sin panel, juntas: el aviso de versión nueva y, si la
+ * actualización automática está activa, la versión firmada. Deja apuntado cuándo se miró
+ * y qué se vio, para que Ajustes lo enseñe; lo llaman el reloj de cada 6 horas y el botón
+ * «Check now». Un nodo con panel no apunta nada: sus versiones le llegan por ahí.
+ */
+export async function comprobarVersiones(ahora = new Date()): Promise<ComprobacionVersion | null> {
+	const aviso = await comprobarActualizacion();
+	const firmada = await considerarCommunity();
+	/* Registrado y con actualización automática: el panel sabe que sigue vivo y en qué versión. */
+	await avisarContacto().catch(() => 'sin-conexion');
+	if (aviso === 'no-aplica' && firmada.visto === 'no-aplica') return null;
+	const leida = 'version' in firmada ? firmada.version : null;
+	const valor: ComprobacionVersion = {
+		cuando: ahora.toISOString(),
+		red:
+			leida !== null || firmada.visto === 'rechazada' || (aviso !== null && aviso !== 'no-aplica'),
+		/* La firmada manda: es la que este nodo instalaría. Sin ella, la del aviso. */
+		version: leida ?? (aviso !== 'no-aplica' ? aviso : null),
+		rechazada: firmada.visto === 'rechazada' ? firmada.motivo : null
+	};
+	await guardarComprobacionVersion(valor);
+	return valor;
 }

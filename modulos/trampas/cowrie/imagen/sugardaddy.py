@@ -16,6 +16,11 @@
   ``cowrie.sugardaddy.log_full``.
 * ``marcar_agente``: la marca de agente de IA en los eventos de comando (la
   nota para agentes del sistema simulado, ver sugardaddy_fs.py).
+* ``seguir_sesion`` y ``anotar_tecla``: lo que delata a quien entra sin que
+  lo pueda cambiar con una línea. La versión que anuncia el cliente SSH se
+  copia al evento de su huella (HASSH), para que la consola las compare, y al
+  cerrar la sesión queda su ritmo: si las órdenes y las teclas llegaron como
+  las escribe una persona, de golpe (pegadas) o como las manda un programa.
 
 Sin dependencias de Twisted ni de la configuración de Cowrie: se prueba solo.
 """
@@ -26,8 +31,10 @@ import ipaddress
 import json
 import os
 import stat
+import statistics
 import threading
 import time
+from collections import OrderedDict
 from datetime import datetime, timezone
 from typing import Any, Callable
 
@@ -228,6 +235,168 @@ def marcar_agente(ev: dict[str, Any], token: str) -> dict[str, Any]:
         ev["agente_ia"], ev["motivo"] = "confirmed", MOTIVO_CONFIRMADO
     elif FICHERO_AGENTES in entrada:
         ev["agente_ia"], ev["motivo"] = "suspected", MOTIVO_SOSPECHA
+    return ev
+
+
+# ---- Quién hay al otro lado: el cliente y el ritmo --------------------------
+
+# Dos pistas que no se cambian con una línea, como sí se cambia el texto con que
+# se presenta un cliente SSH. Son pistas, no pruebas.
+#
+# 1. La huella del cliente (HASSH) va en cowrie.client.kex y la versión que
+#    anuncia, en cowrie.client.version: dos eventos. La consola compara una con
+#    otra («dice ser OpenSSH y negocia como Paramiko»), así que la versión se
+#    copia al evento de la huella.
+# 2. El ritmo. Una persona teclea: las teclas llegan de una en una, con décimas
+#    de segundo entre ellas, y se equivoca y borra. Un programa (o quien pega un
+#    bloque) manda la línea entera de golpe, y un guion lanza las órdenes una
+#    detrás de otra o a intervalos iguales. Al cerrar la sesión, el evento
+#    cowrie.session.closed lleva ``ritmo`` y las cifras de las que sale.
+#
+# Sin coste que importe: una entrada pequeña por sesión abierta, con tope, y
+# unas sumas por orden y por tecla. Los valores de ``ritmo`` van en inglés: la
+# consola los enseña tal cual.
+RITMO_PERSONA = "human"  # teclas de una en una, con el ritmo de unas manos
+RITMO_PEGADO = "pasted"  # líneas que llegan enteras: pegadas o mandadas por un programa
+RITMO_MAQUINA = "scripted"  # órdenes seguidas o a intervalos iguales
+RITMO_DESCONOCIDO = "unknown"  # pocas muestras
+
+MAX_SESIONES_RITMO = 2048  # sesiones seguidas a la vez; la más vieja se olvida
+MAX_MUESTRAS_ORDENES = 64  # intervalos entre órdenes que se guardan por sesión
+MAX_MUESTRAS_TECLAS = 256  # intervalos entre teclas que se guardan por sesión
+TOPE_VERSION_COPIADA = 256  # caracteres de la versión que se copian al evento de la huella
+
+MIN_TECLAS = 10  # con menos intervalos entre teclas no se dice nada
+TECLA_PERSONA_MS = 30.0  # mediana entre teclas de unas manos: de ahí para arriba
+TECLA_PEGADO_MS = 5.0  # mediana de una línea que llega entera: de ahí para abajo
+MIN_INTERVALOS = 2  # con menos intervalos entre órdenes no se dice nada
+ORDEN_MAQUINA_MS = 500.0  # mediana entre órdenes que nadie teclea
+MIN_INTERVALOS_REGULARES = 3  # para decir «a intervalos iguales»
+VARIACION_REGULAR = 0.1  # desviación / mediana de un temporizador
+
+
+class _Ritmo:
+    __slots__ = ("version", "ordenes", "ultima_orden", "entre_ordenes", "teclas", "ultima_tecla", "entre_teclas", "borrados")
+
+    def __init__(self) -> None:
+        self.version = ""
+        self.ordenes = 0
+        self.ultima_orden: float | None = None
+        self.entre_ordenes: list[float] = []  # ms
+        self.teclas = 0
+        self.ultima_tecla: float | None = None
+        self.entre_teclas: list[float] = []  # ms
+        self.borrados = 0
+
+
+_ritmos: OrderedDict[str, _Ritmo] = OrderedDict()
+_ritmos_cerrojo = threading.Lock()
+
+
+def _ritmo_de(sesion: Any, crear: bool = True) -> _Ritmo | None:
+    """El estado de una sesión. Con el cerrojo cogido."""
+    if not isinstance(sesion, str) or not sesion:
+        return None
+    r = _ritmos.get(sesion)
+    if r is None and crear:
+        while len(_ritmos) >= MAX_SESIONES_RITMO:
+            _ritmos.popitem(last=False)
+        r = _ritmos[sesion] = _Ritmo()
+    return r
+
+
+def anotar_tecla(sesion: Any, borrado: bool = False, ahora: float | None = None) -> None:
+    """Una tecla de la shell interactiva (lo llama shell/protocol.py). Solo
+    cuenta y mide el tiempo desde la anterior: no guarda qué tecla es."""
+    t = time.monotonic() if ahora is None else ahora
+    with _ritmos_cerrojo:
+        r = _ritmo_de(sesion)
+        if r is None:
+            return
+        r.teclas += 1
+        if borrado:
+            r.borrados += 1
+        if r.ultima_tecla is not None and len(r.entre_teclas) < MAX_MUESTRAS_TECLAS:
+            r.entre_teclas.append(max(0.0, (t - r.ultima_tecla) * 1000.0))
+        r.ultima_tecla = t
+
+
+def clasificar_ritmo(entre_teclas: list[float], entre_ordenes: list[float], borrados: int = 0) -> str:
+    """De los intervalos (en ms) entre teclas y entre órdenes, quién parece que
+    escribe. Las teclas mandan: son lo que distingue a unas manos."""
+    if len(entre_teclas) >= MIN_TECLAS:
+        mediana = statistics.median(entre_teclas)
+        # Quien borra y no manda las líneas de golpe, teclea.
+        if mediana >= TECLA_PERSONA_MS or (borrados > 0 and mediana > TECLA_PEGADO_MS):
+            return RITMO_PERSONA
+        if mediana <= TECLA_PEGADO_MS:
+            return RITMO_PEGADO
+    if len(entre_ordenes) >= MIN_INTERVALOS:
+        mediana = statistics.median(entre_ordenes)
+        if mediana <= ORDEN_MAQUINA_MS:
+            return RITMO_MAQUINA
+        if len(entre_ordenes) >= MIN_INTERVALOS_REGULARES and statistics.pstdev(entre_ordenes) <= VARIACION_REGULAR * mediana:
+            return RITMO_MAQUINA
+    return RITMO_DESCONOCIDO
+
+
+def seguir_sesion(ev: dict[str, Any]) -> dict[str, Any]:
+    """Sigue una sesión por sus eventos y deja, en el sitio:
+
+    * en ``cowrie.client.kex``, la ``version`` que anunció el cliente;
+    * en ``cowrie.session.closed``, ``ritmo`` (human, pasted, scripted o
+      unknown) y sus cifras: ``ordenes``, ``intervalo_ms`` e
+      ``intervalo_desv_ms`` (mediana y desviación entre órdenes), ``teclas``,
+      ``teclas_ms`` (mediana entre teclas) y ``borrados``.
+
+    Va DESPUÉS de ``recortar_evento``, como ``marcar_agente``: lo que añade es
+    corto y con tope. Un evento tardío (``late``) no abre sesión nueva."""
+    eventid = ev.get("eventid")
+    sesion = ev.get("session")
+    if not isinstance(eventid, str) or not isinstance(sesion, str) or not sesion:
+        return ev
+    if eventid == "cowrie.session.closed":
+        with _ritmos_cerrojo:
+            r = _ritmos.pop(sesion, None)
+        if r is None or (r.ordenes == 0 and r.teclas == 0):
+            return ev
+        ev["ritmo"] = clasificar_ritmo(r.entre_teclas, r.entre_ordenes, r.borrados)
+        ev["ordenes"] = r.ordenes
+        if r.entre_ordenes:
+            ev["intervalo_ms"] = round(statistics.median(r.entre_ordenes))
+            ev["intervalo_desv_ms"] = round(statistics.pstdev(r.entre_ordenes))
+        if r.teclas:
+            ev["teclas"] = r.teclas
+            ev["borrados"] = r.borrados
+            if r.entre_teclas:
+                ev["teclas_ms"] = round(statistics.median(r.entre_teclas))
+        return ev
+    if ev.get("late"):
+        return ev
+    if eventid == "cowrie.client.version":
+        version = ev.get("version")
+        if isinstance(version, str) and version:
+            with _ritmos_cerrojo:
+                r = _ritmo_de(sesion)
+                if r is not None:
+                    r.version = version[:TOPE_VERSION_COPIADA]
+    elif eventid == "cowrie.client.kex":
+        with _ritmos_cerrojo:
+            r = _ritmo_de(sesion, crear=False)
+            version = r.version if r is not None else ""
+        if version and "version" not in ev:
+            ev["version"] = version
+    elif eventid == "cowrie.command.input":
+        t = ev.get("time")
+        if not isinstance(t, (int, float)):
+            t = time.time()
+        with _ritmos_cerrojo:
+            r = _ritmo_de(sesion)
+            if r is not None:
+                r.ordenes += 1
+                if r.ultima_orden is not None and len(r.entre_ordenes) < MAX_MUESTRAS_ORDENES:
+                    r.entre_ordenes.append(max(0.0, (t - r.ultima_orden) * 1000.0))
+                r.ultima_orden = t
     return ev
 
 

@@ -23,6 +23,7 @@ import { env } from '$env/dynamic/private';
 import { avisosSensor } from '$lib/capacidades';
 import { entornoDe, type Entorno } from '$lib/entorno';
 import { redYVlan } from '$lib/red';
+import { ipBuscada } from './buscar-ip';
 import { db, schema as s } from './db';
 import { honeycosas, traductorDeTrampa } from './catalogo';
 import { estadosVisibles, type EstadoVisible } from './colocacion';
@@ -141,6 +142,29 @@ const condicionEscaner = (f?: FiltroEscaner) =>
 /* Escapa los comodines de un LIKE/ILIKE para que el texto se busque literal. */
 const sinComodines = (t: string) => t.replace(/[%_\\]/g, '\\$&');
 
+/*
+ * El buscador libre de Events. Una IP o un prefijo CIDR busca por el ORIGEN del
+ * evento (buscar-ip.ts), con su índice; cualquier otro texto, dentro de la línea
+ * firmada (JSON): comando, usuario, URL, contraseña, crudo.
+ */
+function condicionBusqueda(q: string | undefined) {
+	if (!q) return undefined;
+	const ip = ipBuscada(q);
+	if (!ip) return ilike(s.eventos.linea, `%${sinComodines(q)}%`);
+	/* IPv6 se guarda como llega del honeypot: se compara por valor, no por escritura. */
+	if (ip.clase === 'ip')
+		return ip.ip.includes(':')
+			? sql`${s.eventos.ip} like '%:%' and ${dentroDe(ip.ip)}`
+			: eq(s.eventos.ip, ip.ip);
+	return ip.comun ? and(like(s.eventos.ip, `${ip.comun}%`), dentroDe(ip.cidr)) : dentroDe(ip.cidr);
+}
+/*
+ * `ip` es texto y puede traer algo que no sea una dirección: el CASE garantiza
+ * que solo se convierte lo que Postgres sabe leer, y lo demás no casa.
+ */
+const dentroDe = (red: string) =>
+	sql`case when pg_input_is_valid(${s.eventos.ip}, 'inet') then ${s.eventos.ip}::inet <<= ${red}::inet else false end`;
+
 export async function eventos(
 	filtro: {
 		desde?: Severidad;
@@ -167,8 +191,7 @@ export async function eventos(
 				filtro.trampa ? eq(s.eventos.trampa, filtro.trampa) : undefined,
 				filtro.origen ? like(s.eventos.ip, `${filtro.origen.replace(/[%_\\]/g, '')}%`) : undefined,
 				filtro.usuario ? eq(s.eventos.usuario, filtro.usuario) : undefined,
-				/* Dentro de la línea firmada (JSON): comando, usuario, URL, contraseña, crudo. */
-				q ? ilike(s.eventos.linea, `%${sinComodines(q)}%`) : undefined,
+				condicionBusqueda(q),
 				condicionEscaner(filtro.escaner),
 				/* Una visita de un escáner no está por revisar: no es trabajo para nadie. */
 				filtro.triaje === 'sin'
@@ -575,7 +598,7 @@ export async function eventosPlanos(
 				filtro.trampa ? eq(s.eventos.trampa, filtro.trampa) : undefined,
 				filtro.origen ? like(s.eventos.ip, `${filtro.origen.replace(/[%_\\]/g, '')}%`) : undefined,
 				filtro.usuario ? eq(s.eventos.usuario, filtro.usuario) : undefined,
-				q ? ilike(s.eventos.linea, `%${sinComodines(q)}%`) : undefined,
+				condicionBusqueda(q),
 				condicionEscaner(filtro.escaner),
 				/* Una visita de un escáner no está por revisar: no es trabajo para nadie. */
 				filtro.triaje === 'sin'
@@ -629,7 +652,12 @@ export async function resumen() {
 		porOrigen.set(e.origen.ip, o);
 	}
 
-	const sensores = await db.select().from(s.sensores).orderBy(s.sensores.creado);
+	/* Sin los retirados: no tienen trampas ni van a latir, y en Inicio saldrían como caídos. */
+	const sensores = await db
+		.select()
+		.from(s.sensores)
+		.where(isNull(s.sensores.retirado))
+		.orderBy(s.sensores.creado);
 	const todas = await db.select().from(s.trampas).orderBy(s.trampas.creado);
 	/* Una trampa a mano sale con el sensor que recibe su señal, y dice en qué destino está. */
 	const destinos = new Map(
@@ -936,6 +964,28 @@ export async function guardarBuscarActualizaciones(quien: string, activo: boolea
 /* La versión nueva vista en el repo público, o { version: null } si no hay o no aplica. */
 export const actualizacionDisponible = () =>
 	ajuste<{ version: string | null }>('actualizacion-disponible', { version: null });
+
+/*
+ * La última vez que este nodo miró si había versión nueva, y qué encontró. Solo nodos sin
+ * panel. `red`: si llegó a leer lo publicado; `rechazada`: por qué no se aceptó la versión
+ * firmada (firma, edición…), si pasó.
+ */
+export type ComprobacionVersion = {
+	cuando: string;
+	red: boolean;
+	version: string | null;
+	rechazada: string | null;
+};
+
+export const comprobacionVersion = () =>
+	ajuste<ComprobacionVersion | null>('actualizacion-comprobada', null);
+
+export async function guardarComprobacionVersion(valor: ComprobacionVersion) {
+	await db
+		.insert(s.ajustes)
+		.values({ clave: 'actualizacion-comprobada', valor })
+		.onConflictDoUpdate({ target: s.ajustes.clave, set: { valor } });
+}
 
 export async function guardarActualizacionDisponible(version: string | null) {
 	const valor = { version };

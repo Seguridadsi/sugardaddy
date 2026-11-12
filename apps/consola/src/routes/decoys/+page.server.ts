@@ -81,41 +81,63 @@ export const actions = {
 		if (r === 'no-existe') return fail(404, { mensaje: 'That honeypot does not exist.' });
 		return fail(400, { error: recibeSenalDe(r.dependientes) });
 	},
-	/*
-	 * Retirar todas las de una plantilla, una a una y por el camino de siempre.
-	 * Primero las sembradas a mano y después las demás: una credencial que apunta
-	 * a una trampa del grupo se retira antes que ella. La que no se puede (algo de
-	 * fuera del grupo apunta a ella) se queda, y se dice.
-	 */
+	/* Retirar todas las de una plantilla (retirarVarias). */
 	retirarGrupo: async ({ request, locals }) => {
 		const u = exigir(locals, 'desplegar');
 		const plantilla = String((await request.formData()).get('plantilla') ?? '');
 		if (!plantillasDisponibles())
 			return fail(404, { error: 'Templates are included in Sugardaddy Cloud.' });
-		const suyas = (await trampasConEventos())
-			.filter((t) => t.plantilla === plantilla && t.colocacion !== 'retirando')
-			.toSorted((a, b) => Number(b.aMano) - Number(a.aMano));
+		const suyas = (await trampasConEventos()).filter(
+			(t) => t.plantilla === plantilla && t.colocacion !== 'retirando'
+		);
 		if (!suyas.length) return fail(404, { error: 'No honeypot from that template is deployed.' });
-		let retiradas = 0;
-		let aMano = 0;
-		const quedan: string[] = [];
-		for (const t of suyas) {
-			const r = await retirarTrampa(u.correo, t.id);
-			if (r === 'retirada') retiradas++;
-			else if (r === 'retirando') aMano++;
-			else if (r !== 'no-existe') quedan.push(t.nombre);
-		}
-		const partes = [
-			`${retiradas} ${retiradas === 1 ? 'honeypot' : 'honeypots'} removed.`,
-			...(aMano
-				? [
-						`${aMano} must now be removed from ${aMano === 1 ? 'its target' : 'their targets'}: the removal instructions are under "Steps" on each one.`
-					]
-				: []),
-			...(quedan.length
-				? [`Not removed because another honeypot points to them: ${quedan.join(', ')}.`]
-				: [])
-		];
-		return { mensaje: partes.join(' ') };
+		return { mensaje: await retirarVarias(u.correo, suyas) };
+	},
+	/*
+	 * Retirar las elegidas en la lista, de una vez: para vaciar un sensor (que no
+	 * se puede quitar mientras le quede alguna) ya no hay que repetirlo por cada
+	 * una. Por el mismo camino y con el mismo orden que las de una plantilla.
+	 */
+	retirarElegidas: async ({ request, locals }) => {
+		const u = exigir(locals, 'desplegar');
+		const ids = new Set((await request.formData()).getAll('id').map(String));
+		const suyas = (await trampasConEventos()).filter(
+			(t) => ids.has(t.id) && t.colocacion !== 'retirando'
+		);
+		if (!suyas.length) return fail(404, { error: 'None of the selected honeypots is deployed.' });
+		return { mensaje: await retirarVarias(u.correo, suyas) };
 	}
 };
+
+/*
+ * Retira varias, una a una y por el camino de siempre, y dice qué ha pasado
+ * con todas en un solo mensaje. Primero las sembradas a mano y después las
+ * demás: una credencial que apunta a una trampa de la lista se retira antes que
+ * ella. La que no se puede (algo de fuera apunta a ella) se queda, y se dice.
+ */
+async function retirarVarias(
+	quien: string,
+	trampas: { id: string; nombre: string; aMano: boolean }[]
+): Promise<string> {
+	let retiradas = 0;
+	let aMano = 0;
+	const quedan: string[] = [];
+	for (const t of trampas.toSorted((a, b) => Number(b.aMano) - Number(a.aMano))) {
+		const r = await retirarTrampa(quien, t.id);
+		if (r === 'retirada') retiradas++;
+		else if (r === 'retirando') aMano++;
+		else if (r !== 'no-existe') quedan.push(t.nombre);
+	}
+	const partes = [
+		`${retiradas} ${retiradas === 1 ? 'honeypot' : 'honeypots'} removed. Their events are kept.`,
+		...(aMano
+			? [
+					`${aMano} must now be removed from ${aMano === 1 ? 'its target' : 'their targets'}: the removal instructions are under "Steps" on each one.`
+				]
+			: []),
+		...(quedan.length
+			? [`Not removed because another honeypot points to them: ${quedan.join(', ')}.`]
+			: [])
+	];
+	return partes.join(' ');
+}

@@ -256,45 +256,55 @@ const URL_RELEASE_COMMUNITY =
 	env.ACTUALIZACIONES_RELEASE_URL ??
 	'https://raw.githubusercontent.com/Seguridadsi/sugardaddy/main/ultima-community.json';
 
-export async function considerarCommunity() {
-	if (await gestionadoPorPanel()) return;
+/* Qué pasó al mirar: `version` es la publicada y firmada, si se llegó a leer y era buena. */
+export type ResultadoCommunity =
+	| { visto: 'no-aplica' }
+	| { visto: 'sin-red' }
+	| { visto: 'rechazada'; motivo: string }
+	| { visto: 'al-dia' | 'pendiente'; version: string };
+
+export async function considerarCommunity(): Promise<ResultadoCommunity> {
+	if (await gestionadoPorPanel()) return { visto: 'no-aplica' };
 	const clave = confianza();
-	if (!clave) return;
-	if (!(await autoActualizar()).activo) return;
+	if (!clave) return { visto: 'no-aplica' };
+	if (!(await autoActualizar()).activo) return { visto: 'no-aplica' };
 	let firmada: ReleaseFirmada;
 	try {
 		const res = await fetch(URL_RELEASE_COMMUNITY, { signal: AbortSignal.timeout(10_000) });
-		if (!res.ok) return;
+		if (!res.ok) return { visto: 'sin-red' };
 		firmada = (await res.json()) as ReleaseFirmada;
 	} catch {
-		return;
+		return { visto: 'sin-red' };
 	}
-	if (!firmada?.release || !firmada?.firma) return;
+	if (!firmada?.release || !firmada?.firma)
+		return { visto: 'rechazada', motivo: 'it is not a signed version' };
 	const v = verificarRelease(clave, firmada);
 	if (!v.ok) {
 		await auditar('auto-update', 'community release rejected', { motivo: v.motivo });
-		return;
+		return { visto: 'rechazada', motivo: v.motivo };
 	}
 	/* Una de Cloud (imágenes del registro privado) no es para este nodo (SUP-3). */
 	if (edicionDeRelease(v.release) === 'cloud') {
-		await auditar('auto-update', 'community release rejected', {
-			motivo: 'it is a Cloud release (images on azurecr.io)'
-		});
-		return;
+		const motivo = 'it is a Cloud release (images on azurecr.io)';
+		await auditar('auto-update', 'community release rejected', { motivo });
+		return { visto: 'rechazada', motivo };
 	}
+	const version = v.release.version;
 	const actual = (await cabecera()).cliente.version;
-	if (compararVersiones(v.release.version, actual) <= 0) return;
+	if (compararVersiones(version, actual) <= 0) return { visto: 'al-dia', version };
 	const previa = await actualizacion();
-	if (previa.version === v.release.version && previa.estado !== 'al-dia') return;
+	if (previa.version === version && previa.estado !== 'al-dia')
+		return { visto: 'pendiente', version };
 	await guardarActualizacion({
 		estado: 'pendiente',
-		version: v.release.version,
+		version,
 		release: firmada,
 		detalle: null
 	});
 	await auditar('auto-update', 'community version pending', {
-		version: v.release.version
+		version
 	});
+	return { visto: 'pendiente', version };
 }
 
 /* ---------- configuración firmada del nodo (desde la 0.12) ---------- */
@@ -533,7 +543,8 @@ export async function resultadoActualizacion(
 
 async function latido(): Promise<Latido> {
 	const ahora = Date.now();
-	const sensores = await db.select().from(s.sensores);
+	/* Los retirados no cuentan: el panel los daría por sensores caídos. */
+	const sensores = await db.select().from(s.sensores).where(isNull(s.sensores.retirado));
 	/* Activas: las comprobadas que ve el cliente (§8.2), lo mismo que cuenta Inicio. */
 	const trampas = await cuentaActivas();
 	const [cifras] = await db

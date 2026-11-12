@@ -339,8 +339,11 @@ func (c configDeAuxiliar) puede(r actualizador.Release) bool {
 }
 
 func (c configDeAuxiliar) aplicarConAuxiliar(ctx context.Context, r actualizador.Release, f actualizador.ReleaseFirmada) error {
+	// La consola en una IP fijada al instalar (un sensor que no resuelve su nombre).
+	env, _ := actualizador.LeerEnv(filepath.Join(c.local, ".env"))
 	id, err := actualizador.Lanzar(ctx, c.docker, actualizador.Pedido{
 		Imagen: r.Actualizador, Dir: c.anfitrion, Modo: c.modo, Proyecto: c.proyecto, Red: c.red, Firmada: f,
+		Hosts: actualizador.HostsFijos(env),
 	})
 	if err != nil {
 		res := actualizador.Resultado{Version: r.Version, Estado: "fallida", Detalle: "could not start the helper: " + err.Error()}

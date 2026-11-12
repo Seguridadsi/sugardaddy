@@ -76,6 +76,11 @@ export const HECHOS: Record<string, { tipo: TipoHecho; fuentes: FuenteHecho[] }>
 	'puertos.ocupados': { tipo: 'lista', fuentes: ['sensor'] },
 	'puertos.reservados': { tipo: 'lista', fuentes: ['consola'] },
 	'red.direcciones': { tipo: 'lista', fuentes: ['sensor'] },
+	/*
+	 * Por dónde sale el sensor a internet: se lo pregunta al panel, que contesta con
+	 * la IP desde la que le llega. Detrás de un NAT no está en red.direcciones.
+	 */
+	'red.ipPublica': { tipo: 'texto', fuentes: ['sensor'] },
 	/* El sensor sabe publicar una trampa en una sola de las direcciones de su máquina. */
 	'sensor.escuchaPorTrampa': { tipo: 'booleano', fuentes: ['sensor'] },
 	'plataforma.so': { tipo: 'texto', fuentes: ['sensor', 'formulario'] },
@@ -141,6 +146,7 @@ export const NOMBRE_HECHO: Readonly<Record<string, string>> = Object.freeze({
 	'puertos.ocupados': 'Ports already in use',
 	'puertos.reservados': 'Reserved ports',
 	'red.direcciones': 'Machine addresses',
+	'red.ipPublica': 'Public IP',
 	'sensor.escuchaPorTrampa': 'Can publish a honeypot on a single address',
 	'plataforma.so': 'Operating system',
 	'plataforma.edicion': 'Edition',

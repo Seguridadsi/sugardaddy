@@ -33,6 +33,7 @@ import {
 import { eq } from 'drizzle-orm';
 import {
 	actualizacionDisponible,
+	comprobacionVersion,
 	auditar,
 	autoActualizar,
 	buscarActualizaciones,
@@ -47,7 +48,7 @@ import {
 	webhook
 } from '$lib/server/consultas';
 import { cifrar, estadoClave, final } from '$lib/server/secretos';
-import { gestionado } from '$lib/server/actualizaciones';
+import { comprobarVersiones, gestionado } from '$lib/server/actualizaciones';
 import {
 	activar,
 	estadoRegistro,
@@ -125,6 +126,8 @@ export const load = async ({ locals, url }) => {
 		actualizacion: { estado: a.estado, version: a.version, detalle: a.detalle },
 		/* La versión más nueva vista en el repo público (nodos sin panel que la buscan). */
 		disponible: (await actualizacionDisponible()).version,
+		/* Cuándo miró por última vez y qué vio (nodos sin panel). */
+		comprobada: await comprobacionVersion(),
 		configuracion: await configuracion(),
 		relevo: await (async () => {
 			const r = await relevoEnCurso();
@@ -223,6 +226,29 @@ export const actions = {
 		if (r === 'renovada') return { mensaje: 'Registration renewed.' };
 		const { fallo } = await estadoRegistro();
 		return fail(400, { error: fallo ?? 'Could not renew the registration.' });
+	},
+	comprobarVersion: async ({ locals }) => {
+		const u = exigir(locals, 'ajustes');
+		if (await gestionado())
+			return fail(400, {
+				error: 'This node is managed by a Central; new versions arrive from there.'
+			});
+		const r = await comprobarVersiones();
+		await auditar(u.correo, 'version check', { version: r?.version ?? null });
+		if (!r)
+			return fail(400, {
+				error: 'Version checks are turned off: enable the version notice or automatic updates.'
+			});
+		if (r.rechazada)
+			return fail(400, { error: `The published version was not accepted: ${r.rechazada}.` });
+		if (!r.red) return fail(400, { error: 'Could not reach the update server.' });
+		const actual = (await cabecera()).cliente.version;
+		return {
+			mensaje:
+				r.version && r.version !== actual
+					? `Version ${r.version} is published.`
+					: 'This node is on the latest published version.'
+		};
 	},
 	autoActualizar: async ({ request, locals }) => {
 		const u = exigir(locals, 'ajustes');

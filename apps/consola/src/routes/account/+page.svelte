@@ -64,6 +64,7 @@
 				name="nueva"
 				type="password"
 				autocomplete="new-password"
+				data-con-gestor
 				minlength={data.minimo}
 				required
 			/>
@@ -74,6 +75,7 @@
 				name="repetir"
 				type="password"
 				autocomplete="new-password"
+				data-con-gestor
 				minlength={data.minimo}
 				required
 			/>

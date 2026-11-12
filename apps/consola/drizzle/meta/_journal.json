@@ -379,6 +379,20 @@
       "when": 1794431653617,
       "tag": "0053_sensor_token_siguiente",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1794481327896,
+      "tag": "0054_sensores_retirado",
+      "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1794481503119,
+      "tag": "0055_sensor_cortafuegos_nube",
+      "breakpoints": true
     }
   ]
 }

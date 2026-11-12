@@ -42,6 +42,8 @@ import type {
 
 const creado = () => timestamp('creado', { withTimezone: true }).notNull().defaultNow();
 
+export type CortafuegosNube = { proveedor: 'azure'; nsg: string };
+
 export const sensores = pgTable('sensores', {
 	id: text('id').primaryKey(),
 	nombre: text('nombre').notNull(),
@@ -98,6 +100,20 @@ export const sensores = pgTable('sensores', {
 	 * máquina tiene que estar en la lista: así se propone y se avisa si falta.
 	 */
 	direccion: text('direccion'),
+	/*
+	 * En qué IP ve a la consola la máquina de un sensor remoto que no resuelve su
+	 * nombre (uno en internet, otra sede sin el DNS del cliente). La indica quien
+	 * lo da de alta; su línea y su instalador fijan esa resolución sin tocar la
+	 * máquina a mano (sensores-remotos.ts). Nulo: resuelve el nombre por su cuenta.
+	 */
+	consolaIp: text('consola_ip'),
+	/*
+	 * Cuándo se quitó un sensor que ya había entregado eventos: su fila se queda
+	 * (la cadena de eventos tiene que seguir verificable) con el token invalidado,
+	 * y en Sensores sale aparte, como retirado. Darlo de alta otra vez con el mismo
+	 * identificador lo reactiva y lo deja en nulo (gestion.ts).
+	 */
+	retirado: timestamp('retirado', { withTimezone: true }),
 	/* Versión que dice tener su actualizador; solo los remotos, el local va con el nodo. */
 	version: text('version'),
 	/*
@@ -133,6 +149,14 @@ export const sensores = pgTable('sensores', {
 	 * es la que dice el actualizador de un sensor remoto.
 	 */
 	versionAgente: text('version_agente'),
+	/*
+	 * El cortafuegos de la nube que tiene delante su máquina, para que la consola
+	 * pueda abrir en él los puertos de sus honeypots (ficha del sensor, pestaña
+	 * «Firewall»). Hoy, un grupo de seguridad de red de Azure por su id de recurso;
+	 * otra nube añade su proveedor. La credencial no va aquí: es la del conector
+	 * de esa nube. Nulo: no se ha indicado y se abre a mano.
+	 */
+	cortafuegosNube: jsonb('cortafuegos_nube').$type<CortafuegosNube>(),
 	creado: creado()
 });
 

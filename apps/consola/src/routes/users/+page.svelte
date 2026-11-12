@@ -31,7 +31,7 @@
 	<div class="rejilla">
 		<label>
 			<span>Username</span>
-			<input name="usuario" autocapitalize="off" spellcheck="false" required />
+			<input name="usuario" autocapitalize="off" spellcheck="false" required data-con-gestor />
 		</label>
 		<label>
 			<span>Name</span>
@@ -39,11 +39,18 @@
 		</label>
 		<label>
 			<span>Email</span>
-			<input name="correo" type="email" required />
+			<input name="correo" type="email" required data-con-gestor />
 		</label>
 		<label>
 			<span>Initial password (min. {data.minimo})</span>
-			<input name="clave" type="text" autocomplete="off" minlength={data.minimo} required />
+			<input
+				name="clave"
+				type="text"
+				autocomplete="off"
+				minlength={data.minimo}
+				required
+				data-con-gestor
+			/>
 		</label>
 	</div>
 	<fieldset class="roles">
@@ -96,7 +103,14 @@
 				<input type="hidden" name="id" value={u.id} />
 				<label class="linea">
 					<span>New password (min. {data.minimo})</span>
-					<input name="clave" type="text" autocomplete="off" minlength={data.minimo} required />
+					<input
+						name="clave"
+						type="text"
+						autocomplete="off"
+						minlength={data.minimo}
+						required
+						data-con-gestor
+					/>
 				</label>
 				<button class="boton">Reset</button>
 			</form>

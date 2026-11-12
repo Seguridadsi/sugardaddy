@@ -86,6 +86,47 @@
 		{/if}
 	</section>
 
+	<section class="panel bloque">
+		<h2>Browser warnings</h2>
+		{#if data.entrada}
+			<p class="estado mal">
+				You are opening this console as <code>{data.entrada.por}</code>, but its certificate is
+				issued for <code>{data.entrada.nombre}</code>.
+			</p>
+			<p class="ayuda">
+				Opened this way, the browser warns even with the root installed, because the address does
+				not match the certificate. It also asks you to accept again every time the certificate is
+				renewed: the node issues a new one at least every 12 hours, and whenever none is valid (for
+				example, the first visit after the console has been idle or updated). That is how the
+				certificate is meant to work, not a fault of the update.
+			</p>
+			<p class="ayuda">To stop seeing the warning on a computer:</p>
+			<ol class="ayuda">
+				<li>Install the root above on it as a trusted root certification authority.</li>
+				<li>
+					Open the console as <a href="https://{data.entrada.nombre}/"
+						>https://{data.entrada.nombre}</a
+					>.
+					{#if data.entrada.ip}
+						If that computer cannot resolve the name, add it to your DNS or add this line to the
+						computer's hosts file:
+						<code>{data.entrada.ip} {data.entrada.nombre}</code>
+					{:else}
+						If that computer cannot resolve the name, add it to your DNS or to the computer's hosts
+						file.
+					{/if}
+				</li>
+			</ol>
+		{:else}
+			<p class="ayuda">
+				The node renews the console certificate by itself at least every 12 hours, always under the
+				root above. On a computer that trusts the root, the browser never warns. On one that does
+				not, the browser asks you to accept the certificate again after each renewal: install the
+				root to stop that.
+			</p>
+		{/if}
+	</section>
+
 	{#if hecho}
 		<section class="panel bloque">
 			<h2>Switched to the new root</h2>

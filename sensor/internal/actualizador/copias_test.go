@@ -102,7 +102,21 @@ func TestCifradoIdaYVuelta(t *testing.T) {
 			t.Fatalf("%d bytes: %v", n, err)
 		}
 	}
-	if _, err := descifrarGo(t, cifrarGo(t, []byte("hola"), "buena"), "mala"); err == nil {
+	// Con otra clave el relleno sale mal casi siempre, no siempre: el formato de openssl enc
+	// no lleva comprobación propia, y una de cada 256 veces el último byte parece un relleno
+	// válido. Lo que no puede pasar nunca es que devuelva el contenido; y con varias claves
+	// malas, alguna tiene que dar error.
+	cifrado := cifrarGo(t, []byte("hola"), "buena")
+	errores := 0
+	for _, mala := range []string{"mala", "otra", "buena ", "Buena"} {
+		got, err := descifrarGo(t, cifrado, mala)
+		if err != nil {
+			errores++
+		} else if bytes.Equal(got, []byte("hola")) {
+			t.Fatalf("the key %q must not open the backup", mala)
+		}
+	}
+	if errores == 0 {
 		t.Fatal("a wrong key must be an error")
 	}
 	c := cifrarGo(t, make([]byte, 100), "k")

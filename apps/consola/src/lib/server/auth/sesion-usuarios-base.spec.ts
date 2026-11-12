@@ -102,6 +102,44 @@ describe.skipIf(!hayBase)('las sesiones de los usuarios locales', () => {
 		expect(await sesion.leer(otra.c)).toBeNull();
 	});
 
+	/*
+	 * Cuánto dura una sesión, para que nadie lo tenga que adivinar: media hora sin
+	 * actividad, ocho horas como mucho. Vive en la base, no en el proceso: un
+	 * reinicio de la consola (una actualización) no la cierra, porque quien la lee
+	 * después solo tiene la cookie y la tabla.
+	 */
+	it('dura media hora sin actividad y ocho horas como mucho, y no depende del proceso', async () => {
+		expect(sesion.INACTIVIDAD_MS).toBe(30 * 60_000);
+		expect(sesion.MAXIMO_MS).toBe(8 * 60 * 60_000);
+		await local.crear('tester', {
+			usuario: `${P}-e`,
+			nombre: 'e',
+			correo: `${P}-e@ejemplo.com`,
+			roles: ['lector'],
+			clave
+		});
+		const { c } = await entrar(`${P}-e`);
+		const ahora = Date.now();
+		/* Otra «consola» que arranca de cero con la misma cookie: la sesión sigue. */
+		const tras = galletas();
+		tras.set(sesion.COOKIE_SESION, c.get(sesion.COOKIE_SESION)!, { path: '/' });
+		expect(await sesion.leer(tras, ahora)).not.toBeNull();
+		/* Cada lectura cuenta como actividad: 29 minutos después de la última, sigue. */
+		expect(await sesion.leer(tras, ahora + 29 * 60_000)).not.toBeNull();
+		expect(await sesion.leer(tras, ahora + 58 * 60_000)).not.toBeNull();
+		/* 31 minutos sin hacer nada: fuera, y la cookie se retira. */
+		expect(await sesion.leer(tras, ahora + 58 * 60_000 + 31 * 60_000)).toBeNull();
+		expect(tras.get(sesion.COOKIE_SESION)).toBeUndefined();
+		/* Y aunque no pare, a las ocho horas de entrar se acaba. */
+		const otra = await entrar(`${P}-e`);
+		let t = ahora;
+		while (t < ahora + 8 * 60 * 60_000 - 20 * 60_000) {
+			t += 20 * 60_000;
+			expect(await sesion.leer(otra.c, t)).not.toBeNull();
+		}
+		expect(await sesion.leer(otra.c, ahora + 8 * 60 * 60_000 + 60_000)).toBeNull();
+	});
+
 	it('si el usuario ya no existe, no hay sesión', async () => {
 		await local.crear('tester', {
 			usuario: `${P}-d`,

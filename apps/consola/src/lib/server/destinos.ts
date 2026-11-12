@@ -51,6 +51,8 @@ import { estadosVisibles, type EstadoVisible } from './colocacion';
 import { db, schema as s } from './db';
 import { hechosDe, type SensorDeHechos } from './hechos';
 import { puertosParaAbrir } from '$lib/puertos-abrir';
+import { porDireccion } from '$lib/red';
+import { ipPublicaSensor } from './ip-publica-sensor';
 
 export { slugDestino };
 
@@ -521,6 +523,10 @@ export async function fichaDestino(id: string) {
 	const estados = trampas.length ? await estadosVisibles() : new Map<string, EstadoVisible>();
 	const { bloqueados, so } = delSensor(hechos);
 	const direcciones = hechos['red.direcciones']?.valor;
+	/* Las de la máquina de su sensor, como en la lista de Sensores: por su valor. */
+	const ips = (Array.isArray(direcciones) ? direcciones : [])
+		.filter((v): v is string => typeof v === 'string')
+		.sort(porDireccion);
 	return {
 		id: d.id,
 		nombre: d.nombre,
@@ -528,6 +534,9 @@ export async function fichaDestino(id: string) {
 		activo: d.activo,
 		descripcion: d.descripcion,
 		sensor,
+		/* Sus direcciones y por dónde se le ve desde internet, si se sabe (ip-publica-sensor.ts). */
+		ips: x ? ips : [],
+		ipPublica: x ? ipPublicaSensor(ips, x.direccion) : null,
 		plataforma: plataformaDe(hechos),
 		avisos: avisosSensor(x?.capacidades),
 		/* Con su nombre y su valor para el cliente (los dos los da el contrato, como en los motivos). */

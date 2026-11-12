@@ -35,6 +35,10 @@ type Plan struct {
 	// Una consola anterior no lo manda, y se registra todo.
 	IgnorarPropio    bool     `json:"ignorarPropio,omitempty"`
 	RegistrarSiempre []string `json:"registrarSiempre,omitempty"`
+	// IPPublicaEn es la dirección (https) a la que el sensor pregunta por dónde sale a
+	// internet: contesta con la IP desde la que le llega la petición (ver
+	// cmd/sensor/ip_publica.go). Vacía, o una consola anterior: no pregunta.
+	IPPublicaEn string `json:"ipPublicaEn,omitempty"`
 	// Senuelos es el nombre de Trampas en las consolas anteriores a la 0.8.0.
 	Senuelos    []TrampaPlan `json:"senuelos"`
 	Descartados []struct {

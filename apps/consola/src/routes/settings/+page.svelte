@@ -179,7 +179,10 @@
 			{#if reg.fallo}<p class="aviso">Last renewal: {reg.fallo}</p>{/if}
 			<form method="POST" action="?/autoActualizar" use:enhance class="fila-registro">
 				{#if data.autoActualizar.activo}
-					<span>Automatic updates are enabled.</span>
+					<span>
+						Automatic updates are enabled. When it checks for a new version, this console tells
+						SeguridadSI which version it is running, and nothing else.
+					</span>
 					<button class="boton" type="submit">Disable</button>
 				{:else}
 					<input type="hidden" name="activar" value="on" />
@@ -269,6 +272,25 @@
 			themselves.
 		</p>
 	{:else}
+		<form method="POST" action="?/comprobarVersion" use:enhance={sinVaciar} class="fila-registro">
+			<span>
+				{#if !data.comprobada}
+					This node has not checked for a new version yet.
+				{:else if data.comprobada.rechazada}
+					Last checked {fechaHora(data.comprobada.cuando)}:
+					<b class="mal">the published version was not accepted</b>
+					({data.comprobada.rechazada}).
+				{:else if !data.comprobada.red}
+					Last checked {fechaHora(data.comprobada.cuando)}:
+					<b class="aviso">the update server could not be reached</b>.
+				{:else}
+					Last checked {fechaHora(data.comprobada.cuando)}{#if data.comprobada.version}: the
+						published version is <b class="mono">{data.comprobada.version}</b>{/if}.
+				{/if}
+				It checks on start and every 6 hours.
+			</span>
+			<button class="boton">Check now</button>
+		</form>
 		<h3>Notify only</h3>
 		<p>
 			No automatic updates: the console periodically checks for a newer published version and

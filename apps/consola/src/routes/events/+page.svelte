@@ -1,7 +1,22 @@
 <script lang="ts">
+	import { navigating } from '$app/state';
 	import ListaEventos from '$lib/components/ListaEventos.svelte';
 
 	let { data } = $props();
+
+	/*
+	 * Intro en el buscador lanza la búsqueda sin depender del envío implícito del
+	 * navegador (un desplegable de autocompletar o de un gestor de contraseñas
+	 * abierto sobre el campo se queda con la tecla). Y mientras llega la respuesta
+	 * se dice: la dirección no cambia hasta que la consulta termina, y con muchos
+	 * eventos parecía que no había pasado nada.
+	 */
+	function buscarConIntro(ev: KeyboardEvent & { currentTarget: HTMLInputElement }) {
+		if (ev.key !== 'Enter' || ev.isComposing) return;
+		ev.preventDefault();
+		ev.currentTarget.form?.requestSubmit();
+	}
+	const buscando = $derived(navigating.to?.url.pathname === '/events');
 
 	const ETIQUETA_TRIAJE: Record<string, string> = {
 		revisado: 'Reviewed',
@@ -74,8 +89,11 @@
 		<input
 			id="q"
 			name="q"
+			type="search"
+			enterkeyhint="search"
 			value={data.filtro.q}
-			placeholder="command, username, URL, password, text…"
+			onkeydown={buscarConIntro}
+			placeholder="source IP or CIDR, command, username, URL, password, text…"
 		/>
 	</div>
 	<div>
@@ -114,7 +132,7 @@
 		<input type="checkbox" name="agrupar" value="1" checked={data.filtro.agrupar} />
 		Group repeated events
 	</label>
-	<button class="boton principal">Filter</button>
+	<button class="boton principal" aria-busy={buscando}>{buscando ? 'Searching…' : 'Filter'}</button>
 </form>
 
 {#if data.filtro.usuario}
@@ -124,7 +142,7 @@
 	</p>
 {/if}
 
-<section class="panel">
+<section class="panel" class:buscando aria-busy={buscando}>
 	{#if data.eventos.length === 0}
 		<p class="vacio">No events match these filters.</p>
 	{:else}
@@ -222,6 +240,11 @@
 		.filtros {
 			grid-template-columns: minmax(0, 1fr);
 		}
+	}
+
+	/* La lista de antes, apagada mientras llega la de la búsqueda nueva. */
+	.buscando {
+		opacity: 0.5;
 	}
 
 	.vacio {

@@ -254,8 +254,10 @@ func main() {
 type sensor struct {
 	consola *consola.Cliente
 	toques  toques
-	docker  *docker.Cliente
-	opc     despliegue.Opciones
+	// Por dónde sale a internet, preguntado a quien dice el plan (ip_publica.go).
+	ipPublica ipPublica
+	docker    *docker.Cliente
+	opc       despliegue.Opciones
 	// catalogo lee la versión firmada instalada (SEN-3).
 	catalogo *catalogo.Lector
 	// partner lee el catálogo de trampas del partner de este nodo (nil: no tiene).
@@ -399,6 +401,7 @@ func (s *sensor) actualizarPlan(ctx context.Context) {
 	s.ultimoPlan.Store(time.Now().Unix())
 	// Antes de desplegar, que puede tardar: quien prueba está esperando.
 	s.toques.tocar(ctx, p.Toques, s.consola.InformarToque)
+	s.ipPublica.preguntar(ctx, p.IPPublicaEn)
 	s.olvidarParadasRetiradas(p)
 	// Un puerto que la máquina ya tiene en una dirección local (el resolvedor
 	// de Ubuntu en 127.0.0.53:53) se publica en su IP de red, no en 0.0.0.0, y
@@ -540,6 +543,9 @@ func (s *sensor) hechos() map[string]any {
 		if len(a.Direcciones) > 0 {
 			h["red.direcciones"] = map[string]any{"valor": a.Direcciones}
 		}
+	}
+	if ip := s.ipPublica.actual(); ip != "" {
+		h["red.ipPublica"] = map[string]any{"valor": ip}
 	}
 	if s.opc.RedPropia != nil && s.opc.RedPropia.Puente == "" {
 		if c := red.Capa2(red.Opciones{Interfaz: s.opc.RedPropia.Interfaz, Rango: s.opc.RedPropia.Rango.String()}); c != nil {

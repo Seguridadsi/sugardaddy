@@ -41,8 +41,8 @@ contenedor:
   # sin JA4H ni el resto de JA4+ con licencia FoxIO 1.1 (no comercial), y con
   # tope en lo que apunta del atacante (ver COWRIE_OUTPUT_JSONLOG_MAX_BYTES_DAY).
   # La construye y deja aquí su digest herramientas/publicar-trampa.sh cowrie.
-  imagen: ghcr.io/seguridadsi/sugardaddy-trampa-cowrie:3.1.2-sd7@sha256:6dc7bc362f32642944291ef8d762f94ed29d6c404d7f331c4ba79a8bb9920dde
-  imagenPublica: ghcr.io/seguridadsi/sugardaddy-trampa-cowrie:3.1.2-sd7@sha256:6dc7bc362f32642944291ef8d762f94ed29d6c404d7f331c4ba79a8bb9920dde
+  imagen: ghcr.io/seguridadsi/sugardaddy-trampa-cowrie:3.1.2-sd8@sha256:0000000000000000000000000000000000000000000000000000000000000000
+  imagenPublica: ghcr.io/seguridadsi/sugardaddy-trampa-cowrie:3.1.2-sd8@sha256:0000000000000000000000000000000000000000000000000000000000000000
   # Sin imagen pública: la de Docker Hub (cowrie/cowrie) lleva JA4+ con
   # licencia FoxIO 1.1 y no tiene el tope de cowrie.json. A un sensor sin
   # credencial del registro (anterior a la 0.12.1, o sin relevo) la consola
@@ -286,6 +286,16 @@ eventos:
     # suspected o confirmed: la consola lo enseña como agente de IA (lib/agente-ia.ts).
     - agente_ia
     - motivo
+    # Al cerrar la sesión, su ritmo (human, pasted, scripted o unknown) y las
+    # cifras de las que sale (imagen/sugardaddy.py, seguir_sesion). La consola lo
+    # enseña como una pista más de quién hay al otro lado (lib/quien-es.ts).
+    - ritmo
+    - ordenes
+    - intervalo_ms
+    - intervalo_desv_ms
+    - teclas
+    - teclas_ms
+    - borrados
     - recortado
     - aviso
     - lleno
@@ -320,6 +330,13 @@ eventos:
     data: Sends
     ja4: TLS fingerprint (JA4)
     motivo: Reason
+    ritmo: Typing rhythm
+    ordenes: Commands
+    intervalo_ms: Median gap between commands (ms)
+    intervalo_desv_ms: Gap deviation (ms)
+    teclas: Keystrokes
+    teclas_ms: Median gap between keystrokes (ms)
+    borrados: Corrections
     recortado: Truncated (original size)
     aviso: Alert
     lleno: Part full

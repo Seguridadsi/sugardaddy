@@ -22,7 +22,7 @@
     "licencia": "BSD-3-Clause"
   },
   "contenedor": {
-    "imagen": "ghcr.io/seguridadsi/sugardaddy-trampa-cowrie:3.1.2-sd6@sha256:bc13ebd36035ba1d610ec09d92b2e670cf438ef075f64a9007ba7935f7cfe8f9",
+    "imagen": "ghcr.io/seguridadsi/sugardaddy-trampa-cowrie:3.1.2-sd8@sha256:b4fe7efd592bcca60bfa6b5c6bc3b40517542a9e315eba7635b009bb2843c302",
     "puertos": [
       {
         "interno": 2222,
@@ -263,6 +263,13 @@
       "ja4",
       "agente_ia",
       "motivo",
+      "ritmo",
+      "ordenes",
+      "intervalo_ms",
+      "intervalo_desv_ms",
+      "teclas",
+      "teclas_ms",
+      "borrados",
       "recortado",
       "aviso",
       "lleno",
@@ -309,6 +316,13 @@
       "data": "Sends",
       "ja4": "TLS fingerprint (JA4)",
       "motivo": "Reason",
+      "ritmo": "Typing rhythm",
+      "ordenes": "Commands",
+      "intervalo_ms": "Median gap between commands (ms)",
+      "intervalo_desv_ms": "Gap deviation (ms)",
+      "teclas": "Keystrokes",
+      "teclas_ms": "Median gap between keystrokes (ms)",
+      "borrados": "Corrections",
       "recortado": "Truncated (original size)",
       "aviso": "Alert",
       "lleno": "Part full",

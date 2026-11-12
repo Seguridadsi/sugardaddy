@@ -3,13 +3,13 @@ import { dev } from '$app/environment';
 import { env } from '$env/dynamic/private';
 import { rutaNueva } from '$lib/rutas-antiguas';
 import { configuradoEnEntorno } from '$lib/server/auth/entra';
-import { leer } from '$lib/server/auth/sesion';
-import { altaAutomatica, considerarCommunity, latir } from '$lib/server/canal';
+import { COOKIE_SESION, leer } from '$lib/server/auth/sesion';
+import { altaAutomatica, latir } from '$lib/server/canal';
 import { partnerAlDia } from '$lib/server/catalogo-partner';
 import { renovar } from '$lib/server/registro';
 import { purgar } from '$lib/server/conservacion';
 import { rellenarSiHaceFalta } from '$lib/server/credenciales';
-import { comprobarActualizacion } from '$lib/server/actualizaciones';
+import { comprobarVersiones } from '$lib/server/actualizaciones';
 import { enviarWebhookPendientes } from '$lib/server/webhook';
 import {
 	cortafuegosConfirma,
@@ -55,9 +55,8 @@ export const init: ServerInit = () => {
 	borrar();
 	/* Aviso de versión nueva (solo nodos sin gestión): mira el repo público cada tanto. */
 	const comprobar = () => {
-		void comprobarActualizacion().catch((e) => console.error('[actualizaciones]', e));
-		/* Community opted-in: baja la release firmada y, si toca, la deja pendiente. */
-		void considerarCommunity().catch((e) => console.error('[auto-actualización]', e));
+		/* Y, en Community con actualización automática, la versión firmada: si toca, queda pendiente. */
+		void comprobarVersiones().catch((e) => console.error('[actualizaciones]', e));
 		/* Registro de Community: renueva su licencia cuando le toca. Falla cerrado y aparte. */
 		void renovar().catch((e) => console.error('[registro]', e));
 	};
@@ -135,6 +134,8 @@ export const handle: Handle = async ({ event, resolve }) => {
 	 * La sesión se lee siempre, también sin Entra configurado: así la llave de
 	 * emergencia sirve justo cuando Entra no está.
 	 */
+	/* Traía una sesión: si ya no vale, al volver a la entrada se le dice por qué está ahí. */
+	const traiaSesion = !!event.cookies.get(COOKIE_SESION);
 	const s = await leer(event.cookies);
 	if (s)
 		event.locals.usuario = {
@@ -153,8 +154,17 @@ export const handle: Handle = async ({ event, resolve }) => {
 
 	const publico = PUBLICO.some((p) => event.url.pathname === p || event.url.pathname.startsWith(p));
 	if (!publico && !event.locals.usuario) {
-		if (event.request.method !== 'GET') error(401, 'Sign in first');
-		redirect(303, `/sign-in?volverA=${encodeURIComponent(event.url.pathname + event.url.search)}`);
+		if (event.request.method !== 'GET')
+			error(
+				401,
+				traiaSesion
+					? 'Your session has ended (it closes after a period without activity). Reload the page and sign in again.'
+					: 'Sign in first'
+			);
+		redirect(
+			303,
+			`/sign-in?volverA=${encodeURIComponent(event.url.pathname + event.url.search)}${traiaSesion ? '&caducada' : ''}`
+		);
 	}
 
 	const r = await resolve(event);

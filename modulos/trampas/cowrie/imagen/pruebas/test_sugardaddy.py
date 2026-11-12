@@ -227,8 +227,146 @@ class AgenteTests(unittest.TestCase):
         self.assertNotIn("recortado", ev)
 
 
+def de_sesion(eventid: str, sesion: str = "s-ritmo", **campos: Any) -> dict[str, Any]:
+    return {"eventid": eventid, "session": sesion, "src_ip": "203.0.113.9", "protocol": "ssh", **campos}
+
+
+class RitmoTests(unittest.TestCase):
+    """Quién hay al otro lado: la versión junto a la huella y el ritmo de la sesión."""
+
+    def setUp(self) -> None:
+        sd._ritmos.clear()
+
+    def cerrar(self, sesion: str = "s-ritmo") -> dict[str, Any]:
+        return sd.seguir_sesion(de_sesion("cowrie.session.closed", sesion, duration_ms=1000))
+
+    def test_la_version_del_cliente_va_al_evento_de_su_huella(self) -> None:
+        sd.seguir_sesion(de_sesion("cowrie.client.version", version="SSH-2.0-OpenSSH_9.6"))
+        kex = sd.seguir_sesion(de_sesion("cowrie.client.kex", hassh="0" * 32))
+        self.assertEqual(kex["version"], "SSH-2.0-OpenSSH_9.6")
+        # Otra sesión no hereda la versión de esta, y sin versión no se inventa.
+        otra = sd.seguir_sesion(de_sesion("cowrie.client.kex", "otra", hassh="0" * 32))
+        self.assertNotIn("version", otra)
+        # La versión copiada tiene tope.
+        sd.seguir_sesion(de_sesion("cowrie.client.version", "larga", version="SSH-2.0-" + "x" * 5000))
+        kex = sd.seguir_sesion(de_sesion("cowrie.client.kex", "larga", hassh="0" * 32))
+        self.assertEqual(len(kex["version"]), sd.TOPE_VERSION_COPIADA)
+
+    def test_una_sesion_sin_ordenes_ni_teclas_cierra_sin_ritmo(self) -> None:
+        sd.seguir_sesion(de_sesion("cowrie.client.version", version="SSH-2.0-Go"))
+        ev = self.cerrar()
+        self.assertNotIn("ritmo", ev)
+        self.assertNotIn("ordenes", ev)
+        self.assertEqual(len(sd._ritmos), 0)
+
+    def test_ordenes_seguidas_son_de_un_programa(self) -> None:
+        for i in range(5):
+            sd.seguir_sesion(de_sesion("cowrie.command.input", input="id", time=1000.0 + i * 0.04))
+        ev = self.cerrar()
+        self.assertEqual(ev["ritmo"], "scripted")
+        self.assertEqual(ev["ordenes"], 5)
+        self.assertEqual(ev["intervalo_ms"], 40)
+        self.assertEqual(ev["intervalo_desv_ms"], 0)
+        self.assertNotIn("teclas", ev)
+
+    def test_ordenes_a_intervalos_iguales_son_de_un_programa(self) -> None:
+        for i in range(5):
+            sd.seguir_sesion(de_sesion("cowrie.command.input", input="id", time=1000.0 + i * 5.0 + (0.05 if i % 2 else 0)))
+        ev = self.cerrar()
+        self.assertEqual(ev["ritmo"], "scripted")
+        self.assertEqual(ev["intervalo_ms"], 5000)
+
+    def test_ordenes_irregulares_sin_teclas_no_dicen_nada(self) -> None:
+        for t in (0.0, 4.0, 21.0, 26.5, 60.0):
+            sd.seguir_sesion(de_sesion("cowrie.command.input", input="ls", time=1000.0 + t))
+        self.assertEqual(self.cerrar()["ritmo"], "unknown")
+        # Una sola orden (ssh equipo 'orden'): tampoco.
+        sd.seguir_sesion(de_sesion("cowrie.command.input", input="uname -a", time=1000.0))
+        ev = self.cerrar()
+        self.assertEqual((ev["ritmo"], ev["ordenes"]), ("unknown", 1))
+        self.assertNotIn("intervalo_ms", ev)
+
+    def test_teclas_de_una_en_una_son_de_una_persona(self) -> None:
+        t = 50.0
+        for i, pausa in enumerate([0.12, 0.2, 0.09, 0.31, 0.15, 0.11, 0.4, 0.18, 0.1, 0.22, 0.14, 1.9, 0.13]):
+            t += pausa
+            sd.anotar_tecla("s-ritmo", borrado=(i == 5), ahora=t)
+        sd.seguir_sesion(de_sesion("cowrie.command.input", input="whoami", time=1000.0))
+        ev = self.cerrar()
+        self.assertEqual(ev["ritmo"], "human")
+        self.assertEqual((ev["teclas"], ev["borrados"], ev["ordenes"]), (13, 1, 1))
+        self.assertEqual(ev["teclas_ms"], 165)
+
+    def test_lineas_que_llegan_enteras_son_pegadas(self) -> None:
+        # Tres líneas de doce teclas que llegan en el mismo instante, con
+        # segundos entre línea y línea: como las manda un programa por la shell.
+        t = 50.0
+        for linea in range(3):
+            t += 2.0 + linea
+            for _ in range(12):
+                t += 0.00002
+                sd.anotar_tecla("s-ritmo", ahora=t)
+            sd.seguir_sesion(de_sesion("cowrie.command.input", input="cat /etc/passwd", time=1000.0 + t))
+        ev = self.cerrar()
+        self.assertEqual(ev["ritmo"], "pasted")
+        self.assertEqual(ev["teclas_ms"], 0)
+
+    def test_pocas_teclas_no_dicen_nada(self) -> None:
+        for i in range(4):
+            sd.anotar_tecla("s-ritmo", ahora=10.0 + i * 0.2)
+        self.assertEqual(self.cerrar()["ritmo"], "unknown")
+
+    def test_clasificar_ritmo(self) -> None:
+        self.assertEqual(sd.clasificar_ritmo([], []), "unknown")
+        self.assertEqual(sd.clasificar_ritmo([150.0] * 20, [10.0, 10.0]), "human")
+        self.assertEqual(sd.clasificar_ritmo([0.1] * 20, [9000.0, 300.0, 70000.0]), "pasted")
+        # Entre una cosa y otra, quien borra teclea.
+        self.assertEqual(sd.clasificar_ritmo([12.0] * 20, []), "unknown")
+        self.assertEqual(sd.clasificar_ritmo([12.0] * 20, [], borrados=2), "human")
+
+    def test_no_se_guarda_mas_de_lo_que_cabe(self) -> None:
+        for i in range(sd.MAX_SESIONES_RITMO + 50):
+            sd.seguir_sesion(de_sesion("cowrie.client.version", f"s{i}", version="SSH-2.0-x"))
+        self.assertEqual(len(sd._ritmos), sd.MAX_SESIONES_RITMO)
+        self.assertNotIn("s0", sd._ritmos)
+        for i in range(1000):
+            sd.anotar_tecla("s60", ahora=float(i))
+            sd.seguir_sesion(de_sesion("cowrie.command.input", "s60", input="x", time=float(i)))
+        r = sd._ritmos["s60"]
+        self.assertEqual((len(r.entre_teclas), len(r.entre_ordenes)), (sd.MAX_MUESTRAS_TECLAS, sd.MAX_MUESTRAS_ORDENES))
+        self.assertEqual((r.teclas, r.ordenes), (1000, 1000))
+
+    def test_un_evento_tardio_o_sin_sesion_no_abre_sesion(self) -> None:
+        sd.seguir_sesion(de_sesion("cowrie.command.input", input="x", late=True))
+        sd.seguir_sesion({"eventid": "cowrie.command.input", "input": "x"})
+        sd.seguir_sesion({"eventid": None, "session": "s"})
+        sd.anotar_tecla(None)
+        sd.anotar_tecla("")
+        self.assertEqual(len(sd._ritmos), 0)
+
+
 class DespachadorTests(unittest.TestCase):
     """El recorte va en el despachador de Cowrie: antes de cualquier salida."""
+
+    def test_el_despachador_deja_la_version_y_el_ritmo(self) -> None:
+        from cowrie.core.events import EventDispatcher, EventLog
+
+        vistos: list[dict[str, Any]] = []
+
+        class Sumidero:
+            def write(self, event: dict[str, Any]) -> None:
+                vistos.append(event)
+
+        eventos = EventLog(EventDispatcher([Sumidero()]), session="s-desp", protocol="ssh", src_ip="198.51.100.7")
+        eventos.dispatch("cowrie.client.version", "Remote SSH version: %(version)s", version="SSH-2.0-OpenSSH_9.6")
+        eventos.dispatch("cowrie.client.kex", "SSH client hassh fingerprint: %(hassh)s", hassh="a" * 32)
+        for _ in range(3):
+            eventos.dispatch("cowrie.command.input", "CMD: %(input)s", input="id")
+        eventos.session_closed(1200)
+        kex = next(e for e in vistos if e["eventid"] == "cowrie.client.kex")
+        self.assertEqual(kex["version"], "SSH-2.0-OpenSSH_9.6")
+        cierre = next(e for e in vistos if e["eventid"] == "cowrie.session.closed")
+        self.assertEqual((cierre["ritmo"], cierre["ordenes"]), ("scripted", 3))
 
     def test_el_despachador_recorta_antes_de_las_salidas(self) -> None:
         from cowrie.core.events import ConsoleRenderer, EventDispatcher, EventLog

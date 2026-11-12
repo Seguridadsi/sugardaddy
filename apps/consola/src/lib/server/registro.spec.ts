@@ -63,12 +63,14 @@ vi.mock('./consultas', () => ({
 	cabecera: async () => ({ cliente: { nombre: 'Prueba', nodo: 'n1', version: '1.0.0' } }),
 	guardarAutoActualizar: vi.fn(async (_: string, v: unknown) => {
 		bd.ajustes.set('auto-actualizar', v);
-	})
+	}),
+	autoActualizar: async () =>
+		(bd.ajustes.get('auto-actualizar') as { activo: boolean } | undefined) ?? { activo: false }
 }));
 
 const { autorizados, porQueNo } = await import('./catalogo');
 const { coberturaLicencia, modulosDeRegistro } = await import('./candado');
-const { activar, estadoRegistro, renovar } = await import('./registro');
+const { activar, avisarContacto, estadoRegistro, renovar } = await import('./registro');
 const canal = await import('./canal');
 
 const AHORA = Date.parse('2026-11-05T10:00:00Z');
@@ -292,6 +294,48 @@ describe('renovación', () => {
 		expect(await renovar(tarde)).toBe('retirado');
 		expect(bd.ajustes.get('licencia')).toEqual(antes);
 		expect((await estadoRegistro(tarde)).fallo).toMatch(/withdrawn/);
+	});
+});
+
+describe('contacto con el panel', () => {
+	const respuesta = (status: number) => vi.fn(async () => new Response(null, { status }));
+
+	it('registrado y con actualización automática: manda SOLO el token y la versión', async () => {
+		await activar('a@b.c', codigo(), AHORA);
+		const f = respuesta(204);
+		vi.stubGlobal('fetch', f);
+		expect(await avisarContacto()).toBe('avisado');
+		const [url, init] = f.mock.calls[0] as unknown as [string, RequestInit];
+		expect(url).toMatch(/\/api\/registro\/contacto$/);
+		expect(JSON.parse(init.body as string)).toEqual({ token: TOKEN, version: '1.0.0' });
+	});
+
+	it('quien apaga la actualización automática deja de contarlo', async () => {
+		await activar('a@b.c', codigo(), AHORA);
+		bd.ajustes.set('auto-actualizar', { activo: false });
+		const f = respuesta(204);
+		vi.stubGlobal('fetch', f);
+		expect(await avisarContacto()).toBe('no-toca');
+		expect(f).not.toHaveBeenCalled();
+	});
+
+	it('sin registro no llama; con panel tampoco; sin red no rompe nada', async () => {
+		const f = respuesta(204);
+		vi.stubGlobal('fetch', f);
+		expect(await avisarContacto()).toBe('no-toca');
+		await activar('a@b.c', codigo(), AHORA);
+		vi.mocked(canal.gestionadoPorPanel).mockResolvedValueOnce(true);
+		expect(await avisarContacto()).toBe('no-toca');
+		expect(f).not.toHaveBeenCalled();
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => {
+				throw new Error('sin red');
+			})
+		);
+		expect(await avisarContacto()).toBe('sin-conexion');
+		vi.stubGlobal('fetch', respuesta(404));
+		expect(await avisarContacto()).toBe('sin-conexion');
 	});
 });
 

@@ -85,6 +85,11 @@ describe('el formato de una plantilla', () => {
 		const usados = new Set(['File server', 'File server 2']);
 		expect(nombreLibre('File server', (n) => usados.has(n))).toBe('File server 3');
 		expect(nombreLibre('Archive', (n) => usados.has(n))).toBe('Archive');
+		/* Un nombre de equipo sigue siéndolo: el número sube con sus cifras, o se añade con guion. */
+		const equipos = new Set(['db01', 'db02', 'intranet', 'sw-core09']);
+		expect(nombreLibre('db01', (n) => equipos.has(n))).toBe('db03');
+		expect(nombreLibre('intranet', (n) => equipos.has(n))).toBe('intranet-2');
+		expect(nombreLibre('sw-core09', (n) => equipos.has(n))).toBe('sw-core10');
 		expect(claveLibre('smb', ['smb', 'smb-2'])).toBe('smb-3');
 		expect(esPropia('custom-oficina')).toBe(true);
 		expect(esPropia('linux-servers')).toBe(false);

@@ -3,6 +3,7 @@
 	import Pestanas from '$lib/components/Pestanas.svelte';
 	import { pestanaDe } from '$lib/pestanas';
 	import CopiarTexto from '$lib/components/CopiarTexto.svelte';
+	import DireccionesSensor from '$lib/components/DireccionesSensor.svelte';
 	import { resolve } from '$app/paths';
 	import { enhance } from '$app/forms';
 	import { page } from '$app/state';
@@ -15,24 +16,44 @@
 	let { data, form } = $props();
 
 	/* Lo que hay en la máquina, sus ajustes y por dónde avisa: cada cosa en su pestaña. */
-	const PESTANAS = $derived(
-		data.alcance
-			? ([
-					{ id: 'overview', texto: 'Overview' },
-					{ id: 'settings', texto: 'Settings' },
-					{ id: 'alerts', texto: 'Alerts' }
-				] as const)
-			: ([
-					{ id: 'overview', texto: 'Overview' },
-					{ id: 'settings', texto: 'Settings' }
-				] as const)
-	);
+	const PESTANAS = $derived([
+		{ id: 'overview', texto: 'Overview' },
+		/* Los puertos de sus honeypots y quién los abre: solo donde hay sensor. */
+		...(data.destino.sensor ? [{ id: 'firewall', texto: 'Firewall' }] : []),
+		{ id: 'settings', texto: 'Settings' },
+		...(data.alcance ? [{ id: 'alerts', texto: 'Alerts' }] : [])
+	]);
 	const pestana = $derived(pestanaDe(page.url, PESTANAS) as string);
 	const d = $derived(data.destino);
 	const roles = $derived(page.data.usuario?.roles ?? []);
 	const opera = $derived(puede(roles, 'desplegar'));
 	const admin = $derived(puede(roles, 'ajustes'));
 	const valen = $derived(d.queCabe.filter((m) => m.elegida).length);
+	const nube = $derived(data.cortafuegos);
+	/* Del id de recurso del NSG, lo que una persona reconoce: su grupo de recursos y su nombre. */
+	const partesNsg = $derived.by(() => {
+		const m = /\/resourceGroups\/([^/]+)\/.*\/networkSecurityGroups\/([^/]+)$/i.exec(
+			nube?.nsg ?? ''
+		);
+		return m ? { grupo: m[1], nombre: m[2] } : null;
+	});
+	let abriendo = $state<'simular' | 'abrir' | null>(null);
+	const resultado = $derived(
+		form?.accion === 'abrir' && 'resultado' in form ? form.resultado : null
+	);
+	/* Lo que se dice de cada regla: en «Preview», lo que se haría; después, lo hecho. */
+	const QUE_HARIA = {
+		crear: 'Would be created',
+		cambiar: 'Would be updated',
+		quitar: 'Would be removed',
+		igual: 'No change needed'
+	};
+	const QUE_HIZO = {
+		crear: 'Created',
+		cambiar: 'Updated',
+		quitar: 'Removed',
+		igual: 'Already in place'
+	};
 	/* Lo guardado, o lo que se acaba de escribir si no se pudo guardar. */
 	const valores = $derived(
 		form?.accion === 'editar' && form.valores
@@ -66,6 +87,9 @@
 			no sensor
 		{/if}
 	</p>
+	{#if d.ips.length || d.ipPublica}
+		<div class="direcciones"><DireccionesSensor ips={d.ips} ipPublica={d.ipPublica} /></div>
+	{/if}
 	{#if d.descripcion.nota}<p class="nota-destino">{d.descripcion.nota}</p>{/if}
 </div>
 
@@ -78,11 +102,22 @@
 		<p>
 			Paste it on the Ubuntu of this machine (or on an Ubuntu virtual machine inside it, with
 			bridged networking). It works once, for 24 hours, and is only shown now: copy it before you
-			leave or reload this page. It must be able to reach this console on port 443 and resolve its
-			name{#if form.consola}, <span class="mono">{form.consola}</span>
-				(DNS or
-				<span class="mono">/etc/hosts</span>){/if}.
+			leave or reload this page. It must be able to reach this console on port 443.
 		</p>
+		{#if form.fija}
+			<p>
+				The line and the installer tell that machine that
+				<span class="mono">{form.consola ?? 'this console'}</span> is at
+				<span class="mono">{form.fija}</span>: there is nothing to configure on it by hand.
+			</p>
+		{:else}
+			<p>
+				It must also resolve the name of this console{form.consola ? ', ' : ''}<span class="mono"
+					>{form.consola ?? ''}</span
+				>. If it cannot (a machine outside your network), generate the line again from Sensors with
+				"Address of this console as seen from that machine" filled in.
+			</p>
+		{/if}
 		<p class="mono valor">{form.linea}</p>
 		<p><CopiarTexto texto={form.linea} etiqueta="Copy the line" /></p>
 	</section>
@@ -111,6 +146,178 @@
 {#if data.alcance}
 	<div hidden={pestana !== 'alerts'}>
 		<AlcancePorSalida filas={data.alcance} que="this sensor" puede={opera} />
+	</div>
+{/if}
+
+{#if d.sensor}
+	<div class="cortafuegos" hidden={pestana !== 'firewall'}>
+		<section class="panel bloque" id="firewall">
+			<h2>Ports to open in the firewall</h2>
+			{#if d.abrir.length}
+				<p class="ayuda">
+					Allow inbound traffic to these ports on this machine's firewall and on your cloud's, if it
+					has one. Where a honeypot has its own address, open its ports only for that address, so
+					each address shows a different machine.
+				</p>
+				<table class="abrir">
+					<thead>
+						<tr><th>Address</th><th>Port</th><th>Honeypot</th></tr>
+					</thead>
+					<tbody>
+						{#each d.abrir as g (g.direccion ?? '')}
+							{#each g.puertos as p, i (p.puerto + p.protocolo)}
+								<tr>
+									<td class="mono"
+										>{#if i === 0}{g.direccion ?? 'All addresses of the machine'}{/if}</td
+									>
+									<td class="mono">{p.puerto}/{p.protocolo}</td>
+									<td>{p.trampa}</td>
+								</tr>
+							{/each}
+						{/each}
+					</tbody>
+				</table>
+			{:else}
+				<p class="ayuda">No honeypot on this machine publishes a port yet.</p>
+			{/if}
+		</section>
+
+		{#if nube}
+			<section class="panel bloque">
+				<h2>Open them in Azure</h2>
+				{#if !nube.conector}
+					<p class="ayuda">
+						If this machine is behind an Azure network security group, the console can open these
+						ports in it for you. It uses the Entra application of the response "IP block in Azure",
+						which is not set up on this console yet.
+					</p>
+					<p class="ayuda">
+						{#if admin}<a href={nube.enlaceConector}>Set up the Azure connector</a>.{:else}An
+							administrator sets it up under Response.{/if} Until then, open the ports above by hand.
+					</p>
+				{:else}
+					<p class="ayuda">
+						The console writes one rule per honeypot and protocol, named
+						<span class="mono">trampa-…</span>, from priority 200: inbound from the Internet to the
+						honeypot's own address and ports. It removes the
+						<span class="mono">trampa-…</span> rules of honeypots that are gone and never touches
+						any other rule. The application of the
+						<a href={nube.enlaceConector}>Azure connector</a> needs the Network Contributor role on this
+						group.
+					</p>
+					{#if form?.accion === 'cortafuegos' && 'error' in form && form.error}
+						<p class="errores" role="alert">{form.error}</p>
+					{:else if form?.accion === 'cortafuegos' && 'mensaje' in form}
+						<p class="hecho" role="status">{form.mensaje}</p>
+					{/if}
+					{#if admin}
+						<form method="POST" action="?/cortafuegos&tab=firewall" use:enhance>
+							<label for="nsg">Network security group (resource ID)</label>
+							<input
+								id="nsg"
+								name="nsg"
+								class="mono"
+								placeholder="/subscriptions/…/resourceGroups/…/providers/Microsoft.Network/networkSecurityGroups/…"
+								value={form?.accion === 'cortafuegos' && 'nsg' in form
+									? form.nsg
+									: (nube.nsg ?? '')}
+							/>
+							<p class="ayuda">
+								{#if partesNsg}Resource group <b>{partesNsg.grupo}</b>, security group
+									<b>{partesNsg.nombre}</b>.
+								{/if}
+								In the Azure portal: the security group → Properties → Resource ID. Sensors behind the
+								same group share it: their honeypots are opened together.
+							</p>
+							<button class="boton enviar">Save</button>
+						</form>
+					{:else if partesNsg}
+						<p class="ayuda">
+							Resource group <b>{partesNsg.grupo}</b>, security group <b>{partesNsg.nombre}</b>.
+						</p>
+					{:else}
+						<p class="ayuda">
+							An administrator has not entered the security group of this sensor yet.
+						</p>
+					{/if}
+
+					{#if admin && nube.nsg}
+						<form
+							class="abrir-nube"
+							method="POST"
+							action="?/abrir&tab=firewall"
+							use:enhance={({ submitter }) => {
+								abriendo = submitter?.getAttribute('value') === 'si' ? 'simular' : 'abrir';
+								return async ({ update }) => {
+									await update({ reset: false });
+									abriendo = null;
+								};
+							}}
+						>
+							<button class="boton" name="simular" value="si" disabled={!!abriendo}
+								>{abriendo === 'simular' ? 'Reading the group…' : 'Preview'}</button
+							>
+							<button class="boton principal" disabled={!!abriendo}
+								>{abriendo === 'abrir'
+									? 'Opening… this can take a minute'
+									: 'Open these ports in Azure'}</button
+							>
+						</form>
+					{/if}
+					{#if form?.accion === 'abrir' && 'error' in form && form.error}
+						<p class="errores" role="alert">{form.error}</p>
+					{/if}
+					{#if resultado}
+						{@const fallos = resultado.pasos.filter((p) => !p.ok).length}
+						<p class={fallos ? 'errores' : 'hecho'} role="status">
+							{#if resultado.simulado}
+								Preview only: nothing has been changed in Azure.
+							{:else if fallos}
+								{fallos} of {resultado.pasos.length} rules could not be written. The rest are in place.
+							{:else}
+								Done: the group now has exactly the rules below for these honeypots.
+							{/if}
+						</p>
+						{#if resultado.pasos.length}
+							<table class="abrir">
+								<thead>
+									<tr
+										><th>Rule</th><th>Honeypot</th><th>Address</th><th>Ports</th><th>Priority</th
+										><th>Result</th></tr
+									>
+								</thead>
+								<tbody>
+									{#each resultado.pasos as p (p.regla)}
+										<tr class:mal={!p.ok}>
+											<td class="mono">{p.regla}</td>
+											<td>{p.trampa ?? '—'}</td>
+											<td class="mono"
+												>{p.destino === '*' ? 'All addresses' : (p.destino ?? '—')}</td
+											>
+											<td class="mono"
+												>{p.puertos.length
+													? `${p.puertos.join(', ')}/${p.protocolo?.toLowerCase()}`
+													: '—'}</td
+											>
+											<td class="mono">{p.prioridad ?? '—'}</td>
+											<td
+												>{#if !p.ok}Failed: {p.error}{:else if resultado.simulado}{QUE_HARIA[
+														p.accion
+													]}{:else}{QUE_HIZO[p.accion]}{/if}</td
+											>
+										</tr>
+									{/each}
+								</tbody>
+							</table>
+						{:else}
+							<p class="ayuda">
+								There is nothing to open and no rule of these honeypots in the group.
+							</p>
+						{/if}
+					{/if}
+				{/if}
+			</section>
+		{/if}
 	</div>
 {/if}
 
@@ -209,6 +416,16 @@
 			{:else}
 				<p class="ayuda">There are no honeypots on this target yet.</p>
 			{/if}
+			{#if d.sensor && !page.data.community}
+				<!-- Desde aquí la plantilla ya sabe a qué sensor va: no hay que elegirlo otra vez. -->
+				<p>
+					<a
+						class="boton"
+						href="{resolve('/decoys/templates')}?sensor={encodeURIComponent(d.sensor.id)}"
+						>Deploy a template on this sensor</a
+					>
+				</p>
+			{/if}
 		</section>
 
 		{#if d.sensor && d.abrir.length && !page.data.community}
@@ -223,35 +440,6 @@
 					href="{resolve('/decoys/templates/builder')}?sensor={encodeURIComponent(d.sensor.id)}"
 					>Save as template</a
 				>
-			</section>
-		{/if}
-
-		{#if d.abrir.length}
-			<section class="panel bloque" id="firewall">
-				<h2>Ports to open in the firewall</h2>
-				<p class="ayuda">
-					The console does not open them: allow inbound traffic to these ports on this machine's
-					firewall and on your cloud's, if it has one. Where a honeypot has its own address, open
-					its ports only for that address, so each address shows a different machine.
-				</p>
-				<table class="abrir">
-					<thead>
-						<tr><th>Address</th><th>Port</th><th>Honeypot</th></tr>
-					</thead>
-					<tbody>
-						{#each d.abrir as g (g.direccion ?? '')}
-							{#each g.puertos as p, i (p.puerto + p.protocolo)}
-								<tr>
-									<td class="mono"
-										>{#if i === 0}{g.direccion ?? 'All addresses of the machine'}{/if}</td
-									>
-									<td class="mono">{p.puerto}/{p.protocolo}</td>
-									<td>{p.trampa}</td>
-								</tr>
-							{/each}
-						{/each}
-					</tbody>
-				</table>
 			</section>
 		{/if}
 
@@ -353,6 +541,20 @@
 					required={data.acceso.estado === 'restringida'}
 					value={form?.accion === 'instalar' ? (form.ip ?? '') : ''}
 				/>
+				{#if data.consola.nombre}
+					<label for="s-consola">Address of this console as seen from that machine</label>
+					<input
+						id="s-consola"
+						name="consolaIp"
+						class="mono"
+						placeholder="Empty: it resolves {data.consola.nombre}"
+						title="Only if that machine cannot resolve {data.consola
+							.nombre} (a machine outside your network): the IP address it reaches this console at. The install line and the sensor then use it, still checking the certificate against the name"
+						value={form?.accion === 'instalar'
+							? (form.consolaIp ?? '')
+							: (data.consola.propuesta ?? '')}
+					/>
+				{/if}
 				<p class="ayuda">
 					{#if data.acceso.estado === 'restringida'}
 						Required: access to the console is limited, and this address joins the list so the
@@ -411,6 +613,22 @@
 </div>
 
 <style>
+	.abrir-nube {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 10px;
+		margin-top: 14px;
+	}
+
+	.abrir tr.mal td {
+		color: var(--crit);
+	}
+
+	.direcciones {
+		margin-top: 6px;
+		font-size: 13px;
+	}
+
 	.confirmar {
 		display: flex;
 		gap: 0.5rem;

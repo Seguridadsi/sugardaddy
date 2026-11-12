@@ -159,12 +159,23 @@ export function leerPlantilla(yaml: string): Resultado<Plantilla> {
 }
 
 /*
- * Un nombre que no choque con los que ya hay: «File server», «File server 2»…
+ * Un nombre que no choque con los que ya hay. Un nombre de equipo (sin
+ * espacios) sigue siendo un nombre de equipo: «db01» pasa a «db02», con las
+ * mismas cifras, e «intranet» a «intranet-2»; aplicar dos veces la misma
+ * plantilla no obliga a reescribir sus nombres. Un título con espacios se
+ * numera aparte: «File server», «File server 2»…
  * `ocupado` dice si ese nombre ya daría un identificador en uso.
  */
 export function nombreLibre(nombre: string, ocupado: (nombre: string) => boolean): string {
 	if (!ocupado(nombre)) return nombre;
-	for (let n = 2; n < 1000; n++) if (!ocupado(`${nombre} ${n}`)) return `${nombre} ${n}`;
+	const numerado = /^(\S*?)(\d+)$/.exec(nombre);
+	const candidato = numerado
+		? (n: number) =>
+				`${numerado[1]}${String(Number(numerado[2]) + n - 1).padStart(numerado[2].length, '0')}`
+		: /\s/.test(nombre)
+			? (n: number) => `${nombre} ${n}`
+			: (n: number) => `${nombre}-${n}`;
+	for (let n = 2; n < 1000; n++) if (!ocupado(candidato(n))) return candidato(n);
 	return nombre;
 }
 

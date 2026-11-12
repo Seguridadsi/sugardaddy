@@ -8,7 +8,7 @@ import {
 	loginLocalHabilitado,
 	verificar
 } from '$lib/server/auth/local';
-import { abrir } from '$lib/server/auth/sesion';
+import { INACTIVIDAD_MS, MAXIMO_MS, abrir } from '$lib/server/auth/sesion';
 import { auditar } from '$lib/server/consultas';
 
 const MENSAJES: Record<string, string> = {
@@ -32,7 +32,11 @@ export const load = async ({ url, locals }) => {
 		local: loginLocalHabilitado(),
 		volverA: url.searchParams.get('volverA') ?? '/',
 		error: MENSAJES[url.searchParams.get('error') ?? ''] ?? null,
-		salida: url.searchParams.has('salida')
+		salida: url.searchParams.has('salida'),
+		/* Venía con una sesión que ya no vale (hooks.server.ts): se dice cuánto dura una. */
+		caducada: url.searchParams.has('caducada'),
+		minutosInactividad: INACTIVIDAD_MS / 60_000,
+		horasMaximo: MAXIMO_MS / 3_600_000
 	};
 };
 

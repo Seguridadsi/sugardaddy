@@ -45,7 +45,8 @@
 		esquema,
 		valores = {},
 		objetivos = {},
-		elegidos = $bindable()
+		elegidos = $bindable(),
+		prefijo = 'p'
 	}: {
 		esquema: EsquemaParametros;
 		valores?: Record<string, unknown>;
@@ -53,6 +54,12 @@
 		objetivos?: Record<string, Objetivo[]>;
 		/* Lo elegido ahora en cada desplegable (para x-si); quien lo enlaza lo ve cambiar. */
 		elegidos?: Record<string, string>;
+		/*
+		 * Con qué empiezan el nombre y el id de cada campo («p.puerto», «p-puerto»).
+		 * Otro prefijo deja poner varios formularios en la misma página sin que
+		 * choquen: el constructor de plantillas pinta uno por honeypot.
+		 */
+		prefijo?: string;
 	} = $props();
 
 	const campos = $derived(Object.entries(esquema.properties) as [string, Campo][]);
@@ -201,8 +208,8 @@
 		{#if c['x-casilla']}
 			<label class="casilla">
 				<input
-					id="p-{clave}"
-					name="p.{clave}"
+					id="{prefijo}-{clave}"
+					name="{prefijo}.{clave}"
 					type="checkbox"
 					value="true"
 					checked={valor(clave, c) === 'true'}
@@ -210,7 +217,7 @@
 				{c.title ?? clave}
 			</label>
 		{:else}
-			<label for="p-{clave}">
+			<label for="{prefijo}-{clave}">
 				{c.title ?? clave}
 				{#if !obligatorio(clave)}<small>optional</small>{/if}
 			</label>
@@ -220,8 +227,8 @@
 		{:else if c['x-trampa']}
 			{@const opciones = objetivos[clave] ?? []}
 			<select
-				id="p-{clave}"
-				name="p.{clave}"
+				id="{prefijo}-{clave}"
+				name="{prefijo}.{clave}"
 				value={objetivoDe(clave)}
 				required={obligatorio(clave)}
 			>
@@ -239,8 +246,8 @@
 		{:else if c.enum}
 			<!-- Lo elegido manda: un desplegable que se esconde y vuelve a salir conserva lo que tenía. -->
 			<select
-				id="p-{clave}"
-				name="p.{clave}"
+				id="{prefijo}-{clave}"
+				name="{prefijo}.{clave}"
 				value={elegidos?.[clave] ?? valor(clave, c)}
 				onchange={(e) => elegir(clave, e.currentTarget.value)}
 			>
@@ -250,8 +257,8 @@
 			</select>
 		{:else if c.type === 'integer' || c.type === 'number'}
 			<input
-				id="p-{clave}"
-				name="p.{clave}"
+				id="{prefijo}-{clave}"
+				name="{prefijo}.{clave}"
 				type="number"
 				step={c.type === 'integer' ? 1 : 'any'}
 				min={c.minimum}
@@ -265,7 +272,7 @@
 				class="mono"
 			/>
 		{:else if c.type === 'boolean'}
-			<select id="p-{clave}" name="p.{clave}" value={valor(clave, c) || 'false'}>
+			<select id="{prefijo}-{clave}" name="{prefijo}.{clave}" value={valor(clave, c) || 'false'}>
 				<option value="true">Yes</option>
 				<option value="false">No</option>
 			</select>
@@ -304,8 +311,8 @@
 			</div>
 			{#if ec.aviso}<p class="ayuda" class:mal={ec.mal} role="status">{ec.aviso}</p>{/if}
 			<textarea
-				id="p-{clave}"
-				name="p.{clave}"
+				id="{prefijo}-{clave}"
+				name="{prefijo}.{clave}"
 				rows="10"
 				maxlength={c.maxLength}
 				required={obligatorio(clave)}
@@ -314,8 +321,8 @@
 				bind:value={html[clave]}></textarea>
 		{:else if c['x-multilinea']}
 			<textarea
-				id="p-{clave}"
-				name="p.{clave}"
+				id="{prefijo}-{clave}"
+				name="{prefijo}.{clave}"
 				rows="6"
 				required={obligatorio(clave)}
 				class="mono"
@@ -323,8 +330,8 @@
 			>
 		{:else}
 			<input
-				id="p-{clave}"
-				name="p.{clave}"
+				id="{prefijo}-{clave}"
+				name="{prefijo}.{clave}"
 				type={c.format === 'uri' ? 'url' : 'text'}
 				pattern={patronHtml(c.pattern)}
 				value={valor(clave, c)}

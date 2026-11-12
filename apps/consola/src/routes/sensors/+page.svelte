@@ -1,5 +1,6 @@
 <script lang="ts">
 	import CopiarTexto from '$lib/components/CopiarTexto.svelte';
+	import DireccionesSensor from '$lib/components/DireccionesSensor.svelte';
 	import Pestanas from '$lib/components/Pestanas.svelte';
 	import { pestanaDe } from '$lib/pestanas';
 	import { enhance } from '$app/forms';
@@ -11,6 +12,7 @@
 	import { haceCuanto } from '$lib/formato';
 	import { puede } from '$lib/permisos';
 	import { redYVlan } from '$lib/red';
+	import { fechaHora } from '$lib/fechas-pantalla';
 
 	let { data, form } = $props();
 	const admin = $derived(puede(page.data.usuario?.roles ?? [], 'ajustes'));
@@ -31,6 +33,14 @@
 			.flatMap((x) => x.avisos.map((a) => ({ ...a, sensor: x.id, nombre: x.nombre })))
 			.sort((a, b) => Number(b.gravedad === 'error') - Number(a.gravedad === 'error'))
 	);
+	/*
+	 * El resultado de una acción sale arriba, y los botones de un sensor están al final de
+	 * su fila: quien quitaba un sensor con la tabla desplazada no veía qué había pasado.
+	 */
+	let resultado = $state<HTMLElement>();
+	$effect(() => {
+		if (form) resultado?.scrollIntoView({ block: 'nearest' });
+	});
 </script>
 
 <svelte:head>
@@ -43,17 +53,30 @@
 
 {#if data.baja}<p class="mensaje" role="status">Target removed.</p>{/if}
 
+<!-- Ancla del resultado de una acción, para traerlo a la vista (efecto de arriba). -->
+<span bind:this={resultado} class="resultado"></span>
 {#if form?.linea}
 	<section class="panel token" role="status">
 		<h2>Install line for <span class="mono">{form.para}</span></h2>
 		<p>
 			Paste it on the Ubuntu machine where the sensor will run (another VLAN, another site, the
 			cloud). It works once, for 24 hours, and is only shown now: copy it before you leave or reload
-			this page. That machine must be able to reach this console on port 443 and resolve its name{#if form.consola},
-				<span class="mono">{form.consola}</span>
-				(DNS or
-				<span class="mono">/etc/hosts</span>){/if}.
+			this page. That machine must be able to reach this console on port 443.
 		</p>
+		{#if form.fija}
+			<p>
+				The line and the installer tell that machine that
+				<span class="mono">{form.consola ?? 'this console'}</span> is at
+				<span class="mono">{form.fija}</span>: there is nothing to configure on it by hand.
+			</p>
+		{:else}
+			<p>
+				It must also resolve the name of this console{form.consola ? ', ' : ''}<span class="mono"
+					>{form.consola ?? ''}</span
+				>. If it cannot (a machine outside your network), generate the line again with "Address of
+				this console as seen from that machine" filled in.
+			</p>
+		{/if}
 		<p class="mono valor">{form.linea}</p>
 		<p><CopiarTexto texto={form.linea} etiqueta="Copy the line" /></p>
 	</section>
@@ -111,11 +134,7 @@
 							{#if x.motor}<small title="Its container engine">{x.motor}</small>{/if}
 						</td>
 						<td class="red">
-							{#if x.ips.length}
-								<span class="ips mono" title="The IP addresses of the sensor machine"
-									>{x.ips.join(' · ')}</span
-								>
-							{/if}
+							<DireccionesSensor ips={x.ips} ipPublica={x.ipPublica} />
 							{#if admin}
 								<details open={cambiando === x.id}>
 									<summary class:sin={!x.red && !x.vlan && !x.redNombre}
@@ -204,13 +223,23 @@
 						</td>
 						<td class="num mono">{x.trampas}</td>
 						<td>
-							<span class="estado" class:mal={!x.vivo}>
-								{x.vivo
-									? 'online'
-									: x.ultimoLatido
-										? `offline ${haceCuanto(x.ultimoLatido, data.ahora)}`
-										: 'never connected'}
-							</span>
+							{#if x.retirado}
+								<!-- Se quitó, pero entregó eventos: su historia se conserva y ya no puede entrar. -->
+								<span
+									class="estado retirado"
+									title="It was removed, but it had recorded events: its history is kept and it can no longer connect. Enroll it again with the same identifier to bring it back."
+									>Removed</span
+								>
+								<small>{fechaHora(x.retirado)}</small>
+							{:else}
+								<span class="estado" class:mal={!x.vivo}>
+									{x.vivo
+										? 'online'
+										: x.ultimoLatido
+											? `offline ${haceCuanto(x.ultimoLatido, data.ahora)}`
+											: 'never connected'}
+								</span>
+							{/if}
 							{#if data.silencios[x.id]?.length}
 								<small class="aviso" title="Set on the Alerts tab of this sensor"
 									>Alerts muted: {data.silencios[x.id].join(', ')}</small
@@ -244,9 +273,28 @@
 						</td>
 						{#if admin}
 							<td class="acciones">
-								{#if x.remoto}
+								{#if x.retirado}
+									<!-- Sin «New line» ni «Remove»: se reactiva dándolo de alta otra vez. -->
+									<small
+										>{x.remoto
+											? 'Enroll it again with the same identifier to bring it back'
+											: 'History kept'}</small
+									>
+								{/if}
+								{#if x.remoto && !x.retirado}
 									<form method="POST" action="?/linea" use:enhance>
 										<input type="hidden" name="id" value={x.id} />
+										{#if data.consola.nombre}
+											<input
+												name="consolaIp"
+												class="mono ip-maquina"
+												placeholder="Console IP"
+												aria-label="Address of this console as seen from that machine"
+												title="Only if that machine cannot resolve {data.consola
+													.nombre}: the IP address it reaches this console at. Empty: it resolves the name"
+												value={x.consolaIp ?? ''}
+											/>
+										{/if}
 										{#if data.acceso.estado === 'restringida'}
 											<input
 												name="ip"
@@ -261,14 +309,16 @@
 										>
 									</form>
 								{/if}
-								<form method="POST" action="?/retirar" use:enhance>
-									<input type="hidden" name="id" value={x.id} />
-									<button
-										class="boton peligro"
-										disabled={x.trampas > 0}
-										title={x.trampas > 0 ? 'Remove its honeypots first' : ''}>Remove</button
-									>
-								</form>
+								{#if !x.retirado}
+									<form method="POST" action="?/retirar" use:enhance>
+										<input type="hidden" name="id" value={x.id} />
+										<button
+											class="boton peligro"
+											disabled={x.trampas > 0}
+											title={x.trampas > 0 ? 'Remove its honeypots first' : ''}>Remove</button
+										>
+									</form>
+								{/if}
 							</td>
 						{/if}
 					</tr>
@@ -393,7 +443,32 @@
 					value={form?.ip ?? ''}
 				/>
 			</div>
+			{#if data.consola.nombre}
+				<div>
+					<label for="consolaIp">Address of this console as seen from that machine</label>
+					<input
+						id="consolaIp"
+						name="consolaIp"
+						class="mono"
+						placeholder="Empty: it resolves {data.consola.nombre}"
+						value={form && 'consolaIp' in form
+							? (form.consolaIp ?? '')
+							: (data.consola.propuesta ?? '')}
+					/>
+				</div>
+			{/if}
 		</div>
+		{#if data.consola.nombre}
+			<p class="ayuda">
+				Sensors call this console by its name, <span class="mono">{data.consola.nombre}</span>. A
+				machine outside your network (the internet, a site without your DNS) cannot resolve it:
+				enter the IP address at which that machine reaches this console{data.consola.propuesta
+					? ' (proposed: the address you are using now)'
+					: ''}. The install line and the sensor then use that address, still checking the
+				certificate against the name; nothing has to be edited on the machine. Leave it empty if the
+				machine resolves the name.
+			</p>
+		{/if}
 		<p class="ayuda">
 			Where it is decides how its honeypots are named and scored. Choose External for a machine
 			exposed to the internet: its honeypots will not carry names taken from your internal domain.
@@ -413,6 +488,15 @@
 <style>
 	.ip-maquina {
 		width: 9rem;
+	}
+	/* El resultado de la acción, a la vista también con la barra de arriba fija. */
+	.resultado {
+		scroll-margin-top: 6rem;
+	}
+	/* Ni en línea (verde) ni caído (rojo): quitado a propósito. */
+	.estado.retirado {
+		color: var(--ink);
+		opacity: 0.65;
 	}
 	.cabecera {
 		margin-bottom: 18px;
@@ -516,12 +600,6 @@
 
 	.num {
 		text-align: right;
-	}
-
-	.ips {
-		display: block;
-		margin-bottom: 2px;
-		font-weight: 600;
 	}
 
 	.red summary {

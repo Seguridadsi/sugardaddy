@@ -6,7 +6,11 @@
 	"exports": {
 		"./app.css": "./app.css",
 		"./iconos-menu": "./iconos-menu.ts",
-		"./pictogramas": "./pictogramas.ts"
+		"./pictogramas": "./pictogramas.ts",
+		"./sin-gestor": {
+			"types": "./sin-gestor.d.ts",
+			"default": "./sin-gestor.js"
+		}
 	},
 	"scripts": {
 		"test": "vitest --run"

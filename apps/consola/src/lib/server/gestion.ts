@@ -5,13 +5,14 @@
  */
 import { porDireccion } from '$lib/red';
 import { createHash, randomBytes } from 'node:crypto';
-import { and, asc, desc, eq, ilike, inArray, isNull, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, ilike, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import { EJECUTORES } from '@sugardaddy/contrato';
 import { avisosSensor, resumenMotor } from '$lib/capacidades';
 import type { Entorno } from '$lib/entorno';
 import { trasHecho, trasParar, trasQuitado, trasRetirar } from './colocacion';
 import { db, schema as s } from './db';
 import { insertarDestino, type Tx } from './destinos';
+import { ipPublicaSensor } from './ip-publica-sensor';
 
 const LATIDO_MAXIMO = 5 * 60_000;
 const hashToken = (t: string) => createHash('sha256').update(t).digest('hex');
@@ -38,7 +39,10 @@ export async function sensores() {
 			registrarPropio: s.sensores.registrarPropio,
 			ultimoLatido: s.sensores.ultimoLatido,
 			remoto: s.sensores.remoto,
+			direccion: s.sensores.direccion,
 			version: s.sensores.version,
+			consolaIp: s.sensores.consolaIp,
+			retirado: s.sensores.retirado,
 			configuracion: s.sensores.configuracion,
 			registroPrivado: s.sensores.registroPrivado,
 			capacidades: s.sensores.capacidades,
@@ -52,17 +56,25 @@ export async function sensores() {
 			rupturas: sql<number>`(select count(*)::int from ${s.rupturas} r where r.sensor = "sensores"."id")`
 		})
 		.from(s.sensores)
-		.orderBy(s.sensores.creado);
+		/* Los retirados (se quitaron, pero su historia se conserva), al final. */
+		.orderBy(sql`${s.sensores.retirado} is not null`, s.sensores.creado);
 	/* Del motor y los hechos que cuenta el sensor, solo lo que se enseña. */
-	return filas.map(({ capacidades, ...f }) => ({
-		...f,
-		ultimoLatido: f.ultimoLatido?.toISOString() ?? null,
-		vivo: !!f.ultimoLatido && ahora - f.ultimoLatido.getTime() < LATIDO_MAXIMO,
-		motor: resumenMotor(capacidades?.motor),
-		avisos: avisosSensor(capacidades),
+	return filas.map(({ capacidades, direccion, ...f }) => {
 		/* Las IP de su máquina, tal como las cuenta el propio sensor (hecho red.direcciones). */
-		ips: direccionesDe(capacidades?.hechos?.['red.direcciones']?.valor)
-	}));
+		const ips = direccionesDe(capacidades?.hechos?.['red.direcciones']?.valor);
+		return {
+			...f,
+			ultimoLatido: f.ultimoLatido?.toISOString() ?? null,
+			retirado: f.retirado?.toISOString() ?? null,
+			/* Uno retirado no está «en línea» aunque latiera hace un minuto: ya no puede entrar. */
+			vivo: !f.retirado && !!f.ultimoLatido && ahora - f.ultimoLatido.getTime() < LATIDO_MAXIMO,
+			motor: resumenMotor(capacidades?.motor),
+			avisos: avisosSensor(capacidades),
+			ips,
+			/* Por dónde se le ve desde internet, si se sabe (ip-publica-sensor.ts). */
+			ipPublica: ipPublicaSensor(ips, direccion, capacidades?.hechos?.['red.ipPublica']?.valor)
+		};
+	});
 }
 
 /*
@@ -93,6 +105,8 @@ export async function crearSensor(
 		remoto?: boolean;
 		/* Dónde está su red, si ya se sabe al darlo de alta (lib/entorno.ts). */
 		entorno?: Entorno | null;
+		/* En qué IP ve a la consola su máquina, si no resuelve su nombre (sensores-remotos.ts). */
+		consolaIp?: string | null;
 	},
 	destino?: string
 ) {
@@ -300,6 +314,12 @@ export async function retirarSensor(quien: string, id: string) {
 			.from(s.trampas)
 			.where(eq(s.trampas.sensor, id));
 		if (n > 0) return 'tiene trampas';
+		/* Ya retirado: no hay nada más que quitarle, y su fecha de retirada es la primera. */
+		const [ya] = await tx
+			.select({ retirado: s.sensores.retirado })
+			.from(s.sensores)
+			.where(eq(s.sensores.id, id));
+		if (ya?.retirado) return 'desactivado';
 		/* Lo que entregó, también en cuarentena o como ruptura, es historia de su cadena. */
 		const [{ e }] = await tx
 			.select({
@@ -316,10 +336,22 @@ export async function retirarSensor(quien: string, id: string) {
 		 * una consola anterior), y si se reinstala, sigue valiendo.
 		 */
 		if (e > 0) {
+			/*
+			 * Queda marcado como retirado: Sensores lo enseña aparte y deja de contar
+			 * como un sensor caído. También se le quita el token que tuviera a medio
+			 * estrenar y sus líneas de instalación sin usar: con una de ellas volvería
+			 * a entrar sin que nadie lo diera de alta otra vez.
+			 */
 			await tx
 				.update(s.sensores)
-				.set({ claveHash: hashToken(randomBytes(32).toString('base64url')) })
+				.set({
+					claveHash: hashToken(randomBytes(32).toString('base64url')),
+					claveHashSiguiente: null,
+					claveSiguienteDesde: null,
+					retirado: new Date()
+				})
 				.where(eq(s.sensores.id, id));
+			await tx.delete(s.instaladoresSensor).where(eq(s.instaladoresSensor.sensor, id));
 			await tx.insert(s.auditoria).values({ quien, accion: 'sensor deactivated', detalle: { id } });
 			return 'desactivado';
 		}
@@ -352,6 +384,41 @@ export async function retirarSensor(quien: string, id: string) {
 			detalle: { id, ...(d ? { destino: d.id, destinoQueda } : {}) }
 		});
 		return 'retirado';
+	});
+}
+
+/*
+ * Dar de alta otra vez, con el mismo identificador, un sensor remoto retirado:
+ * vuelve a Sensores con su historia (sus eventos y su cadena siguen siendo los
+ * suyos) y con el nombre y el sitio que se indiquen ahora. No recibe token aquí:
+ * sigue con uno que nadie tiene hasta que su instalador le entrega el nuevo
+ * (prepararToken). false si no hay un sensor remoto retirado con ese id.
+ */
+export async function reactivarSensor(
+	quien: string,
+	v: { id: string; nombre: string; entorno?: Entorno | null; consolaIp?: string | null }
+) {
+	return db.transaction(async (tx) => {
+		const [f] = await tx
+			.update(s.sensores)
+			.set({
+				retirado: null,
+				nombre: v.nombre,
+				consolaIp: v.consolaIp ?? null,
+				/* Sin indicar, se queda con el sitio que tenía. */
+				...(v.entorno ? { entorno: v.entorno } : {}),
+				/* Lo que contaba su máquina de antes ya no vale: puede ser otra. */
+				ultimoLatido: null,
+				capacidades: null,
+				configuracion: null
+			})
+			.where(
+				and(eq(s.sensores.id, v.id), isNotNull(s.sensores.retirado), eq(s.sensores.remoto, true))
+			)
+			.returning({ id: s.sensores.id });
+		if (!f) return false;
+		await tx.insert(s.auditoria).values({ quien, accion: 'sensor re-enrolled', detalle: v });
+		return true;
 	});
 }
 

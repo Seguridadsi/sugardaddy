@@ -7,6 +7,10 @@
  * El código se verifica aquí contra la clave de publicación: el panel no decide,
  * y sin una licencia auténtica no se desbloquea nada.
  *
+ * Con las actualizaciones automáticas activas, el nodo dice además al panel en qué
+ * versión está cuando mira si hay una nueva (avisarContacto): token y versión, nada
+ * más. Quien las apaga deja de contarlo.
+ *
  * La renovación manda solo el token, cada varias horas, y nunca para nada más:
  * si falla, la licencia se queda como está hasta que caduque (falla cerrado), y
  * con ella caducada las trampas de registro salen del plan. Cowrie no depende de
@@ -23,7 +27,7 @@ import { env } from '$env/dynamic/private';
 import { confianza } from './claves';
 import { urlPanelValida, gestionadoPorPanel } from './canal';
 import { licenciaGuardada } from './candado';
-import { auditar, cabecera, guardarAutoActualizar } from './consultas';
+import { auditar, autoActualizar, cabecera, guardarAutoActualizar } from './consultas';
 import { db, schema as s } from './db';
 import { esCommunity } from './edicion';
 import { cifrar, descifrar, estadoClave } from './secretos';
@@ -240,4 +244,30 @@ export async function renovar(ahora = Date.now(), forzar = false): Promise<Renov
 	await escribir({ ...r, renovada: new Date(ahora).toISOString(), fallo: null });
 	await auditar('registration', 'registration renewed', { hasta: nueva.licencia.caduca });
 	return 'renovada';
+}
+
+/*
+ * Un nodo registrado y con las actualizaciones automáticas activas cuenta al panel en qué
+ * versión está, cada vez que mira si hay una nueva. Manda el token del registro y la
+ * versión, nada más: ni eventos, ni honeypots, ni nombre de la máquina. Nunca lanza ni
+ * bloquea nada, y lo que conteste el panel no cambia nada aquí.
+ */
+export async function avisarContacto(): Promise<'no-toca' | 'avisado' | 'sin-conexion'> {
+	if (!(await puedeRegistrarse())) return 'no-toca';
+	if (!(await autoActualizar()).activo) return 'no-toca';
+	const r = await guardado();
+	if (!r || !urlPanelValida(PANEL)) return 'no-toca';
+	const d = descifrar(r.token, CONTEXTO);
+	if (!d.ok || typeof d.valores.token !== 'string') return 'no-toca';
+	try {
+		const res = await fetch(`${PANEL}/api/registro/contacto`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ token: d.valores.token, version: (await cabecera()).cliente.version }),
+			signal: AbortSignal.timeout(10_000)
+		});
+		return res.ok ? 'avisado' : 'sin-conexion';
+	} catch {
+		return 'sin-conexion';
+	}
 }

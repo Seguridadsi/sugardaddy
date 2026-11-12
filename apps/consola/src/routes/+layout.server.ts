@@ -11,7 +11,12 @@ import { sugerirDominio } from '$lib/camuflaje';
 import { zonasDe } from '$lib/server/zona-horaria';
 import { redirect } from '@sveltejs/kit';
 import { puede } from '$lib/permisos';
-import { cortafuegos, cortafuegosConfirma, leerAcceso } from '$lib/server/acceso';
+import {
+	cortafuegos,
+	cortafuegosAplicando,
+	cortafuegosConfirma,
+	leerAcceso
+} from '$lib/server/acceso';
 import { avisoCa } from '$lib/server/ca-nodo';
 import { resumenConfiguracion } from '$lib/server/configuracion-inicial';
 
@@ -21,14 +26,25 @@ import { resumenConfiguracion } from '$lib/server/configuracion-inicial';
  */
 async function acceso(usuario: App.Locals['usuario'], ruta: string) {
 	const a = await leerAcceso();
+	const c = a.estado === 'restringida' ? await cortafuegos() : null;
 	const admin = !!usuario && puede(usuario.roles, 'ajustes');
 	if (admin && a.estado === 'pendiente' && !ruta.startsWith('/settings/access'))
 		redirect(303, '/settings/access');
 	return {
 		estado: a.estado,
 		emergencia: !!a.emergencia,
-		/* Limitada en la consola, pero el cortafuegos de la máquina no confirma que aplique esta lista. */
-		cortafuegosMal: a.estado === 'restringida' && !cortafuegosConfirma(a, await cortafuegos())
+		/*
+		 * Limitada en la consola, pero el cortafuegos de la máquina no confirma que
+		 * aplique esta lista. No cuenta el rato en que la está aplicando tras un cambio
+		 * (añadir la IP de un sensor remoto, guardar la lista): eso no es un fallo.
+		 */
+		cortafuegosMal:
+			a.estado === 'restringida' && !cortafuegosConfirma(a, c) && !cortafuegosAplicando(a, c),
+		/* Por qué: lo dijo el cortafuegos (no puede, o falló) o no hay noticias del actualizador. */
+		cortafuegosMotivo:
+			c && (c.estado === 'sin-docker-user' || c.estado === 'error')
+				? c.estado
+				: ('sin-noticias' as const)
 	};
 }
 
@@ -70,7 +86,12 @@ export const load = async ({ locals, url, cookies }) =>
 				...(await cabecera())
 			}
 		: {
-				acceso: { estado: 'restringida' as const, emergencia: false, cortafuegosMal: false },
+				acceso: {
+					estado: 'restringida' as const,
+					emergencia: false,
+					cortafuegosMal: false,
+					cortafuegosMotivo: 'sin-noticias' as const
+				},
 				configuracion: { pendiente: false },
 				ca: null,
 				...(await zonasDe(null, cookies)),

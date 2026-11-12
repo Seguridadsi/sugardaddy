@@ -221,6 +221,60 @@ describe.skipIf(!process.env.DATABASE_URL)('acceso a la consola', async () => {
 		expect(await a.cortafuegos()).toMatchObject({ estado: 'sin-docker-user' });
 	});
 
+	it('tras cambiar la lista, el cortafuegos la está aplicando: no es que no la aplique', async () => {
+		await a.guardarAcceso(QUIEN, [{ red: '10.0.9.9' }], '10.0.9.9', false);
+		let x = await a.leerAcceso();
+		const desde = new Date(x.listaDesde!).getTime();
+		/* Recién limitada, sin noticias aún del cortafuegos: en ello, no un fallo. */
+		expect(a.cortafuegosAplicando(x, await a.cortafuegos())).toBe(true);
+		await a.guardarCortafuegos('aplicada', 'IPv4 with iptables-nft', a.huellaLista(x));
+		expect(a.cortafuegosConfirma(x, await a.cortafuegos())).toBe(true);
+		expect(a.cortafuegosAplicando(x, await a.cortafuegos())).toBe(false);
+
+		/* El alta de un sensor remoto añade su IP: la confirmación de antes ya no es de esta lista. */
+		await sensor('sede', null);
+		expect(
+			await a.anadirSensorAlAcceso(QUIEN, `${PREFIJO}sede`, 'Sede', '198.51.100.20')
+		).toBeNull();
+		x = await a.leerAcceso();
+		expect(new Date(x.listaDesde!).getTime()).toBeGreaterThanOrEqual(desde);
+		expect(a.cortafuegosConfirma(x, await a.cortafuegos())).toBe(false);
+		expect(a.cortafuegosAplicando(x, await a.cortafuegos())).toBe(true);
+		/* Pasado el plazo sin confirmarla, ya no es una espera: se avisa. */
+		expect(
+			a.cortafuegosAplicando(x, await a.cortafuegos(), Date.now() + a.PLAZO_APLICAR_MS + 1000)
+		).toBe(false);
+		/* Si contesta para esta lista que no pudo, tampoco se espera más. */
+		await a.guardarCortafuegos('error', 'iptables-restore failed', a.huellaLista(x));
+		expect(a.cortafuegosAplicando(x, await a.cortafuegos())).toBe(false);
+		/* Y cuando la aplica, confirmada. */
+		await a.guardarCortafuegos('aplicada', 'IPv4 with iptables-nft', a.huellaLista(x));
+		expect(a.cortafuegosConfirma(x, await a.cortafuegos())).toBe(true);
+	});
+
+	it('una máquina que no deja tocar su cortafuegos no pasa a «aplicando» al cambiar la lista', async () => {
+		await a.guardarAcceso(QUIEN, [{ red: '10.0.9.9' }], '10.0.9.9', false);
+		await a.guardarCortafuegos(
+			'sin-docker-user',
+			'no DOCKER-USER',
+			a.huellaLista(await a.leerAcceso())
+		);
+		await a.guardarAcceso(QUIEN, [{ red: '10.0.9.9' }, { red: '10.0.9.10' }], '10.0.9.9', false);
+		const x = await a.leerAcceso();
+		expect(a.cortafuegosAplicando(x, await a.cortafuegos())).toBe(false);
+	});
+
+	it('un cambio que no toca lo que aplica el cortafuegos no reinicia la espera', async () => {
+		await a.guardarAcceso(QUIEN, [{ red: '10.0.9.9', nota: 'uno' }], '10.0.9.9', false);
+		const antes = (await a.leerAcceso()).listaDesde;
+		await new Promise((r) => setTimeout(r, 15));
+		await a.guardarAcceso(QUIEN, [{ red: '10.0.9.9', nota: 'otra nota' }], '10.0.9.9', false);
+		expect((await a.leerAcceso()).listaDesde).toBe(antes);
+		/* Una lista guardada antes de esta versión no trae la fecha: sin confirmación, se avisa. */
+		const x = { ...(await a.leerAcceso()), listaDesde: undefined };
+		expect(a.cortafuegosAplicando(x, null)).toBe(false);
+	});
+
 	it('la segunda barrera: la lista, el bucle local y la puerta de enlace solo con el cortafuegos confirmado', async () => {
 		await a.guardarAcceso(
 			QUIEN,

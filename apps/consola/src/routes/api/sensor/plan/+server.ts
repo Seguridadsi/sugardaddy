@@ -4,6 +4,7 @@ import { db, schema as s } from '$lib/server/db';
 import { trampasQueRegistranSiempre } from '$lib/server/pruebas';
 import { plan, sensorDe, versionAgente } from '$lib/server/sensor';
 import { toquesPendientes } from '$lib/server/toques';
+import { PREGUNTAR_IP_EN } from '$lib/server/ip-publica-sensor';
 
 /*
  * El sensor lo pide cada pocos segundos: además del plan, cuenta como latido.
@@ -40,6 +41,8 @@ export const GET = async ({ request }) => {
 		ultimoHash: sensor.ultimoHash,
 		...(await plan(sensor.id, registro, version ?? undefined)),
 		...(toques.length ? { toques } : {}),
+		/* Dónde pregunta por su IP pública (ip-publica-sensor.ts); un sensor anterior lo ignora. */
+		ipPublicaEn: PREGUNTAR_IP_EN,
 		...(sensor.registrarPropio
 			? {}
 			: { ignorarPropio: true, registrarSiempre: await trampasQueRegistranSiempre(sensor.id) })

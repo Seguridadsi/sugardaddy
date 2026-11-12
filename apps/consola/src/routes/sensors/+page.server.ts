@@ -13,7 +13,12 @@ import {
 } from '$lib/server/gestion';
 import { listaDestinos } from '$lib/server/destinos';
 import { esCommunity } from '$lib/server/edicion';
-import { ErrorCliente, altaSensorRemoto, lineaSensorRemoto } from '$lib/server/sensores-remotos';
+import {
+	ErrorCliente,
+	altaSensorRemoto,
+	consolaParaAlta,
+	lineaSensorRemoto
+} from '$lib/server/sensores-remotos';
 import { nombreConsola } from '$lib/server/direccion-consola';
 import { esLocal, quitarSensorDelAcceso } from '$lib/server/acceso';
 import { normalizarIp } from '$lib/server/pruebas';
@@ -27,6 +32,11 @@ export const load = async ({ url }) => {
 		/* En community no se añaden destinos a mano (no hay señuelos manuales): sin su sección. */
 		community: esCommunity(),
 		sensores: await sensores(),
+		/*
+		 * Para el alta de un sensor que no resuelve el nombre de la consola: la IP por
+		 * la que entra quien mira, si entra por IP (sensores-remotos.ts, ipDeConsola).
+		 */
+		consola: consolaParaAlta(url.hostname),
 		/* Por qué salidas de avisos no sale lo de cada sensor (lib/alcance.ts). */
 		silencios: (await silenciosPorObjeto()).sensores,
 		cuarentena: await ultimaCuarentena(),
@@ -53,15 +63,21 @@ export const actions = {
 		};
 		/* La IP de su máquina: con el acceso a la consola limitado, entra en la lista. */
 		const ip = String(f.get('ip') ?? '').trim();
-		if (!v.id) return fail(400, { error: SIN_IDENTIFICADOR, ...v, ip });
-		if (!v.nombre) return fail(400, { error: 'The name is required.', ...v, ip });
+		/* En qué IP ve esa máquina a la consola, si no resuelve su nombre. */
+		const consolaIp = String(f.get('consolaIp') ?? '').trim();
+		const escrito = { ...v, ip, consolaIp };
+		if (!v.id) return fail(400, { error: SIN_IDENTIFICADOR, ...escrito });
+		if (!v.nombre) return fail(400, { error: 'The name is required.', ...escrito });
 		try {
-			const linea = await altaSensorRemoto(u.correo, v, undefined, ip);
+			const linea = await altaSensorRemoto(u.correo, v, undefined, ip, consolaIp);
 			if (!linea)
-				return fail(400, { error: 'A sensor with that identifier already exists.', ...v, ip });
-			return { linea, para: v.id, consola: nombreConsola() };
+				return fail(400, { error: 'A sensor with that identifier already exists.', ...escrito });
+			return { linea, para: v.id, consola: nombreConsola(), fija: consolaIp || null };
 		} catch (e) {
-			return fail(e instanceof ErrorCliente ? 400 : 500, { error: (e as Error).message, ...v, ip });
+			return fail(e instanceof ErrorCliente ? 400 : 500, {
+				error: (e as Error).message,
+				...escrito
+			});
 		}
 	},
 	linea: async ({ request, locals }) => {
@@ -69,10 +85,17 @@ export const actions = {
 		const f = await request.formData();
 		const id = String(f.get('id'));
 		try {
-			const linea = await lineaSensorRemoto(u.correo, id, String(f.get('ip') ?? '').trim());
-			return linea
-				? { linea, para: id, consola: nombreConsola() }
-				: fail(404, { error: 'That sensor is not remote.' });
+			/* Sin el campo en el formulario, vale la IP de la consola que se indicó la última vez. */
+			const consolaIp = f.has('consolaIp') ? String(f.get('consolaIp')).trim() : undefined;
+			const linea = await lineaSensorRemoto(
+				u.correo,
+				id,
+				String(f.get('ip') ?? '').trim(),
+				consolaIp
+			);
+			if (!linea) return fail(404, { error: 'That sensor is not remote.' });
+			const [x] = (await sensores()).filter((y) => y.id === id);
+			return { linea, para: id, consola: nombreConsola(), fija: x?.consolaIp ?? null };
 		} catch (e) {
 			return fail(e instanceof ErrorCliente ? 400 : 500, {
 				error: (e as Error).message,
@@ -130,7 +153,7 @@ export const actions = {
 		return {
 			mensaje:
 				r === 'desactivado'
-					? 'The sensor has recorded events: its history is kept and its token is invalidated.'
+					? 'Sensor removed. It had recorded events, so its history is kept: it stays in the list as "Removed" and can no longer connect. To bring it back, enroll it again with the same identifier.'
 					: 'Sensor removed.'
 		};
 	}

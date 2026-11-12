@@ -36,6 +36,12 @@
 		<p class="error" role="alert">{data.error}</p>
 	{:else if data.salida}
 		<p class="ok" role="status">You have signed out.</p>
+	{:else if data.caducada}
+		<!-- Venía con una sesión que ya no vale: que sepa que no es un fallo y cuánto dura. -->
+		<p class="ok" role="status">
+			Your session ended: sessions close after {data.minutosInactividad} minutes without activity, or
+			{data.horasMaximo} hours after signing in. Sign in again to continue where you were.
+		</p>
 	{/if}
 
 	{#if data.local}

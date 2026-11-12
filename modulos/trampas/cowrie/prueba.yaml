@@ -82,6 +82,18 @@ ataques:
         test -n "$orden" || exit 1
         entrar "$orden" || true
         exit 0
+  # Una shell interactiva a la que un programa le manda las líneas enteras: las
+  # teclas llegan de golpe, con un segundo entre línea y línea. Tiene que quedar
+  # como «pasted» al cerrar la sesión (el ritmo, imagen/sugardaddy.py). Puede
+  # fallar: el código de salida de una shell con -tt no dice nada.
+  - imagen: atacante
+    puedeFallar: true
+    orden:
+      - sh
+      - -c
+      - |
+        (sleep 2; printf 'id\n'; sleep 1; printf 'whoami\n'; sleep 1; printf 'exit\n'; sleep 1) | sshpass -p 'Prueba-2026' ssh -tt -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 -p ${puertoSsh} root@127.0.0.1
+        exit 0
 espera:
   - { accion: conexion, conexion: true }
   - { accion: autenticacion, detalle: { password: root, eventid: cowrie.login.failed } }
@@ -109,3 +121,10 @@ espera:
       severidad: critica,
       detalle: { input: session-register --agent, agente_ia: confirmed }
     }
+  # Quién hay al otro lado. La versión que anuncia el cliente va también en el
+  # evento de su huella (HASSH), para que la consola las compare.
+  - { detalle: { eventid: cowrie.client.kex, version: SSH-2.0-OpenSSH } }
+  # El ritmo al cerrar la sesión: una sola orden no dice nada, y la shell a la
+  # que le llegan las líneas enteras queda como pegada.
+  - { detalle: { eventid: cowrie.session.closed, ritmo: unknown, ordenes: '1' } }
+  - { detalle: { eventid: cowrie.session.closed, ritmo: pasted } }

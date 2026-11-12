@@ -4,6 +4,12 @@
 # versión de despliegue/nodo/VERSION. Usa el GITHUB_TOKEN propio del repositorio:
 # no hace falta ningún token ni secreto aparte. Se lanza a mano (workflow_dispatch)
 # para no entrar en bucle con el commit de los digests.
+#
+# Las imágenes del nodo solo se construyen desde un commit cuyos manifiestos nombran
+# imágenes que existen, con su digest: la versión se firma sobre ese commit, y una trampa
+# que apunte a una imagen sin publicar se quedaría parada en todos los nodos. Por eso, si
+# hay que fijar el digest de cowrie, este Action hace ese commit, NO construye el nodo y
+# se vuelve a lanzar solo sobre el commit nuevo.
 name: Publicar imágenes (trampas y nodo)
 
 on:
@@ -21,6 +27,9 @@ jobs:
     permissions:
       contents: write # el commit con el digest de cowrie
       packages: write
+      actions: write # volver a lanzarse sobre ese commit
+    outputs:
+      fijado: ${{ steps.confirmar.outputs.fijado }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -42,30 +51,47 @@ jobs:
             # Una etiqueta publicada no se reescribe: para otra imagen, otra etiqueta.
             if docker manifest inspect "$repo:$etq" >/dev/null 2>&1; then
               echo "$repo:$etq is already published: it is not overwritten"
-              echo "::endgroup::"
-              continue
+              digest=$(docker buildx imagetools inspect "$repo:$etq" --format '{{.Manifest.Digest}}')
+            else
+              tmp=$(mktemp -d)
+              "modulos/trampas/$t/imagen/preparar.sh" "$tmp/fuente"
+              df="$tmp/fuente/Dockerfile"; [ -f "$df" ] || df="$tmp/fuente/docker/Dockerfile"
+              docker build --platform linux/amd64 -t "$repo:$etq" -f "$df" "$tmp/fuente"
+              docker push "$repo:$etq"
+              digest=$(docker inspect --format='{{index .RepoDigests 0}}' "$repo:$etq" | sed 's/^[^@]*@//')
+              rm -rf "$tmp"
             fi
-            tmp=$(mktemp -d)
-            "modulos/trampas/$t/imagen/preparar.sh" "$tmp/fuente"
-            df="$tmp/fuente/Dockerfile"; [ -f "$df" ] || df="$tmp/fuente/docker/Dockerfile"
-            docker build --platform linux/amd64 -t "$repo:$etq" -f "$df" "$tmp/fuente"
-            docker push "$repo:$etq"
-            digest=$(docker inspect --format='{{index .RepoDigests 0}}' "$repo:$etq" | sed 's/^[^@]*@//')
-            perl -pi -e "s{(imagen(?:Publica)?:\s*\Q$repo:$etq\E)\@sha256:[0-9a-f]{64}}{\${1}\@$digest}" "modulos/trampas/$t/trampa.yaml"
-            rm -rf "$tmp"
+            case "$digest" in sha256:*) ;; *) echo "No digest for $repo:$etq" >&2; exit 1 ;; esac
+            # El manifiesto queda con ESTA etiqueta y ESTE digest, diga lo que diga: si
+            # nombraba otra etiqueta, la imagen que pide no existe aquí.
+            perl -pi -e "s{(imagen(?:Publica)?:\s*\Q$repo\E):[^\@\s]+\@sha256:[0-9a-f]{64}}{\${1}:$etq\@$digest}" "modulos/trampas/$t/trampa.yaml"
+            grep -qF "imagen: $repo:$etq@$digest" "modulos/trampas/$t/trampa.yaml" \
+              || { echo "modulos/trampas/$t/trampa.yaml does not name $repo:$etq@$digest" >&2; exit 1; }
             echo "::endgroup::"
           done
 
       - name: Confirmar los digests reales en los manifiestos
+        id: confirmar
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add modulos/trampas/*/trampa.yaml
-          git commit -m "Fijar el digest real de ghcr de la imagen de cowrie" || echo "sin cambios que confirmar"
+          if git diff --cached --quiet; then
+            echo "sin cambios que confirmar"
+            exit 0
+          fi
+          git commit -m "Fijar el digest real de ghcr de la imagen de cowrie"
           git push
+          echo "fijado=si" >> "$GITHUB_OUTPUT"
+          # Las imágenes del nodo salen del commit nuevo, no de este.
+          gh workflow run publicar-imagenes.yml --ref main -R "${{ github.repository }}"
 
   nodo:
-    if: github.ref == 'refs/heads/main'
+    needs: publicar
+    if: github.ref == 'refs/heads/main' && needs.publicar.outputs.fijado != 'si'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -79,6 +105,23 @@ jobs:
 
       - name: Entrar en ghcr.io
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      # La versión se firma sobre este commit: cada trampa tiene que pedir una imagen que
+      # exista, con ese digest. Si no, no se construye nada.
+      - name: Cada manifiesto nombra una imagen publicada
+        run: |
+          set -euo pipefail
+          mal=0
+          for y in modulos/trampas/*/trampa.yaml; do
+            for ref in $(grep -E '^\s*imagen(Publica)?:' "$y" | awk '{print $2}' | sort -u); do
+              real=$(docker buildx imagetools inspect "${ref%@*}" --format '{{.Manifest.Digest}}' 2>/dev/null || true)
+              if [ "$real" != "${ref#*@}" ]; then
+                echo "::error file=$y::$ref is not published (registry has: ${real:-nothing})"
+                mal=1
+              fi
+            done
+          done
+          [ "$mal" = 0 ]
 
       - name: Construir y publicar las imágenes del nodo en ghcr
         id: publicar

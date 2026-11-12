@@ -9,7 +9,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/kinomakino/sugardaddy/sensor/internal/docker"
@@ -25,7 +27,28 @@ type Pedido struct {
 	Modo     string // ModoNodo o ModoSensorRemoto
 	Proyecto string // proyecto de compose
 	Red      string // red desde la que el auxiliar llega a la consola
-	Firmada  ReleaseFirmada
+	// Hosts: resoluciones fijas («nombre:IP») que el auxiliar necesita para
+	// informar a la consola, las mismas que compose da al sensor (HostsFijos).
+	Hosts   []string
+	Firmada ReleaseFirmada
+}
+
+// VariableConsolaFija es la variable de .env con la que el instalador de un
+// sensor remoto fija en qué IP está la consola («nombre:IP») cuando su máquina
+// no resuelve el nombre: compose la pone en /etc/hosts del sensor y del
+// actualizador (extra_hosts), sin tocar la máquina.
+const VariableConsolaFija = "CONSOLA_FIJA"
+
+// HostsFijos devuelve esa resolución, si .env la trae y está bien formada. El
+// auxiliar no es del proyecto de compose: sin ella no resolvería el nombre de
+// la consola y cada versión aplicada quedaría sin informar.
+func HostsFijos(env map[string]string) []string {
+	v := strings.TrimSpace(env[VariableConsolaFija])
+	nombre, ip, ok := strings.Cut(v, ":")
+	if !ok || nombre == "" || strings.ContainsAny(nombre, " \t/") || net.ParseIP(ip) == nil {
+		return nil
+	}
+	return []string{nombre + ":" + ip}
 }
 
 // NombreAuxiliar: el nombre del contenedor hace de cerrojo, solo puede haber uno.
@@ -71,6 +94,7 @@ func Lanzar(ctx context.Context, d *docker.Cliente, p Pedido) (string, error) {
 			// El socket y la carpeta del nodo, en la misma ruta que en el
 			// anfitrión: así las rutas del compose valen igual dentro y fuera.
 			"Binds":          []string{"/var/run/docker.sock:/var/run/docker.sock", p.Dir + ":" + p.Dir},
+			"ExtraHosts":     p.Hosts,
 			"ReadonlyRootfs": true,
 			"CapDrop":        []string{"ALL"},
 			"SecurityOpt":    []string{"no-new-privileges"},

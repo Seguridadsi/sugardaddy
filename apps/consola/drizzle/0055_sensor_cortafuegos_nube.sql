@@ -1,0 +1,1 @@
+ALTER TABLE "sensores" ADD COLUMN "cortafuegos_nube" jsonb;

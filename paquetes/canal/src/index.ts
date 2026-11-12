@@ -25,6 +25,7 @@ import {
 	type KeyObject
 } from 'node:crypto';
 import type { LicenciaFirmada } from './licencia.ts';
+import { motivoInstalador, type InstaladorDeVersion } from './instalador.ts';
 import {
 	aConfianza,
 	firmadoPor,
@@ -344,6 +345,12 @@ export type Release = {
 	confianza?: { claves: string; retirarLegado?: boolean };
 	catalogo?: Record<string, string[]>;
 	commit?: string;
+	/*
+	 * Con qué se instala esta versión desde cero (instalador.ts, SUP-7): la primera etapa,
+	 * estática y firmada, los guiones del nodo y la huella de cada pieza. Los nodos y los
+	 * paneles anteriores lo ignoran.
+	 */
+	instalador?: InstaladorDeVersion;
 };
 
 /*
@@ -520,7 +527,7 @@ export function verificarRelease(
 		if (!r.actualizador)
 			return { ok: false, motivo: 'a version with configuration must include the updater' };
 	}
-	const m = motivoNovedades(r, uso);
+	const m = motivoNovedades(r, uso) ?? motivoInstalador(r, f.release);
 	if (m) return { ok: false, motivo: m };
 	return { ok: true, release: r, firmadaCon };
 }
@@ -575,3 +582,4 @@ export * from './catalogo-partner.ts';
 export * from './planes.ts';
 export * from './registro.ts';
 export * from './confianza.ts';
+export * from './instalador.ts';

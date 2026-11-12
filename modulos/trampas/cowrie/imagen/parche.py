@@ -36,6 +36,13 @@ esperado: si Cowrie cambia, falla aquí en vez de dejar algo a medias.
    o llevan ese valor (confirmed), justo después del recorte
    (sugardaddy.marcar_agente). No cambia lo que Cowrie contesta. Se quita con
    [honeypot] sd_nota_agentes = no (COWRIE_HONEYPOT_SD_NOTA_AGENTES).
+8. Quién hay al otro lado (sugardaddy.seguir_sesion y anotar_tecla): el
+   despachador copia la versión que anuncia el cliente SSH al evento de su
+   huella (cowrie.client.kex), para que la consola las compare, y al cerrar la
+   sesión deja su ritmo (cowrie.session.closed: ritmo, ordenes, intervalo_ms...).
+   La shell interactiva avisa de cada tecla y de cada borrado: solo se cuenta y
+   se mide el tiempo entre una y otra, no se guarda qué tecla es. No cambia lo
+   que Cowrie contesta.
 """
 
 from pathlib import Path
@@ -178,7 +185,7 @@ cambiar(
     EV,
     "from cowrie.core.output import convert\n",
     "from cowrie.core.output import convert\n"
-    "from cowrie.core.sugardaddy import marcar_agente, recortar_evento\n"
+    "from cowrie.core.sugardaddy import marcar_agente, recortar_evento, seguir_sesion\n"
     "from cowrie.core.sugardaddy_fs import token_nota\n",
 )
 # El único sitio por el que pasa cada evento antes de cualquier salida
@@ -203,6 +210,13 @@ cambiar(
         # despacho de un evento.
         try:
             marcar_agente(ev, token_nota())
+        except Exception:  # noqa: BLE001
+            pass
+        # Sugardaddy: quién hay al otro lado. La versión del cliente SSH, al
+        # evento de su huella, y al cerrar la sesión, su ritmo (punto 8 de
+        # parche.py). Nunca revienta el despacho de un evento.
+        try:
+            seguir_sesion(ev)
         except Exception:  # noqa: BLE001
             pass
 """,
@@ -422,6 +436,49 @@ cambiar(
                 self.writeBytes(txt)
 
         return Command_txtcmd
+""",
+)
+
+# Punto 8: el ritmo de tecleo. Cada tecla y cada borrado de la shell
+# interactiva (SSH y Telnet) se cuentan con su hora; qué tecla es no se guarda.
+cambiar(
+    "src/cowrie/shell/protocol.py",
+    """        self.resetTimeout()  # Reset the idle timeout
+        if self.mode == "insert":
+            self.lineBuffer.insert(self.lineBufferIndex, ch)
+""",
+    """        self.resetTimeout()  # Reset the idle timeout
+        self._sd_tecla()
+        if self.mode == "insert":
+            self.lineBuffer.insert(self.lineBufferIndex, ch)
+""",
+)
+cambiar(
+    "src/cowrie/shell/protocol.py",
+    """    def handle_RETURN(self) -> None:
+        if len(self.cmdstack) == 1:
+            if self.lineBuffer:
+                self.historyLines.append(b"".join(self.lineBuffer))
+""",
+    """    def _sd_tecla(self, borrado: bool = False) -> None:
+        # Sugardaddy: el ritmo de tecleo de la sesión (sugardaddy.anotar_tecla).
+        # Nunca revienta la sesión.
+        try:
+            from cowrie.core.sugardaddy import anotar_tecla
+
+            anotar_tecla(self.events.identity.get("session"), borrado)
+        except Exception:  # noqa: BLE001
+            pass
+
+    def handle_BACKSPACE(self) -> None:
+        self._sd_tecla(borrado=True)
+        recvline.HistoricRecvLine.handle_BACKSPACE(self)
+
+    def handle_RETURN(self) -> None:
+        self._sd_tecla()
+        if len(self.cmdstack) == 1:
+            if self.lineBuffer:
+                self.historyLines.append(b"".join(self.lineBuffer))
 """,
 )
 

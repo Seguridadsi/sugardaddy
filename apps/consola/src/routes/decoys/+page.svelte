@@ -89,6 +89,26 @@
 		return ordenar(filtradas, orden, valores);
 	});
 
+	/*
+	 * Elegir varias y retirarlas de una vez, con una sola confirmación que dice
+	 * cuántas y cuáles: para vaciar un sensor (que no se puede quitar mientras le
+	 * quede alguna) antes había que retirarlas una a una. Solo cuenta lo que se
+	 * ve: una marcada que un filtro esconde no se retira sin que nadie la vea.
+	 */
+	let marcadas = $state<Record<string, boolean>>({});
+	const retirables = $derived(visibles.filter((s) => s.colocacion !== 'retirando'));
+	const elegidas = $derived(retirables.filter((s) => marcadas[s.id]));
+	const todas = $derived(retirables.length > 0 && elegidas.length === retirables.length);
+	let confirmando = $state(false);
+	let retirando = $state(false);
+	function marcarTodas(si: boolean) {
+		marcadas = si ? Object.fromEntries(retirables.map((s) => [s.id, true])) : {};
+	}
+	/* Sin nada elegido no hay nada que confirmar. */
+	$effect(() => {
+		if (!elegidas.length) confirmando = false;
+	});
+
 	/* Lo desplegado por un lado y cuánto ruido hace por otro. */
 	const PESTANAS = [
 		{ id: 'honeypots', texto: 'Honeypots' },
@@ -224,10 +244,96 @@
 		</div>
 	{/if}
 
+	<!-- Siempre a la vista: si apareciera al marcar la primera, la tabla saltaría bajo el ratón. -->
+	{#if opera && retirables.length}
+		<div class="seleccion" role="region" aria-label="Selected honeypots">
+			{#if confirmando}
+				<div class="confirmar" role="alertdialog" aria-label="Confirm removal">
+					<p>
+						<b
+							>Remove {elegidas.length === 1
+								? 'this honeypot'
+								: `these ${elegidas.length} honeypots`}?</b
+						>
+						Events are kept. A honeypot deployed by hand must then be removed from its target.
+					</p>
+					<ul class="a-retirar">
+						{#each elegidas as s (s.id)}
+							<li><b>{s.nombre}</b> <span class="mono">{s.modulo}</span> · {sensorDe(s)}</li>
+						{/each}
+					</ul>
+					<form
+						method="POST"
+						action="?/retirarElegidas"
+						use:enhance={() => {
+							retirando = true;
+							return async ({ update, result }) => {
+								await update();
+								retirando = false;
+								confirmando = false;
+								if (result.type === 'success') marcadas = {};
+							};
+						}}
+					>
+						{#each elegidas as s (s.id)}
+							<input type="hidden" name="id" value={s.id} />
+						{/each}
+						<button class="boton peligro" disabled={retirando}
+							>{retirando
+								? 'Removing…'
+								: `Remove ${elegidas.length} ${elegidas.length === 1 ? 'honeypot' : 'honeypots'}`}</button
+						>
+						<button
+							type="button"
+							class="boton"
+							disabled={retirando}
+							onclick={() => (confirmando = false)}>Cancel</button
+						>
+					</form>
+				</div>
+			{:else}
+				<p class:nada={!elegidas.length}>
+					{#if elegidas.length}
+						<span class="mono">{elegidas.length}</span>
+						selected
+					{:else}
+						Select honeypots to remove several at once.
+					{/if}
+				</p>
+				<div class="botones">
+					<button
+						type="button"
+						class="boton peligro"
+						disabled={!elegidas.length}
+						onclick={() => (confirmando = true)}>Remove selected</button
+					>
+					<button
+						type="button"
+						class="boton"
+						disabled={!elegidas.length}
+						onclick={() => marcarTodas(false)}>Clear selection</button
+					>
+				</div>
+			{/if}
+		</div>
+	{/if}
+
 	<section class="panel">
 		<table>
 			<thead>
 				<tr>
+					{#if opera}
+						<th class="marca">
+							<input
+								type="checkbox"
+								checked={todas}
+								indeterminate={elegidas.length > 0 && !todas}
+								disabled={!retirables.length || confirmando}
+								onchange={(e) => marcarTodas(e.currentTarget.checked)}
+								aria-label="Select all the honeypots listed"
+							/>
+						</th>
+					{/if}
 					{#each columnas as c (c.id)}
 						{@const i = puesto(c.id)}
 						<th
@@ -261,7 +367,19 @@
 			</thead>
 			<tbody>
 				{#each visibles as s (s.id)}
-					<tr>
+					<tr class:elegida={opera && marcadas[s.id] && s.colocacion !== 'retirando'}>
+						{#if opera}
+							<td class="marca">
+								{#if s.colocacion !== 'retirando'}
+									<input
+										type="checkbox"
+										bind:checked={marcadas[s.id]}
+										disabled={confirmando}
+										aria-label={`Select ${s.nombre}`}
+									/>
+								{/if}
+							</td>
+						{/if}
 						<td>
 							<div class="nombre">
 								<LogoTrampa procedencia={s.procedencia} pictograma={s.pictograma} />
@@ -320,7 +438,7 @@
 					</tr>
 				{:else}
 					<tr>
-						<td class="vacio-fila" colspan={opera ? 7 : 6}>
+						<td class="vacio-fila" colspan={opera ? 8 : 6}>
 							{filtrando
 								? 'No honeypot matches these filters.'
 								: 'No honeypots deployed yet. Add one from the catalog.'}
@@ -385,6 +503,56 @@
 {/if}
 
 <style>
+	.seleccion {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		justify-content: space-between;
+		gap: 10px 14px;
+		margin: 0 0 12px;
+		padding: 10px 14px;
+		border: 1px solid var(--line);
+		border-radius: var(--r);
+		background: var(--surface);
+		font-size: 13.5px;
+	}
+
+	.seleccion p {
+		margin: 0;
+	}
+
+	.seleccion .nada {
+		color: var(--ink-3);
+	}
+
+	.confirmar {
+		flex: 1;
+	}
+
+	.confirmar form {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 8px;
+		margin-top: 10px;
+	}
+
+	.a-retirar {
+		margin: 8px 0 0;
+		padding-left: 18px;
+		max-height: 30vh;
+		overflow-y: auto;
+		color: var(--ink-2);
+		font-size: 13px;
+	}
+
+	.marca {
+		width: 1%;
+	}
+
+	tr.elegida td {
+		background: color-mix(in oklab, var(--accent, var(--ink)) 6%, transparent);
+	}
+
 	.ruido {
 		padding: 18px 20px 20px;
 	}

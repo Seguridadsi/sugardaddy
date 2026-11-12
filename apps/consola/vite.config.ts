@@ -1,10 +1,13 @@
 import { defineConfig } from 'vitest/config';
 import adapter from '@sveltejs/adapter-node';
 import { sveltekit } from '@sveltejs/kit/vite';
+import { sinGestor } from '@sugardaddy/estilo/sin-gestor';
 
 export default defineConfig({
 	plugins: [
 		sveltekit({
+			/* Ningún campo de texto llama al gestor de contraseñas, salvo los que lo piden (sin-gestor.js). */
+			preprocess: sinGestor(),
 			compilerOptions: {
 				runes: ({ filename }) =>
 					filename.split(/[/\\]/).includes('node_modules') ? undefined : true

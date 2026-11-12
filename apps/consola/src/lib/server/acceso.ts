@@ -9,7 +9,7 @@
  */
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { and, eq, isNotNull, sql } from 'drizzle-orm';
+import { and, eq, isNotNull, isNull, sql } from 'drizzle-orm';
 import { env } from '$env/dynamic/private';
 import { aCidrs, contenidaEn, rango } from '@sugardaddy/canal';
 import { db, schema as s } from './db';
@@ -34,6 +34,12 @@ export type Acceso = {
 	emergencia?: boolean;
 	/* Sube con cada cambio: un formulario viejo no pisa lo que cambió mientras tanto. */
 	version?: number;
+	/*
+	 * Desde cuándo es esta la lista que tiene que aplicar el cortafuegos (cambió su
+	 * huella): durante un par de minutos, que aún no la confirme es lo normal y no
+	 * un fallo (cortafuegosAplicando).
+	 */
+	listaDesde?: string;
 };
 
 export type EstadoCortafuegos = 'aplicada' | 'abierta' | 'sin-docker-user' | 'error';
@@ -51,6 +57,12 @@ export const MAX_ENTRADAS = 100;
 const MAX_NOTA = 80;
 /* El actualizador vuelve a aplicar e informar cada dos minutos: más de diez sin noticias, no está. */
 const CONFIRMACION_VALE_MS = 10 * 60_000;
+/*
+ * Lo que tarda como mucho en llegar al cortafuegos un cambio de la lista: el
+ * actualizador la recoge en su siguiente vuelta (medio minuto), lanza su
+ * auxiliar y lo cuenta. Pasado esto sin confirmación, ya no es una espera.
+ */
+export const PLAZO_APLICAR_MS = 3 * 60_000;
 const ESTADOS_CORTAFUEGOS: EstadoCortafuegos[] = [
 	'aplicada',
 	'abierta',
@@ -140,6 +152,9 @@ async function cambiar(
 		const valor = nuevo(antes);
 		if (!valor) return null;
 		valor.version = (antes.version ?? 0) + 1;
+		/* Si cambia lo que tiene que aplicar el cortafuegos, se apunta desde cuándo. */
+		valor.listaDesde =
+			!f || huellaLista(valor) !== huellaLista(antes) ? new Date().toISOString() : antes.listaDesde;
 		await tx
 			.insert(s.ajustes)
 			.values({ clave: CLAVE, valor })
@@ -170,7 +185,8 @@ export async function sensoresSinDireccion(): Promise<{ id: string; nombre: stri
 	const remotos = await db
 		.select({ id: s.sensores.id, nombre: s.sensores.nombre, direccion: s.sensores.direccion })
 		.from(s.sensores)
-		.where(eq(s.sensores.remoto, true));
+		/* Uno retirado no va a llegar: no hay dirección que esperar de él. */
+		.where(and(eq(s.sensores.remoto, true), isNull(s.sensores.retirado)));
 	return remotos.filter((r) => !r.direccion).map(({ id, nombre }) => ({ id, nombre }));
 }
 
@@ -430,6 +446,30 @@ export function cortafuegosConfirma(a: Acceso, c: Cortafuegos | null, ahora = Da
 		c.huella === huellaLista(a) &&
 		ahora - new Date(c.cuando).getTime() < CONFIRMACION_VALE_MS
 	);
+}
+
+/*
+ * La lista acaba de cambiar y el cortafuegos aún no ha tenido tiempo de
+ * aplicarla: no es que no la aplique. Sin esto, añadir la IP de un sensor remoto
+ * (o guardar la lista) encendía durante medio minuto el aviso rojo de que el
+ * cortafuegos de la máquina no aplica la lista, cuando solo estaba en ello.
+ *
+ * No es una espera si ya contestó para esta lista y no la aplicó, ni si lo
+ * último que dijo, antes del cambio, ya era que no puede (sin DOCKER-USER, o
+ * un error): eso sigue siendo verdad y se sigue avisando.
+ */
+export function cortafuegosAplicando(
+	a: Acceso,
+	c: Cortafuegos | null,
+	ahora = Date.now()
+): boolean {
+	if (a.estado !== 'restringida' || !a.listaDesde || cortafuegosConfirma(a, c, ahora)) return false;
+	const desde = new Date(a.listaDesde).getTime();
+	if (!(ahora - desde < PLAZO_APLICAR_MS)) return false;
+	if (!c) return true;
+	const fallo = c.estado === 'error' || c.estado === 'sin-docker-user';
+	if (c.huella === huellaLista(a)) return c.estado === 'aplicada';
+	return !fallo;
 }
 
 let confirmada: { valor: Cortafuegos | null; hasta: number } | null = null;

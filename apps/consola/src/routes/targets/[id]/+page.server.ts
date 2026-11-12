@@ -11,9 +11,14 @@ import {
 	valoresDeFormulario
 } from '$lib/server/destinos';
 import { DestinoNoDisponible, regenerarToken } from '$lib/server/gestion';
-import { ErrorCliente, altaSensorRemoto } from '$lib/server/sensores-remotos';
+import { ErrorCliente, altaSensorRemoto, consolaParaAlta } from '$lib/server/sensores-remotos';
 import { nombreConsola } from '$lib/server/direccion-consola';
 import { alcanceDeFicha, fijarAlcance, leerAlcance } from '$lib/server/alcance-ficha';
+import {
+	abrirPuertos,
+	cortafuegosDeFicha,
+	guardarCortafuegos
+} from '$lib/server/cortafuegos-ficha';
 
 export const load = async ({ params, url }) => {
 	const destino = await fichaDestino(params.id);
@@ -22,8 +27,12 @@ export const load = async ({ params, url }) => {
 		ahora: Date.now(),
 		creado: url.searchParams.has('creado'),
 		destino,
+		/* Para «Instalar un sensor aquí», si esa máquina no resuelve el nombre de la consola. */
+		consola: consolaParaAlta(url.hostname),
 		/* Por qué salidas avisa lo de este sensor (lib/alcance.ts); sin sensor, no hay qué decir. */
-		alcance: destino.sensor ? await alcanceDeFicha('sensor', destino.sensor.id) : null
+		alcance: destino.sensor ? await alcanceDeFicha('sensor', destino.sensor.id) : null,
+		/* El cortafuegos de su nube, si esta edición sabe abrirlo (cortafuegos-ficha.ts). */
+		cortafuegos: destino.sensor ? await cortafuegosDeFicha(destino.sensor.id) : null
 	};
 };
 
@@ -42,6 +51,42 @@ export const actions = {
 		if (!(await fijarAlcance(u.correo, { ...v, nivel: 'sensor', objeto: destino.sensor.id })))
 			return fail(400, { accion: 'alcance' as const, errores: ['That output no longer exists.'] });
 		return { accion: 'alcance' as const, mensaje: 'Alerts for this sensor saved.' };
+	},
+
+	/*
+	 * De qué grupo de seguridad de red es la máquina de este sensor. Cambiar el
+	 * cortafuegos de una nube es cosa de quien administra la consola.
+	 */
+	cortafuegos: async ({ params, request, locals }) => {
+		const u = exigir(locals, 'ajustes');
+		const destino = await fichaDestino(params.id);
+		if (!destino) error(404, 'That target does not exist.');
+		const nsg = String((await request.formData()).get('nsg') ?? '');
+		const fallo = (texto: string) =>
+			fail(400, { accion: 'cortafuegos' as const, error: texto, nsg });
+		if (!destino.sensor) return fallo('This target has no sensor.');
+		const mal = await guardarCortafuegos(u.correo, destino.sensor.id, nsg);
+		if (mal) return fallo(mal);
+		return {
+			accion: 'cortafuegos' as const,
+			mensaje: nsg.trim() ? 'Network security group saved.' : 'Network security group removed.'
+		};
+	},
+
+	/*
+	 * Abre en ese grupo los puertos de sus honeypots, o solo dice lo que haría
+	 * («Preview»). El resultado vuelve regla a regla.
+	 */
+	abrir: async ({ params, request, locals }) => {
+		const u = exigir(locals, 'ajustes');
+		const destino = await fichaDestino(params.id);
+		if (!destino) error(404, 'That target does not exist.');
+		const simular = (await request.formData()).get('simular') === 'si';
+		if (!destino.sensor)
+			return fail(400, { accion: 'abrir' as const, error: 'This target has no sensor.' });
+		const r = await abrirPuertos(u.correo, destino.sensor.id, simular);
+		if (!r.ok) return fail(400, { accion: 'abrir' as const, error: r.error });
+		return { accion: 'abrir' as const, resultado: r };
 	},
 
 	/* El formulario corto, salvo lo que ya dice su sensor (§5.3). */
@@ -80,14 +125,16 @@ export const actions = {
 		const nombre = String(f.get('nombre') ?? '').trim();
 		const v = { id: identificador(String(f.get('id') ?? ''), nombre), nombre };
 		const ip = String(f.get('ip') ?? '').trim();
+		/* En qué IP ve esa máquina a la consola, si no resuelve su nombre. */
+		const consolaIp = String(f.get('consolaIp') ?? '').trim();
 		const fallo = (status: number, texto: string) =>
-			fail(status, { accion: 'instalar' as const, error: texto, ...v, ip });
+			fail(status, { accion: 'instalar' as const, error: texto, ...v, ip, consolaIp });
 		if (!v.id) return fallo(400, SIN_IDENTIFICADOR);
 		if (!v.nombre) return fallo(400, 'The name is required.');
 		try {
-			const linea = await altaSensorRemoto(u.correo, v, params.id, ip);
+			const linea = await altaSensorRemoto(u.correo, v, params.id, ip, consolaIp);
 			if (!linea) return fallo(400, 'A sensor with that identifier already exists.');
-			return { linea, para: v.id, consola: nombreConsola() };
+			return { linea, para: v.id, consola: nombreConsola(), fija: consolaIp || null };
 		} catch (e) {
 			if (e instanceof DestinoNoDisponible) return fallo(409, e.message);
 			if (e instanceof ErrorCliente) return fallo(400, e.message);

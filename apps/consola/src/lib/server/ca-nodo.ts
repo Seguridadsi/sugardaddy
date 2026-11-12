@@ -257,7 +257,8 @@ export async function sensoresSinRaizNueva(): Promise<
 			caConfiada: s.sensores.caConfiada
 		})
 		.from(s.sensores)
-		.where(eq(s.sensores.remoto, true));
+		/* Uno retirado no va a recibir la raíz nueva: no tiene que frenar el cambio. */
+		.where(and(eq(s.sensores.remoto, true), isNull(s.sensores.retirado)));
 	return remotos
 		.filter((r) => r.caConfiada !== objetivo)
 		.map(({ id, nombre, ultimoLatido }) => ({ id, nombre, ultimoLatido }));

@@ -237,8 +237,14 @@
 						{#if avisoActual === 'acceso'}
 							<p class="emergencia">
 								{#if data.acceso.estado === 'restringida'}
-									The console is limited to a list of addresses, but this machine's firewall does
-									not apply it: anyone who reaches the machine can still find the console port.
+									{#if data.acceso.cortafuegosMotivo === 'sin-noticias'}
+										The console is limited to a list of addresses, but the node has not confirmed
+										that this machine's firewall applies it (its updater is stopped or out of date):
+										until it does, anyone who reaches the machine may still find the console port.
+									{:else}
+										The console is limited to a list of addresses, but this machine's firewall does
+										not apply it: anyone who reaches the machine can still find the console port.
+									{/if}
 								{:else if data.acceso.emergencia}
 									The console was opened to everyone from the machine itself.
 								{:else}

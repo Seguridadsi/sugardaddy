@@ -210,7 +210,21 @@ export async function sondeoDeDestinos() {
 			/* Con el sensor sin contacto lo dice el bloqueo, y el aviso del elector («se pondrá cuando vuelva») confundiría. */
 			if (elegida && bloqueo)
 				elegida.avisos = elegida.avisos.filter((a) => a.codigo !== 'agente.sin-contacto');
-			return { ...resumenDestino(f, d), elegida, motivo, bloqueo };
+			/*
+			 * Para elegir destino con criterio (una plantilla): el sensor que lo
+			 * lleva, si está de cara a internet y entre cuántas direcciones de su
+			 * máquina se puede repartir lo que se ponga ahí con esta vía.
+			 */
+			const via = elegida ? viaDe(h, elegida.via) : undefined;
+			return {
+				...resumenDestino(f, d),
+				sensorId: f.sensor?.id ?? null,
+				entorno: f.sensor?.entorno ?? null,
+				direcciones: via ? direccionesParaElegir(via, d).length : 0,
+				elegida,
+				motivo,
+				bloqueo
+			};
 		});
 		const grupo = (x: (typeof lista)[number]) =>
 			!x.elegida ? 3 : x.bloqueo ? 2 : x.elegida.avisos.length ? 1 : 0;

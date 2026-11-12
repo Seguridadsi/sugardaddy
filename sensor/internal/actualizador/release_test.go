@@ -36,6 +36,12 @@ func TestVerificar(t *testing.T) {
 	if _, err := Verificar(Confianza{Legado: clave}, tocada); err == nil {
 		t.Fatal("una versión cambiada tras firmar no debería pasar")
 	}
+	// Lo que este actualizador no conoce se ignora: una versión que trae el instalador
+	// (docs/diseno/instalador-verificado.md) la aceptan también los actualizadores de antes.
+	conInstalador := strings.TrimSuffix(buena, "}") + `,"instalador":{"huellas":"v1;instalar.sh=` + strings.Repeat("0", 64) + `","ficheros":{"instalar.sh":"#!/bin/sh\n"},"etapa1":{"texto":"#!/usr/bin/env bash\n","firmas":[]}}}`
+	if _, err := Verificar(Confianza{Legado: clave}, firmar(t, priv, conInstalador)); err != nil {
+		t.Fatalf("una versión con instalador debería pasar: %v", err)
+	}
 	sinDigest := strings.Replace(buena, "@sha256:"+strings.Repeat("a", 64), ":latest", 1)
 	if _, err := Verificar(Confianza{Legado: clave}, firmar(t, priv, sinDigest)); err == nil {
 		t.Fatal("una imagen por etiqueta no debería pasar aunque esté firmada")

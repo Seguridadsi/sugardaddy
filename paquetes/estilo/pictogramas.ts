@@ -152,6 +152,8 @@ const TIPO_DE_TRAMPA: Record<string, TipoDeServicio> = {
 	'configuracion-mcp': 'ia',
 	/* Chatbot interno falso (H95): asistente de IA con base RAG cebo y cadena canario */
 	'chatbot-interno': 'ia',
+	/* Portal para agentes (H126): API interna falsa con servidor MCP, por niveles */
+	'portal-agentes': 'ia',
 	/* Código */
 	git: 'codigo',
 	svn: 'codigo',
