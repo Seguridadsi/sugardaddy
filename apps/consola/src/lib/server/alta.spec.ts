@@ -388,7 +388,7 @@ describe.skipIf(!hayBase)('el alta con destino y elector', () => {
 		expect((r as { data: { motivos: unknown[] } }).data.motivos).toEqual([
 			{
 				codigo: 'puertos.otra-trampa',
-				texto: 'Port 2201 is already used by the decoy srv-backup01 on this target.'
+				texto: 'Port 2201 is already used by the honeypot srv-backup01 on this target.'
 			}
 		]);
 		/* Una que una consola anterior dejó sin destino cuenta en el de su sensor. */
@@ -410,7 +410,7 @@ describe.skipIf(!hayBase)('el alta con destino y elector', () => {
 		expect((x as { data: { motivos: unknown[] } }).data.motivos).toEqual([
 			{
 				codigo: 'puertos.otra-trampa',
-				texto: 'Port 2250 is already used by the decoy de antes on this target.'
+				texto: 'Port 2250 is already used by the honeypot de antes on this target.'
 			}
 		]);
 		await db.delete(s.trampas).where(eq(s.trampas.id, `${P}-ssh-sin-destino`));

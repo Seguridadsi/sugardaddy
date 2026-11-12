@@ -9,6 +9,14 @@ const circulo = (x: number, y: number, r: number) =>
 	`M${x - r} ${y}a${r} ${r} 0 1 0 ${2 * r} 0a${r} ${r} 0 1 0 ${-2 * r} 0`;
 
 export const ICONOS_MENU = {
+	configuracion: [
+		'M4 6.5l1.5 1.5L8 5.5',
+		'M11 6.5h9',
+		'M4 12.5l1.5 1.5L8 11.5',
+		'M11 12.5h9',
+		'M5 18.5h2',
+		'M11 18.5h9'
+	],
 	resumen: ['M4 20V11', 'M10 20V5', 'M16 20v-6', 'M21 20H3'],
 	mapa: [
 		circulo(12, 5, 2),

@@ -15,8 +15,8 @@
 	<h1>Add target</h1>
 	<p class="desc">
 		A place without a sensor where something can be deployed: a file server, a workstation, a
-		website, a cloud account. With what you enter here, the console knows which decoys fit it and,
-		if none does, why.
+		website, a cloud account. With what you enter here, the console knows which honeypots fit it
+		and, if none does, why.
 	</p>
 </div>
 

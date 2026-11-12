@@ -1,7 +1,7 @@
 #!/bin/sh
 # Lo único de modulos/ que entra en las imágenes de la consola y del panel: los
-# manifiestos, que son el catálogo, y las plantillas de los ficheros cebo, que la
-# consola acuña. El código de las trampas se queda fuera: quien descarga esas
+# manifiestos, que son el catálogo, las plantillas de los ficheros cebo, que la
+# consola acuña, y las plantillas de trampas (grupos por entorno), que son solo datos. El código de las trampas se queda fuera: quien descarga esas
 # imágenes no debe poder sacarlo de ahí. Cada trampa se reparte en su propia imagen.
 #
 # Es una lista de lo que entra, no de lo que sale: un fichero nuevo en un módulo
@@ -17,6 +17,7 @@ cd "$1"
 copiados=0
 for f in trampas/*/trampa.yaml ficheros/*/trampa.yaml nube/*/trampa.yaml \
 	respuestas/*/respuesta.yaml \
+	plantillas/*/plantilla.yaml \
 	ficheros/*/plantilla/*.docx ficheros/*/plantilla/*.xlsx \
 	ficheros/*/plantilla/*.pptx \
 	ficheros/*/plantilla/*.pdf ficheros/*/plantilla/*.svg; do

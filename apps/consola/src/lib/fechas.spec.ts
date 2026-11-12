@@ -1,12 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-	ZONA_DOCUMENTOS,
-	ZONA_POR_DEFECTO,
-	formatearFecha,
-	nombreZona,
-	zonaValida,
-	zonasConocidas
-} from './fechas';
+import { ZONA_POR_DEFECTO, formatearFecha, nombreZona, zonaValida, zonasConocidas } from './fechas';
 
 /* Viernes 6 de noviembre de 2026, 13:05:09 UTC: invierno en Madrid (UTC+1). */
 const INSTANTE = '2026-11-06T13:05:09Z';
@@ -94,6 +87,6 @@ describe('qué zona se admite', () => {
 
 	it('el nombre que se enseña lleva espacios', () => {
 		expect(nombreZona('America/New_York')).toBe('America/New York');
-		expect(zonaValida(ZONA_DOCUMENTOS)).toBe(true);
+		expect(zonaValida(ZONA_POR_DEFECTO)).toBe(true);
 	});
 });

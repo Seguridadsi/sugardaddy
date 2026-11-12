@@ -43,6 +43,8 @@ export type CodigoMotivo =
 	| 'carga.sin-credencial'
 	| 'puertos.ocupado'
 	| 'puertos.otra-trampa'
+	| 'puertos.direccion-ajena'
+	| 'puertos.direccion-sin-soporte'
 	| 'puertos.reservado'
 	| 'elector.sin-via';
 
@@ -66,17 +68,17 @@ export const MOTIVOS: Readonly<Record<CodigoMotivo, { texto: string; remedio?: s
 	Object.freeze({
 		'modulo.desconocido': { texto: 'The module {modulo} is not in the catalog.' },
 		'modulo.no-autorizado': { texto: '{nombre} is not part of your subscription.' },
-		'modulo.sin-vias': { texto: 'This decoy has no way to be deployed yet.' },
+		'modulo.sin-vias': { texto: 'This honeypot has no way to be deployed yet.' },
 		'modulo.via-desaparecida': {
 			texto:
 				'The method it was deployed with no longer exists in the module; remove it and deploy it again.'
 		},
 		/* Trampas de pago cuyo candado (la licencia) no las deja arrancar (docs/diseno/licencias-de-pago.md). */
-		'licencia.sin': { texto: 'This Cloud decoy is not included in your license.' },
+		'licencia.sin': { texto: 'This Cloud honeypot is not included in your license.' },
 		'licencia.caducada': { texto: 'Your Cloud license has expired.' },
 		/* Las que Community activa con el registro gratuito (docs/diseno/registro-community.md). */
 		'registro.sin': {
-			texto: 'This decoy is enabled for free with your registration, in Settings.'
+			texto: 'This honeypot is enabled for free with your registration, in Settings.'
 		},
 		'registro.caducado': { texto: 'Your registration has expired: renew it in Settings.' },
 		'parametros.invalidos': { texto: '{errores}' },
@@ -99,13 +101,13 @@ export const MOTIVOS: Readonly<Record<CodigoMotivo, { texto: string; remedio?: s
 		},
 		'agente.sin-contacto': {
 			texto:
-				'The sensor on {destino} is not responding; the decoy will be deployed when it returns.'
+				'The sensor on {destino} is not responding; the honeypot will be deployed when it returns.'
 		},
 		'requisito.no-cumple': { texto: '{motivo} ({detalle}).' },
 		'requisito.sin-dato': { texto: '{motivo} The fact "{hecho}" is missing: {comoSaberlo}.' },
 		'senal.inalcanzable': { texto: 'There is no way from here to read what the attacker does.' },
 		'senal.trampa-objetivo': {
-			texto: 'Needs a {modulos} decoy deployed to receive its signal.'
+			texto: 'Needs a {modulos} honeypot deployed to receive its signal.'
 		},
 		'senal.objetivo-sin-direccion': {
 			texto: 'What is planted must point to the address of {objetivo}, and {destino} has none.',
@@ -113,11 +115,11 @@ export const MOTIVOS: Readonly<Record<CodigoMotivo, { texto: string; remedio?: s
 		},
 		'senal.marca-repetida': {
 			texto:
-				'The decoy {otra} already uses "{valor}" against {objetivo}: choose another value to tell which of the two was used.'
+				'The honeypot {otra} already uses "{valor}" against {objetivo}: choose another value to tell which of the two was used.'
 		},
 		'senal.objetivo-retirado': {
 			texto:
-				'The decoy that received its signal no longer exists; remove this one and deploy it again with another.'
+				'The honeypot that received its signal no longer exists; remove this one and deploy it again with another.'
 		},
 		'senal.objetivo-parado': {
 			texto:
@@ -136,7 +138,9 @@ export const MOTIVOS: Readonly<Record<CodigoMotivo, { texto: string; remedio?: s
 				'Its signal needs a beacon receiver on this node or the relay of a node enrolled in Central, and it has neither yet.'
 		},
 		'senal.sin-conexion': { texto: '{conexion} must be connected first.' },
-		'carga.imagen-sin-publicar': { texto: 'The image for this decoy has not been published yet.' },
+		'carga.imagen-sin-publicar': {
+			texto: 'The image for this honeypot has not been published yet.'
+		},
 		'carga.sin-credencial': {
 			texto:
 				'This sensor does not have the registry credential yet; it will catch up with its next version.'
@@ -145,7 +149,15 @@ export const MOTIVOS: Readonly<Record<CodigoMotivo, { texto: string; remedio?: s
 			texto: '{destino} already uses {proto} port {puerto}; choose another or free it there.'
 		},
 		'puertos.otra-trampa': {
-			texto: 'Port {puerto} is already used by the decoy {nombre} on this target.'
+			texto: 'Port {puerto} is already used by the honeypot {nombre} on this target.'
+		},
+		'puertos.direccion-ajena': {
+			texto:
+				'{direccion} is not one of the addresses of {destino}: choose one of its addresses, or all of them.'
+		},
+		'puertos.direccion-sin-soporte': {
+			texto:
+				'The sensor of {destino} cannot yet publish a honeypot on a single address; it will be able to once it updates.'
 		},
 		'puertos.reservado': {
 			texto: 'Port {puerto} on this node is the console port: choose another.'

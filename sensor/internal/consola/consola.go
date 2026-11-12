@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sync"
 	"time"
 
 	"github.com/kinomakino/sugardaddy/sensor/internal/plan"
@@ -27,6 +28,11 @@ type Cliente struct {
 	// Version del sensor, que se dice al pedir el plan: la consola no le manda
 	// trampas que piden un sensor más nuevo.
 	Version string
+	// El último plan recibido y su huella (ETag), para no volver a bajarlo si
+	// la consola dice que no ha cambiado.
+	planMu     sync.Mutex
+	planEtag   string
+	planCuerpo []byte
 }
 
 func Nuevo(base, token string) *Cliente {
@@ -63,16 +69,38 @@ func (c *Cliente) Plan(ctx context.Context) (plan.Plan, error) {
 	if c.Version != "" {
 		req.Header.Set("Sugardaddy-Version", c.Version)
 	}
+	// El plan que ya se tiene: si la consola contesta que es el mismo (304), no
+	// lo vuelve a mandar. Una consola anterior ignora la cabecera y lo manda.
+	c.planMu.Lock()
+	etag, guardado := c.planEtag, c.planCuerpo
+	c.planMu.Unlock()
+	if etag != "" {
+		req.Header.Set("If-None-Match", etag)
+	}
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return p, err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
+	cuerpo := guardado
+	switch {
+	case resp.StatusCode == http.StatusNotModified && etag != "":
+		// El mismo de antes: se lee de lo guardado.
+	case resp.StatusCode == http.StatusOK:
+		if cuerpo, err = io.ReadAll(resp.Body); err != nil {
+			return p, err
+		}
+		c.planMu.Lock()
+		c.planEtag, c.planCuerpo = resp.Header.Get("ETag"), cuerpo
+		if c.planEtag == "" {
+			c.planCuerpo = nil
+		}
+		c.planMu.Unlock()
+	default:
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 		return p, fmt.Errorf("plan: %d %s", resp.StatusCode, b)
 	}
-	err = json.NewDecoder(resp.Body).Decode(&p)
+	err = json.Unmarshal(cuerpo, &p)
 	if p.Trampas == nil {
 		p.Trampas = p.Senuelos
 	}

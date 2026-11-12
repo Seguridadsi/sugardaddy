@@ -185,6 +185,15 @@ func main() {
 			Edicion:   actualizador.EdicionDelNodo(os.Getenv),
 			Marca:     marcaCatalogo(*firmado),
 		},
+		// Trampas de partner (docs/diseno/trampas-de-partner.md): solo si este nodo tiene
+		// partner. Su catálogo va junto a la versión firmada; la serie, en los datos.
+		partner: lectorPartner(*firmado, *datos),
+	}
+	// El registro del partner, para descargar sus trampas. Lo que se arranca lo fija el
+	// digest firmado, no el registro: una credencial tomada no permite cambiar la imagen.
+	// Nunca pisa la credencial de nuestro registro.
+	if r, t := os.Getenv("REGISTRO_PARTNER"), os.Getenv("REGISTRO_PARTNER_TOKEN"); r != "" && t != "" && r != os.Getenv("REGISTRO") && s.partner != nil {
+		d.ConCredencial(r, docker.Credencial{Usuario: os.Getenv("REGISTRO_PARTNER_USUARIO"), Token: t})
 	}
 	// El modo «IP propia»: interfaz y rango juntos o ninguno. El hecho
 	// red.capa2 que se informa luego dice si la máquina de verdad puede
@@ -249,10 +258,12 @@ type sensor struct {
 	opc     despliegue.Opciones
 	// catalogo lee la versión firmada instalada (SEN-3).
 	catalogo *catalogo.Lector
-	estado   *estado.Estado
-	salida   string
-	plan     *plan.Plan
-	pausa    time.Time
+	// partner lee el catálogo de trampas del partner de este nodo (nil: no tiene).
+	partner *catalogo.LectorPartner
+	estado  *estado.Estado
+	salida  string
+	plan    *plan.Plan
+	pausa   time.Time
 	// Último plan recibido de la consola, en Unix: lo que mira el punto de salud.
 	ultimoPlan atomic.Int64
 	// Tope de líneas por entrega; baja a la mitad si la consola dice que es
@@ -508,7 +519,11 @@ func (s *sensor) sondearMotor(ctx context.Context, id string) {
 // disco.trampas (si cada trampa tiene su disco de tamaño fijo y, si no, por qué).
 func (s *sensor) hechos() map[string]any {
 	// La consola le pide los toques de «Prueba mi detección» si lo dice.
-	h := map[string]any{"sensor.toques": map[string]any{"valor": true}}
+	h := map[string]any{
+		"sensor.toques": map[string]any{"valor": true},
+		// Sabe publicar una trampa en una sola de las direcciones de su máquina.
+		"sensor.escuchaPorTrampa": map[string]any{"valor": true},
+	}
 	if o := motor.HechoOrigen(s.conocido, s.estado.OrigenReal, s.estado.OrigenOculto); o != nil {
 		h["red.ipOrigenReal"] = o
 	}
@@ -1286,7 +1301,25 @@ func (s *sensor) reglaDelCatalogo() func(plan.TrampaPlan) string {
 	if c == nil {
 		return nil
 	}
-	return c.Motivo
+	p, errPartner := s.partner.Leer()
+	if errPartner != nil {
+		slog.Error("partner catalog", "err", errPartner)
+	}
+	return catalogo.Regla(c, p, errPartner, nil)
+}
+
+// lectorPartner: nil si este nodo no tiene partner (PARTNER vacío) o no hay versión firmada.
+func lectorPartner(firmado, datos string) *catalogo.LectorPartner {
+	partner := strings.TrimSpace(os.Getenv("PARTNER"))
+	if partner == "" || firmado == "" {
+		return nil
+	}
+	return &catalogo.LectorPartner{
+		Ruta:      filepath.Join(filepath.Dir(firmado), "catalogo-partner.json"),
+		Confianza: actualizador.ConfianzaDelEntorno(os.Getenv),
+		Partner:   partner,
+		RutaSerie: filepath.Join(datos, "catalogo-partner.serie"),
+	}
 }
 
 // marcaCatalogo: la marca de catálogo obligatorio va junto a la versión firmada (firmado/exigir).

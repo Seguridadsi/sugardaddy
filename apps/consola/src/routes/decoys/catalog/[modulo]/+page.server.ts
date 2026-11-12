@@ -19,7 +19,7 @@ import { contarTrampasDe } from '$lib/server/consultas';
  */
 export const load = async ({ params }) => {
 	const m = (await catalogoConSuscripcion()).find((x) => x.id === params.modulo);
-	if (!m) error(404, 'That decoy is not in the catalog');
+	if (!m) error(404, 'That honeypot is not in the catalog');
 	const c = viaContenedor(m)?.carga as CargaContenedor | undefined;
 	const p = validarParametros(m.parametros, {});
 	return {
@@ -37,6 +37,7 @@ export const load = async ({ params }) => {
 			desplegable: desplegable(m),
 			ficha: fichaDe(m) ?? null,
 			procedencia: m.procedencia ?? null,
+			dePartner: m.dePartner,
 			pictograma: tipoDeServicio(m.id),
 			aislamiento: c?.aislamiento ?? null,
 			imagen: c?.contenedor.imagen ?? null,

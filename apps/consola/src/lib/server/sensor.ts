@@ -5,7 +5,7 @@
  */
 import { createHash } from 'node:crypto';
 import { error } from '@sveltejs/kit';
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, gt, inArray, sql } from 'drizzle-orm';
 import { compararVersiones } from '@sugardaddy/canal';
 import {
 	CODIGO,
@@ -28,6 +28,7 @@ import type {
 import { EN_ESPERA, enEspera } from '../espera';
 import { coberturaLicencia, licenciaGuardada } from './candado';
 import { esDePago } from './modulos-gratis';
+import { esDePartner } from './catalogo-partner';
 import { autorizados, honeycosas } from './catalogo';
 import { comprobarConEvento, trasDescarte, trasEstado, type FilaColocacion } from './colocacion';
 import { db, schema as s } from './db';
@@ -47,6 +48,35 @@ export const LIMITE_ENTREGA = 16 * 1024 * 1024;
 /* Postgres no guarda el carácter NUL en un texto: se cambia por U+FFFD. */
 const sinNulos = (t: string) => t.replace(/\u0000/g, '\uFFFD');
 
+/*
+ * Rotación verificada (gestion.ts, prepararToken): el token pendiente de un
+ * sensor se da por bueno la primera vez que llega, dentro de su plazo. Un solo
+ * UPDATE: de dos peticiones a la vez con el mismo token, una lo estrena y la
+ * otra ya lo encuentra como el suyo.
+ */
+/* Cuánto vale un token entregado y sin estrenar; pasado el plazo, se pide otro. */
+export const VIDA_TOKEN_SIN_ESTRENAR_MS = 24 * 60 * 60_000;
+
+async function estrenarToken(hash: string) {
+	const desde = new Date(Date.now() - VIDA_TOKEN_SIN_ESTRENAR_MS);
+	const [f] = await db
+		.update(s.sensores)
+		.set({ claveHash: hash, claveHashSiguiente: null, claveSiguienteDesde: null })
+		.where(and(eq(s.sensores.claveHashSiguiente, hash), gt(s.sensores.claveSiguienteDesde, desde)))
+		.returning();
+	if (f) {
+		await db.insert(s.auditoria).values({
+			quien: `sensor ${f.id}`,
+			accion: 'sensor token rotated',
+			detalle: { id: f.id, nota: 'the new token was used; the previous one no longer works' }
+		});
+		return f;
+	}
+	/* Otra petición lo estrenó un instante antes. */
+	const [ya] = await db.select().from(s.sensores).where(eq(s.sensores.claveHash, hash));
+	return ya;
+}
+
 /* El token llega en Authorization: Bearer. Se busca por su hash; el token en claro no se guarda. */
 export async function sensorDe(request: Request) {
 	const token = request.headers
@@ -54,7 +84,9 @@ export async function sensorDe(request: Request) {
 		?.match(/^Bearer ([A-Za-z0-9_-]{32,128})$/)?.[1];
 	if (!token) error(401, 'Missing sensor token');
 	const hash = createHash('sha256').update(token).digest('hex');
-	const [sensor] = await db.select().from(s.sensores).where(eq(s.sensores.claveHash, hash));
+	let [sensor] = await db.select().from(s.sensores).where(eq(s.sensores.claveHash, hash));
+	/* ¿Es un token recién entregado que se estrena? Pasa a ser el suyo y el anterior deja de valer. */
+	sensor ??= await estrenarToken(hash);
 	if (!sensor) error(401, 'Unknown token');
 	await db.update(s.sensores).set({ ultimoLatido: new Date() }).where(eq(s.sensores.id, sensor.id));
 	return sensor;
@@ -72,6 +104,14 @@ export type TrampaPlan = {
 	 * anteriores), el sensor la monta en todas, como antes.
 	 */
 	licencia: boolean;
+	/*
+	 * La dirección de la máquina del sensor en la que se publica, si se eligió
+	 * una; sin el campo, en todas. No va en el manifiesto (lo firmado): el sensor
+	 * la comprueba contra las direcciones que mide él. Un sensor anterior no lo
+	 * lee y la publica en todas; por eso el alta solo deja elegirla si el sensor
+	 * dice sensor.escuchaPorTrampa.
+	 */
+	escucha?: string;
 };
 
 /*
@@ -213,7 +253,7 @@ export async function plan(sensor: string, registroPrivado: boolean, versionSens
 		 * Una imagen sin alternativa pública es del registro privado: un sensor
 		 * sin su credencial no podría descargarla y la trampa quedaría en error.
 		 */
-		if (m.contenedor && !m.contenedor.imagenPublica && !registroPrivado) {
+		if (m.contenedor && !m.contenedor.imagenPublica && !registroPrivado && !esDePartner(h.id)) {
 			descartar(f.id, 'carga.sin-credencial');
 			continue;
 		}
@@ -227,7 +267,9 @@ export async function plan(sensor: string, registroPrivado: boolean, versionSens
 			nombre: f.nombre,
 			manifiesto: manifiestoPara(m, registroPrivado),
 			parametros: p.valor,
-			licencia: esDePago(h.id)
+			/* Las del partner no llevan nuestro candado: no se les monta la licencia. */
+			licencia: esDePago(h.id) && !esDePartner(h.id),
+			...(f.escucha ? { escucha: f.escucha } : {})
 		});
 	}
 	await anotarEspera(sensor, filas, trampas, descartados);
@@ -635,9 +677,9 @@ async function guardarEntrega(
 			if (e && !motivo) {
 				if (e.sensor !== sensor) motivo = 'the event claims to be from another sensor';
 				else if (deQuien.get(e.trampa.id) === undefined)
-					motivo = 'the decoy no longer exists (removed)';
+					motivo = 'the honeypot no longer exists (removed)';
 				else if (deQuien.get(e.trampa.id) !== sensor)
-					motivo = 'the decoy belongs to another sensor';
+					motivo = 'the honeypot belongs to another sensor';
 			}
 
 			/*

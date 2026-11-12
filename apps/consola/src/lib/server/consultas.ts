@@ -711,6 +711,7 @@ export async function trampasConEventos() {
 			activo: s.trampas.activo,
 			ejecutor: s.trampas.ejecutor,
 			colocacion: s.trampas.colocacion,
+			plantilla: s.trampas.plantilla,
 			sensorNombre: s.sensores.nombre,
 			destinoNombre: s.destinos.nombre,
 			eventos: sql<number>`(select count(*)::int from ${s.eventos} e where e.trampa = ${s.trampas.id} and e.cuando >= ${desde.toISOString()}::timestamptz and e.escaner is null)`
@@ -786,6 +787,10 @@ export async function crearTrampa(
 		manual?: PasosGenerados;
 		senalTrampa?: string | null;
 		donde?: string;
+		/* La plantilla de la que sale, si se pone desde una (contrato, plantilla.ts). */
+		plantilla?: string;
+		/* La dirección de la máquina en la que se publica; sin ella, en todas. */
+		escucha?: string | null;
 	},
 	bd?: Tx
 ): Promise<boolean> {

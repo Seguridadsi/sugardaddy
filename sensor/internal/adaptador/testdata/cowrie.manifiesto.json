@@ -2,9 +2,9 @@
   "version": 1,
   "id": "cowrie",
   "nombre": "Fake SSH and Telnet",
-  "descripcion": "An SSH and Telnet server that accepts weak credentials and drops the attacker into a simulated shell. It records every access attempt, every command and every download.",
+  "descripcion": "An SSH and Telnet server that accepts weak credentials and drops the attacker into a simulated shell. It records every access attempt, every command and every download, and flags an attacker driving an AI agent: the simulated system carries a file that only an AI agent reads and follows. The file can be switched off.",
   "ficha": {
-    "detecta": "Anyone trying to get in over SSH or Telnet: the passwords they try, the commands they type, what they try to download and whether they want to use the machine as a stepping stone to others.",
+    "detecta": "Anyone trying to get in over SSH or Telnet: the passwords they try, the commands they type, what they try to download and whether they want to use the machine as a stepping stone to others. It also tells when the attacker is driving an AI agent.",
     "donde": "Where an attacker would look for Linux servers: the server network, the DMZ or a user VLAN. With a hostname and a port that fit those on your network.",
     "requisitos": [
       "A Linux sensor with Docker (the node's own or one installed on another machine).",
@@ -22,7 +22,7 @@
     "licencia": "BSD-3-Clause"
   },
   "contenedor": {
-    "imagen": "ghcr.io/seguridadsi/sugardaddy-trampa-cowrie:3.1.2-sd5@sha256:910f0eb937fe1b3d532e846ebb44e9e084758fc7d72424dcfc0afb9800689143",
+    "imagen": "ghcr.io/seguridadsi/sugardaddy-trampa-cowrie:3.1.2-sd6@sha256:bc13ebd36035ba1d610ec09d92b2e670cf438ef075f64a9007ba7935f7cfe8f9",
     "puertos": [
       {
         "interno": 2222,
@@ -49,29 +49,47 @@
         "segun": "sistema",
         "valores": {
           "debian-12": "SSH-2.0-OpenSSH_9.2p1 Debian-2+deb12u3",
-          "ubuntu-22": "SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.6",
-          "ubuntu-20": "SSH-2.0-OpenSSH_8.2p1 Ubuntu-4ubuntu0.9",
-          "centos-7": "SSH-2.0-OpenSSH_7.4"
+          "ubuntu-22": "SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.6"
         }
       },
       "COWRIE_SHELL_KERNEL_VERSION": {
         "segun": "sistema",
         "valores": {
           "debian-12": "6.1.0-21-amd64",
-          "ubuntu-22": "5.15.0-91-generic",
-          "ubuntu-20": "5.4.0-169-generic",
-          "centos-7": "3.10.0-1160.105.1.el7.x86_64"
+          "ubuntu-22": "5.15.0-91-generic"
         }
       },
       "COWRIE_SHELL_KERNEL_BUILD_STRING": {
         "segun": "sistema",
         "valores": {
           "debian-12": "#1 SMP PREEMPT_DYNAMIC Debian 6.1.90-1 (2024-05-03)",
-          "ubuntu-22": "#101-Ubuntu SMP Tue Nov 14 13:30:08 UTC 2023",
-          "ubuntu-20": "#187-Ubuntu SMP Thu Nov 23 14:52:28 UTC 2023",
-          "centos-7": "#1 SMP Thu Dec 7 15:39:45 UTC 2023"
+          "ubuntu-22": "#101-Ubuntu SMP Tue Nov 14 13:30:08 UTC 2023"
         }
-      }
+      },
+      "COWRIE_SHELL_FILESYSTEM": {
+        "segun": "sistema",
+        "valores": {
+          "debian-12": "/cowrie/cowrie-git/src/cowrie/data/fs-debian-12.pickle",
+          "ubuntu-22": "/cowrie/cowrie-git/src/cowrie/data/fs-ubuntu-22.pickle"
+        }
+      },
+      "COWRIE_SSH_KEX": {
+        "segun": "sistema",
+        "valores": {
+          "debian-12": "curve25519-sha256,curve25519-sha256@libssh.org,ecdh-sha2-nistp256,ecdh-sha2-nistp384,ecdh-sha2-nistp521",
+          "ubuntu-22": "curve25519-sha256,curve25519-sha256@libssh.org,ecdh-sha2-nistp256,ecdh-sha2-nistp384,ecdh-sha2-nistp521"
+        }
+      },
+      "COWRIE_SSH_CIPHERS": {
+        "segun": "sistema",
+        "valores": {
+          "debian-12": "aes128-ctr,aes192-ctr,aes256-ctr",
+          "ubuntu-22": "aes128-ctr,aes192-ctr,aes256-ctr"
+        }
+      },
+      "COWRIE_SSH_MACS": "hmac-sha2-256,hmac-sha2-512,hmac-sha1",
+      "COWRIE_SSH_COMPRESSION": "none,zlib@openssh.com",
+      "COWRIE_HONEYPOT_SD_NOTA_AGENTES": "${notaAgentes}"
     },
     "ficheros": [
       {
@@ -143,15 +161,11 @@
         "description": "Changes the SSH version it announces and what uname returns.",
         "enum": [
           "debian-12",
-          "ubuntu-22",
-          "ubuntu-20",
-          "centos-7"
+          "ubuntu-22"
         ],
         "x-opciones": {
           "debian-12": "Debian 12",
-          "ubuntu-22": "Ubuntu 22.04",
-          "ubuntu-20": "Ubuntu 20.04",
-          "centos-7": "CentOS 7"
+          "ubuntu-22": "Ubuntu 22.04"
         },
         "default": "debian-12"
       },
@@ -163,6 +177,20 @@
         "pattern": "^([^:\\s]{1,64}:x:[^\\s]{1,128}(\\r?\\n|$))+$",
         "maxLength": 4000,
         "default": "root:x:!root\nroot:x:!123456\nroot:x:*\nadmin:x:*\nubuntu:x:*"
+      },
+      "notaAgentes": {
+        "type": "string",
+        "title": "Note for AI agents",
+        "description": "Adds to the simulated system a file named AGENTS.md, in the home directory of its user account, asking AI assistants and automated agents to register the session with a command before doing anything else. A command that names that file is recorded as a suspected AI agent, and running the command the file asks for is recorded as a confirmed one. When it is off, the file does not exist and no command is flagged. The file is visible to anyone who lists that directory.",
+        "enum": [
+          "si",
+          "no"
+        ],
+        "x-opciones": {
+          "si": "On",
+          "no": "Off"
+        },
+        "default": "si"
       }
     }
   },
@@ -233,6 +261,8 @@
       "dst_port",
       "data",
       "ja4",
+      "agente_ia",
+      "motivo",
       "recortado",
       "aviso",
       "lleno",
@@ -252,6 +282,7 @@
     "resumen": [
       "password",
       "input",
+      "motivo",
       "url",
       "filename",
       "version",
@@ -277,6 +308,7 @@
       "dst_port": "Destination port",
       "data": "Sends",
       "ja4": "TLS fingerprint (JA4)",
+      "motivo": "Reason",
       "recortado": "Truncated (original size)",
       "aviso": "Alert",
       "lleno": "Part full",

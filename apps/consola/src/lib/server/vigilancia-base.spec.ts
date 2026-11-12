@@ -178,7 +178,7 @@ describe.skipIf(!hayBase)('la vigilancia', async () => {
 			const [i, ...resto] = incidentes();
 			expect(resto).toEqual([]);
 			expect(i).toMatchObject({ id: x.id, origen: x.origen, severidad: 'alta', eventos: 12 });
-			expect(i.trampas).toEqual(['Carpeta de RRHH', 'Removed decoy']);
+			expect(i.trampas).toEqual(['Carpeta de RRHH', 'Removed honeypot']);
 			expect(Object.keys(i).sort()).toEqual(
 				[
 					'abierto',

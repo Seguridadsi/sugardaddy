@@ -127,7 +127,7 @@
 				class:apagado={apagado(n.id)}
 				style:left="{n.x - FAMILIA.circulo / 2}px"
 				style:top="{n.y - FAMILIA.circulo / 2}px"
-				title="{n.nombre}: {n.trampas.length} decoys"
+				title="{n.nombre}: {n.trampas.length} honeypots"
 				onclick={(e) => {
 					e.stopPropagation();
 					onelegir(n.id);

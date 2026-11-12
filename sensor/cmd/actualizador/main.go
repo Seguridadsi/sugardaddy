@@ -41,6 +41,7 @@ import (
 	"time"
 
 	"github.com/kinomakino/sugardaddy/sensor/internal/actualizador"
+	"github.com/kinomakino/sugardaddy/sensor/internal/catalogo"
 	"github.com/kinomakino/sugardaddy/sensor/internal/confianza"
 	"github.com/kinomakino/sugardaddy/sensor/internal/cortafuegos"
 	"github.com/kinomakino/sugardaddy/sensor/internal/discos"
@@ -150,7 +151,15 @@ func main() {
 			Log:     func(m string, args ...any) { slog.Info(m, args...) }}
 	}
 
-	var ultimaFirmada time.Time
+	// Trampas de partner (docs/diseno/trampas-de-partner.md): solo si esta máquina tiene
+	// PARTNER. Trae su catálogo de la consola, lo comprueba y lo deja para el sensor.
+	var partner *catalogo.Traedor
+	if p := strings.TrimSpace(os.Getenv("PARTNER")); p != "" && cfg.local != "" {
+		partner = &catalogo.Traedor{URL: *consola + rutas.partner, Token: token, HTTP: http, Dir: cfg.local,
+			Partner: p, Confianza: clave, Log: func(m string, args ...any) { slog.Info(m, args...) }}
+	}
+
+	var ultimaFirmada, ultimoPartner time.Time
 	for {
 		// Un resultado que no llegó a la consola (porque se estaba reiniciando)
 		// se reintenta antes que nada: si no, el nodo se quedaría en "aplicando".
@@ -168,6 +177,12 @@ func main() {
 			if cfg.local != "" && time.Since(ultimaFirmada) > 10*time.Minute {
 				ultimaFirmada = time.Now()
 				traerFirmadaInstalada(ctx, http, *consola+rutas.firmada, token, clave, *versiones, cfg.local)
+			}
+			if partner != nil && time.Since(ultimoPartner) > 5*time.Minute {
+				ultimoPartner = time.Now()
+				if err := partner.Vuelta(ctx); err != nil {
+					slog.Warn("partner catalog", "err", err)
+				}
 			}
 			r, err := vuelta(ctx, http, *consola, rutas, token, clave, a, *versiones, cfg)
 			if r != nil {
@@ -203,11 +218,11 @@ func main() {
 type resultado struct{ version, estado, detalle string }
 
 // rutas de la consola: dónde se pregunta por la versión y dónde se informa.
-type rutas struct{ pendiente, resultado, firmada string }
+type rutas struct{ pendiente, resultado, firmada, partner string }
 
 var (
-	rutasNodo   = rutas{"/api/actualizador/pendiente", "/api/actualizador/resultado", "/api/actualizador/version-firmada"}
-	rutasSensor = rutas{"/api/sensor/version", "/api/sensor/version", "/api/sensor/version-firmada"}
+	rutasNodo   = rutas{"/api/actualizador/pendiente", "/api/actualizador/resultado", "/api/actualizador/version-firmada", "/api/actualizador/catalogo-partner"}
+	rutasSensor = rutas{"/api/sensor/version", "/api/sensor/version", "/api/sensor/version-firmada", "/api/sensor/catalogo-partner"}
 )
 
 // vuelta devuelve el resultado final solo si no se pudo entregar a la consola.

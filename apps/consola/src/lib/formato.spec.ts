@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dondeVisible, enFrase, estaPuesta } from './formato';
+import { dondeVisible, enFrase, estaPuesta, licenciaVisible } from './formato';
 
 describe('el nombre de una forma en una frase', () => {
 	it('solo la primera letra pasa a minúscula', () => {
@@ -36,5 +36,14 @@ describe('dónde escucha una trampa', () => {
 		expect(estaPuesta('colocada')).toBe(true);
 		for (const e of ['por-colocar', 'degradada', 'parada', 'sin-contacto', 'retirando'])
 			expect(estaPuesta(e)).toBe(false);
+	});
+});
+
+describe('licenciaVisible', () => {
+	it('pasa al inglés lo nuestro y deja las licencias como están', () => {
+		expect(
+			licenciaVisible('Código propio (SeguridadSI); biblioteca estándar de Go, BSD-3-Clause')
+		).toBe('In-house code (SeguridadSI); Go standard library, BSD-3-Clause');
+		expect(licenciaVisible('MIT AND BSD-3-Clause')).toBe('MIT AND BSD-3-Clause');
 	});
 });

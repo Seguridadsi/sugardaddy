@@ -3,6 +3,7 @@
  * de la auditoría. Toda escritura deja su línea en auditoría, en la misma
  * transacción.
  */
+import { porDireccion } from '$lib/red';
 import { createHash, randomBytes } from 'node:crypto';
 import { and, asc, desc, eq, ilike, inArray, isNull, or, sql } from 'drizzle-orm';
 import { EJECUTORES } from '@sugardaddy/contrato';
@@ -15,8 +16,14 @@ import { insertarDestino, type Tx } from './destinos';
 const LATIDO_MAXIMO = 5 * 60_000;
 const hashToken = (t: string) => createHash('sha256').update(t).digest('hex');
 
+/* Por su valor (10.50.0.4 antes que 10.50.0.10) y con un tope, que es para una fila de tabla. */
 const direccionesDe = (v: unknown): string[] =>
-	Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string').slice(0, 8) : [];
+	Array.isArray(v)
+		? v
+				.filter((x): x is string => typeof x === 'string')
+				.sort(porDireccion)
+				.slice(0, 16)
+		: [];
 
 export async function sensores() {
 	const ahora = Date.now();
@@ -78,7 +85,15 @@ export class DestinoNoDisponible extends Error {
  */
 export async function crearSensor(
 	quien: string,
-	v: { id: string; nombre: string; red: string | null; vlan: number | null; remoto?: boolean },
+	v: {
+		id: string;
+		nombre: string;
+		red: string | null;
+		vlan: number | null;
+		remoto?: boolean;
+		/* Dónde está su red, si ya se sabe al darlo de alta (lib/entorno.ts). */
+		entorno?: Entorno | null;
+	},
 	destino?: string
 ) {
 	const token = randomBytes(32).toString('base64url');
@@ -237,13 +252,38 @@ export async function regenerarToken(quien: string, id: string) {
 	return db.transaction(async (tx) => {
 		const [f] = await tx
 			.update(s.sensores)
-			.set({ claveHash: hashToken(token) })
+			.set({ claveHash: hashToken(token), claveHashSiguiente: null, claveSiguienteDesde: null })
 			.where(eq(s.sensores.id, id))
 			.returning();
 		if (!f) return null;
 		await tx
 			.insert(s.auditoria)
 			.values({ quien, accion: 'sensor token regenerated', detalle: { id } });
+		return token;
+	});
+}
+
+/*
+ * Rotación verificada: un token nuevo que convive con el anterior hasta que el
+ * sensor llega con él (sensor.ts, sensorDe, lo estrena y retira el anterior).
+ * Es lo que usa el instalador: si la reinstalación no termina, el sensor que
+ * estaba funcionando sigue dentro con el suyo. Pedir otro sustituye al que
+ * estaba pendiente. Para cortar ya, regenerarToken.
+ */
+export async function prepararToken(quien: string, id: string) {
+	const token = randomBytes(32).toString('base64url');
+	return db.transaction(async (tx) => {
+		const [f] = await tx
+			.update(s.sensores)
+			.set({ claveHashSiguiente: hashToken(token), claveSiguienteDesde: new Date() })
+			.where(eq(s.sensores.id, id))
+			.returning();
+		if (!f) return null;
+		await tx.insert(s.auditoria).values({
+			quien,
+			accion: 'sensor token issued',
+			detalle: { id, nota: 'the previous one stays valid until the sensor uses the new one' }
+		});
 		return token;
 	});
 }

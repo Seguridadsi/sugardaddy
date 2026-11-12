@@ -18,10 +18,36 @@
 # Normalmente no se llama a mano: lo llama el instalador que genera el panel
 # (curl …/instalar/<código> | sudo bash), que le pasa por entorno el registro
 # y su credencial, la configuración de Entra y el código de alta en el panel.
+#
+# Sin argumentos y delante de una terminal abre el asistente (asistente.sh), que
+# comprueba la máquina, pregunta esos cuatro datos y vuelve a llamar aquí.
 set -Eeuo pipefail
+if [[ $# -eq 0 && -t 0 && -t 1 && -f "$(dirname "$0")/asistente.sh" ]]; then
+	exec bash "$(dirname "$0")/asistente.sh"
+fi
 # Si algo falla, se dice en qué paso: quien instala no tiene a nadie al lado.
 PASO="prepare"
 trap 'echo "Sugardaddy: the step \"$PASO\" failed. Check the message above and run the line again; if it does not fix itself, tell whoever gave you this line." >&2' ERR
+
+instalar_docker() {
+	# Docker desde su repositorio oficial, en Ubuntu o Debian.
+	command -v apt-get >/dev/null || { echo "Docker is required (automatic installation only on Ubuntu and Debian)"; exit 1; }
+	echo "==> Installing Docker"
+	. /etc/os-release
+	apt-get update -qq && apt-get install -y -qq ca-certificates curl >/dev/null
+	install -m 0755 -d /etc/apt/keyrings
+	curl -fsSL "https://download.docker.com/linux/$ID/gpg" -o /etc/apt/keyrings/docker.asc
+	echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/$ID $VERSION_CODENAME stable" > /etc/apt/sources.list.d/docker.list
+	apt-get update -qq && apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-compose-plugin >/dev/null
+}
+# Solo Docker: lo pide el asistente cuando hay que construir las imágenes antes de instalar.
+if [[ "${1:-}" == --instalar-docker ]]; then
+	[[ "$(id -u)" == 0 ]] || { echo "This must be run as root (sudo)"; exit 1; }
+	# La arquitectura ya la ha mirado el asistente, que es quien llama así.
+	PASO="install only Docker"
+	command -v docker >/dev/null || instalar_docker
+	exit 0
+fi
 
 DIR="${1:?Usage: instalar.sh <folder> <node-id> \"Customer name\" <console-url>}"
 NODO_ID="${2:?The node id is missing (e.g. nodo-mad01)}"
@@ -57,17 +83,7 @@ if [[ "$plataforma" =~ ^[a-z0-9]+/[a-z0-9_]+$ && "$plataforma" != linux/amd64 ]]
 	exit 1
 fi
 PASO="install Docker"
-if ! command -v docker >/dev/null; then
-	# Docker desde su repositorio oficial, en Ubuntu o Debian.
-	command -v apt-get >/dev/null || { echo "Docker is required (automatic installation only on Ubuntu and Debian)"; exit 1; }
-	echo "==> Installing Docker"
-	. /etc/os-release
-	apt-get update -qq && apt-get install -y -qq ca-certificates curl >/dev/null
-	install -m 0755 -d /etc/apt/keyrings
-	curl -fsSL "https://download.docker.com/linux/$ID/gpg" -o /etc/apt/keyrings/docker.asc
-	echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/$ID $VERSION_CODENAME stable" > /etc/apt/sources.list.d/docker.list
-	apt-get update -qq && apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-compose-plugin >/dev/null
-fi
+command -v docker >/dev/null || instalar_docker
 [[ -f "$AQUI/imagenes.env" ]] || { echo "$AQUI/imagenes.env is missing; it holds the images of the version"; exit 1; }
 
 mkdir -p "$DIR/datos/sensor" "$DIR/certs"
@@ -90,6 +106,7 @@ fi
 # las imágenes también (las de un nodo 0.11 no arrancan con él). Nunca hacia
 # atrás: si el nodo ya tiene una versión más nueva, no se toca.
 PASO="prepare the folder"
+echo "==> Preparing $DIR"
 nueva="$(grep '^SUGARDADDY_VERSION=' "$AQUI/imagenes.env" | cut -d= -f2- || true)"
 # Guard anti-retroceso: solo frena entre versiones SEMVER LIMPIAS (X.Y.Z). Si la
 # instalada es un build de desarrollo (p. ej. 9.9.9-local) no cuenta como «más
@@ -261,6 +278,7 @@ if [[ -s "$AQUI/version-firmada.json" ]]; then
 	grep -q '"catalogo' "$DIR/firmado/version.json" && echo 1 > "$DIR/firmado/exigir"
 fi
 PASO="download the images"
+echo "==> Downloading the images (this can take a few minutes)"
 # Con imágenes privadas, docker necesita el token para la primera descarga.
 if grep -q '^REGISTRO_TOKEN=.' .env; then
 	grep '^REGISTRO_TOKEN=' .env | cut -d= -f2- | docker login "$(grep '^REGISTRO=' .env | cut -d= -f2-)" \
@@ -303,6 +321,7 @@ if [[ "$TLS_MODO" == interno ]] && grep -q '^CA_NODO=nodo$' .env; then
 	chmod 644 ca-raiz.crt
 fi
 PASO="start the node"
+echo "==> Starting the node"
 docker compose --env-file .env --env-file versiones.env up -d --wait
 # El Caddyfile es un bind-mount y Caddy no recarga su contenido solo (admin off):
 # `up` no recrea Caddy si solo cambió el CONTENIDO del fichero (p. ej. un arreglo

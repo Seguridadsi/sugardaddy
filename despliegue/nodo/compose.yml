@@ -45,6 +45,9 @@ services:
       # vacío y el origen se saca de las cabeceras que pone Caddy (así vale por
       # cualquier host). Lo decide instalar.sh. Por defecto (nodo de antes), la URL.
       ORIGIN: ${ORIGIN-${CONSOLA_URL}}
+      # El nombre propio de la consola, también en modo «cualquier IP/nombre»:
+      # es la dirección que se da a los sensores remotos para que la llamen.
+      CONSOLA_URL: ${CONSOLA_URL:-}
       PROTOCOL_HEADER: ${PROTOCOL_HEADER:-}
       HOST_HEADER: ${HOST_HEADER:-}
       # La IP del navegador es la que pone Caddy, el único que llega a la
@@ -83,6 +86,12 @@ services:
       # en un nodo federado se deja vacío. Ver docs/diseno/auth-login.md.
       LOGIN_LOCAL: ${LOGIN_LOCAL:-}
       EDICION: ${EDICION:-}
+      # Trampas de partner (docs/diseno/trampas-de-partner.md): solo acepta el catálogo
+      # de este partner, y se lo dice a los sensores que instala en otras máquinas.
+      PARTNER: ${PARTNER:-}
+      REGISTRO_PARTNER: ${REGISTRO_PARTNER:-}
+      REGISTRO_PARTNER_USUARIO: ${REGISTRO_PARTNER_USUARIO:-}
+      REGISTRO_PARTNER_TOKEN: ${REGISTRO_PARTNER_TOKEN:-}
       PANEL_HTTP_PERMITIDO: ${PANEL_HTTP_PERMITIDO:-}
       # Alta automática en el panel la primera vez (la deja el instalador).
       PANEL_URL: ${PANEL_URL:-}
@@ -176,6 +185,12 @@ services:
       REGISTRO: ${REGISTRO:-ghcr.io}
       REGISTRO_USUARIO: ${REGISTRO_USUARIO:-}
       REGISTRO_TOKEN: ${REGISTRO_TOKEN:-}
+      # Trampas de partner (docs/diseno/trampas-de-partner.md): de qué partner es este
+      # nodo y de dónde descarga sus imágenes. Vacío: no arranca trampas de partner.
+      PARTNER: ${PARTNER:-}
+      REGISTRO_PARTNER: ${REGISTRO_PARTNER:-}
+      REGISTRO_PARTNER_USUARIO: ${REGISTRO_PARTNER_USUARIO:-}
+      REGISTRO_PARTNER_TOKEN: ${REGISTRO_PARTNER_TOKEN:-}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       # Misma ruta dentro y fuera: el sensor monta en las trampas carpetas
@@ -226,6 +241,9 @@ services:
       REGISTRO: ${REGISTRO:-ghcr.io}
       REGISTRO_USUARIO: ${REGISTRO_USUARIO:-}
       REGISTRO_TOKEN: ${REGISTRO_TOKEN:-}
+      # Con PARTNER trae de la consola el catálogo de trampas de ese partner, lo
+      # comprueba y lo deja para el sensor (docs/diseno/trampas-de-partner.md).
+      PARTNER: ${PARTNER:-}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${NODO_DIR:?falta en .env}:/nodo

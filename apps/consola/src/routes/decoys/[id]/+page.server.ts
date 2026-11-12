@@ -5,11 +5,14 @@ import { esEntorno } from '$lib/entorno';
 import { recibeSenalDe } from '$lib/formato';
 import {
 	avisosDeTrampa,
+	cambiarEscucha,
 	cambiarSitio,
 	modificarConElector,
+	opcionesDeEscucha,
 	regenerarPasos
 } from '$lib/server/alta';
 import { exigir } from '$lib/server/auth/permisos';
+import { alcanceDeFicha, fijarAlcance, leerAlcance } from '$lib/server/alcance-ficha';
 import { honeycosas, trampasAutorizadas } from '$lib/server/catalogo';
 import { estadosVisibles } from '$lib/server/colocacion';
 import { entornoDeTrampa, trampa } from '$lib/server/consultas';
@@ -38,14 +41,14 @@ import { abrirPrueba, normalizarIp, pruebaDeTrampa } from '$lib/server/pruebas';
  */
 async function cargarContenedor(id: string) {
 	const t = await trampa(id);
-	if (!t) error(404, 'That decoy does not exist.');
+	if (!t) error(404, 'That honeypot does not exist.');
 	const h = (await trampasAutorizadas()).find((x) => x.id === t.modulo);
 	/* Una de registro sin registrarse: lo que hace falta está en Ajustes. */
 	if (!h && esCommunity() && esDeRegistro(t.modulo)) redirect(303, '/settings#free-registration');
-	if (!h) error(404, 'The module for this decoy is no longer authorized for this customer.');
+	if (!h) error(404, 'The module for this honeypot is no longer authorized for this customer.');
 	const via = t.ejecutor === 'contenedor@1' ? viaDe(h, t.via) : undefined;
 	if (via?.ejecutor !== 'contenedor@1')
-		error(404, 'This decoy cannot be edited here. Remove it and deploy it again.');
+		error(404, 'This honeypot cannot be edited here. Remove it and deploy it again.');
 	return { t, h, m: proyectarParaSensor(h, via.id) };
 }
 
@@ -64,7 +67,7 @@ function ipDelNavegador(getClientAddress: () => string): string | null {
 
 export const load = async ({ params, getClientAddress }) => {
 	const t = await trampa(params.id);
-	if (!t) error(404, 'That decoy does not exist.');
+	if (!t) error(404, 'That honeypot does not exist.');
 	/* Lo que ve el cliente de ella (§8.2): comprobada, puesta, degradada… y por qué. */
 	const estado = (await estadosVisibles()).get(t.id) ?? null;
 	/* «Probar» (§8.3): si se puede y cómo, y la última prueba con sus pasos. */
@@ -86,6 +89,8 @@ export const load = async ({ params, getClientAddress }) => {
 		const cambiable = t.colocacion === 'por-colocar' && h && viaDe(h, t.via);
 		const p = cambiable ? validarParametros(h.parametros, t.parametros) : null;
 		return {
+			/* Por qué salidas avisa lo suyo (lib/alcance.ts). */
+			alcance: await alcanceDeFicha('trampa', t.id, t.sensor),
 			tipo: 'manual' as const,
 			trampa: { id: t.id, nombre: t.nombre, colocacion: t.colocacion, modulo: t.modulo },
 			/*
@@ -119,11 +124,14 @@ export const load = async ({ params, getClientAddress }) => {
 	/* Con los valores por defecto de lo que el módulo haya añadido después de desplegarla. */
 	const p = validarParametros(m.parametros, t.parametros);
 	return {
+		alcance: await alcanceDeFicha('trampa', t.id, t.sensor),
 		tipo: 'contenedor' as const,
 		trampa: { id: t.id, nombre: t.nombre, sensor: t.sensor, donde: t.donde },
 		estado,
 		prueba,
 		entorno,
+		/* En qué dirección de su máquina escucha, si ahí se puede elegir. */
+		escucha: await opcionesDeEscucha(t, h),
 		modulo: m,
 		valores: p.ok ? p.valor : t.parametros,
 		/* Lo que dice hoy el elector de su máquina con sus valores: no impide guardar. */
@@ -148,7 +156,7 @@ async function sitiosPara(
 /* El módulo de una trampa a mano, para volver a generar sus pasos. */
 async function moduloDe(t: { modulo: string }) {
 	const h = (await trampasAutorizadas()).find((x) => x.id === t.modulo);
-	if (!h) error(404, 'The module for this decoy is no longer authorized for this customer.');
+	if (!h) error(404, 'The module for this honeypot is no longer authorized for this customer.');
 	return h;
 }
 
@@ -160,7 +168,7 @@ export const actions = {
 	guardar: async ({ params, request, locals }) => {
 		const u = exigir(locals, 'desplegar');
 		const t0 = await trampa(params.id);
-		if (!t0) error(404, 'That decoy does not exist.');
+		if (!t0) error(404, 'That honeypot does not exist.');
 		const manual = t0.ejecutor === 'manual@1';
 		const { t, h, esquema } = manual
 			? { t: t0, h: await moduloDe(t0), esquema: null }
@@ -195,14 +203,44 @@ export const actions = {
 	 * Vacío = que herede del sensor. Decide qué respuesta tiene sentido, así que
 	 * es cosa de quien despliega.
 	 */
+	/*
+	 * En qué dirección de la máquina de su sensor se publica (vacío: en todas).
+	 * El elector la comprueba: que sea de esa máquina y que ahí no choque un puerto.
+	 */
+	escucha: async ({ params, request, locals }) => {
+		const u = exigir(locals, 'desplegar');
+		const t = await trampa(params.id);
+		if (!t) error(404, 'That honeypot does not exist.');
+		const h = honeycosas().find((x) => x.id === t.modulo);
+		if (!h) return fail(400, { aviso: 'This honeypot is no longer in the catalog.' });
+		const v = String((await request.formData()).get('escucha') ?? '').trim();
+		const r = await cambiarEscucha(u.correo, t, h, v || null);
+		if (r !== 'modificada')
+			return fail(400, {
+				aviso: [...r.errores, ...r.motivos.map((m) => m.texto)].join(' ')
+			});
+		return { hecho: 'Listening address saved. The sensor is applying it.' };
+	},
+
+	/* Lo que dice este honeypot de una salida: enviar, no enviar o heredar (lib/alcance.ts). */
+	alcance: async ({ params, request, locals }) => {
+		const u = exigir(locals, 'desplegar');
+		const v = leerAlcance(await request.formData());
+		if (!v) return fail(400, { aviso: 'That output or value is not valid.' });
+		if (!(await trampa(params.id))) error(404, 'That honeypot does not exist.');
+		if (!(await fijarAlcance(u.correo, { ...v, nivel: 'trampa', objeto: params.id })))
+			return fail(400, { aviso: 'That output no longer exists.' });
+		return { hecho: 'Alerts for this honeypot saved.' };
+	},
+
 	entorno: async ({ params, request, locals }) => {
 		const u = exigir(locals, 'desplegar');
 		const v = String((await request.formData()).get('entorno') ?? '');
 		const entorno = v === '' ? null : esEntorno(v) ? v : undefined;
 		if (entorno === undefined) return fail(400, { aviso: 'Invalid environment.' });
 		if (!(await cambiarEntornoTrampa(u.correo, params.id, entorno)))
-			error(404, 'That decoy does not exist.');
-		return { hecho: 'Decoy environment saved.' };
+			error(404, 'That honeypot does not exist.');
+		return { hecho: 'Honeypot environment saved.' };
 	},
 
 	/*
@@ -213,7 +251,7 @@ export const actions = {
 	sitio: async ({ params, request, locals }) => {
 		const u = exigir(locals, 'desplegar');
 		const t = await trampa(params.id);
-		if (!t) error(404, 'That decoy does not exist.');
+		if (!t) error(404, 'That honeypot does not exist.');
 		const nuevo = String((await request.formData()).get('destino') ?? '');
 		if (!nuevo) return fail(400, { aviso: 'Choose the target it is on.' });
 		const h = await moduloDe(t);
@@ -238,7 +276,7 @@ export const actions = {
 	regenerar: async ({ params, locals }) => {
 		const u = exigir(locals, 'desplegar');
 		const t = await trampa(params.id);
-		if (!t) error(404, 'That decoy does not exist.');
+		if (!t) error(404, 'That honeypot does not exist.');
 		const h = await moduloDe(t);
 		const p = validarParametros(h.parametros, t.parametros);
 		if (!p.ok)
@@ -258,7 +296,7 @@ export const actions = {
 		const u = exigir(locals, 'desplegar');
 		const ip = String((await request.formData()).get('ip') ?? '').trim();
 		const r = await abrirPrueba(u.correo, params.id, ip || null);
-		if (r === 'no-existe') error(404, 'That decoy does not exist.');
+		if (r === 'no-existe') error(404, 'That honeypot does not exist.');
 		/* El resultado se ve en la propia sección de la prueba, que se mira sola mientras espera. */
 		if ('error' in r) return fail(400, { avisoPrueba: r.error, ip });
 		return { probada: true };
@@ -268,8 +306,8 @@ export const actions = {
 	hecho: async ({ params, locals }) => {
 		const u = exigir(locals, 'desplegar');
 		const r = await trampaHecha(u.correo, params.id);
-		if (r === 'no-existe') error(404, 'That decoy does not exist.');
-		if (r === 'sin-pasos') return fail(400, { aviso: 'This decoy is not deployed manually.' });
+		if (r === 'no-existe') error(404, 'That honeypot does not exist.');
+		if (r === 'sin-pasos') return fail(400, { aviso: 'This honeypot is not deployed manually.' });
 		if (r === 'no-por-colocar')
 			return fail(400, { aviso: 'It is already deployed or being removed, so nothing changes.' });
 		return { hecho: 'Noted: it is deployed. It will be verified by the first event that arrives.' };
@@ -278,7 +316,7 @@ export const actions = {
 	retirar: async ({ params, locals }) => {
 		const u = exigir(locals, 'desplegar');
 		const r = await retirarTrampa(u.correo, params.id);
-		if (r === 'no-existe') error(404, 'That decoy does not exist.');
+		if (r === 'no-existe') error(404, 'That honeypot does not exist.');
 		if (r === 'retirada') redirect(303, '/decoys');
 		if (r === 'retirando')
 			return {
@@ -292,7 +330,7 @@ export const actions = {
 		const u = exigir(locals, 'desplegar');
 		const nombre = (await trampa(params.id))?.nombre ?? params.id;
 		const r = await trampaQuitada(u.correo, params.id);
-		if (r === 'no-existe') error(404, 'That decoy does not exist.');
+		if (r === 'no-existe') error(404, 'That honeypot does not exist.');
 		if (r === 'no-retirando')
 			return fail(400, { aviso: 'First click "Remove" and follow its steps to take it down.' });
 		if (r === 'retirada') redirect(303, `/decoys?quitada=${encodeURIComponent(nombre)}`);

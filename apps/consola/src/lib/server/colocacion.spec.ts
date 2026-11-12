@@ -399,7 +399,7 @@ describe('estado visible (§8.2)', () => {
 		const e = c.estadoVisible(ssh, contexto());
 		expect(e).toMatchObject({ estado: 'comprobada', etiqueta: 'Verified', activa: true });
 		const sin = c.estadoVisible(trampa({ id: 'x', ...fila('colocada') }), contexto());
-		expect(sin).toMatchObject({ estado: 'colocada', etiqueta: 'Deployed, not verified' });
+		expect(sin).toMatchObject({ estado: 'colocada', etiqueta: 'Active, not verified' });
 		expect(sin.activa).toBe(false);
 	});
 

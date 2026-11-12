@@ -44,7 +44,7 @@
 					<th class="num">Times</th>
 					<th class="num">IP</th>
 					<th>Usernames</th>
-					<th>Decoys</th>
+					<th>Honeypots</th>
 					<th>Seen</th>
 				</tr>
 			</thead>

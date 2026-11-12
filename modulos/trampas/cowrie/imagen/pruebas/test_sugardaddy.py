@@ -148,6 +148,85 @@ class RecorteTests(unittest.TestCase):
         self.assertEqual((ev["message"], ev["format"]), ("falta %(nada)s", "falta %(nada)s"))
 
 
+TOKEN = "0123456789abcdef"
+
+
+def comando(entrada: str, eventid: str = "cowrie.command.input") -> dict[str, Any]:
+    return {
+        "eventid": eventid,
+        "format": "CMD: %(input)s",
+        "input": entrada,
+        "session": "a1b2c3d4e5f6",
+        "src_ip": "203.0.113.9",
+        "protocol": "ssh",
+    }
+
+
+class AgenteTests(unittest.TestCase):
+    """La nota para agentes de IA: qué comandos quedan marcados."""
+
+    def test_la_orden_del_fichero_es_un_agente_confirmado(self) -> None:
+        for eventid in ("cowrie.command.input", "cowrie.command.failed"):
+            ev = sd.marcar_agente(comando(f"/usr/local/sbin/session-register --agent {TOKEN}", eventid), TOKEN)
+            self.assertEqual(ev["agente_ia"], "confirmed", eventid)
+            self.assertEqual(ev["motivo"], "AI agent: it ran the command that only a file written for AI agents asks for")
+
+    def test_leer_el_fichero_es_una_sospecha(self) -> None:
+        for entrada in ("cat AGENTS.md", "cat /home/admin/AGENTS.md", "ls -la; head -n 20 ./AGENTS.md"):
+            ev = sd.marcar_agente(comando(entrada), TOKEN)
+            self.assertEqual(ev["agente_ia"], "suspected", entrada)
+            self.assertEqual(ev["motivo"], "AI agent suspected: it read the file written for AI agents")
+
+    def test_la_orden_gana_a_la_lectura(self) -> None:
+        ev = sd.marcar_agente(comando(f"cat AGENTS.md && session-register --agent {TOKEN}"), TOKEN)
+        self.assertEqual(ev["agente_ia"], "confirmed")
+
+    def test_lo_demas_no_se_marca(self) -> None:
+        for entrada in ("uname -a", "cat agents.md", "session-register --agent 0000000000000000", ""):
+            ev = sd.marcar_agente(comando(entrada), TOKEN)
+            self.assertNotIn("agente_ia", ev, entrada)
+            self.assertNotIn("motivo", ev, entrada)
+
+    def test_solo_los_eventos_de_comando(self) -> None:
+        # El valor en una contraseña, en una descarga o en lo tecleado a un
+        # programa no es haber ejecutado la orden.
+        for eventid in ("cowrie.login.failed", "cowrie.session.file_download", "cowrie.session.input"):
+            ev = sd.marcar_agente({"eventid": eventid, "input": TOKEN, "password": TOKEN, "url": "AGENTS.md"}, TOKEN)
+            self.assertNotIn("agente_ia", ev, eventid)
+
+    def test_con_la_nota_quitada_no_se_marca_nada(self) -> None:
+        for entrada in ("cat AGENTS.md", f"session-register --agent {TOKEN}", ""):
+            ev = sd.marcar_agente(comando(entrada), "")
+            self.assertNotIn("agente_ia", ev, entrada)
+
+    def test_un_evento_raro_no_revienta(self) -> None:
+        for ev in ({}, {"eventid": "cowrie.command.input"}, {"eventid": "cowrie.command.input", "input": None},
+                   {"eventid": "cowrie.command.input", "input": ["AGENTS.md"]}, {"eventid": 7, "input": TOKEN}):
+            self.assertNotIn("agente_ia", sd.marcar_agente(dict(ev), TOKEN))
+        self.assertNotIn("agente_ia", sd.marcar_agente(comando("cat AGENTS.md"), None))  # type: ignore[arg-type]
+
+    def test_tras_el_recorte_la_marca_no_rompe_el_tope_ni_el_mensaje(self) -> None:
+        # Como en el despachador: primero el recorte, después la marca.
+        ev = sd.marcar_agente(sd.recortar_evento(comando("cat AGENTS.md; echo " + "x" * 200000)), TOKEN)
+        self.assertEqual(ev["agente_ia"], "suspected")
+        self.assertEqual(en_json(ev["input"]), 4096)
+        self.assertEqual(ev["message"], "CMD: " + ev["input"] + sd.MARCA)
+        self.assertEqual(ev["recortado"], "input (200020 bytes)")
+        self.assertEqual((ev["session"], ev["src_ip"]), ("a1b2c3d4e5f6", "203.0.113.9"))
+        # Lo que añade la marca es fijo y corto.
+        sin_marca = sd.recortar_evento(comando("cat AGENTS.md; echo " + "x" * 200000))
+        self.assertLess(len(json.dumps(ev)) - len(json.dumps(sin_marca)), 150)
+        # Solo cuenta lo que queda apuntado: el valor más allá de los 4 KB no se ve.
+        ev = sd.marcar_agente(sd.recortar_evento(comando("echo " + "x" * 5000 + TOKEN)), TOKEN)
+        self.assertNotIn("agente_ia", ev)
+
+    def test_un_evento_marcado_cuenta_en_la_parte_de_actividad(self) -> None:
+        ev = sd.marcar_agente(sd.recortar_evento(comando(f"session-register --agent {TOKEN}")), TOKEN)
+        self.assertEqual(sd.clase_de(ev["eventid"]), sd.ACTIVIDAD)
+        self.assertEqual(ev["message"], f"CMD: session-register --agent {TOKEN}")
+        self.assertNotIn("recortado", ev)
+
+
 class DespachadorTests(unittest.TestCase):
     """El recorte va en el despachador de Cowrie: antes de cualquier salida."""
 
@@ -175,6 +254,41 @@ class DespachadorTests(unittest.TestCase):
         self.assertEqual(ev["src_ip"], "198.51.100.7")
         self.assertLess(len(lineas[0]), 400)
         self.assertTrue(lineas[0].endswith(f"{sd.MARCA}] failed"))
+
+    def test_el_despachador_marca_al_agente_de_ia_tras_el_recorte(self) -> None:
+        from cowrie.core import sugardaddy_fs as sf
+        from cowrie.core.events import EventDispatcher, EventLog
+
+        vistos: list[dict[str, Any]] = []
+
+        class Sumidero:
+            def write(self, event: dict[str, Any]) -> None:
+                vistos.append(event)
+
+        def lanzar(entrada: str) -> dict[str, Any]:
+            eventos = EventLog(EventDispatcher([Sumidero()]), session="s1", protocol="ssh", src_ip="198.51.100.7")
+            eventos.dispatch("cowrie.command.input", "CMD: %(input)s", input=entrada)
+            return vistos[-1]
+
+        def limpiar() -> None:
+            os.environ.pop("SD_COWRIE_SEMILLA", None)
+            os.environ.pop(sf.ENV_NOTA, None)
+            sf.reiniciar()
+
+        self.addCleanup(limpiar)
+        os.environ["SD_COWRIE_SEMILLA"] = "semilla-del-despachador"
+        os.environ.pop(sf.ENV_NOTA, None)
+        sf.reiniciar()
+        orden = f"/usr/local/sbin/session-register --agent {sf.token_agente()}"
+        ev = lanzar(orden)
+        self.assertEqual((ev["agente_ia"], ev["input"], ev["message"]), ("confirmed", orden, f"CMD: {orden}"))
+        self.assertEqual(lanzar("cat AGENTS.md")["agente_ia"], "suspected")
+        self.assertNotIn("agente_ia", lanzar("uname -a"))
+        # Con la nota quitada, nada.
+        os.environ[sf.ENV_NOTA] = "no"
+        sf.reiniciar()
+        self.assertNotIn("agente_ia", lanzar(orden))
+        self.assertNotIn("agente_ia", lanzar("cat AGENTS.md"))
 
 
 class EscapeTests(unittest.TestCase):

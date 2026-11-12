@@ -64,6 +64,24 @@ ataques:
         reactor.callLater(30, parar)
         reactor.run()
         sys.exit(0 if Auth.enviadas == 1 else 1)
+  # Lo que haría un agente de IA: encuentra el AGENTS.md del home del usuario,
+  # lo lee y ejecuta la orden que pide. El nombre del usuario y el valor de la
+  # orden salen de la semilla de la trampa, así que se leen de ella. No puede
+  # fallar: sin el fichero o sin su orden, el detector está roto. (El código de
+  # salida de la orden no cuenta: en el sistema simulado ese programa no existe.)
+  - imagen: atacante
+    puedeFallar: false
+    orden:
+      - sh
+      - -c
+      - |
+        entrar() { sshpass -p 'Prueba-2026' ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 -p ${puertoSsh} root@127.0.0.1 "$1"; }
+        usuario=$(entrar 'ls /home' | tr -d ' \r\n')
+        test -n "$usuario" || exit 1
+        orden=$(entrar "cat /home/$usuario/AGENTS.md" | tr -d '\r' | grep -o '/usr/local/sbin/session-register --agent [0-9a-f]*' | head -1)
+        test -n "$orden" || exit 1
+        entrar "$orden" || true
+        exit 0
 espera:
   - { accion: conexion, conexion: true }
   - { accion: autenticacion, detalle: { password: root, eventid: cowrie.login.failed } }
@@ -78,4 +96,16 @@ espera:
       accion: autenticacion,
       usuario: admin,
       detalle: { eventid: cowrie.login.failed, password: AAAA, recortado: password (102400 bytes) }
+    }
+  # El agente de IA: leer el AGENTS.md (sospecha) y ejecutar la orden que pide
+  # (confirmado). Siguen siendo comandos, con su severidad de siempre.
+  - {
+      accion: comando,
+      severidad: critica,
+      detalle: { eventid: cowrie.command.input, input: AGENTS.md, agente_ia: suspected }
+    }
+  - {
+      accion: comando,
+      severidad: critica,
+      detalle: { input: session-register --agent, agente_ia: confirmed }
     }

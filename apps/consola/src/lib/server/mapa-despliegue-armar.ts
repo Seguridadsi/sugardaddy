@@ -405,7 +405,7 @@ export function armarMapa(entrada: EntradaMapa): Mapa {
 						destino: direccionDe(objetivo) ?? objetivo.nombre,
 						rele: false
 					}
-				: { texto: 'No decoy receives its signal', destino: null, rele: false };
+				: { texto: 'No honeypot receives its signal', destino: null, rele: false };
 		}
 		if (fuente.tipo === 'registros') {
 			const sensor = sensorDe.get(t.sensor)?.nombre;

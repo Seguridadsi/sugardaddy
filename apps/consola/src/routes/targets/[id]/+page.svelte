@@ -1,4 +1,8 @@
 <script lang="ts">
+	import AlcancePorSalida from '$lib/components/AlcancePorSalida.svelte';
+	import Pestanas from '$lib/components/Pestanas.svelte';
+	import { pestanaDe } from '$lib/pestanas';
+	import CopiarTexto from '$lib/components/CopiarTexto.svelte';
 	import { resolve } from '$app/paths';
 	import { enhance } from '$app/forms';
 	import { page } from '$app/state';
@@ -9,6 +13,21 @@
 	import { puede } from '$lib/permisos';
 
 	let { data, form } = $props();
+
+	/* Lo que hay en la máquina, sus ajustes y por dónde avisa: cada cosa en su pestaña. */
+	const PESTANAS = $derived(
+		data.alcance
+			? ([
+					{ id: 'overview', texto: 'Overview' },
+					{ id: 'settings', texto: 'Settings' },
+					{ id: 'alerts', texto: 'Alerts' }
+				] as const)
+			: ([
+					{ id: 'overview', texto: 'Overview' },
+					{ id: 'settings', texto: 'Settings' }
+				] as const)
+	);
+	const pestana = $derived(pestanaDe(page.url, PESTANAS) as string);
 	const d = $derived(data.destino);
 	const roles = $derived(page.data.usuario?.roles ?? []);
 	const opera = $derived(puede(roles, 'desplegar'));
@@ -58,10 +77,14 @@
 		<h2>Install line for <span class="mono">{form.para}</span></h2>
 		<p>
 			Paste it on the Ubuntu of this machine (or on an Ubuntu virtual machine inside it, with
-			bridged networking). It works once, for 24 hours, and is only shown now. It must be able to
-			reach this console on port 443 and resolve its name.
+			bridged networking). It works once, for 24 hours, and is only shown now: copy it before you
+			leave or reload this page. It must be able to reach this console on port 443 and resolve its
+			name{#if form.consola}, <span class="mono">{form.consola}</span>
+				(DNS or
+				<span class="mono">/etc/hosts</span>){/if}.
 		</p>
 		<p class="mono valor">{form.linea}</p>
+		<p><CopiarTexto texto={form.linea} etiqueta="Copy the line" /></p>
 	</section>
 {/if}
 
@@ -82,17 +105,26 @@
 	</section>
 {/if}
 
+<Pestanas pestanas={PESTANAS} actual={pestana} etiqueta="Target sections" />
+
+{#if form?.accion === 'alcance' && form.mensaje}<p class="ok" role="status">{form.mensaje}</p>{/if}
+{#if data.alcance}
+	<div hidden={pestana !== 'alerts'}>
+		<AlcancePorSalida filas={data.alcance} que="this sensor" puede={opera} />
+	</div>
+{/if}
+
 <div class="rejilla">
-	<div class="principal">
+	<div class="principal" hidden={pestana !== 'overview'}>
 		<section class="panel bloque">
 			<h2>What you can deploy here</h2>
 			{#if d.queCabe.length}
 				<p class="ayuda">
 					{valen === 0
-						? 'None of the decoys in your subscription fit this target right now.'
+						? 'None of the honeypots in your subscription fit this target right now.'
 						: valen === 1
-							? '1 of the decoys in your subscription fits.'
-							: `${valen} of the decoys in your subscription fit.`}
+							? '1 of the honeypots in your subscription fits.'
+							: `${valen} of the honeypots in your subscription fit.`}
 					This is checked with their default settings; you can change them when you deploy one.
 				</p>
 				<ul class="modulos">
@@ -152,14 +184,14 @@
 				</ul>
 			{:else}
 				<p class="ayuda">
-					Your subscription does not include any decoys yet. Once {data.operador} authorizes them, you
-					will see here which ones fit this target.
+					Your subscription does not include any honeypots yet. Once {data.operador} authorizes them,
+					you will see here which ones fit this target.
 				</p>
 			{/if}
 		</section>
 
 		<section class="panel bloque">
-			<h2>Decoys here</h2>
+			<h2>Honeypots here</h2>
 			{#if d.trampas.length}
 				<ul class="trampas">
 					{#each d.trampas as t (t.id)}
@@ -175,9 +207,53 @@
 					{/each}
 				</ul>
 			{:else}
-				<p class="ayuda">There are no decoys on this target yet.</p>
+				<p class="ayuda">There are no honeypots on this target yet.</p>
 			{/if}
 		</section>
+
+		{#if d.sensor && d.abrir.length && !page.data.community}
+			<section class="panel bloque">
+				<h2>Repeat this deployment elsewhere</h2>
+				<p class="ayuda">
+					Save the honeypots on this sensor as a template, with their ports and, if each has its own
+					address, the same split. You can then deploy it on another sensor in one go.
+				</p>
+				<a
+					class="boton"
+					href="{resolve('/decoys/templates/builder')}?sensor={encodeURIComponent(d.sensor.id)}"
+					>Save as template</a
+				>
+			</section>
+		{/if}
+
+		{#if d.abrir.length}
+			<section class="panel bloque" id="firewall">
+				<h2>Ports to open in the firewall</h2>
+				<p class="ayuda">
+					The console does not open them: allow inbound traffic to these ports on this machine's
+					firewall and on your cloud's, if it has one. Where a honeypot has its own address, open
+					its ports only for that address, so each address shows a different machine.
+				</p>
+				<table class="abrir">
+					<thead>
+						<tr><th>Address</th><th>Port</th><th>Honeypot</th></tr>
+					</thead>
+					<tbody>
+						{#each d.abrir as g (g.direccion ?? '')}
+							{#each g.puertos as p, i (p.puerto + p.protocolo)}
+								<tr>
+									<td class="mono"
+										>{#if i === 0}{g.direccion ?? 'All addresses of the machine'}{/if}</td
+									>
+									<td class="mono">{p.puerto}/{p.protocolo}</td>
+									<td>{p.trampa}</td>
+								</tr>
+							{/each}
+						{/each}
+					</tbody>
+				</table>
+			</section>
+		{/if}
 
 		<section class="panel bloque">
 			<h2>What is known about this target</h2>
@@ -214,7 +290,7 @@
 		</section>
 	</div>
 
-	<aside class="lateral">
+	<aside class="lateral" hidden={pestana !== 'settings'}>
 		{#if opera}
 			<form class="panel bloque" method="POST" action="?/editar" use:enhance>
 				<h2>Edit</h2>
@@ -289,6 +365,28 @@
 			</form>
 		{/if}
 
+		{#if d.sensor?.remoto && puede(page.data.usuario?.roles ?? [], 'ajustes')}
+			<form class="panel bloque" method="POST" action="?/cortarToken&tab=settings" use:enhance>
+				<h2>Revoke its token</h2>
+				{#if form?.accion === 'cortar' && 'error' in form && form.error}
+					<p class="errores" role="alert">{form.error}</p>
+				{:else if form?.accion === 'cortar' && 'mensaje' in form}
+					<p class="ok" role="status">{form.mensaje}</p>
+				{/if}
+				<p class="ayuda">
+					If you suspect the token of this sensor has leaked, revoke it: it stops working at once.
+					The sensor stays out, and its honeypots stop reporting, until you generate a new install
+					line in <a href={resolve('/sensors')}>Sensors</a> and run it on its machine. A normal reinstall
+					does not need this: its new token replaces the old one by itself.
+				</p>
+				<label class="confirmar">
+					<input type="checkbox" name="entiendo" value="si" />
+					I understand this sensor stops reporting until it is reinstalled.
+				</label>
+				<button class="boton peligro">Revoke token</button>
+			</form>
+		{/if}
+
 		{#if opera}
 			<form class="panel bloque" method="POST" action="?/baja" use:enhance>
 				<h2>Remove target</h2>
@@ -301,7 +399,7 @@
 						<a href={resolve('/sensors')}>Sensors</a>.
 					</p>
 				{:else if d.trampas.length}
-					<p class="ayuda">It has decoys: remove them first.</p>
+					<p class="ayuda">It has honeypots: remove them first.</p>
 					<button class="boton peligro" disabled>Remove target</button>
 				{:else}
 					<p class="ayuda">It is deleted from the list. You can add it again whenever you like.</p>
@@ -313,6 +411,14 @@
 </div>
 
 <style>
+	.confirmar {
+		display: flex;
+		gap: 0.5rem;
+		align-items: flex-start;
+		margin: 0 0 12px;
+		font-weight: 400;
+	}
+
 	.volver {
 		font-size: 13px;
 		font-weight: 600;
@@ -438,11 +544,18 @@
 		color: var(--ink-3);
 	}
 
+	/* Una columna: los datos y los ajustes van cada uno en su pestaña. */
 	.rejilla {
 		display: grid;
 		gap: 16px;
-		grid-template-columns: minmax(0, 1fr) 380px;
+		grid-template-columns: minmax(0, 1fr);
+		max-width: 900px;
 		align-items: start;
+	}
+
+	.principal[hidden],
+	.lateral[hidden] {
+		display: none;
 	}
 
 	@media (max-width: 1208px) {
@@ -696,5 +809,18 @@
 		.hechos div {
 			grid-template-columns: minmax(0, 1fr);
 		}
+	}
+	.abrir {
+		border-collapse: collapse;
+		font-size: 0.9rem;
+	}
+	.abrir th,
+	.abrir td {
+		text-align: left;
+		padding: 0.3rem 1.25rem 0.3rem 0;
+	}
+	.abrir th {
+		font-weight: 600;
+		opacity: 0.75;
 	}
 </style>

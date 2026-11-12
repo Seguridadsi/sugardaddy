@@ -5,6 +5,7 @@ import { rutaNueva } from '$lib/rutas-antiguas';
 import { configuradoEnEntorno } from '$lib/server/auth/entra';
 import { leer } from '$lib/server/auth/sesion';
 import { altaAutomatica, considerarCommunity, latir } from '$lib/server/canal';
+import { partnerAlDia } from '$lib/server/catalogo-partner';
 import { renovar } from '$lib/server/registro';
 import { purgar } from '$lib/server/conservacion';
 import { rellenarSiHaceFalta } from '$lib/server/credenciales';
@@ -24,6 +25,15 @@ import { normalizarIp } from '$lib/server/pruebas';
  */
 const CADA = Number(env.LATIDO_SEGUNDOS ?? 60) * 1000;
 export const init: ServerInit = () => {
+	/*
+	 * Las trampas del partner de este nodo, en memoria desde el arranque y al día cada
+	 * minuto (su certificado caduca): el catálogo se lee sin esperar a la base.
+	 */
+	const cp = globalThis as { __partner?: ReturnType<typeof setInterval> };
+	clearInterval(cp.__partner);
+	const partner = () => void partnerAlDia().catch((e) => console.error('[partner]', e));
+	partner();
+	cp.__partner = setInterval(partner, 60_000);
 	const g = globalThis as { __latido?: ReturnType<typeof setInterval> };
 	if (g.__latido) clearInterval(g.__latido);
 	g.__latido = setInterval(() => void latir(), CADA);

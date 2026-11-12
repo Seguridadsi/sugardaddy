@@ -63,8 +63,14 @@
 		guardados = [],
 		claveLista,
 		secretoIlegible = null,
-		extra
+		extra,
+		parte = 'todo'
 	}: {
+		/*
+		 * Qué parte se ve: el canal (nombre y conexión), qué envía o cuándo. Lo demás
+		 * sigue en el formulario, oculto, para que un solo «Save» lo guarde todo.
+		 */
+		parte?: 'todo' | 'canal' | 'envia' | 'cuando';
 		canal: Canal;
 		valores: Valores;
 		trampas: { id: string; nombre: string }[];
@@ -121,82 +127,89 @@
 	const elegidas = $derived(new Set(valores.reglas.trampas ?? []));
 	const accionesElegidas = $derived(new Set(valores.reglas.acciones ?? []));
 	const guardado = (id: string) => guardados.find((g) => g.id === id);
+	const ve = (p: 'canal' | 'envia' | 'cuando') => parte === 'todo' || parte === p;
 </script>
 
-<div class="campo">
-	<label for="s-nombre">Name</label>
-	<input
-		id="s-nombre"
-		name="nombre"
-		required
-		maxlength="80"
-		value={valores.nombre}
-		placeholder="SOC SIEM, on-call email…"
-	/>
+<div class="parte" hidden={!ve('canal')}>
+	<div class="campo">
+		<label for="s-nombre">Name</label>
+		<input
+			id="s-nombre"
+			name="nombre"
+			required
+			maxlength="80"
+			value={valores.nombre}
+			placeholder="SOC SIEM, on-call email…"
+		/>
+	</div>
+
+	{#if Object.keys(canal.parametros.properties).length}
+		<FormularioParametros
+			esquema={canal.parametros}
+			valores={valores.configuracion}
+			bind:elegidos
+		/>
+	{/if}
+	{@render extra?.(elegidos)}
+
+	{#if pedidos.length}
+		<div class="secretos">
+			{#if secretoIlegible}
+				<p class="aviso" role="alert">{secretoIlegible}</p>
+			{/if}
+			{#if !claveLista}
+				<p class="aviso">
+					This node does not have its key for storing secrets yet: it is created when the node is
+					updated. Until then, this output cannot store any.
+				</p>
+			{/if}
+			{#each pedidos as x (x.id)}
+				{@const g = guardado(x.id)}
+				<div class="campo">
+					<label for="s-{x.id}">
+						{x.titulo}
+						{#if !x.obligatorio && !x.necesario}<small>optional</small>{/if}
+					</label>
+					<input
+						id="s-{x.id}"
+						name="s.{x.id}"
+						type="password"
+						class="mono"
+						autocomplete="new-password"
+						spellcheck="false"
+						required={(x.obligatorio || x.necesario) && !g?.puesto}
+						placeholder={g?.puesto
+							? `Stored${g.final ? `, ends in …${g.final}` : ''}: type a new one to change it`
+							: ''}
+					/>
+					<p class="ayuda">
+						{x.descripcion} It is stored encrypted with this node's key and is never shown again.
+						{#if g?.puesto && g.cuando}
+							Set by {g.quien} on {fechaCorta(g.cuando)}.
+						{/if}
+					</p>
+					{#if g?.puesto && !x.obligatorio && !x.necesario}
+						<label class="marca">
+							<input type="checkbox" name="s.{x.id}.quitar" />
+							Remove it
+						</label>
+					{/if}
+				</div>
+			{/each}
+		</div>
+	{/if}
 </div>
 
-{#if Object.keys(canal.parametros.properties).length}
-	<FormularioParametros esquema={canal.parametros} valores={valores.configuracion} bind:elegidos />
-{/if}
-{@render extra?.(elegidos)}
-
-{#if pedidos.length}
-	<div class="secretos">
-		{#if secretoIlegible}
-			<p class="aviso" role="alert">{secretoIlegible}</p>
-		{/if}
-		{#if !claveLista}
-			<p class="aviso">
-				This node does not have its key for storing secrets yet: it is created when the node is
-				updated. Until then, this output cannot store any.
-			</p>
-		{/if}
-		{#each pedidos as x (x.id)}
-			{@const g = guardado(x.id)}
-			<div class="campo">
-				<label for="s-{x.id}">
-					{x.titulo}
-					{#if !x.obligatorio && !x.necesario}<small>optional</small>{/if}
-				</label>
-				<input
-					id="s-{x.id}"
-					name="s.{x.id}"
-					type="password"
-					class="mono"
-					autocomplete="new-password"
-					spellcheck="false"
-					required={(x.obligatorio || x.necesario) && !g?.puesto}
-					placeholder={g?.puesto
-						? `Stored${g.final ? `, ends in …${g.final}` : ''}: type a new one to change it`
-						: ''}
-				/>
-				<p class="ayuda">
-					{x.descripcion} It is stored encrypted with this node's key and is never shown again.
-					{#if g?.puesto && g.cuando}
-						Set by {g.quien} on {fechaCorta(g.cuando)}.
-					{/if}
-				</p>
-				{#if g?.puesto && !x.obligatorio && !x.necesario}
-					<label class="marca">
-						<input type="checkbox" name="s.{x.id}.quitar" />
-						Remove it
-					</label>
-				{/if}
-			</div>
-		{/each}
-	</div>
-{/if}
-
-<fieldset>
+<fieldset hidden={!ve('envia')} class:sola={parte === 'envia'}>
 	<legend>What it sends</legend>
 	<label class="interruptor">
 		<input type="checkbox" name="incidentes" checked={valores.reglas.incidentes !== false} />
 		<span>
 			<b>Incidents (recommended)</b>
 			<small>
-				What matters, without the noise: an alert when a source looks like an attack (a decoy that
-				only an attacker would touch, one on the internal network, or many touches within an hour),
-				its updates grouped together and a summary when it closes.
+				What matters, without the noise: an alert when a source looks like an attack (a honeypot
+				that only an attacker would touch, one on the internal network, or many touches within an
+				hour), its updates grouped together and a summary when it closes.
 			</small>
 		</span>
 	</label>
@@ -220,8 +233,8 @@
 			onchange={(e) => (eventos = e.currentTarget.checked)}
 		/>
 		<span>
-			<b>Decoy events</b>
-			<small>Every time someone touches a decoy, using these filters.</small>
+			<b>Honeypot events</b>
+			<small>Every time someone touches a honeypot, using these filters.</small>
 		</span>
 	</label>
 
@@ -236,7 +249,7 @@
 		</div>
 
 		<div class="grupo">
-			<span class="titulo">Which decoys</span>
+			<span class="titulo">Which honeypots</span>
 			<label class="marca">
 				<input
 					type="radio"
@@ -245,7 +258,7 @@
 					checked={trampasModo === 'todas'}
 					onchange={() => (trampasModo = 'todas')}
 				/>
-				All, including decoys you deploy later
+				All, including honeypots you deploy later
 			</label>
 			<label class="marca">
 				<input
@@ -273,7 +286,7 @@
 		<div class="grupo">
 			<span class="titulo">Which location</span>
 			<p class="nota">
-				Where the decoy is: its own location or, if it has none, that of its sensor. If none is
+				Where the honeypot is: its own location or, if it has none, that of its sensor. If none is
 				ticked, all locations are included.
 			</p>
 			<div class="en-linea">
@@ -326,7 +339,7 @@
 		<span>
 			<b>Node health alerts</b>
 			<small>
-				A sensor that stops responding, a decoy that is down or stopped, another output's queue
+				A sensor that stops responding, a honeypot that is down or stopped, another output's queue
 				being full, and when they recover.
 			</small>
 		</span>
@@ -344,51 +357,57 @@
 	</label>
 </fieldset>
 
-<fieldset>
-	<legend>When</legend>
-	<label class="marca">
-		<input
-			type="radio"
-			name="agrupacion"
-			value="inmediato"
-			checked={agrupacion === 'inmediato'}
-			onchange={() => (agrupacion = 'inmediato')}
-		/>
-		Each one as it happens
-	</label>
-	<label class="marca resumen">
-		<input
-			type="radio"
-			name="agrupacion"
-			value="resumen"
-			checked={agrupacion === 'resumen'}
-			onchange={() => (agrupacion = 'resumen')}
-		/>
-		All together, in a digest every
-		<input
-			class="minutos mono"
-			type="number"
-			name="minutos"
-			min="1"
-			max="1440"
-			step="1"
-			value={minutos}
-			aria-label="Minutes between digests"
-			class:apagado={agrupacion !== 'resumen'}
-		/>
-		minutes
-	</label>
-</fieldset>
+<div class="parte" hidden={!ve('cuando')}>
+	<fieldset>
+		<legend>When</legend>
+		<label class="marca">
+			<input
+				type="radio"
+				name="agrupacion"
+				value="inmediato"
+				checked={agrupacion === 'inmediato'}
+				onchange={() => (agrupacion = 'inmediato')}
+			/>
+			Each one as it happens
+		</label>
+		<label class="marca resumen">
+			<input
+				type="radio"
+				name="agrupacion"
+				value="resumen"
+				checked={agrupacion === 'resumen'}
+				onchange={() => (agrupacion = 'resumen')}
+			/>
+			All together, in a digest every
+			<input
+				class="minutos mono"
+				type="number"
+				name="minutos"
+				min="1"
+				max="1440"
+				step="1"
+				value={minutos}
+				aria-label="Minutes between digests"
+				class:apagado={agrupacion !== 'resumen'}
+			/>
+			minutes
+		</label>
+	</fieldset>
 
-<label class="interruptor">
-	<input type="checkbox" name="activa" checked={valores.activa} />
-	<span>
-		<b>Enabled</b>
-		<small>If you pause it, it stops receiving and anything pending is discarded.</small>
-	</span>
-</label>
+	<label class="interruptor">
+		<input type="checkbox" name="activa" checked={valores.activa} />
+		<span>
+			<b>Enabled</b>
+			<small>If you pause it, it stops receiving and anything pending is discarded.</small>
+		</span>
+	</label>
+</div>
 
 <style>
+	.parte[hidden],
+	fieldset[hidden] {
+		display: none;
+	}
 	.campo {
 		margin: 0;
 	}
@@ -420,6 +439,13 @@
 		margin: 22px 0 0;
 		padding: 14px 0 0;
 		min-width: 0;
+	}
+
+	/* Sola en su pestaña, no la separa de nada una línea. */
+	fieldset.sola {
+		border-top: none;
+		margin-top: 0;
+		padding-top: 0;
 	}
 
 	legend {

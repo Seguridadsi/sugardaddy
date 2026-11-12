@@ -13,6 +13,7 @@ import { redirect } from '@sveltejs/kit';
 import { puede } from '$lib/permisos';
 import { cortafuegos, cortafuegosConfirma, leerAcceso } from '$lib/server/acceso';
 import { avisoCa } from '$lib/server/ca-nodo';
+import { resumenConfiguracion } from '$lib/server/configuracion-inicial';
 
 /*
  * El acceso a la consola por IP (docs/diseno/acceso-consola.md): sin decidir,
@@ -31,11 +32,24 @@ async function acceso(usuario: App.Locals['usuario'], ruta: string) {
 	};
 }
 
+/*
+ * La configuración inicial (/setup): a quien administra una consola recién instalada se
+ * le lleva una vez, al llegar al inicio; después le queda el enlace en el menú hasta que
+ * termina. Va detrás del acceso por IP, que redirige antes desde cualquier ruta.
+ */
+async function configuracion(usuario: App.Locals['usuario'], ruta: string) {
+	if (!usuario || !puede(usuario.roles, 'ajustes')) return { pendiente: false };
+	const c = await resumenConfiguracion();
+	if (c.llevar && ruta === '/') redirect(303, '/setup');
+	return { pendiente: c.pendiente };
+}
+
 /* Sin sesión (la pantalla de entrada) no se consulta nada: ni el nombre del cliente se enseña. */
 export const load = async ({ locals, url, cookies }) =>
 	locals.usuario
 		? {
 				acceso: await acceso(locals.usuario, url.pathname),
+				configuracion: await configuracion(locals.usuario, url.pathname),
 				/* La raíz nueva del HTTPS de la consola (docs/diseno/ca-nodo.md), solo para quien decide. */
 				ca: await avisoCa(puede(locals.usuario.roles, 'ajustes')),
 				...(await zonasDe(locals.usuario, cookies)),
@@ -57,6 +71,7 @@ export const load = async ({ locals, url, cookies }) =>
 			}
 		: {
 				acceso: { estado: 'restringida' as const, emergencia: false, cortafuegosMal: false },
+				configuracion: { pendiente: false },
 				ca: null,
 				...(await zonasDe(null, cookies)),
 				usuario: null,

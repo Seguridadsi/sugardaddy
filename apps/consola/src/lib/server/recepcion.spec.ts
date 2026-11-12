@@ -116,8 +116,8 @@ describe.skipIf(!hayBase)('recepción de eventos: nunca se queda parada', () => 
 		const q = await db.select().from(s.cuarentena).where(eq(s.cuarentena.sensor, SENSOR));
 		expect(q.map((x) => x.motivo)).toEqual(
 			expect.arrayContaining([
-				'the decoy no longer exists (removed)',
-				'the decoy belongs to another sensor',
+				'the honeypot no longer exists (removed)',
+				'the honeypot belongs to another sensor',
 				'not JSON',
 				expect.stringContaining('does not meet the contract')
 			])

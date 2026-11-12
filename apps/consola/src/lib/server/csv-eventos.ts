@@ -30,7 +30,7 @@ export const CABECERA_CSV_EVENTOS = [
 	'when',
 	'severity',
 	'sensor',
-	'decoy',
+	'honeypot',
 	'module',
 	'type',
 	'action',

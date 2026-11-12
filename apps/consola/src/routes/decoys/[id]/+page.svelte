@@ -10,9 +10,29 @@
 	import { fechaHoraLarga, horaCorta } from '$lib/fechas-pantalla';
 	import { dondeVisible } from '$lib/formato';
 	import { puede } from '$lib/permisos';
+	import AlcancePorSalida from '$lib/components/AlcancePorSalida.svelte';
+	import Pestanas from '$lib/components/Pestanas.svelte';
+	import { pestanaDe } from '$lib/pestanas';
 
 	let { data, form } = $props();
 	const e = $derived(data.estado);
+
+	/* Cómo está, sus ajustes, dónde está puesta y por dónde avisa: cada cosa en su pestaña. */
+	const PESTANAS = $derived([
+		...(data.tipo === 'contenedor'
+			? [
+					{ id: 'status', texto: 'Status' },
+					{ id: 'settings', texto: 'Settings' },
+					{ id: 'placement', texto: 'Placement' }
+				]
+			: [
+					{ id: 'status', texto: 'Status and steps' },
+					{ id: 'placement', texto: 'Placement' }
+				]),
+		/* Sin salidas de avisos en esta edición, no hay pestaña. */
+		...(data.alcance ? [{ id: 'alerts', texto: 'Alerts' }] : [])
+	]);
+	const pestana = $derived(pestanaDe(page.url, PESTANAS) as string);
 	const opera = $derived(puede(page.data.usuario?.roles ?? [], 'desplegar'));
 	/* Dónde escucha solo tiene sentido si está puesta. */
 	const puesta = $derived(e?.estado === 'comprobada' || e?.estado === 'colocada');
@@ -45,13 +65,10 @@
 </script>
 
 <svelte:head>
-	<title
-		>{data.tipo === 'manual' ? 'Steps for' : 'Settings for'}
-		{data.trampa.nombre} — Sugardaddy</title
-	>
+	<title>{data.trampa.nombre} — Sugardaddy</title>
 </svelte:head>
 
-<a class="volver" href={resolve('/decoys')}>← Decoys</a>
+<a class="volver" href={resolve('/decoys')}>← Honeypots</a>
 
 {#if data.tipo === 'manual'}
 	{@const p = data.pasos}
@@ -62,22 +79,24 @@
 		<p class="desc">
 			You deploy it on <b>{destino}</b> with these steps: the console does not connect to your
 			machines.
-			{#if data.objetivo}It alerts through the decoy "{data.objetivo.nombre}".{/if}
+			{#if data.objetivo}It alerts through the honeypot "{data.objetivo.nombre}".{/if}
 		</p>
 	</div>
 {:else}
 	<div class="cabecera">
-		<p class="eyebrow">Settings · {data.modulo.nombre}</p>
+		<p class="eyebrow">Honeypot · {data.modulo.nombre}</p>
 		<h1>{data.trampa.nombre}</h1>
-		<p class="desc">
-			When you save, the sensor rebuilds the decoy with the new settings; its events are kept.
-		</p>
+		{#if pestana === 'settings'}
+			<p class="desc">
+				When you save, the sensor rebuilds the honeypot with the new settings; its events are kept.
+			</p>
+		{/if}
 	</div>
 {/if}
 
 {#if data.tipo === 'manual' && data.fueraDelCatalogo}
 	<p class="error" role="alert">
-		This decoy's module is no longer in the catalog and its signals are no longer processed.
+		This honeypot's module is no longer in the catalog and its signals are no longer processed.
 		{#if data.trampa.colocacion === 'retirando'}
 			Follow the removal steps below, then click "I have removed it".
 		{:else}
@@ -88,96 +107,131 @@
 {#if hecho}<p class="ok" role="status">{hecho}</p>{/if}
 {#if aviso}<p class="error" role="alert">{aviso}</p>{/if}
 
-{#if e}
-	<!-- Cómo está ahora, como la ve el cliente en las listas (§8.2). -->
-	<section class="panel estado" aria-label="Current status">
-		<p class="linea">
-			<EstadoTrampa estado={e} />
-			{#if puesta && data.tipo === 'contenedor'}<span class="donde"
-					>on <span class="mono">{dondeVisible(data.trampa.donde)}</span></span
-				>{/if}
-		</p>
-		{#if e.motivo}<p>{e.motivo}</p>{/if}
-		{#if e.detalle}<p class="detalle">{e.detalle}</p>{/if}
-		{#if e.remedio}<p class="remedio">{e.remedio}</p>{/if}
-		{#if e.avisos.length}
-			<ul>
-				{#each e.avisos as a (a.codigo)}<li>{a.texto}</li>{/each}
-			</ul>
-		{/if}
-	</section>
+<Pestanas pestanas={PESTANAS} actual={pestana} etiqueta="Honeypot sections" />
+
+{#if data.alcance}
+	<div hidden={pestana !== 'alerts'}>
+		<AlcancePorSalida filas={data.alcance} que="this honeypot" puede={opera} />
+	</div>
 {/if}
 
-<!--
+<div hidden={pestana !== 'status'}>
+	{#if e}
+		<!-- Cómo está ahora, como la ve el cliente en las listas (§8.2). -->
+		<section class="panel estado" aria-label="Current status">
+			<p class="linea">
+				<EstadoTrampa estado={e} />
+				{#if puesta && data.tipo === 'contenedor'}<span class="donde"
+						>on <span class="mono">{dondeVisible(data.trampa.donde)}</span></span
+					>{/if}
+			</p>
+			{#if e.motivo}<p>{e.motivo}</p>{/if}
+			{#if e.detalle}<p class="detalle">{e.detalle}</p>{/if}
+			{#if e.remedio}<p class="remedio">{e.remedio}</p>{/if}
+			{#if e.avisos.length}
+				<ul>
+					{#each e.avisos as a (a.codigo)}<li>{a.texto}</li>{/each}
+				</ul>
+			{/if}
+		</section>
+	{/if}
+</div>
+
+<div hidden={pestana !== 'placement'}>
+	<!--
 	Cambiar de sitio una trampa a mano sin retirarla: en qué destino está. Por
 	colocar, sus pasos se generan otra vez para el nuevo; puesta, solo cambia el
 	sitio que enseñan el mapa y las listas.
 -->
-{#if opera && data.tipo === 'manual' && data.sitios.length}
-	<section class="panel entornobloque" aria-label="Target it is on">
-		<h2>Target it is on</h2>
-		<p class="ayuda">
-			{#if data.trampa.colocacion === 'por-colocar'}
-				If you are going to deploy it on another machine, change it here: its steps are generated
-				again for that target.
-			{:else}
-				If it is really on another machine, change it here so the map and the lists show where it
-				is. What you deployed and its removal steps stay as they were.
-			{/if}
-		</p>
-		<form method="POST" action="?/sitio" use:enhance class="sitio">
-			<select name="destino" aria-label="Target it is on" required>
-				<option value="" selected disabled
-					>{data.destino ? `Now on ${data.destino.nombre}` : 'Choose a target'}</option
-				>
-				{#each data.sitios as d (d.id)}
-					<option value={d.id}>{d.nombre}{d.plataforma ? ` · ${d.plataforma}` : ''}</option>
-				{/each}
-			</select>
-			<button class="boton">Move</button>
-		</form>
-	</section>
-{/if}
+	{#if opera && data.tipo === 'manual' && data.sitios.length}
+		<section class="panel entornobloque" aria-label="Target it is on">
+			<h2>Target it is on</h2>
+			<p class="ayuda">
+				{#if data.trampa.colocacion === 'por-colocar'}
+					If you are going to deploy it on another machine, change it here: its steps are generated
+					again for that target.
+				{:else}
+					If it is really on another machine, change it here so the map and the lists show where it
+					is. What you deployed and its removal steps stay as they were.
+				{/if}
+			</p>
+			<form method="POST" action="?/sitio" use:enhance class="sitio">
+				<select name="destino" aria-label="Target it is on" required>
+					<option value="" selected disabled
+						>{data.destino ? `Now on ${data.destino.nombre}` : 'Choose a target'}</option
+					>
+					{#each data.sitios as d (d.id)}
+						<option value={d.id}>{d.nombre}{d.plataforma ? ` · ${d.plataforma}` : ''}</option>
+					{/each}
+				</select>
+				<button class="boton">Move</button>
+			</form>
+		</section>
+	{/if}
 
-<!--
+	<!--
 	Dónde está puesta esta trampa (respuesta por entorno): decide qué respuesta
 	tiene sentido si alguien la toca. Hereda de su sensor y se puede afinar aquí
 	para este honeypot. Gana lo más específico (lib/entorno.ts).
 -->
-{#if opera}
-	<section class="panel entornobloque" aria-label="Where it is deployed">
-		<h2>Where it is deployed</h2>
-		<p class="ayuda">
-			A decoy inside the network and one facing the web do not call for the same response. Let it
-			inherit from its sensor or fine-tune it for this decoy.
-		</p>
-		<form method="POST" action="?/entorno" use:enhance>
-			<select
-				name="entorno"
-				aria-label="Decoy environment"
-				onchange={(ev) => ev.currentTarget.form?.requestSubmit()}
-			>
-				<option value="" selected={!data.entorno.propio}
-					>Inherit from sensor {data.entorno.sensor
-						? `(${ENTORNO_ETIQUETA[data.entorno.sensor]})`
-						: '(no environment)'}</option
-				>
-				{#each ENTORNOS as ent (ent)}
-					<option value={ent} selected={data.entorno.propio === ent}>{ENTORNO_ETIQUETA[ent]}</option
-					>
-				{/each}
-			</select>
-		</form>
-		{#if data.entorno.efectivo}
-			<p class="explica">{ENTORNO_EXPLICACION[data.entorno.efectivo]}</p>
-		{:else}
-			<p class="explica sin">
-				No environment set: the engine behaves as usual (it does not hold back responses based on
-				location).
+	{#if opera && data.tipo === 'contenedor' && data.escucha}
+		<section class="panel entornobloque" aria-label="Listening address">
+			<h2>Listening address</h2>
+			<p class="ayuda">
+				The machine of its sensor has several addresses. Publish this honeypot on all of them or on
+				only one: two honeypots can then use the same port, each on its own address.
 			</p>
-		{/if}
-	</section>
-{/if}
+			<form method="POST" action="?/escucha" use:enhance>
+				<select
+					name="escucha"
+					class="mono"
+					aria-label="Listening address"
+					onchange={(ev) => ev.currentTarget.form?.requestSubmit()}
+				>
+					<option value="" selected={!data.escucha.actual}>All addresses of the machine</option>
+					{#each data.escucha.direcciones as ip (ip)}
+						<option value={ip} selected={data.escucha.actual === ip}>{ip}</option>
+					{/each}
+				</select>
+			</form>
+		</section>
+	{/if}
+	{#if opera}
+		<section class="panel entornobloque" aria-label="Where it is deployed">
+			<h2>Where it is deployed</h2>
+			<p class="ayuda">
+				A honeypot inside the network and one facing the web do not call for the same response. Let
+				it inherit from its sensor or fine-tune it for this honeypot.
+			</p>
+			<form method="POST" action="?/entorno" use:enhance>
+				<select
+					name="entorno"
+					aria-label="Honeypot environment"
+					onchange={(ev) => ev.currentTarget.form?.requestSubmit()}
+				>
+					<option value="" selected={!data.entorno.propio}
+						>Inherit from sensor {data.entorno.sensor
+							? `(${ENTORNO_ETIQUETA[data.entorno.sensor]})`
+							: '(no environment)'}</option
+					>
+					{#each ENTORNOS as ent (ent)}
+						<option value={ent} selected={data.entorno.propio === ent}
+							>{ENTORNO_ETIQUETA[ent]}</option
+						>
+					{/each}
+				</select>
+			</form>
+			{#if data.entorno.efectivo}
+				<p class="explica">{ENTORNO_EXPLICACION[data.entorno.efectivo]}</p>
+			{:else}
+				<p class="explica sin">
+					No environment set: the engine behaves as usual (it does not hold back responses based on
+					location).
+				</p>
+			{/if}
+		</section>
+	{/if}
+</div>
 
 <!--
 	«Probar» (§8.3): unos pasos que provocan un evento, y la consola espera unos
@@ -192,7 +246,7 @@
 		{#if u?.estado === 'recibida' && u.evento}
 			<p class="llegado" role="status">
 				The test event arrived at {horaCorta(u.evento.recibido)}{#if u.evento.ip}, from
-					<span class="mono">{u.evento.ip}</span>{/if}: the decoy alerts.
+					<span class="mono">{u.evento.ip}</span>{/if}: the honeypot alerts.
 			</p>
 		{:else if u?.estado === 'esperando'}
 			<p class="esperando" role="status">
@@ -222,7 +276,7 @@
 				{/if}
 			{:else if u.pasos?.forma === 'destino'}
 				<p>
-					Run the test script on <b>{destino}</b>: it first checks that the decoy it points to is
+					Run the test script on <b>{destino}</b>: it first checks that the honeypot it points to is
 					reachable from there, then uses what you deployed with the code of this test.
 				</p>
 				{#if opera}
@@ -242,8 +296,8 @@
 			{/if}
 		{:else if u?.estado === 'caducada'}
 			<p class="caducada">
-				The last test, which ran until {horaCorta(u.hasta)}, received nothing. Check that the decoy
-				is visible from where you tested, then test again.
+				The last test, which ran until {horaCorta(u.hasta)}, received nothing. Check that the
+				honeypot is visible from where you tested, then test again.
 			</p>
 		{/if}
 
@@ -297,215 +351,222 @@
 	</section>
 {/snippet}
 
-{#if data.tipo === 'contenedor'}
-	{@render probar(data.trampa.sensor)}
-{/if}
+<div hidden={pestana !== 'status'}>
+	{#if data.tipo === 'contenedor'}
+		{@render probar(data.trampa.sensor)}
+	{/if}
+</div>
 
 {#if data.tipo === 'manual'}
 	{@const p = data.pasos}
 	{@const destino = data.destino?.nombre ?? p?.destino ?? 'its target'}
 	{@const colocacion = data.trampa.colocacion}
-	{#if p}
-		<!-- Qué toca hacer ahora, según cómo está. -->
-		<section class="panel ahora" aria-label="What to do now">
-			{#if colocacion === 'retirando'}
-				<h2>Remove it from {destino}</h2>
-				<p>
-					Follow the steps to remove it (below, or with the script) and, when nothing is left on {destino},
-					click "I have removed it". Until then it keeps alerting if someone uses what you deployed.
-				</p>
-			{:else if colocacion === 'por-colocar'}
-				<h2>Deploy it on {destino}</h2>
-				<ol class="como">
-					<li>
-						Run the script on {destino}, or copy the variables block and follow the steps one by
-						one.
-					</li>
-					<li>When they are done, click "Mark as deployed".</li>
-				</ol>
-			{:else}
-				<h2>It is deployed on {destino}</h2>
-				<p>
-					To take it down, click "Remove": it gives you the steps to leave {destino} as it was. A decoy
-					deployed manually cannot be changed: remove it and deploy another.
-				</p>
-			{/if}
-			{#if p.marca}
-				<p class="ayuda">
-					Its signal: an event from "{data.objetivo?.nombre ?? 'the decoy it points to'}" with {p.marca}.
-				</p>
-			{/if}
-			{#if !p.integros}
-				<p class="error" role="alert">
-					The saved steps no longer match their fingerprint, so they cannot be downloaded. Contact
-					{data.operador}.
-				</p>
-			{:else if opera}
-				<div class="descargas">
-					{#each p.formatos as f (f)}
-						<a
-							class="boton"
-							href={descarga(f, colocacion === 'retirando' ? 'retirar' : 'colocar')}
-							download
-							>{SCRIPTS.includes(f) && colocacion === 'retirando'
-								? `${NOMBRES_FORMATO[f]} to remove it`
-								: NOMBRES_FORMATO[f]}</a
-						>
-					{/each}
-				</div>
-			{/if}
-			{#if opera}
-				<div class="botones">
-					{#if colocacion === 'por-colocar'}
-						<form method="POST" action="?/hecho" use:enhance>
-							<button class="boton principal">Mark as deployed</button>
-						</form>
-						<!-- Lo que apuntaba ha cambiado y aún no está puesta: se preparan otra vez (§8.2). -->
-						{#if data.cambiar && e?.avisos.some((a) => a.codigo.startsWith('senal.objetivo-'))}
-							<form method="POST" action="?/regenerar" use:enhance>
-								<button class="boton">Regenerate the steps</button>
+	<div hidden={pestana !== 'status'}>
+		{#if p}
+			<!-- Qué toca hacer ahora, según cómo está. -->
+			<section class="panel ahora" aria-label="What to do now">
+				{#if colocacion === 'retirando'}
+					<h2>Remove it from {destino}</h2>
+					<p>
+						Follow the steps to remove it (below, or with the script) and, when nothing is left on {destino},
+						click "I have removed it". Until then it keeps alerting if someone uses what you
+						deployed.
+					</p>
+				{:else if colocacion === 'por-colocar'}
+					<h2>Deploy it on {destino}</h2>
+					<ol class="como">
+						<li>
+							Run the script on {destino}, or copy the variables block and follow the steps one by
+							one.
+						</li>
+						<li>When they are done, click "Mark as deployed".</li>
+					</ol>
+				{:else}
+					<h2>It is deployed on {destino}</h2>
+					<p>
+						To take it down, click "Remove": it gives you the steps to leave {destino} as it was. A honeypot
+						deployed manually cannot be changed: remove it and deploy another.
+					</p>
+				{/if}
+				{#if p.marca}
+					<p class="ayuda">
+						Its signal: an event from "{data.objetivo?.nombre ?? 'the honeypot it points to'}" with {p.marca}.
+					</p>
+				{/if}
+				{#if !p.integros}
+					<p class="error" role="alert">
+						The saved steps no longer match their fingerprint, so they cannot be downloaded. Contact
+						{data.operador}.
+					</p>
+				{:else if opera}
+					<div class="descargas">
+						{#each p.formatos as f (f)}
+							<a
+								class="boton"
+								href={descarga(f, colocacion === 'retirando' ? 'retirar' : 'colocar')}
+								download
+								>{SCRIPTS.includes(f) && colocacion === 'retirando'
+									? `${NOMBRES_FORMATO[f]} to remove it`
+									: NOMBRES_FORMATO[f]}</a
+							>
+						{/each}
+					</div>
+				{/if}
+				{#if opera}
+					<div class="botones">
+						{#if colocacion === 'por-colocar'}
+							<form method="POST" action="?/hecho" use:enhance>
+								<button class="boton principal">Mark as deployed</button>
+							</form>
+							<!-- Lo que apuntaba ha cambiado y aún no está puesta: se preparan otra vez (§8.2). -->
+							{#if data.cambiar && e?.avisos.some((a) => a.codigo.startsWith('senal.objetivo-'))}
+								<form method="POST" action="?/regenerar" use:enhance>
+									<button class="boton">Regenerate the steps</button>
+								</form>
+							{/if}
+						{/if}
+						{#if colocacion === 'retirando'}
+							<form method="POST" action="?/quitado" use:enhance>
+								<button class="boton principal">I have removed it</button>
+							</form>
+						{:else}
+							<form method="POST" action="?/retirar" use:enhance>
+								<button class="boton peligro">Remove</button>
 							</form>
 						{/if}
-					{/if}
-					{#if colocacion === 'retirando'}
-						<form method="POST" action="?/quitado" use:enhance>
-							<button class="boton principal">I have removed it</button>
-						</form>
-					{:else}
-						<form method="POST" action="?/retirar" use:enhance>
-							<button class="boton peligro">Remove</button>
-						</form>
-					{/if}
-				</div>
+					</div>
+				{/if}
+			</section>
+
+			{#if colocacion !== 'por-colocar' && colocacion !== 'retirando'}
+				{@render probar(destino)}
 			{/if}
-		</section>
 
-		{#if colocacion !== 'por-colocar' && colocacion !== 'retirando'}
-			{@render probar(destino)}
-		{/if}
+			{#if p.lenguaje !== 'ninguno'}
+				<section class="panel bloque" aria-label="Variables">
+					<h2>Variables</h2>
+					<p class="ayuda">
+						Copy this first if you follow the steps by hand: the commands use these values. The
+						script already includes it at the top.
+					</p>
+					<pre class="mono codigo">{p.bloque}</pre>
+				</section>
+			{:else if p.variables.length}
+				<section class="panel bloque" aria-label="Details">
+					<h2>Details</h2>
+					<dl class="datos">
+						{#each p.variables as [k, v] (k)}<dt class="mono">{k}</dt>
+							<dd>{v}</dd>{/each}
+					</dl>
+				</section>
+			{/if}
 
-		{#if p.lenguaje !== 'ninguno'}
-			<section class="panel bloque" aria-label="Variables">
-				<h2>Variables</h2>
-				<p class="ayuda">
-					Copy this first if you follow the steps by hand: the commands use these values. The script
-					already includes it at the top.
-				</p>
-				<pre class="mono codigo">{p.bloque}</pre>
-			</section>
-		{:else if p.variables.length}
-			<section class="panel bloque" aria-label="Details">
-				<h2>Details</h2>
-				<dl class="datos">
-					{#each p.variables as [k, v] (k)}<dt class="mono">{k}</dt>
-						<dd>{v}</dd>{/each}
-				</dl>
-			</section>
-		{/if}
+			{#if colocacion === 'retirando'}
+				<section class="panel bloque">
+					<h2>Steps to remove it</h2>
+					<ListaPasos pasos={p.retirada} lenguaje={p.lenguaje} />
+				</section>
+				<details class="panel bloque">
+					<summary>Steps it was deployed with</summary>
+					<ListaPasos pasos={p.pasos} lenguaje={p.lenguaje} />
+				</details>
+			{:else}
+				<section class="panel bloque">
+					<h2>Steps to deploy it</h2>
+					<ListaPasos pasos={p.pasos} lenguaje={p.lenguaje} />
+				</section>
+				<details class="panel bloque">
+					<summary>Steps to remove it</summary>
+					<ListaPasos pasos={p.retirada} lenguaje={p.lenguaje} />
+				</details>
+			{/if}
 
-		{#if colocacion === 'retirando'}
-			<section class="panel bloque">
-				<h2>Steps to remove it</h2>
-				<ListaPasos pasos={p.retirada} lenguaje={p.lenguaje} />
-			</section>
-			<details class="panel bloque">
-				<summary>Steps it was deployed with</summary>
-				<ListaPasos pasos={p.pasos} lenguaje={p.lenguaje} />
-			</details>
+			{#if data.cambiar && opera}
+				<!-- Mientras no está puesta, sus datos se cambian y los pasos se preparan otra vez (§6.3). -->
+				<details class="panel bloque" open={!!fallo}>
+					<summary>Change its details</summary>
+					<form method="POST" action="?/guardar" class="cambiar" use:enhance>
+						{#if fallo?.errores?.length || fallo?.motivos?.length}
+							<ul class="errores" role="alert">
+								{#each fallo.errores as x (x)}<li>{x}</li>{/each}
+								{#each fallo.motivos as x (x.codigo + x.texto)}
+									<li>
+										{x.texto}
+										{#if x.remedio}<span class="remedio">{x.remedio}</span>{/if}
+									</li>
+								{/each}
+							</ul>
+						{/if}
+						<label for="nombre">Display name</label>
+						<input id="nombre" name="nombre" required value={fallo?.nombre ?? data.trampa.nombre} />
+						<FormularioParametros
+							esquema={data.cambiar.parametros}
+							valores={fallo?.valores ?? data.cambiar.valores}
+							objetivos={data.cambiar.objetivos}
+						/>
+						<p class="ayuda">
+							If you had already started with the previous steps, first remove what you deployed
+							using their removal steps.
+						</p>
+						<button class="boton principal enviar">Save and regenerate the steps</button>
+					</form>
+				</details>
+			{/if}
+
+			<p class="huella">
+				Generated on {fechaHoraLarga(p.generado)} with {p.modulo}
+				{p.versionModulo} · {p.via} · sha256 <span class="mono">{p.sha256}</span>
+			</p>
 		{:else}
 			<section class="panel bloque">
-				<h2>Steps to deploy it</h2>
-				<ListaPasos pasos={p.pasos} lenguaje={p.lenguaje} />
+				<p>This honeypot has no saved steps. Remove it and deploy it again.</p>
 			</section>
-			<details class="panel bloque">
-				<summary>Steps to remove it</summary>
-				<ListaPasos pasos={p.retirada} lenguaje={p.lenguaje} />
-			</details>
 		{/if}
-
-		{#if data.cambiar && opera}
-			<!-- Mientras no está puesta, sus datos se cambian y los pasos se preparan otra vez (§6.3). -->
-			<details class="panel bloque" open={!!fallo}>
-				<summary>Change its details</summary>
-				<form method="POST" action="?/guardar" class="cambiar" use:enhance>
-					{#if fallo?.errores?.length || fallo?.motivos?.length}
-						<ul class="errores" role="alert">
-							{#each fallo.errores as x (x)}<li>{x}</li>{/each}
-							{#each fallo.motivos as x (x.codigo + x.texto)}
-								<li>
-									{x.texto}
-									{#if x.remedio}<span class="remedio">{x.remedio}</span>{/if}
-								</li>
-							{/each}
-						</ul>
-					{/if}
-					<label for="nombre">Display name</label>
-					<input id="nombre" name="nombre" required value={fallo?.nombre ?? data.trampa.nombre} />
-					<FormularioParametros
-						esquema={data.cambiar.parametros}
-						valores={fallo?.valores ?? data.cambiar.valores}
-						objetivos={data.cambiar.objetivos}
-					/>
-					<p class="ayuda">
-						If you had already started with the previous steps, first remove what you deployed using
-						their removal steps.
-					</p>
-					<button class="boton principal enviar">Save and regenerate the steps</button>
-				</form>
-			</details>
-		{/if}
-
-		<p class="huella">
-			Generated on {fechaHoraLarga(p.generado)} with {p.modulo}
-			{p.versionModulo} · {p.via} · sha256 <span class="mono">{p.sha256}</span>
-		</p>
-	{:else}
-		<section class="panel bloque">
-			<p>This decoy has no saved steps. Remove it and deploy it again.</p>
-		</section>
-	{/if}
+	</div>
 {:else}
-	{#if data.avisos.length}
-		<!-- Lo que dice hoy el elector de su máquina: no impide guardar, esté como esté la trampa. -->
-		<section class="panel avisos" aria-label="Warnings">
-			<p class="intro-avisos">
-				Warnings about its machine. They do not prevent saving the changes.
-			</p>
-			<ul>
-				{#each data.avisos as a (a.codigo + a.texto)}
-					<li>
-						{a.texto}
-						{#if a.remedio}<span class="remedio">{a.remedio}</span>{/if}
-					</li>
-				{/each}
-			</ul>
-		</section>
-	{/if}
-
-	<form class="panel formulario" method="POST" action="?/guardar" use:enhance>
-		{#if fallo?.errores?.length || fallo?.motivos?.length}
-			<ul class="errores" role="alert">
-				{#each fallo.errores as e (e)}<li>{e}</li>{/each}
-				{#each fallo.motivos as x (x.codigo + x.texto)}
-					<li>
-						{x.texto}
-						{#if x.remedio}<span class="remedio">{x.remedio}</span>{/if}
-					</li>
-				{/each}
-			</ul>
+	<div hidden={pestana !== 'settings'}>
+		{#if data.avisos.length}
+			<!-- Lo que dice hoy el elector de su máquina: no impide guardar, esté como esté la trampa. -->
+			<section class="panel avisos" aria-label="Warnings">
+				<p class="intro-avisos">
+					Warnings about its machine. They do not prevent saving the changes.
+				</p>
+				<ul>
+					{#each data.avisos as a (a.codigo + a.texto)}
+						<li>
+							{a.texto}
+							{#if a.remedio}<span class="remedio">{a.remedio}</span>{/if}
+						</li>
+					{/each}
+				</ul>
+			</section>
 		{/if}
 
-		<label for="nombre">Display name</label>
-		<input id="nombre" name="nombre" required value={fallo?.nombre ?? data.trampa.nombre} />
+		<form class="panel formulario" method="POST" action="?/guardar" use:enhance>
+			{#if fallo?.errores?.length || fallo?.motivos?.length}
+				<ul class="errores" role="alert">
+					{#each fallo.errores as e (e)}<li>{e}</li>{/each}
+					{#each fallo.motivos as x (x.codigo + x.texto)}
+						<li>
+							{x.texto}
+							{#if x.remedio}<span class="remedio">{x.remedio}</span>{/if}
+						</li>
+					{/each}
+				</ul>
+			{/if}
 
-		<h2>Module parameters</h2>
-		<FormularioParametros
-			esquema={data.modulo.parametros}
-			valores={fallo?.valores ?? data.valores}
-		/>
+			<label for="nombre">Display name</label>
+			<input id="nombre" name="nombre" required value={fallo?.nombre ?? data.trampa.nombre} />
 
-		<button class="boton principal enviar">Save and apply</button>
-	</form>
+			<h2>Module parameters</h2>
+			<FormularioParametros
+				esquema={data.modulo.parametros}
+				valores={fallo?.valores ?? data.valores}
+			/>
+
+			<button class="boton principal enviar">Save and apply</button>
+		</form>
+	</div>
 {/if}
 
 <style>

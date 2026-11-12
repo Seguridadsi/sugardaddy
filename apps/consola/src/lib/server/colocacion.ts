@@ -49,8 +49,8 @@ export const MOTIVOS_COLOCACION = {
 	'despliegue.error': 'Its sensor is not running it.',
 	'despliegue.parada': 'The sensor has stopped it.',
 	'aislamiento.se-ven':
-		'The decoys on this machine can see each other: the container engine does not enforce isolation between them.',
-	'red.ip-oculta': 'The decoys on this machine do not see the IP of whoever connects.',
+		'The honeypots on this machine can see each other: the container engine does not enforce isolation between them.',
+	'red.ip-oculta': 'The honeypots on this machine do not see the IP of whoever connects.',
 	'retirada.pendiente':
 		'It still has to be removed from the target using its removal steps, and marked as removed here.'
 } as const;
@@ -209,7 +209,7 @@ export const ETIQUETAS: Readonly<Record<Visible, string>> = {
 	'sin-contacto': 'Offline',
 	degradada: 'Degraded',
 	comprobada: 'Verified',
-	colocada: 'Deployed, not verified',
+	colocada: 'Active, not verified',
 	'por-colocar': 'Pending deployment'
 };
 

@@ -69,6 +69,32 @@ describe.skipIf(!process.env.DATABASE_URL)('registrar lo del propio sensor', asy
 			quien: QUIEN
 		});
 
+	it('el plan lleva su huella: quien ya lo tiene recibe un 304 sin cuerpo, y sigue contando como latido', async () => {
+		const pedir = (etag?: string) =>
+			GET({
+				request: new Request('http://consola/api/sensor/plan', {
+					headers: { authorization: `Bearer ${TOKEN}`, ...(etag ? { 'if-none-match': etag } : {}) }
+				})
+			} as never);
+		const primera = await pedir();
+		const etag = primera.headers.get('etag')!;
+		expect(primera.status).toBe(200);
+		expect(etag).toMatch(/^"[\w-]{43}"$/);
+		await db.update(s.sensores).set({ ultimoLatido: null }).where(eq(s.sensores.id, SENSOR));
+		const segunda = await pedir(etag);
+		expect(segunda.status).toBe(304);
+		expect(await segunda.text()).toBe('');
+		expect(segunda.headers.get('etag')).toBe(etag);
+		const [f] = await db.select().from(s.sensores).where(eq(s.sensores.id, SENSOR));
+		expect(f.ultimoLatido).not.toBeNull();
+		/* Con otra huella, o si el plan cambia, viaja entero. */
+		expect((await pedir('"otra"')).status).toBe(200);
+		await cambiarRegistrarPropio(QUIEN, SENSOR, true);
+		const tercera = await pedir(etag);
+		expect(tercera.status).toBe(200);
+		expect(tercera.headers.get('etag')).not.toBe(etag);
+	});
+
 	it('por defecto no registra, y el plan se lo pide al sensor', async () => {
 		expect((await sensores()).find((x) => x.id === SENSOR)?.registrarPropio).toBe(false);
 		const p = await pedirPlan();

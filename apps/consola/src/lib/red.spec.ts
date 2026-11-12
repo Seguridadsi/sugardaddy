@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { leerRed, leerVlan, redDelFormulario, redYVlan } from './red';
+import { leerRed, leerVlan, porDireccion, redDelFormulario, redYVlan } from './red';
 
 describe('red y VLAN de un sensor', () => {
 	it('la red se queda con la dirección de la red', () => {
@@ -52,5 +52,16 @@ describe('red y VLAN de un sensor', () => {
 		expect(redDelFormulario(f('', ''))).toEqual({ red: null, vlan: null, redNombre: null });
 		expect(redDelFormulario(f('x', ''))).toHaveProperty('error');
 		expect(redDelFormulario(f('', '5000'))).toHaveProperty('error');
+	});
+});
+
+describe('porDireccion', () => {
+	it('ordena las IPv4 por su valor, no como texto', () => {
+		expect(['10.50.0.10', '10.50.0.4', '10.50.0.13', '10.50.0.5'].sort(porDireccion)).toEqual([
+			'10.50.0.4',
+			'10.50.0.5',
+			'10.50.0.10',
+			'10.50.0.13'
+		]);
 	});
 });

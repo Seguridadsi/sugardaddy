@@ -82,7 +82,7 @@
 	</div>
 	<div class="cifra">
 		<span class="n mono">{data.trampas.length}</span>
-		<span class="et">{data.trampas.length === 1 ? 'decoy hit' : 'decoys hit'}</span>
+		<span class="et">{data.trampas.length === 1 ? 'honeypot hit' : 'honeypots hit'}</span>
 	</div>
 	<div class="cifra ancha">
 		<span class="et">First seen</span>
@@ -96,7 +96,7 @@
 
 <div class="dos">
 	<section class="panel">
-		<h2>Decoys</h2>
+		<h2>Honeypots</h2>
 		<ul class="desglose">
 			{#each data.trampas as t (t.id)}
 				<li>

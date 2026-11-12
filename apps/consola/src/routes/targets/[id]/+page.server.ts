@@ -10,16 +10,40 @@ import {
 	leerFormulario,
 	valoresDeFormulario
 } from '$lib/server/destinos';
-import { DestinoNoDisponible } from '$lib/server/gestion';
+import { DestinoNoDisponible, regenerarToken } from '$lib/server/gestion';
 import { ErrorCliente, altaSensorRemoto } from '$lib/server/sensores-remotos';
+import { nombreConsola } from '$lib/server/direccion-consola';
+import { alcanceDeFicha, fijarAlcance, leerAlcance } from '$lib/server/alcance-ficha';
 
 export const load = async ({ params, url }) => {
 	const destino = await fichaDestino(params.id);
 	if (!destino) error(404, 'That target does not exist.');
-	return { ahora: Date.now(), creado: url.searchParams.has('creado'), destino };
+	return {
+		ahora: Date.now(),
+		creado: url.searchParams.has('creado'),
+		destino,
+		/* Por qué salidas avisa lo de este sensor (lib/alcance.ts); sin sensor, no hay qué decir. */
+		alcance: destino.sensor ? await alcanceDeFicha('sensor', destino.sensor.id) : null
+	};
 };
 
 export const actions = {
+	/* Lo que dice el sensor de este destino de una salida: enviar, no enviar o heredar. */
+	alcance: async ({ params, request, locals }) => {
+		const u = exigir(locals, 'desplegar');
+		const v = leerAlcance(await request.formData());
+		const destino = await fichaDestino(params.id);
+		if (!destino) error(404, 'That target does not exist.');
+		if (!v || !destino.sensor)
+			return fail(400, {
+				accion: 'alcance' as const,
+				errores: ['That output or value is not valid.']
+			});
+		if (!(await fijarAlcance(u.correo, { ...v, nivel: 'sensor', objeto: destino.sensor.id })))
+			return fail(400, { accion: 'alcance' as const, errores: ['That output no longer exists.'] });
+		return { accion: 'alcance' as const, mensaje: 'Alerts for this sensor saved.' };
+	},
+
 	/* El formulario corto, salvo lo que ya dice su sensor (§5.3). */
 	editar: async ({ params, request, locals }) => {
 		const u = exigir(locals, 'desplegar');
@@ -39,7 +63,7 @@ export const actions = {
 		if (x !== 'editado') {
 			const varias = x.dependientes.length > 1;
 			return fallo([
-				`${varias ? 'The decoys' : 'The decoy'} ${entreComillas(x.dependientes)} ${varias ? 'point' : 'points'} to the address of this target: remove ${varias ? 'them' : 'it'} first.`
+				`${varias ? 'The honeypots' : 'The honeypot'} ${entreComillas(x.dependientes)} ${varias ? 'point' : 'points'} to the address of this target: remove ${varias ? 'them' : 'it'} first.`
 			]);
 		}
 		return { accion: 'editar' as const, mensaje: 'Changes saved.' };
@@ -63,7 +87,7 @@ export const actions = {
 		try {
 			const linea = await altaSensorRemoto(u.correo, v, params.id, ip);
 			if (!linea) return fallo(400, 'A sensor with that identifier already exists.');
-			return { linea, para: v.id };
+			return { linea, para: v.id, consola: nombreConsola() };
 		} catch (e) {
 			if (e instanceof DestinoNoDisponible) return fallo(409, e.message);
 			if (e instanceof ErrorCliente) return fallo(400, e.message);
@@ -71,6 +95,36 @@ export const actions = {
 		}
 	},
 
+	/*
+	 * Cortar ya el token de un sensor remoto, para cuando se sospecha que se ha
+	 * filtrado: el que tenía deja de valer en ese momento, y también el que
+	 * estuviera pendiente de estrenar. El sensor queda fuera hasta que se pega una
+	 * línea de instalación nueva en su máquina. El del propio nodo no se corta
+	 * desde aquí: no tiene línea con la que volver.
+	 */
+	cortarToken: async ({ params, request, locals }) => {
+		const u = exigir(locals, 'ajustes');
+		const destino = await fichaDestino(params.id);
+		if (!destino) error(404, 'That target does not exist.');
+		const f = await request.formData();
+		if (!destino.sensor?.remoto)
+			return fail(400, {
+				accion: 'cortar' as const,
+				error: 'Only the token of a remote sensor can be revoked from here.'
+			});
+		if (f.get('entiendo') !== 'si')
+			return fail(400, {
+				accion: 'cortar' as const,
+				error: 'Tick the box to confirm: the sensor stops reporting until you reinstall it.'
+			});
+		if (!(await regenerarToken(u.correo, destino.sensor.id)))
+			return fail(400, { accion: 'cortar' as const, error: 'That sensor no longer exists.' });
+		return {
+			accion: 'cortar' as const,
+			mensaje:
+				'Token revoked. The sensor is out until you generate a new install line in Sensors and run it on its machine.'
+		};
+	},
 	baja: async ({ params, locals }) => {
 		const u = exigir(locals, 'desplegar');
 		const r = await darDeBajaDestino(u.correo, params.id);
@@ -81,7 +135,7 @@ export const actions = {
 			error:
 				r === 'tiene sensor'
 					? 'This target has a sensor: it is removed by removing its sensor, in Sensors.'
-					: 'Remove its decoys first.'
+					: 'Remove its honeypots first.'
 		});
 	}
 };

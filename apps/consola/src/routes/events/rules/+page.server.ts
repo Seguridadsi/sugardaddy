@@ -27,7 +27,7 @@ function valorMal(
 	if (v.length > 200) return 'The value is too long.';
 	if (criterio === 'ip' && !rango(v))
 		return 'Enter an IP address (10.0.0.5) or a CIDR range (10.0.0.0/24).';
-	if (criterio === 'trampa' && !trampas[v]) return 'That decoy does not exist.';
+	if (criterio === 'trampa' && !trampas[v]) return 'That honeypot does not exist.';
 	return null;
 }
 

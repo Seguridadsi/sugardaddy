@@ -25,6 +25,9 @@
 			{
 				titulo: 'Overview',
 				entradas: [
+					...(data.configuracion.pendiente
+						? [{ href: '/setup', texto: 'Setup', icono: 'configuracion' }]
+						: []),
 					{ href: '/', texto: 'Dashboard', icono: 'resumen' },
 					{ href: '/map', texto: 'Deployment map', icono: 'mapa' }
 				]
@@ -39,7 +42,8 @@
 			{
 				titulo: 'Deploy',
 				entradas: [
-					{ href: '/decoys', texto: 'Decoys', icono: 'trampas' },
+					{ href: '/decoys', texto: 'Honeypots', icono: 'trampas' },
+					{ href: '/decoys/catalog', texto: 'Catalog', icono: 'catalogo' },
 					{ href: '/sensors', texto: 'Sensors', icono: 'sensores' }
 				]
 			},
@@ -82,6 +86,10 @@
 		if (e.href === '/') return ruta === '/';
 		if (e.href === '/settings')
 			return ruta.startsWith(e.href) && !['#free-registration', '#central'].includes(page.url.hash);
+		/* Las trampas puestas (/decoys) y el catálogo (/decoys/catalog) son dos
+		   entradas: la de arriba no debe encenderse cuando estás en el catálogo. */
+		if (e.href === '/decoys')
+			return ruta.startsWith('/decoys') && !ruta.startsWith('/decoys/catalog');
 		return ruta.startsWith(e.href) || (e.href === '/sensors' && ruta.startsWith('/targets'));
 	};
 
@@ -174,9 +182,9 @@
 
 			{#if puede(data.usuario.roles, 'desplegar')}
 				<div class="menu-botones">
-					<a class="menu-boton principal" href="/decoys#catalog">New decoy</a>
+					<a class="menu-boton principal" href="/decoys/catalog">New honeypot</a>
 					{#if esAdmin}
-						<a class="menu-boton" href="/sensors#install">Install sensor</a>
+						<a class="menu-boton" href="/sensors?tab=install">Install sensor</a>
 					{/if}
 				</div>
 			{/if}
@@ -235,7 +243,7 @@
 									The console was opened to everyone from the machine itself.
 								{:else}
 									Anyone who reaches this machine can see the console, and that it sits next to the
-									decoys.
+									honeypots.
 								{/if}
 								{#if esAdmin}<a href="/settings/access">Choose who can open it</a>{:else}Ask an
 									administrator to limit who can open it.{/if}
@@ -301,7 +309,7 @@
 							<div class="actualizacion oferta dominio">
 								<form class="pregunta" method="POST" action="/settings?/identidad">
 									<label for="dominio-empresa">
-										What is your company's domain? Decoys will use names similar to those on your
+										What is your company's domain? Honeypots will use names similar to those on your
 										network.
 									</label>
 									<input
@@ -325,7 +333,7 @@
 						{#if avisoActual === 'oferta'}
 							<div class="actualizacion oferta">
 								<span>
-									Register your email, free of charge, to get more decoys and automatic updates.
+									Register your email, free of charge, to get more honeypots and automatic updates.
 									<a href="/settings#free-registration">Register</a>
 								</span>
 								<form method="POST" action="/settings?/autoActualizar" use:enhance>

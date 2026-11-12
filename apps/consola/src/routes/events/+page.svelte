@@ -88,7 +88,7 @@
 		</select>
 	</div>
 	<div>
-		<label for="trampa">Decoy</label>
+		<label for="trampa">Honeypot</label>
 		<select id="trampa" name="trampa" value={data.filtro.trampa}>
 			<option value="">All</option>
 			{#each data.trampas as s (s.id)}

@@ -30,7 +30,7 @@
 			<thead>
 				<tr>
 					<th class="col-glifo"><span class="oculto">Status</span></th>
-					<th>Decoy</th>
+					<th>Honeypot</th>
 					<th class="col-servicio">Service</th>
 					<th class="col-puerto">Port</th>
 					<th class="col-eventos" title="Events in the last 24 hours">24 h</th>
@@ -109,7 +109,7 @@
 		</table>
 		{#if ocultas > 0}
 			<button class="mas" onclick={() => (abierta = true)}>
-				View {ocultas === 1 ? 'one more decoy' : `${ocultas} more decoys`}
+				View {ocultas === 1 ? 'one more honeypot' : `${ocultas} more honeypots`}
 			</button>
 		{:else if abierta && !todas && trampas.length > LIMITE}
 			<button class="mas" onclick={() => (abierta = false)}>View less</button>

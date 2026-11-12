@@ -1,5 +1,9 @@
 <script lang="ts">
+	import CopiarTexto from '$lib/components/CopiarTexto.svelte';
+	import Pestanas from '$lib/components/Pestanas.svelte';
+	import { pestanaDe } from '$lib/pestanas';
 	import { enhance } from '$app/forms';
+	import { sinVaciar } from '$lib/guardar';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import { nombreTipoDestino } from '$lib/destinos';
@@ -11,6 +15,14 @@
 	let { data, form } = $props();
 	const admin = $derived(puede(page.data.usuario?.roles ?? [], 'ajustes'));
 	const opera = $derived(puede(page.data.usuario?.roles ?? [], 'desplegar'));
+	/* Lo que hay por un lado y dar de alta por otro: nunca uno debajo del otro. */
+	const PESTANAS = $derived([
+		{ id: 'sensors', texto: 'Sensors' },
+		...(data.community ? [] : [{ id: 'targets', texto: 'Targets without a sensor' }]),
+		...(data.cuarentena.length ? [{ id: 'quarantine', texto: 'Quarantine' }] : []),
+		...(admin ? [{ id: 'install', texto: 'Install a remote sensor' }] : [])
+	]);
+	const pestana = $derived(pestanaDe(page.url, PESTANAS) as string);
 	/* El sensor cuya red no se pudo guardar: su formulario sigue abierto. */
 	const cambiando = $derived(form && 'cambiando' in form ? form.cambiando : null);
 	/* Los avisos de todos los sensores, primero los que dejan a un sensor sin trampas. */
@@ -36,16 +48,22 @@
 		<h2>Install line for <span class="mono">{form.para}</span></h2>
 		<p>
 			Paste it on the Ubuntu machine where the sensor will run (another VLAN, another site, the
-			cloud). It works once, for 24 hours, and is only shown now. That machine must be able to reach
-			this console on port 443 and resolve its name.
+			cloud). It works once, for 24 hours, and is only shown now: copy it before you leave or reload
+			this page. That machine must be able to reach this console on port 443 and resolve its name{#if form.consola},
+				<span class="mono">{form.consola}</span>
+				(DNS or
+				<span class="mono">/etc/hosts</span>){/if}.
 		</p>
 		<p class="mono valor">{form.linea}</p>
+		<p><CopiarTexto texto={form.linea} etiqueta="Copy the line" /></p>
 	</section>
 {/if}
 {#if form?.mensaje}<p class="mensaje" role="status">{form.mensaje}</p>{/if}
 {#if form?.error}<p class="error" role="alert">{form.error}</p>{/if}
 
-{#if avisos.length}
+<Pestanas pestanas={PESTANAS} actual={pestana} etiqueta="Sensor sections" />
+
+{#if avisos.length && pestana === 'sensors'}
 	<!-- Lo que el sensor cuenta de su máquina (desde la 0.13.1), con su código para soporte. -->
 	<section class="panel avisos" aria-label="Sensor warnings">
 		<ul>
@@ -62,213 +80,222 @@
 	</section>
 {/if}
 
-<section class="panel">
-	<table>
-		<thead>
-			<tr>
-				<th>Sensor</th>
-				<th>IP · network / VLAN</th>
-				<th class="num">Decoys</th>
-				<th>Status</th>
-				{#if admin}<th></th>{/if}
-			</tr>
-		</thead>
-		<tbody>
-			{#each data.sensores as x (x.id)}
+{#if pestana === 'sensors'}
+	<section class="panel">
+		<table>
+			<thead>
 				<tr>
-					<td>
-						{#if data.fichas[x.id]}
-							<a class="nombre" href={resolve('/targets/[id]', { id: data.fichas[x.id] })}
-								>{x.nombre}</a
-							>
-						{:else}
-							<b>{x.nombre}</b>
-						{/if}
-						<small class="mono"
-							>{x.id} · {x.remoto ? `remote${x.version ? ` · v${x.version}` : ''}` : 'node'}</small
-						>
-						{#if x.motor}<small title="Its container engine">{x.motor}</small>{/if}
-					</td>
-					<td class="red">
-						{#if x.ips.length}
-							<span class="ips mono" title="The IP addresses of the sensor machine"
-								>{x.ips.join(' · ')}</span
-							>
-						{/if}
-						{#if admin}
-							<details open={cambiando === x.id}>
-								<summary class:sin={!x.red && !x.vlan && !x.redNombre}
-									>{[x.redNombre, redYVlan(x.red, x.vlan)].filter(Boolean).join(' · ') ||
-										'not set'}</summary
-								>
-								<form method="POST" action="?/red" use:enhance>
-									<input type="hidden" name="id" value={x.id} />
-									<input
-										name="red"
-										class="mono"
-										aria-label="Network in CIDR"
-										placeholder="10.70.0.0/24"
-										value={x.red ?? ''}
-									/>
-									<input
-										name="vlan"
-										class="mono"
-										aria-label="VLAN"
-										placeholder="VLAN"
-										inputmode="numeric"
-										value={x.vlan ?? ''}
-									/>
-									<input
-										name="redNombre"
-										aria-label="Network name"
-										placeholder="Network name"
-										maxlength="60"
-										value={x.redNombre ?? ''}
-									/>
-									<button class="boton">Save</button>
-								</form>
-							</details>
-						{:else}
-							<span class="mono" class:sin={!x.red && !x.vlan && !x.redNombre}
-								>{[x.redNombre, redYVlan(x.red, x.vlan)].filter(Boolean).join(' · ') ||
-									'not set'}</span
-							>
-						{/if}
-						<div class="entorno">
-							{#if admin}
-								<form method="POST" action="?/entorno" use:enhance>
-									<input type="hidden" name="id" value={x.id} />
-									<select
-										name="entorno"
-										aria-label="Sensor environment"
-										onchange={(e) => e.currentTarget.form?.requestSubmit()}
-									>
-										<option value="" selected={!x.entorno}>no environment</option>
-										{#each ENTORNOS as ent (ent)}
-											<option value={ent} selected={x.entorno === ent}
-												>{ENTORNO_ETIQUETA[ent]}</option
-											>
-										{/each}
-									</select>
-								</form>
-							{:else}
-								<small class:sin={!x.entorno}
-									>{x.entorno ? ENTORNO_ETIQUETA[x.entorno] : 'no environment'}</small
-								>
-							{/if}
-						</div>
-						<div class="propio">
-							{#if admin}
-								<form method="POST" action="?/registrarPropio" use:enhance>
-									<input type="hidden" name="id" value={x.id} />
-									<label>
-										<input
-											type="checkbox"
-											name="registrar"
-											value="si"
-											checked={x.registrarPropio}
-											onchange={(e) => e.currentTarget.form?.requestSubmit()}
-										/>
-										Record connections from this sensor's own machine
-									</label>
-								</form>
-							{:else}
-								<small
-									>{x.registrarPropio
-										? 'Records connections from its own machine'
-										: "Doesn't record connections from its own machine"}</small
-								>
-							{/if}
-						</div>
-					</td>
-					<td class="num mono">{x.trampas}</td>
-					<td>
-						<span class="estado" class:mal={!x.vivo}>
-							{x.vivo
-								? 'online'
-								: x.ultimoLatido
-									? `offline ${haceCuanto(x.ultimoLatido, data.ahora)}`
-									: 'never connected'}
-						</span>
-						{#each x.avisos as a (a.codigo)}
-							<small class="aviso" class:grave={a.gravedad === 'error'}>{a.titulo}</small>
-						{/each}
-						{#if x.configuracion?.estado === 'fallida'}
-							<small class="aviso" title={x.configuracion.detalle ?? ''}
-								>the configuration for version {x.configuracion.version} did not come up healthy</small
-							>
-						{:else if x.configuracion?.estado === 'aplicando'}
-							<small>applying the configuration for version {x.configuracion.version}</small>
-						{/if}
-						{#if x.registroPrivado === false && x.vivo}
-							<small
-								class="aviso"
-								title={`It will catch up with its next version${x.remoto ? ' or when reinstalled with a new line' : ''}. Until then, decoys whose image is in the private registry are not sent to it and show as "On hold" in Decoys.`}
-								>no registry credential: its decoys wait for it to update</small
-							>
-						{/if}
-						{#if x.cuarentena || x.rupturas}
-							<small class="aviso">
-								{#if x.cuarentena}{x.cuarentena} quarantined{/if}{#if x.cuarentena && x.rupturas}
-									·
-								{/if}{#if x.rupturas}chain broken {x.rupturas}
-									{x.rupturas === 1 ? 'time' : 'times'}{/if}
-							</small>
-						{/if}
-					</td>
-					{#if admin}
-						<td class="acciones">
-							{#if x.remoto}
-								<form method="POST" action="?/linea" use:enhance>
-									<input type="hidden" name="id" value={x.id} />
-									{#if data.acceso.estado === 'restringida'}
-										<input
-											name="ip"
-											class="mono ip-maquina"
-											placeholder="Machine IP"
-											aria-label="IP address of the sensor machine"
-											title="Only if it is a different machine: its address joins the console access list"
-										/>
-									{/if}
-									<button class="boton" title="To reinstall it, or if the previous one was lost"
-										>New line</button
-									>
-								</form>
-							{/if}
-							<form method="POST" action="?/retirar" use:enhance>
-								<input type="hidden" name="id" value={x.id} />
-								<button
-									class="boton peligro"
-									disabled={x.trampas > 0}
-									title={x.trampas > 0 ? 'Remove its decoys first' : ''}>Remove</button
-								>
-							</form>
-						</td>
-					{/if}
+					<th>Sensor</th>
+					<th>IP · network / VLAN</th>
+					<th class="num">Honeypots</th>
+					<th>Status</th>
+					{#if admin}<th></th>{/if}
 				</tr>
-			{/each}
-		</tbody>
-	</table>
-	<p class="nota-propio">
-		When "Record connections from this sensor's own machine" is off, connections from the sensor's
-		own network address are neither recorded nor alerted on, and its decoys stop listening on
-		<code>localhost</code>. Tests started from the console are still recorded, and so is anything
-		aimed at a decoy that a bait points to. With Docker Desktop, WSL or rootless Docker, everything
-		is recorded. Changing it restarts the sensor's decoys. Turn it on if a forwarder on that machine
-		(nginx, an SSH tunnel) points at a decoy: its clients look like the machine itself. Bear in mind
-		that anyone already inside that machine can reach its decoys through its network address without
-		leaving a record.
-	</p>
-</section>
+			</thead>
+			<tbody>
+				{#each data.sensores as x (x.id)}
+					<tr>
+						<td>
+							{#if data.fichas[x.id]}
+								<a class="nombre" href={resolve('/targets/[id]', { id: data.fichas[x.id] })}
+									>{x.nombre}</a
+								>
+							{:else}
+								<b>{x.nombre}</b>
+							{/if}
+							<small class="mono"
+								>{x.id} · {x.remoto
+									? `remote${x.version ? ` · v${x.version}` : ''}`
+									: 'node'}</small
+							>
+							{#if x.motor}<small title="Its container engine">{x.motor}</small>{/if}
+						</td>
+						<td class="red">
+							{#if x.ips.length}
+								<span class="ips mono" title="The IP addresses of the sensor machine"
+									>{x.ips.join(' · ')}</span
+								>
+							{/if}
+							{#if admin}
+								<details open={cambiando === x.id}>
+									<summary class:sin={!x.red && !x.vlan && !x.redNombre}
+										>{[x.redNombre, redYVlan(x.red, x.vlan)].filter(Boolean).join(' · ') ||
+											'not set'}</summary
+									>
+									<form method="POST" action="?/red" use:enhance>
+										<input type="hidden" name="id" value={x.id} />
+										<input
+											name="red"
+											class="mono"
+											aria-label="Network in CIDR"
+											placeholder="10.70.0.0/24"
+											value={x.red ?? ''}
+										/>
+										<input
+											name="vlan"
+											class="mono"
+											aria-label="VLAN"
+											placeholder="VLAN"
+											inputmode="numeric"
+											value={x.vlan ?? ''}
+										/>
+										<input
+											name="redNombre"
+											aria-label="Network name"
+											placeholder="Network name"
+											maxlength="60"
+											value={x.redNombre ?? ''}
+										/>
+										<button class="boton">Save</button>
+									</form>
+								</details>
+							{:else}
+								<span class="mono" class:sin={!x.red && !x.vlan && !x.redNombre}
+									>{[x.redNombre, redYVlan(x.red, x.vlan)].filter(Boolean).join(' · ') ||
+										'not set'}</span
+								>
+							{/if}
+							<div class="entorno">
+								{#if admin}
+									<form method="POST" action="?/entorno" use:enhance>
+										<input type="hidden" name="id" value={x.id} />
+										<select
+											name="entorno"
+											aria-label="Sensor environment"
+											onchange={(e) => e.currentTarget.form?.requestSubmit()}
+										>
+											<option value="" selected={!x.entorno}>no environment</option>
+											{#each ENTORNOS as ent (ent)}
+												<option value={ent} selected={x.entorno === ent}
+													>{ENTORNO_ETIQUETA[ent]}</option
+												>
+											{/each}
+										</select>
+									</form>
+								{:else}
+									<small class:sin={!x.entorno}
+										>{x.entorno ? ENTORNO_ETIQUETA[x.entorno] : 'no environment'}</small
+									>
+								{/if}
+							</div>
+							<div class="propio">
+								{#if admin}
+									<form method="POST" action="?/registrarPropio" use:enhance={sinVaciar}>
+										<input type="hidden" name="id" value={x.id} />
+										<label>
+											<input
+												type="checkbox"
+												name="registrar"
+												value="si"
+												checked={x.registrarPropio}
+												onchange={(e) => e.currentTarget.form?.requestSubmit()}
+											/>
+											Record connections from this sensor's own machine
+										</label>
+									</form>
+								{:else}
+									<small
+										>{x.registrarPropio
+											? 'Records connections from its own machine'
+											: "Doesn't record connections from its own machine"}</small
+									>
+								{/if}
+							</div>
+						</td>
+						<td class="num mono">{x.trampas}</td>
+						<td>
+							<span class="estado" class:mal={!x.vivo}>
+								{x.vivo
+									? 'online'
+									: x.ultimoLatido
+										? `offline ${haceCuanto(x.ultimoLatido, data.ahora)}`
+										: 'never connected'}
+							</span>
+							{#if data.silencios[x.id]?.length}
+								<small class="aviso" title="Set on the Alerts tab of this sensor"
+									>Alerts muted: {data.silencios[x.id].join(', ')}</small
+								>
+							{/if}
+							{#each x.avisos as a (a.codigo)}
+								<small class="aviso" class:grave={a.gravedad === 'error'}>{a.titulo}</small>
+							{/each}
+							{#if x.configuracion?.estado === 'fallida'}
+								<small class="aviso" title={x.configuracion.detalle ?? ''}
+									>the configuration for version {x.configuracion.version} did not come up healthy</small
+								>
+							{:else if x.configuracion?.estado === 'aplicando'}
+								<small>applying the configuration for version {x.configuracion.version}</small>
+							{/if}
+							{#if x.registroPrivado === false && x.vivo}
+								<small
+									class="aviso"
+									title={`It will catch up with its next version${x.remoto ? ' or when reinstalled with a new line' : ''}. Until then, honeypots whose image is in the private registry are not sent to it and show as "On hold" in Honeypots.`}
+									>no registry credential: its honeypots wait for it to update</small
+								>
+							{/if}
+							{#if x.cuarentena || x.rupturas}
+								<small class="aviso">
+									{#if x.cuarentena}{x.cuarentena} quarantined{/if}{#if x.cuarentena && x.rupturas}
+										·
+									{/if}{#if x.rupturas}chain broken {x.rupturas}
+										{x.rupturas === 1 ? 'time' : 'times'}{/if}
+								</small>
+							{/if}
+						</td>
+						{#if admin}
+							<td class="acciones">
+								{#if x.remoto}
+									<form method="POST" action="?/linea" use:enhance>
+										<input type="hidden" name="id" value={x.id} />
+										{#if data.acceso.estado === 'restringida'}
+											<input
+												name="ip"
+												class="mono ip-maquina"
+												placeholder="Machine IP"
+												aria-label="IP address of the sensor machine"
+												title="Only if it is a different machine: its address joins the console access list"
+											/>
+										{/if}
+										<button class="boton" title="To reinstall it, or if the previous one was lost"
+											>New line</button
+										>
+									</form>
+								{/if}
+								<form method="POST" action="?/retirar" use:enhance>
+									<input type="hidden" name="id" value={x.id} />
+									<button
+										class="boton peligro"
+										disabled={x.trampas > 0}
+										title={x.trampas > 0 ? 'Remove its honeypots first' : ''}>Remove</button
+									>
+								</form>
+							</td>
+						{/if}
+					</tr>
+				{/each}
+			</tbody>
+		</table>
+		<p class="nota-propio">
+			When "Record connections from this sensor's own machine" is off, connections from the sensor's
+			own network address are neither recorded nor alerted on, and its honeypots stop listening on
+			<code>localhost</code>. Tests started from the console are still recorded, and so is anything
+			aimed at a honeypot that a bait points to. With Docker Desktop, WSL or rootless Docker,
+			everything is recorded. Changing it restarts the sensor's honeypots. Turn it on if a forwarder
+			on that machine (nginx, an SSH tunnel) points at a honeypot: its clients look like the machine
+			itself. Bear in mind that anyone already inside that machine can reach its honeypots through
+			its network address without leaving a record.
+		</p>
+	</section>
+{/if}
 
-{#if !data.community}
+{#if !data.community && pestana === 'targets'}
 	<section class="panel destinos">
 		<header>
 			<div>
 				<h2>Targets without a sensor</h2>
 				<p class="ayuda">
-					A server, a NAS or a cloud account where you deploy decoys by hand. Machines with a sensor
-					are listed above: their name links to their page.
+					A server, a NAS or a cloud account where you deploy honeypots by hand. Machines with a
+					sensor are listed above: their name links to their page.
 				</p>
 			</div>
 			{#if opera}<a class="boton" href={resolve('/targets/new')}>Add target</a>{/if}
@@ -283,7 +310,7 @@
 							{#if !d.activo}<span class="tag">removed</span>{/if}
 							<small>{d.plataforma ?? 'No system data'}</small>
 						</div>
-						<span class="mono">{d.trampas} {d.trampas === 1 ? 'decoy' : 'decoys'}</span>
+						<span class="mono">{d.trampas} {d.trampas === 1 ? 'honeypot' : 'honeypots'}</span>
 					</li>
 				{/each}
 			</ul>
@@ -293,7 +320,7 @@
 	</section>
 {/if}
 
-{#if data.cuarentena.length}
+{#if data.cuarentena.length && pestana === 'quarantine'}
 	<section class="panel cuarentena">
 		<h2>Quarantine</h2>
 		<p class="ayuda">
@@ -316,8 +343,8 @@
 	</section>
 {/if}
 
-{#if admin}
-	<form class="panel alta" id="install" method="POST" action="?/crear" use:enhance>
+{#if admin && pestana === 'install'}
+	<form class="panel alta" id="install" method="POST" action="?/crear&tab=install" use:enhance>
 		<h2>Install a remote sensor</h2>
 		<p class="ayuda">
 			On another VLAN, another site or the cloud. When you enroll it, you get a line to paste on
@@ -343,6 +370,19 @@
 				/>
 			</div>
 			<div>
+				<label for="entorno">Where it is</label>
+				<select id="entorno" name="entorno">
+					<option value="" selected={!form || !('entorno' in form) || !form.entorno}
+						>Choose later</option
+					>
+					{#each ENTORNOS as e (e)}
+						<option value={e} selected={form && 'entorno' in form && form.entorno === e}
+							>{ENTORNO_ETIQUETA[e]}</option
+						>
+					{/each}
+				</select>
+			</div>
+			<div>
 				<label for="ip">IP address of the sensor machine</label>
 				<input
 					id="ip"
@@ -354,6 +394,10 @@
 				/>
 			</div>
 		</div>
+		<p class="ayuda">
+			Where it is decides how its honeypots are named and scored. Choose External for a machine
+			exposed to the internet: its honeypots will not carry names taken from your internal domain.
+		</p>
 		<p class="ayuda">
 			{#if data.acceso.estado === 'restringida'}
 				Required: access to this console is limited, and this address joins the list so the sensor
@@ -497,7 +541,7 @@
 		margin-top: 6px;
 	}
 
-	.red input {
+	.red input:not([type='checkbox']) {
 		width: 130px;
 	}
 
@@ -760,5 +804,47 @@
 		font-size: 12.5px;
 		line-height: 1.5;
 		color: var(--ink-2);
+	}
+
+	/*
+	 * En una ventana estrecha la tabla no cabe y la última columna (la IP de la
+	 * máquina, «New line», «Remove») quedaba fuera de la vista: cada sensor pasa a
+	 * ser un bloque, con todo a la vista.
+	 */
+	@media (max-width: 1100px) {
+		thead {
+			display: none;
+		}
+		table,
+		tbody,
+		tr,
+		td {
+			display: block;
+			width: auto;
+		}
+		tr {
+			border-bottom: 1px solid var(--line);
+			padding: 6px 0;
+		}
+		tr:last-child {
+			border-bottom: none;
+		}
+		td {
+			border-bottom: none;
+			padding: 6px 16px;
+		}
+		td.num {
+			text-align: left;
+		}
+		td.num::before {
+			content: 'Honeypots: ';
+			color: var(--ink-3);
+		}
+		td.acciones {
+			display: flex;
+			flex-wrap: wrap;
+			gap: 8px;
+			align-items: center;
+		}
 	}
 </style>

@@ -351,6 +351,34 @@
       "when": 1794250878343,
       "tag": "0049_sensores_ca_confiada",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1794389681548,
+      "tag": "0050_plantillas",
+      "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1794394138474,
+      "tag": "0051_trampas_escucha",
+      "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1794424304368,
+      "tag": "0052_salidas_alcance",
+      "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1794431653617,
+      "tag": "0053_sensor_token_siguiente",
+      "breakpoints": true
     }
   ]
 }

@@ -8,6 +8,7 @@
  * administrador y queda marcado en la auditoría y en la barra.
  */
 import { createHash, randomBytes } from 'node:crypto';
+import { almacenDeRetos } from './retos';
 import {
 	generateAuthenticationOptions,
 	generateRegistrationOptions,
@@ -23,22 +24,11 @@ import { auditar } from './consultas';
 const VIDA_RETO = 5 * 60_000;
 /* `alta`: el hash del código de alta con el que se pidió el reto, si fue así. Se gasta al registrar. */
 type DatosReto = { reto: string; nombre?: string; quien?: string; alta?: string };
-const retos = new Map<string, DatosReto & { caduca: number }>();
-
-function guardarReto(datos: DatosReto) {
-	for (const [k, v] of retos) if (v.caduca < Date.now()) retos.delete(k);
-	const id = randomBytes(24).toString('base64url');
-	retos.set(id, { ...datos, caduca: Date.now() + VIDA_RETO });
-	return id;
-}
-
-/* Un reto vale una sola vez. */
-function tomarReto(id: string | undefined) {
-	if (!id) return null;
-	const r = retos.get(id);
-	retos.delete(id);
-	return r && r.caduca > Date.now() ? r : null;
-}
+/* Pedir un reto de entrada no exige sesión: el almacén tiene tope (retos.ts). */
+export const MAX_RETOS = 1000;
+const retos = almacenDeRetos<DatosReto>(MAX_RETOS, VIDA_RETO);
+const guardarReto = (datos: DatosReto) => retos.guardar(datos);
+const tomarReto = (id: string | undefined) => retos.tomar(id);
 
 export const llaves = () =>
 	db

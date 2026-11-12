@@ -52,6 +52,12 @@ import {
 } from './inteligencia';
 import { cerrarYa, paraLatido, recibirSolicitud } from './soporte';
 import { guardarTor, huellaTor, quitarTor } from './tor';
+import {
+	guardarCatalogoPartner,
+	huellaCatalogoPartner,
+	partnerDelNodo,
+	quitarCatalogoPartner
+} from './catalogo-partner';
 
 type Canal = {
 	panel: string;
@@ -132,6 +138,8 @@ export async function darDeAlta(quien: string, panel: string, codigo: string) {
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
 			body: JSON.stringify({ codigo, nodo, clavePublica: claves.publica }),
+			/* Lleva el código de alta: una redirección no se sigue. */
+			redirect: 'manual',
 			signal: AbortSignal.timeout(15_000)
 		});
 	} catch {
@@ -672,6 +680,8 @@ export async function latir() {
 		await guardarLicencia(v.estado.licencia);
 		if (v.estado.logo !== undefined) await sincronizarLogo(c, v.estado.logo);
 		if (v.estado.tor !== undefined) await sincronizarTor(c, v.estado.tor);
+		if (v.estado.catalogoPartner !== undefined)
+			await sincronizarCatalogoPartner(c, v.estado.catalogoPartner);
 		await intercambiarInteligencia(c);
 		await guardarRecuperacionPanel(v.estado.recuperacion);
 		if (falloVigilancia) throw falloVigilancia;
@@ -1088,4 +1098,24 @@ async function sincronizarTor(c: Canal, huellaFirmada: string | null) {
 		return;
 	}
 	await guardarTor(huellaFirmada, v.lista);
+}
+
+/* ---------- trampas del partner ---------- */
+
+/*
+ * Como la lista de Tor: el estado trae la huella del paquete y se pide si cambia. Lo que
+ * llega se comprueba entero (catalogo-partner.ts) con las claves de publicación, no con la
+ * del panel: la central de un partner solo lo entrega. Uno que no vale no sustituye al que hay.
+ */
+async function sincronizarCatalogoPartner(c: Canal, huellaFirmada: string | null) {
+	if (!partnerDelNodo()) return;
+	if (!huellaFirmada) {
+		if (await huellaCatalogoPartner()) await quitarCatalogoPartner();
+		return;
+	}
+	if ((await huellaCatalogoPartner()) === huellaFirmada) return;
+	const r = await enviar(c, '/api/nodo/catalogo-partner', '{}');
+	if (!r.ok) return;
+	const motivo = await guardarCatalogoPartner(huellaFirmada, await r.text());
+	if (motivo) await auditar(`node ${c.nodo}`, 'Partner honeypot catalog rejected', { motivo });
 }

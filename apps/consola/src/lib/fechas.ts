@@ -4,19 +4,10 @@
  *
  * Las pantallas no lo llaman directamente: usan `fechas-pantalla.ts`, que le pone
  * la zona de quien mira. Un correo o un informe no tiene quien mire y pasa su
- * zona a mano: `ZONA_DOCUMENTOS`.
+ * zona a mano: la de los documentos del nodo (server/zona-documentos.ts).
  */
 
 export const ZONA_POR_DEFECTO = 'Europe/Madrid';
-
-/*
- * La de lo que sale de la consola para más de una persona (el informe, el
- * resumen semanal, el aviso de pentest): tiene que decir lo mismo lo lea quien
- * lo lea, así que no depende de ningún usuario. Siempre se escribe junto a la
- * hora, porque quien lo lee puede estar en otra zona. Las salidas de avisos no
- * la usan: cada una tiene su propio parámetro `zona`.
- */
-export const ZONA_DOCUMENTOS = ZONA_POR_DEFECTO;
 
 /* La zona que dice el navegador, para que el servidor pinte ya con ella. No es secreta. */
 export const COOKIE_ZONA = 'sd_zona_navegador';

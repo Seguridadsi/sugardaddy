@@ -69,7 +69,7 @@
 		</ul>
 	</section>
 	<section class="panel">
-		<h2>Decoys and actions</h2>
+		<h2>Honeypots and actions</h2>
 		<ul class="desglose">
 			{#each data.trampas as t (t.id)}
 				<li>

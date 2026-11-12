@@ -24,3 +24,9 @@ export function redDelFormulario(
 	if (redNombre.length > 60) return { error: 'The network name can be up to 60 characters.' };
 	return { red, vlan, redNombre: redNombre || null };
 }
+
+/* Las direcciones IPv4, por su valor y no como texto: 10.50.0.4 va antes que 10.50.0.10. */
+export function porDireccion(a: string, b: string): number {
+	const n = (x: string) => x.split('.').reduce((s, o) => s * 256 + (Number(o) || 0), 0);
+	return n(a) - n(b) || a.localeCompare(b);
+}

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { nombreSeveridad } from '$lib/formato';
 	import { resolve } from '$app/paths';
+	import { page } from '$app/state';
 	import { puede } from '$lib/permisos';
 	import BotonPlegar from '$lib/components/BotonPlegar.svelte';
 	import EstadoTrampa from '$lib/components/EstadoTrampa.svelte';
@@ -56,13 +57,13 @@
 			ayuda: 'View activity by source'
 		},
 		{
-			titulo: 'Active decoys',
+			titulo: 'Active honeypots',
 			valor: `${data.cifras.activos}/${data.cifras.total}`,
 			nota: 'Verified by a real event',
 			href: '/decoys',
 			tono:
 				data.cifras.total === 0 ? '' : data.cifras.activos === data.cifras.total ? 'bien' : 'ojo',
-			ayuda: 'View decoys'
+			ayuda: 'View honeypots'
 		},
 		{
 			titulo: 'Sensors online',
@@ -80,7 +81,7 @@
 	/* Salen solos de lo que ya ha pasado. Avisos, de pago y solo para quien administra. */
 	const pasos = $derived([
 		{ texto: 'Connect a sensor', hecho: data.pasos.sensor, href: '/sensors' },
-		{ texto: 'Deploy your first decoy', hecho: data.pasos.trampa, href: '/decoys#catalog' },
+		{ texto: 'Deploy your first honeypot', hecho: data.pasos.trampa, href: '/decoys/catalog' },
 		{ texto: 'Test it with a real event', hecho: data.pasos.probada, href: '/decoys' },
 		...(!data.community && puede(roles, 'ajustes')
 			? [{ texto: 'Set up your alerts', hecho: data.pasos.avisos, href: '/alerts' }]
@@ -100,6 +101,12 @@
 	</div>
 </div>
 
+{#if page.url.searchParams.has('setup')}
+	<p class="mensaje" role="status">
+		Setup is finished. Everything you configured remains available in Settings.
+	</p>
+{/if}
+
 <div class="tarjetas">
 	{#each tarjetas as t (t.titulo)}
 		<a class="tarjeta {t.tono}" href={t.href} title={t.ayuda}>
@@ -109,6 +116,20 @@
 		</a>
 	{/each}
 </div>
+
+{#if data.atencion.length}
+	<section class="panel atencion" aria-labelledby="t-atencion">
+		<h2 id="t-atencion">Needs attention <small>{data.atencion.length}</small></h2>
+		<ul>
+			{#each data.atencion as a (a.texto)}
+				<li class:grave={a.gravedad === 'error'}>
+					<span class="punto" aria-hidden="true"></span>
+					<a href={a.href}>{a.texto}</a>
+				</li>
+			{/each}
+		</ul>
+	</section>
+{/if}
 
 {#if pasosPendientes > 0 && puedeDesplegar}
 	<section class="panel primeros" aria-labelledby="t-primeros">
@@ -204,9 +225,9 @@
 {/if}
 
 <div class="seccion">
-	<h2>Decoys by sensor</h2>
+	<h2>Honeypots by sensor</h2>
 	<a class="ver-mapa" href={resolve('/map')}>View the deployment map</a>
-	<BotonPlegar id="resumen-trampas" titulo="Decoys by sensor" bind:plegado={plegado.trampas} />
+	<BotonPlegar id="resumen-trampas" titulo="Honeypots by sensor" bind:plegado={plegado.trampas} />
 </div>
 {#if !plegado.trampas}
 	<div class="mapa">
@@ -262,6 +283,59 @@
 {/if}
 
 <style>
+	.atencion {
+		margin-bottom: 16px;
+		padding: 16px 20px;
+	}
+
+	.atencion h2 {
+		font-size: 15px;
+		font-weight: 600;
+		margin-bottom: 8px;
+	}
+
+	.atencion h2 small {
+		margin-left: 6px;
+		color: var(--ink-3);
+		font-weight: 600;
+	}
+
+	.atencion ul {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		display: grid;
+		gap: 6px;
+	}
+
+	.atencion li {
+		display: flex;
+		align-items: baseline;
+		gap: 9px;
+		font-size: 13.5px;
+	}
+
+	.atencion .punto {
+		flex: none;
+		width: 8px;
+		height: 8px;
+		border-radius: 50%;
+		background: var(--warn);
+	}
+
+	.atencion li.grave .punto {
+		background: var(--crit);
+	}
+
+	.atencion a {
+		color: var(--ink);
+		text-decoration: none;
+	}
+
+	.atencion a:hover {
+		text-decoration: underline;
+	}
+
 	.cabecera {
 		display: flex;
 		align-items: flex-end;

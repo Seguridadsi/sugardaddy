@@ -112,7 +112,7 @@ describe('lo que la consola enseña del motor de cada sensor', () => {
 			hechos: { 'disco.trampas': { valor: false, motivo: 'disco.algo-nuevo' } }
 		});
 		expect(b).toMatchObject({ codigo: 'disco.algo-nuevo', gravedad: 'aviso' });
-		expect(b.texto).toMatch(/helper that mounts the decoy disks failed/);
+		expect(b.texto).toMatch(/helper that mounts the honeypot disks failed/);
 	});
 
 	it('con disco por trampa no hay aviso', () => {

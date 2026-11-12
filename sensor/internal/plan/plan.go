@@ -77,6 +77,12 @@ type TrampaPlan struct {
 	// Licencia dice si la trampa es de pago y lee la licencia (SEN-9): a las
 	// demás no se les monta. nil (una consola anterior no lo manda): a todas.
 	Licencia *bool `json:"licencia,omitempty"`
+	// Escucha es la dirección de la máquina, de las varias que tenga, en la que
+	// se publican los puertos de esta trampa y solo en ella. Vacía (o una
+	// consola anterior, que no lo manda): en todas, como siempre. Va fuera del
+	// manifiesto, que es lo firmado: el sensor la comprueba contra las
+	// direcciones que él mismo ha medido (despliegue.config).
+	Escucha string `json:"escucha,omitempty"`
 }
 
 type Manifiesto struct {

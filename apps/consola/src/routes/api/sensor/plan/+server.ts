@@ -1,4 +1,4 @@
-import { json } from '@sveltejs/kit';
+import { createHash } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { db, schema as s } from '$lib/server/db';
 import { trampasQueRegistranSiempre } from '$lib/server/pruebas';
@@ -16,6 +16,12 @@ import { toquesPendientes } from '$lib/server/toques';
  * Con el plan se lleva los toques de prueba que tenga pedidos (toques.ts) y, si
  * no registra lo que viene de su máquina, en qué trampas se registra igual. Una
  * consola anterior no lo dice, y registra todo.
+ *
+ * Lo que contesta lleva su huella en ETag. Un sensor que ya tiene eso mismo lo
+ * dice con If-None-Match y recibe un 304 sin cuerpo: con una web a medida de
+ * 100 KB o muchos sensores remotos, el plan no viaja entero cada diez segundos
+ * si no ha cambiado. La petición cuenta igual como latido. Un sensor anterior
+ * no manda la cabecera y recibe el plan de siempre.
  */
 export const GET = async ({ request }) => {
 	const sensor = await sensorDe(request);
@@ -29,7 +35,7 @@ export const GET = async ({ request }) => {
 	if (Object.keys(cambios).length)
 		await db.update(s.sensores).set(cambios).where(eq(s.sensores.id, sensor.id));
 	const toques = await toquesPendientes(sensor.id);
-	return json({
+	const cuerpo = JSON.stringify({
 		sensor: sensor.id,
 		ultimoHash: sensor.ultimoHash,
 		...(await plan(sensor.id, registro, version ?? undefined)),
@@ -38,4 +44,8 @@ export const GET = async ({ request }) => {
 			? {}
 			: { ignorarPropio: true, registrarSiempre: await trampasQueRegistranSiempre(sensor.id) })
 	});
+	const etag = `"${createHash('sha256').update(cuerpo).digest('base64url')}"`;
+	if (request.headers.get('if-none-match') === etag)
+		return new Response(null, { status: 304, headers: { etag } });
+	return new Response(cuerpo, { headers: { 'content-type': 'application/json', etag } });
 };

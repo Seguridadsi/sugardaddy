@@ -4,9 +4,11 @@ import { SIN_IDENTIFICADOR, identificador } from '$lib/identificador';
 import { darDeAlta, dondePoner, formaEn } from '$lib/server/alta';
 import { exigir } from '$lib/server/auth/permisos';
 import { coberturaLicencia } from '$lib/server/candado';
+import { esDePartner } from '$lib/server/catalogo-partner';
 import { trampasAutorizadas } from '$lib/server/catalogo';
 import { existeTrampa } from '$lib/server/consultas';
 import { propuestasDeAlta } from '$lib/server/identidad';
+import { piezaParaAlta, plantillaPorId } from '$lib/server/plantillas';
 
 /*
  * Poner una trampa (docs/diseno/modulo-despliegue.md §7.3, pasos 9 y 11). Sin
@@ -22,7 +24,7 @@ async function modulo(id: string) {
 	/* Una de pago que la licencia no cubre se quedaría en espera: ni se pone. */
 	const licencia = (await coberturaLicencia())(h.id);
 	if (licencia !== 'cubierta') error(403, motivo(licencia).texto);
-	if (!h.vias.length) error(404, 'This decoy has no way to be deployed yet.');
+	if (!h.vias.length) error(404, 'This honeypot has no way to be deployed yet.');
 	return h;
 }
 
@@ -32,6 +34,11 @@ export const load = async ({ params, url }) => {
 	const via = url.searchParams.get('via') ?? undefined;
 	const forma = destino === null ? null : await formaEn(h, destino, via);
 	if (destino !== null && !forma) error(404, 'That target does not exist.');
+	const pieza = await piezaParaAlta(
+		url.searchParams.get('plantilla'),
+		url.searchParams.get('pieza'),
+		h.id
+	);
 	return {
 		modulo: {
 			id: h.id,
@@ -39,12 +46,23 @@ export const load = async ({ params, url }) => {
 			descripcion: h.descripcion,
 			tipo: tipoEvento(h),
 			parametros: h.parametros,
-			procedencia: h.procedencia ?? null
+			procedencia: h.procedencia ?? null,
+			dePartner: esDePartner(h.id)
 		},
 		donde: forma ? null : await dondePoner(h),
 		forma,
-		/* Los nombres que tocan según el dominio del cliente, listos en el formulario. */
-		propuestas: destino !== null && forma ? await propuestasDeAlta(h, destino) : {}
+		/* Los nombres que tocan según el dominio del cliente, listos en el formulario; por encima, lo que fija su plantilla. */
+		propuestas:
+			destino !== null && forma
+				? { ...(await propuestasDeAlta(h, destino)), ...(pieza?.parametros ?? {}) }
+				: {},
+		/* La plantilla desde la que se pone (?plantilla, ?pieza): la trampa queda en su grupo. */
+		pieza: pieza && {
+			plantilla: pieza.plantilla,
+			plantillaNombre: pieza.plantillaNombre,
+			clave: url.searchParams.get('pieza'),
+			nombre: pieza.nombre
+		}
 	};
 };
 
@@ -57,6 +75,10 @@ export const actions = {
 		const id = identificador(String(form.get('id') ?? ''), nombre);
 		const destino = String(form.get('destino') ?? '');
 		const via = String(form.get('via') ?? '') || undefined;
+		/* La dirección de la máquina en la que se publica; vacía, en todas. */
+		const escucha = String(form.get('escucha') ?? '').trim();
+		/* Solo una plantilla que existe: el grupo no es texto libre. */
+		const plantilla = (await plantillaPorId(String(form.get('plantilla') ?? '')))?.id;
 
 		const valores: Record<string, unknown> = {};
 		for (const [k, v] of form)
@@ -65,12 +87,12 @@ export const actions = {
 		const errores: string[] = [];
 		if (!id) errores.push(SIN_IDENTIFICADOR);
 		else if (await existeTrampa(id))
-			errores.push('Identifier: a decoy with that name already exists');
+			errores.push('Identifier: a honeypot with that name already exists');
 		if (!nombre) errores.push('Display name: required');
 		if (!destino) errores.push('Target: choose where to deploy it');
 		const p = validarParametros(h.parametros, valores);
 		if (!p.ok) errores.push(...p.errores);
-		const datos = { id, nombre, valores };
+		const datos = { id, nombre, valores, escucha };
 		if (!p.ok || errores.length) return fail(400, { ...datos, errores, motivos: [] });
 
 		/* El elector decide con autoridad: si la vía pedida no vale aquí, vuelven sus motivos. */
@@ -80,7 +102,9 @@ export const actions = {
 			nombre,
 			destino,
 			via,
-			parametros: p.valor
+			parametros: p.valor,
+			escucha: escucha || null,
+			...(plantilla ? { plantilla } : {})
 		});
 		if (r === 'con-pasos') redirect(303, `/decoys/${encodeURIComponent(id)}`);
 		if (r !== 'creada') return fail(400, { ...datos, ...r });

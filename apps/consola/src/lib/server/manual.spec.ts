@@ -524,7 +524,7 @@ describe.skipIf(!hayBase)('la vía manual en la consola', () => {
 			expect(r).toMatchObject({ status: 400 });
 			expect(codigos(r)).toEqual(['parametros.invalidos']);
 			expect((r as { data: { motivos: { texto: string }[] } }).data.motivos[0].texto).toMatch(
-				/Decoy name: contains line breaks or control characters/
+				/Honeypot name: contains line breaks or control characters/
 			);
 		});
 
@@ -719,7 +719,7 @@ describe.skipIf(!hayBase)('la vía manual en la consola', () => {
 				status: 400,
 				data: {
 					error:
-						'"Credencial de pc01" points to this decoy: if you stop it, it will stop alerting. Remove it first.'
+						'"Credencial de pc01" points to this honeypot: if you stop it, it will stop alerting. Remove it first.'
 				}
 			});
 			expect(await trampa(OBJETIVO)).toMatchObject({ activo: true, colocacion: 'comprobada' });
@@ -732,7 +732,7 @@ describe.skipIf(!hayBase)('la vía manual en la consola', () => {
 			});
 			expect(r).toMatchObject({ status: 400 });
 			expect((r as Fallo).data.errores).toEqual([
-				'"Credencial de pc01" points to this decoy using its "SSH port": if you change it, it will stop alerting. Remove it first or leave that setting as it was.'
+				'"Credencial de pc01" points to this honeypot using its "SSH port": if you change it, it will stop alerting. Remove it first or leave that setting as it was.'
 			]);
 			expect(await trampa(OBJETIVO)).toMatchObject({ parametros: { puertoSsh: 2231 } });
 			/* Con el mismo puerto, el resto se cambia. */
@@ -890,7 +890,7 @@ describe.skipIf(!hayBase)('la vía manual en la consola', () => {
 				data: { aviso: string };
 			};
 			expect(r.status).toBe(400);
-			expect(r.data.aviso).toMatch(/container decoy/);
+			expect(r.data.aviso).toMatch(/container honeypot/);
 			expect((await trampa(OBJETIVO)).destino).toBe(LOCAL);
 		});
 

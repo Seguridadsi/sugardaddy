@@ -6,7 +6,9 @@ descripcion: >-
   and an administration web page, but prints and executes nothing. It records
   reconnaissance and file theft through PJL (PRET), jobs (fingerprint and size
   only), sign-in attempts and the change of the LDAP/SMTP server to the
-  attacker's (passback).
+  attacker's (passback). Optionally, its web page carries a note that only an
+  AI agent reads and follows, which flags an attacker driving one; the note is
+  off by default.
 alerta:
   fidelidad: ruidosa
 ficha:
@@ -18,6 +20,7 @@ ficha:
     page and, the most valuable signal, "passback": the attacker points the LDAP
     or SMTP server to their own to keep the service account, and leaves their
     machine's IP.
+    It can also tell you when the attacker is an AI agent: a hidden note only an AI agent follows.
   donde: >-
     Where a printer would be: the office network, a print VLAN or a DMZ. With
     ports 9100, 631 and 80, which show up in any attacker's internal
@@ -37,8 +40,8 @@ procedencia:
   licencia: Código propio (SeguridadSI); biblioteca estándar de Go, BSD-3-Clause
 
 contenedor:
-  imagen: ghcr.io/seguridadsi/sugardaddy-registro-impresora:0.1.3@sha256:50c461007684e4f68f699ce59432865c9a61fcae4824e1d5a53c3c3ad0c3cdb8
-  imagenPublica: ghcr.io/seguridadsi/sugardaddy-registro-impresora:0.1.3@sha256:50c461007684e4f68f699ce59432865c9a61fcae4824e1d5a53c3c3ad0c3cdb8
+  imagen: ghcr.io/seguridadsi/sugardaddy-registro-impresora:0.1.5@sha256:6e77150c1fcdc10fe4c1ac3624414f7965e72ab8d1d15522482f0dd6188db72e
+  imagenPublica: ghcr.io/seguridadsi/sugardaddy-registro-impresora:0.1.5@sha256:6e77150c1fcdc10fe4c1ac3624414f7965e72ab8d1d15522482f0dd6188db72e
   puertos:
     - { interno: 9100, expuesto: '${puertoRaw}', protocolo: tcp }
     - { interno: 1631, expuesto: '${puertoIpp}', protocolo: tcp, si: ipp }
@@ -61,6 +64,7 @@ contenedor:
     SD_IMPRESORA_NOMBRE: ${nombreEquipo}
     SD_IMPRESORA_UBICACION: ${ubicacion}
     SD_IMPRESORA_SEMILLA: ''
+    SD_IMPRESORA_NOTA_AGENTES: ${notaAgentes}
     SD_IMPRESORA_MAX_CONN: '256'
     SD_IMPRESORA_MAX_CONN_IP: '16'
     SD_IMPRESORA_MAX_LINE_BYTES: '8192'
@@ -144,6 +148,24 @@ parametros:
       description: The physical location the printer shows (e.g. "Floor 2 - Administration"). Empty, it is derived from the seed.
       maxLength: 120
       default: ''
+    notaAgentes:
+      type: string
+      title: Note for AI agents
+      description: >-
+        Adds to the administration web pages a note that a person does not see,
+        asking AI assistants and automated agents to read a policy page before
+        using the forms. Whoever requests that page is recorded as a suspected
+        AI agent, and whoever then does what the page says is recorded as a
+        confirmed one. It applies to the web page only, not to IPP or PJL. When
+        it is off, the pages carry no note, the policy page does not exist and
+        none of these events are raised. Off by default: the web page of a real
+        printer does not carry this note, so someone comparing the page source
+        with a genuine device could notice it.
+      enum: ['si', 'no']
+      x-opciones:
+        'si': 'On'
+        'no': 'Off'
+      default: 'no'
 
 eventos:
   fuente: { tipo: fichero, ruta: impresora.json }
@@ -172,6 +194,8 @@ eventos:
       impresora.web.login: autenticacion
       impresora.web.passback: escritura
       impresora.web.config: escritura
+      impresora.web.agente.lee: conexion
+      impresora.web.agente.obedece: conexion
     porDefecto: otra
   severidad:
     porDefecto: media
@@ -193,6 +217,8 @@ eventos:
       impresora.web.get: baja
       impresora.web.passback: critica
       impresora.web.config: alta
+      impresora.web.agente.lee: media
+      impresora.web.agente.obedece: alta
       impresora.session.rechazos: alta
       impresora.session.tope: alta
       impresora.log.tope: alta
@@ -218,6 +244,7 @@ eventos:
     - huella
     - tam
     - grave
+    - agente_ia
     - motivo
     - omitidos
     - omitidos_graves
@@ -251,6 +278,7 @@ eventos:
       huella,
       tam,
       grave,
+      motivo,
       aviso
     ]
   etiquetas:
@@ -271,7 +299,7 @@ eventos:
     huella: Job fingerprint (sha256)
     tam: Size (bytes)
     grave: Why it is critical
-    motivo: Muted because
+    motivo: Reason
     omitidos: Events not recorded
     omitidos_graves: Of which, critical
     omitidos_auth: Of which, passwords
@@ -303,6 +331,8 @@ eventos:
     impresora.web.login: Sign-in attempt
     impresora.web.passback: Credential passback (LDAP/SMTP)
     impresora.web.config: Configuration change
+    impresora.web.agente.lee: AI agent suspected (read the note's page)
+    impresora.web.agente.obedece: AI agent confirmed (followed the note's page)
     impresora.log.tope: Today's log is full; nothing more is recorded until tomorrow
     impresora.log.omitidos: Events that do not fit (summary)
     impresora.log.error: Failed to write the log

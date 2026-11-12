@@ -3,17 +3,27 @@
 	import { page } from '$app/state';
 	import FormularioParametros from '$lib/components/FormularioParametros.svelte';
 	import { nombreTipoDestino } from '$lib/destinos';
-	import { enFrase, nombreTipo } from '$lib/formato';
+	import { enFrase, licenciaVisible, nombreTipo } from '$lib/formato';
 	import { puede } from '$lib/permisos';
 
 	let { data, form } = $props();
 	const m = $derived(data.modulo);
 	const f = $derived(data.forma);
 	const opera = $derived(puede(page.data.usuario?.roles ?? [], 'desplegar'));
-	const aqui = $derived(resolve('/decoys/new/[modulo]', { modulo: m.id }));
+	/* Si viene de una plantilla, se queda en ella aunque cambie de destino o de forma. */
+	const grupo = $derived(
+		data.pieza
+			? {
+					plantilla: data.pieza.plantilla,
+					...(data.pieza.clave ? { pieza: data.pieza.clave } : {})
+				}
+			: {}
+	);
+	const base = $derived(resolve('/decoys/new/[modulo]', { modulo: m.id }));
+	const aqui = $derived(Object.keys(grupo).length ? `${base}?${new URLSearchParams(grupo)}` : base);
 	/* El formulario de un destino, con otra forma si el cliente la elige. */
 	const en = (destino: string, via?: string) =>
-		`${aqui}?${new URLSearchParams({ destino, ...(via ? { via } : {}) })}`;
+		`${base}?${new URLSearchParams({ destino, ...(via ? { via } : {}), ...grupo })}`;
 	const valen = $derived(data.donde?.filter((d) => d.elegida && !d.bloqueo).length ?? 0);
 	const elegida = $derived(f?.eleccion.elegida ?? null);
 	const otras = $derived(f && elegida ? f.eleccion.vias.filter((v) => v.via !== elegida.via) : []);
@@ -26,8 +36,14 @@
 
 {#if f}
 	<a class="volver" href={aqui}>← Choose another target</a>
+{:else if data.pieza}
+	<a
+		class="volver"
+		href={`${resolve('/decoys')}/templates/${encodeURIComponent(data.pieza.plantilla)}`}
+		>← {data.pieza.plantillaNombre}</a
+	>
 {:else}
-	<a class="volver" href={resolve('/decoys')}>← Decoys</a>
+	<a class="volver" href={resolve('/decoys/catalog')}>← Catalog</a>
 {/if}
 
 <div class="cabecera">
@@ -114,6 +130,9 @@
 					{/if}
 					<input type="hidden" name="destino" value={f.destino.id} />
 					<input type="hidden" name="via" value={elegida.via} />
+					{#if data.pieza}
+						<input type="hidden" name="plantilla" value={data.pieza.plantilla} />
+					{/if}
 
 					<h2>Method</h2>
 					<p class="via">{elegida.nombre}</p>
@@ -124,8 +143,8 @@
 					<label for="id">Identifier</label>
 					<input id="id" name="id" class="mono" value={form?.id ?? ''} placeholder="ssh-fs02" />
 					<p class="ayuda">
-						Write it however you like: it is saved in lowercase with hyphens ("DNS Decoy" →
-						dns-decoy). If left empty, it is derived from the display name.
+						Write it however you like: it is saved in lowercase with hyphens ("DNS Honeypot" →
+						dns-honeypot). If left empty, it is derived from the display name.
 					</p>
 
 					<label for="nombre">Display name</label>
@@ -133,12 +152,26 @@
 						id="nombre"
 						name="nombre"
 						required
-						value={form?.nombre ?? m.nombre}
+						value={form?.nombre ?? (data.pieza?.nombre || m.nombre)}
 						placeholder="srv-fs02"
 					/>
 					<p class="ayuda">
-						It defaults to the decoy's name; change it if you will deploy more than one.
+						It defaults to the honeypot's name; change it if you will deploy more than one.
 					</p>
+
+					{#if f.direcciones.length > 1}
+						<label for="escucha">Listening address</label>
+						<select id="escucha" name="escucha" class="mono">
+							<option value="" selected={!form?.escucha}>All addresses of the machine</option>
+							{#each f.direcciones as ip (ip)}
+								<option value={ip} selected={form?.escucha === ip}>{ip}</option>
+							{/each}
+						</select>
+						<p class="ayuda">
+							{f.destino.nombre} has several addresses. Choose one to publish this honeypot only there:
+							two honeypots can then use the same port, each on its own address.
+						</p>
+					{/if}
 
 					<h2>Module parameters</h2>
 					<FormularioParametros
@@ -242,13 +275,19 @@
 							: 'Step by step, in its panel.'}
 					You also get a document for change management.
 				</p>
+				{#if m.dePartner}
+					<p class="eyebrow">Signed by</p>
+					<p>Developed and signed by {data.operador}. Not reviewed by SeguridadSI.</p>
+				{/if}
 				{#if m.procedencia}
 					<p class="eyebrow">Origin</p>
 					<p>
 						<a href={m.procedencia.url} rel="noreferrer noopener" target="_blank"
 							>{m.procedencia.proyecto}</a
 						>
-						· {m.procedencia.licencia} · reviewed and signed by SeguridadSI
+						· {licenciaVisible(m.procedencia.licencia)}{m.dePartner
+							? ''
+							: ' · reviewed and signed by SeguridadSI'}
 					</p>
 				{/if}
 			</aside>
@@ -264,9 +303,13 @@
 						{x.contenedor.puertos
 							.map(
 								(p) =>
-									`${typeof p.expuesto === 'number' ? p.expuesto : 'your choice'} → ${p.interno}/${p.protocolo}`
+									`${typeof p.expuesto === 'number' ? p.expuesto : 'the port you choose'} → ${p.interno}/${p.protocolo}`
 							)
 							.join(', ')}
+					</p>
+					<p class="nota-puertos">
+						Left, the port attackers see on the sensor. Right, the port inside the honeypot's
+						container, which never changes.
 					</p>
 				{/if}
 				{#if x.aislamiento}
@@ -282,13 +325,19 @@
 						<li class="mono">{x.aislamiento.cpu} CPU · {x.aislamiento.memoriaMb} MB</li>
 					</ul>
 				{/if}
+				{#if m.dePartner}
+					<p class="eyebrow">Signed by</p>
+					<p>Developed and signed by {data.operador}. Not reviewed by SeguridadSI.</p>
+				{/if}
 				{#if m.procedencia}
 					<p class="eyebrow">Origin</p>
 					<p>
 						<a href={m.procedencia.url} rel="noreferrer noopener" target="_blank"
 							>{m.procedencia.proyecto}</a
 						>
-						· {m.procedencia.licencia} · reviewed and signed by SeguridadSI
+						· {licenciaVisible(m.procedencia.licencia)}{m.dePartner
+							? ''
+							: ' · reviewed and signed by SeguridadSI'}
 					</p>
 				{/if}
 			</aside>
@@ -297,6 +346,11 @@
 {/if}
 
 <style>
+	.nota-puertos {
+		font-size: 12px;
+		color: var(--ink-3);
+	}
+
 	.volver {
 		font-size: 13px;
 		font-weight: 600;

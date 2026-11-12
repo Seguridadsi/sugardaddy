@@ -230,7 +230,7 @@ export const tituloZona = (z: Pick<ZonaMapa, 'tipo' | 'nombre' | 'red'>) =>
 	z.tipo === 'fuera'
 		? 'Outside your network'
 		: z.tipo === 'sin-senal'
-			? 'Sites without decoys'
+			? 'Sites without honeypots'
 			: (z.nombre ?? z.red ?? 'Network not set');
 
 /*

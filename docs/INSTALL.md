@@ -86,31 +86,48 @@ shows whatever you have configured.
 
 ## 4. Install the node
 
-First, **build the node's images** (console, sensor and updater)
-from source. This command leaves them ready and writes the `imagenes.env` that the
-installer needs (it takes a while the first time):
+Run the installer from the repository folder, with no arguments:
+
+```bash
+sudo despliegue/nodo/instalar.sh
+```
+
+It opens a **setup assistant** that:
+
+1. **checks the machine**: Linux x86_64, Docker and Compose (on Ubuntu and Debian it
+   installs Docker if it is missing), memory, free disk space and internet access;
+2. **asks four things**, each with a proposed value: the folder where the node will
+   live, your company name, an identifier for the node and the **address you will
+   use to reach the console**; and, optionally, which IP addresses can open the
+   console;
+3. shows a **summary** and waits for your confirmation: nothing is changed before that;
+4. **builds the node's images** (console, sensor and updater) from source, which takes
+   a while the first time, and installs the node.
+
+The address is the key: you will sign in through it. The simplest is to use **the
+machine's IP** (that way you connect by IP, without touching DNS or the `hosts` file).
+If you have a **DNS name** that points to the machine, use it instead
+(`manage.yourcompany.com`). You can change the address later by running the installer
+again (it keeps your data; with the node's own CA it creates a new root, which you
+need to install again on your machines).
+
+If port 443 is already in use on the machine, the assistant asks for another port.
+
+### Without the assistant
+
+For an unattended installation, build the images and pass the four values as
+arguments. This is what the assistant does for you:
 
 ```bash
 sudo despliegue/nodo/construir-imagenes-local.sh
-```
-
-Then run the installer from the repository folder, with the folder where the node
-will live, an identifier, your company name and the
-**address you will use to reach the console** (the 4th argument).
-
-That address is the key: you will sign in through it. The simplest is to use **the
-machine's IP** (that way you connect by IP, without touching DNS or the `hosts` file):
-
-```bash
 sudo despliegue/nodo/instalar.sh /opt/sugardaddy nodo-01 "Your Company" 203.0.113.10
 ```
 
-If you have a **DNS name** that points to the machine, use it instead
-(`manage.yourcompany.com`). You can change the address later by running
-the installer again with another one (it keeps your data; with the node's own CA it
-creates a new root, which you need to install again on your machines).
+Optional environment variables: `CONSOLA_PUERTO` (443 by default) and
+`CONSOLA_ACCESO` (IP addresses or networks that can open the console, separated by
+commas; empty means you decide at first sign-in).
 
-The installer:
+### What the installer does
 
 - generates the **node secrets** once (it stores them in
   `/opt/sugardaddy/.env`; if the file already exists, it keeps it);
@@ -122,19 +139,27 @@ The installer:
   files at `/opt/sugardaddy/certs/certificado.pem` and `.../clave.pem` and run
   the installer with `TLS_MODO=ficheros`.
 
-When it finishes, it prints the console URL and tells you it is up and running.
+When it finishes, it prints the console URL and a box titled **SAVE THIS OUTSIDE THIS
+MACHINE**, which is shown only once. Keep both values in your password manager:
+
+- the **initial password** of the `admin` administrator;
+- the **emergency code**, the way in if you ever lose the password and the recovery
+  email does not arrive.
 
 ### Your first sign-in
 
-- **Local sign-in** (the default in Community): on first startup the console
-  creates the `admin` administrator and writes its **one-time password** to its
-  log. To see it:
+- **Local sign-in** (the default in Community): sign in as `admin` with the initial
+  password from the installer's box. The console asks you for a new password and a
+  recovery email address, then for the IP addresses that can open it, and then takes
+  you to **Setup**: a short list of steps (emergency code, your company, free
+  registration, console certificate and your first honeypot) that you can stop and
+  continue later from the menu.
+
+  If you lost the box before changing the password, it is still in the console log:
 
   ```bash
   sudo sh -c 'docker logs "$(docker ps -qf name=consola)" 2>&1 | grep -A3 "FIRST CONSOLE ADMINISTRATOR"'
   ```
-
-  Write it down (it is not shown again) and change it on first sign-in.
 
 - **Federated with Entra**: put the tenant, the client ID, the secret and the ID of the
   group where the installer tells you to (environment variables or the node's

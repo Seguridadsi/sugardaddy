@@ -116,6 +116,10 @@ func unirDirecciones(conocidas, nuevas []string) []string {
 // (${sd.ipsAnfitrion} en su entorno o en sus ficheros).
 func anunciaIPsAnfitrion(p plan.Plan) bool {
 	for _, t := range p.Trampas {
+		// La que pide una dirección de la máquina: sin medirlas no se puede comprobar.
+		if t.Escucha != "" {
+			return true
+		}
 		c := t.Manifiesto.Contenedor
 		if c == nil {
 			continue

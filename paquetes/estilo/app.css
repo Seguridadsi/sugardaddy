@@ -239,6 +239,14 @@ textarea {
 	width: 100%;
 }
 
+/* Una casilla no es un campo: ni ocupa el ancho ni lleva relleno. */
+input[type='checkbox'],
+input[type='radio'] {
+	width: auto;
+	padding: 0;
+	flex: none;
+}
+
 label {
 	display: block;
 	font-size: 12.5px;

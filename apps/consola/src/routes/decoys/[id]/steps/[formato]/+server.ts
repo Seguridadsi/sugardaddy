@@ -19,8 +19,8 @@ export const GET = async ({ params, url, locals }) => {
 	const parte = (url.searchParams.get('parte') ?? 'colocar') as PartePasos;
 	if (!PARTES.includes(parte)) error(400, 'Choose the deploy, removal or test steps.');
 	const r = await descargarPasos(u.correo, params.id, formato, parte);
-	if (r === 'no-existe') error(404, 'That decoy does not exist.');
-	if (r === 'sin-pasos') error(404, 'This decoy has no manual steps.');
+	if (r === 'no-existe') error(404, 'That honeypot does not exist.');
+	if (r === 'sin-pasos') error(404, 'This honeypot has no manual steps.');
 	if (r === 'sin-prueba')
 		error(400, 'Click "Test" first: the test script carries the code of that test.');
 	if (r === 'otro-lenguaje')
@@ -30,10 +30,20 @@ export const GET = async ({ params, url, locals }) => {
 			409,
 			`The saved steps no longer match their fingerprint, so they cannot be downloaded. Contact ${await operador()}.`
 		);
+	if (r === 'sello-roto')
+		error(
+			409,
+			`The saved steps are not the ones this node signed (their seal does not match), so they cannot be downloaded. Regenerate them on the honeypot's page and review them again, or contact ${await operador()}.`
+		);
+	if (r === 'sello-ilegible')
+		error(
+			409,
+			"This node can no longer verify the seal of these steps (its key for secrets, CLAVE_SECRETOS, is missing or has changed, e.g. after restoring on another machine). Regenerate the steps on the honeypot's page to seal them with the current key."
+		);
 	if (r === 'sin-secreto')
 		error(
 			409,
-			'The key this decoy\'s task signs its alerts with cannot be read on this node (its key for secrets, CLAVE_SECRETOS, is missing or has changed), so the deploy script cannot be downloaded. Click "Generate steps that sign" on its page to get a new key and new steps.'
+			'The key this honeypot\'s task signs its alerts with cannot be read on this node (its key for secrets, CLAVE_SECRETOS, is missing or has changed), so the deploy script cannot be downloaded. Click "Generate steps that sign" on its page to get a new key and new steps.'
 		);
 	return new Response(Buffer.from(r.contenido), {
 		headers: {

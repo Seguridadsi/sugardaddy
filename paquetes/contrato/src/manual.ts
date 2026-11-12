@@ -83,6 +83,15 @@ export interface PasosGenerados {
 	prueba?: { pasos: PasoGenerado[]; marca?: Marca; ventanaMin: number };
 	/* Del JSON canónico de todo lo demás. */
 	sha256: string;
+	/*
+	 * El sello: un HMAC del sha256 con la clave del nodo (sello-pasos.ts en la
+	 * consola), que autentica que estos pasos los generó este nodo y nadie los
+	 * cambió luego en la base de datos (BAL-10). Lo pone la consola al guardarlos
+	 * y lo comprueba al descargarlos; en el .md y en la cabecera del script sale
+	 * como «seal», la versión que el administrador compara con lo que revisó.
+	 * Sin él (unos pasos de antes, o un nodo sin clave) se cae al sha256 a secas.
+	 */
+	sello?: string;
 }
 
 const SLUG = /^[a-z0-9][a-z0-9-]{0,62}$/;
@@ -99,6 +108,16 @@ const IDENTIFICADOR = /^[A-Za-z_][A-Za-z0-9_]*$/;
  * del texto, que harían que un literal se viera distinto de lo que es.
  */
 const PROHIBIDO = /[\p{Cc}\p{Cs}\u2028\u2029\u202A-\u202E\u2066-\u2069]/u;
+
+/*
+ * Un valor que va a una orden y es, él solo o en uno de sus trozos separados
+ * por «;», un comodín suelto («*» o «?»): en un `-like` casa con todo. Un
+ * excluir='*' silenciaría todas las lecturas de un vigía (BAL-10), así que no
+ * se genera. Los patrones de cada módulo ya lo rechazan al guardar; esto es el
+ * mismo corte, pero en un solo sitio, para cualquier módulo.
+ */
+const COMODIN_SUELTO = /^[*?]$/;
+const trozos = (valor: string) => valor.split(';').map((t) => t.trim());
 
 /* Lo que se ve en lugar de un secreto: en la ficha, en el documento de cambios y al copiar a mano. */
 export const SECRETO_TAPADO = '(secret: only in the deploy script downloaded from the console)';
@@ -126,8 +145,8 @@ function comoTexto(v: unknown): string | undefined {
 }
 
 const ETIQUETAS = {
-	'trampa.id': 'Decoy ID',
-	'trampa.nombre': 'Decoy name',
+	'trampa.id': 'Honeypot ID',
+	'trampa.nombre': 'Honeypot name',
 	'destino.nombre': 'Target name',
 	'destino.direccion': 'Target address',
 	baliza_url: 'Beacon URL'
@@ -139,7 +158,7 @@ function faltaDe(nombre: keyof typeof ETIQUETAS, c: Omit<ContextoManual, 'genera
 		case 'destino.direccion':
 			return `${c.destino.nombre} has no address; set it in Targets`;
 		case 'baliza_url':
-			return 'the beacon URL of this decoy is missing (it is minted when the decoy is enrolled)';
+			return 'the beacon URL of this honeypot is missing (it is minted when the honeypot is enrolled)';
 		default:
 			return `the variable ${nombre} is missing`;
 	}
@@ -206,16 +225,16 @@ function resolver(
 			const etiqueta = titulo(v.parametro);
 			const id = Object.hasOwn(p, v.parametro) ? p[v.parametro] : undefined;
 			if (typeof id !== 'string' || id === '')
-				return { error: `${etiqueta}: the decoy it points to is missing` };
+				return { error: `${etiqueta}: the honeypot it points to is missing` };
 			const t = Object.hasOwn(c.trampas, id) ? c.trampas[id] : undefined;
-			if (!t) return { error: `${etiqueta}: decoy ${id} does not exist` };
+			if (!t) return { error: `${etiqueta}: honeypot ${id} does not exist` };
 			if (v.de === 'objetivo-direccion')
 				return conValor(
 					claveDe(`${v.parametro}.direccion`),
 					`objetivo:${v.parametro}:direccion`,
 					etiqueta,
 					t.direccion || undefined,
-					`the target of decoy ${id} has no address; set it in Targets`
+					`the target of honeypot ${id} has no address; set it in Targets`
 				);
 			/* En sh el campo llega en mayúsculas: cómo se escribe lo dicen los parámetros del objetivo. */
 			const campo = v.exacto
@@ -227,14 +246,14 @@ function resolver(
 				const nombre = v.exacto
 					? v.campo
 					: `the parameter for SD_${v.parametro.toUpperCase()}_${v.campo}`;
-				return { error: `${etiqueta}: decoy ${id} has no ${nombre}` };
+				return { error: `${etiqueta}: honeypot ${id} has no ${nombre}` };
 			}
 			return conValor(
 				claveDe(`${v.parametro}.${campo}`),
 				`objetivo:${v.parametro}:${campo}`,
 				etiqueta,
 				t.parametros[campo],
-				`decoy ${id} has no ${campo}`
+				`honeypot ${id} has no ${campo}`
 			);
 		}
 	}
@@ -271,12 +290,32 @@ function canonico(x: unknown): string {
 }
 
 /*
- * El sha256 de unos pasos: el del JSON canónico de todo salvo el propio
- * sha256. No depende del orden de las claves (jsonb lo cambia al guardar).
+ * El sha256 de unos pasos: el del JSON canónico de todo salvo el propio sha256
+ * y el sello (que lo pone la consola después, sobre este sha256). No depende
+ * del orden de las claves (jsonb lo cambia al guardar).
  */
-export function sha256Pasos(p: Omit<PasosGenerados, 'sha256'> & { sha256?: string }): string {
-	const { sha256: _, ...resto } = p;
+export function sha256Pasos(
+	p: Omit<PasosGenerados, 'sha256' | 'sello'> & { sha256?: string; sello?: string }
+): string {
+	const { sha256: _s, sello: _h, ...resto } = p;
 	return createHash('sha256').update(canonico(resto)).digest('hex');
+}
+
+/*
+ * La huella de un bloque de variables: el sha256 de sus líneas «clave=valor»
+ * (con la clave tal como la escribe el script), con la que el paso inicial del
+ * propio script comprueba, antes de aplicar nada, que nadie cambió los valores
+ * entre la descarga y la ejecución (BAL-10). Como el destino no tiene la clave
+ * del nodo, es una comprobación de integridad sin clave; la autenticación con
+ * la clave del nodo es el sello, que mira la consola al descargar.
+ */
+function huellaDeBloque(
+	entradas: readonly (readonly [string, string])[],
+	clave: (k: string) => string
+): string {
+	return createHash('sha256')
+		.update(entradas.map(([k, v]) => `${clave(k)}=${v}\n`).join(''))
+		.digest('hex');
 }
 
 /*
@@ -316,6 +355,8 @@ export function renderizar(
 	const huecos = new Map<string, string>();
 	/* Los secretos que usan sus órdenes: solo el nombre (su valor llega al exportar). */
 	const secretos = new Set<string>();
+	/* Las variables que acaban en una orden ($sd.<clave>, SD_<CLAVE>): ahí un comodín suelto es peligroso. */
+	const enOrden = new Set<string>();
 	for (const u of usos) {
 		if (u.variable.de === 'nonce') continue;
 		if (u.variable.de === 'secreto') {
@@ -347,6 +388,15 @@ export function renderizar(
 			errores.push(`${r.etiqueta}: its variable ${r.clave} is confused with a secret of the steps`);
 		else variables.set(r.clave, r);
 		if (u.forma === 'texto') huecos.set(u.nombre, r.valor);
+		else enOrden.add(r.clave);
+	}
+	/* Ningún valor que vaya a una orden puede ser un comodín suelto (BAL-10). */
+	for (const clave of enOrden) {
+		const r = variables.get(clave);
+		if (r && trozos(r.valor).some((t) => COMODIN_SUELTO.test(t)))
+			errores.push(
+				`${r.etiqueta}: "*" or "?" on its own would match everything; narrow it to a full path or an account name`
+			);
 	}
 	for (const [etiqueta, valor] of [
 		[ETIQUETAS['trampa.nombre'], c.trampa.nombre],
@@ -534,7 +584,7 @@ const comentario = (t: string) => lineas(t).map((l) => (l ? `# ${l}` : '#'));
 const codigo = (t: string) => t.split('\n');
 
 const cabecera = (p: PasosGenerados) =>
-	`Sugardaddy · decoy ${p.trampa} · target ${p.destino} · method ${p.via} · ${p.generado} · sha256 ${p.sha256}`;
+	`Sugardaddy · honeypot ${p.trampa} · target ${p.destino} · method ${p.via} · ${p.generado} · sha256 ${p.sha256}${p.sello ? ` · seal ${p.sello}` : ''}`;
 const subtitulo = (p: PasosGenerados, parte: PartePasos) =>
 	`${QUE[parte]} "${p.nombres.trampa}" on ${p.nombres.destino} · ${p.nombres.modulo} ${p.versionModulo} · ${p.nombres.via}`;
 
@@ -544,6 +594,66 @@ const delBloque = (variables: Record<string, string>) =>
 		.filter((k) => IDENTIFICADOR.test(k))
 		.sort(porCodigo)
 		.map((k) => [k, variables[k]] as const);
+
+/* Lo que se dice cuando los valores del script no son los que generó la consola. */
+const AVISO_HUELLA =
+	'Sugardaddy: the deploy values do not match the reviewed steps; not running. Generate and download them again.';
+
+/*
+ * El paso inicial del .ps1 (BAL-10): antes de nada, rehace la huella del bloque
+ * $sd y para si no es la que la consola guardó, para que no se ejecute un script
+ * con valores cambiados tras la descarga. SHA256 va en .NET, que PowerShell 5.1
+ * ya trae. [char]10 es el salto que usa huellaDeBloque.
+ */
+function verificacionPowershell(entradas: readonly (readonly [string, string])[]): string[] {
+	if (!entradas.length) return [];
+	const huella = huellaDeBloque(entradas, (k) => k);
+	return [
+		'',
+		...comentario(
+			'Integrity check: these values are the ones the console generated for the reviewed steps.'
+		),
+		"$sdParaHuella = ''",
+		...entradas.map(
+			([k]) =>
+				`$sdParaHuella += ${literalPowershell(`${k}=`)} + [string]$sd[${literalPowershell(k)}] + [char]10`
+		),
+		"$sdHuella = [System.BitConverter]::ToString([System.Security.Cryptography.SHA256]::Create().ComputeHash([System.Text.Encoding]::UTF8.GetBytes($sdParaHuella))).Replace('-','').ToLowerInvariant()",
+		`if ($sdHuella -ne ${literalPowershell(huella)}) {`,
+		`  throw ${literalPowershell(AVISO_HUELLA)}`,
+		'}'
+	];
+}
+
+/*
+ * El mismo paso inicial para el .sh: rehace la huella de las variables SD_ con
+ * la primera de sha256sum, shasum u openssl que haya y para si no cuadra. Si no
+ * hay ninguna no corta (no deja a nadie sin desplegar por no tener la orden):
+ * el sello que mira la consola al descargar y la versión del .md siguen estando.
+ */
+function verificacionSh(entradas: readonly (readonly [string, string])[]): string[] {
+	if (!entradas.length) return [];
+	const huella = huellaDeBloque(entradas, (k) => `SD_${k.toUpperCase()}`);
+	const args = entradas.map(([k]) => `"SD_${k.toUpperCase()}=$SD_${k.toUpperCase()}"`).join(' ');
+	return [
+		'',
+		...comentario(
+			'Integrity check: these values are the ones the console generated for the reviewed steps.'
+		),
+		'if command -v sha256sum >/dev/null 2>&1; then sd_sha=sha256sum',
+		'elif command -v shasum >/dev/null 2>&1; then sd_sha="shasum -a 256"',
+		'elif command -v openssl >/dev/null 2>&1; then sd_sha="openssl dgst -sha256"',
+		'else sd_sha=',
+		'fi',
+		'if [ -n "$sd_sha" ]; then',
+		`\tsd_huella=$(printf '%s\\n' ${args} | $sd_sha 2>/dev/null | grep -oE '[0-9a-f]{64}' | head -n 1)`,
+		`\tif [ "$sd_huella" != ${literalSh(huella)} ]; then`,
+		`\t\tprintf '%s\\n' ${literalSh(AVISO_HUELLA)} >&2`,
+		'\t\texit 1',
+		'\tfi',
+		'fi'
+	];
+}
 
 /*
  * PowerShell 5.1 o posterior. Cada orden va en un try: si falla, el script
@@ -557,6 +667,7 @@ function scriptPowershell(
 	pasos: PasoGenerado[],
 	variables: Record<string, string>
 ): string {
+	const entradas = delBloque(variables);
 	const l = [
 		...comentario(cabecera(p)),
 		...comentario(subtitulo(p, parte)),
@@ -564,8 +675,9 @@ function scriptPowershell(
 		'Set-StrictMode -Version 3',
 		"$ErrorActionPreference = 'Stop'",
 		'$sd = @{',
-		...delBloque(variables).map(([k, v]) => `  ${literalPowershell(k)} = ${literalPowershell(v)}`),
-		'}'
+		...entradas.map(([k, v]) => `  ${literalPowershell(k)} = ${literalPowershell(v)}`),
+		'}',
+		...verificacionPowershell(entradas)
 	];
 	for (const x of pasos) {
 		const de = `${x.n} of ${pasos.length}`;
@@ -604,12 +716,14 @@ function scriptSh(
 	pasos: PasoGenerado[],
 	variables: Record<string, string>
 ): string {
+	const entradas = delBloque(variables);
 	const l = [
 		'#!/bin/sh',
 		...comentario(cabecera(p)),
 		...comentario(subtitulo(p, parte)),
 		'set -eu',
-		...delBloque(variables).map(([k, v]) => `SD_${k.toUpperCase()}=${literalSh(v)}`),
+		...entradas.map(([k, v]) => `SD_${k.toUpperCase()}=${literalSh(v)}`),
+		...verificacionSh(entradas),
 		'',
 		'sd_paso=',
 		`trap 'sd_estado=$?; if [ "$sd_estado" -ne 0 ] && [ -n "$sd_paso" ]; then printf "Sugardaddy: step %s failed.\\n" "$sd_paso" >&2; fi' EXIT`
@@ -714,14 +828,14 @@ function documento(p: PasosGenerados, nonce: string | undefined) {
 		titulo: `Steps for "${p.nombres.trampa}" on ${p.nombres.destino}`,
 		intro: `Generated by Sugardaddy on ${p.generado} for change management: what will be done on ${p.nombres.destino}, how it is checked and how it is removed. The commands in each step can be run again without breaking anything.`,
 		ficha: [
-			['Decoy', `${p.nombres.trampa}`, p.trampa],
-			['Decoy type', `${p.nombres.modulo}, version ${p.versionModulo}`, p.modulo],
+			['Honeypot', `${p.nombres.trampa}`, p.trampa],
+			['Honeypot type', `${p.nombres.modulo}, version ${p.versionModulo}`, p.modulo],
 			['Target', p.nombres.destino, p.destino],
 			['Method', `${p.nombres.via}, ${LENGUAJES[p.lenguaje]}`, p.via]
 		] as const,
 		variables: (nonce ? { ...conTapados(p), nonce } : conTapados(p)) as Record<string, string>,
 		senal: p.marca
-			? `The signal comes through another decoy: an event of that decoy with ${textoMarca(p.marca)} (case-insensitive) shows that what is planted here has been used.`
+			? `The signal comes through another honeypot: an event of that honeypot with ${textoMarca(p.marca)} (case-insensitive) shows that what is planted here has been used.`
 			: undefined,
 		prueba: prueba
 			? {
@@ -754,7 +868,12 @@ function documentoMd(p: PasosGenerados, nonce: string | undefined): string {
 		});
 	const l = [`# ${md(d.titulo)}`, '', md(d.intro), ''];
 	for (const [que, nombre, id] of d.ficha) l.push(`- **${que}:** ${md(nombre)} (${enLinea(id)})`);
-	l.push(`- **sha256 of the steps:** ${enLinea(p.sha256)}`, '', '## Variables', '');
+	l.push(`- **sha256 of the steps:** ${enLinea(p.sha256)}`);
+	if (p.sello)
+		l.push(
+			`- **seal (version signed by the node):** ${enLinea(p.sello)} — it changes whenever the steps are regenerated; check it matches the script you download.`
+		);
+	l.push('', '## Variables', '');
 	if (p.lenguaje === 'ninguno')
 		for (const k of Object.keys(d.variables).sort(porCodigo))
 			l.push(`- ${enLinea(k)}: ${md(d.variables[k])}`);
@@ -789,7 +908,12 @@ function documentoTxt(p: PasosGenerados, nonce: string | undefined): string {
 	const titulo = plano(d.titulo);
 	const l = [titulo, '='.repeat([...titulo].length), '', plano(d.intro), ''];
 	for (const [que, nombre, id] of d.ficha) l.push(`${que}: ${plano(nombre)} (${plano(id)})`);
-	l.push(`sha256 of the steps: ${p.sha256}`, '', 'VARIABLES', '');
+	l.push(`sha256 of the steps: ${p.sha256}`);
+	if (p.sello)
+		l.push(
+			`seal (version signed by the node): ${p.sello} (it changes whenever the steps are regenerated; check it matches the script you download)`
+		);
+	l.push('', 'VARIABLES', '');
 	if (p.lenguaje === 'ninguno')
 		for (const k of Object.keys(d.variables).sort(porCodigo))
 			l.push(`${k}: ${plano(d.variables[k])}`);

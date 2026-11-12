@@ -99,6 +99,7 @@ const TIPO_DE_TRAMPA: Record<string, TipoDeServicio> = {
 	'web-clonada-cebo': 'web',
 	/* Consola de copias de seguridad (H85): consola web que imita Veeam/Nakivo */
 	'consola-copias': 'web',
+	'servicio-a-medida': 'web',
 	/* Cookie de sesión cebo (H99): se reutiliza contra la consola de copias cebo */
 	'cookie-sesion-cebo': 'web',
 	/* Correo */

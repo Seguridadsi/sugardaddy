@@ -1,5 +1,8 @@
 <script lang="ts">
+	import { tick } from 'svelte';
 	import { enhance } from '$app/forms';
+	import { resolve } from '$app/paths';
+	import { sinVaciar } from '$lib/guardar';
 	import { page } from '$app/state';
 	import { sinLlavePorIp } from '$lib/llave-por-ip';
 	import { nombreRol } from '$lib/permisos';
@@ -21,6 +24,52 @@
 					: n + ' B';
 	const miles = (n: number) => n.toLocaleString('en-GB');
 	const reg = $derived(data.registro);
+
+	/*
+	 * El menú de la página: cada bloque pertenece a un grupo y solo se ve el
+	 * grupo elegido. El grupo va en la dirección (?tab=), así funciona sin
+	 * JavaScript y aguanta una recarga. Los bloques ocultos siguen en la página
+	 * (atributo hidden), de modo que ningún formulario pierde lo escrito.
+	 */
+	const GRUPOS = [
+		{ id: 'general', texto: 'General' },
+		{ id: 'access', texto: 'Access' },
+		{ id: 'recovery', texto: 'Recovery and support' },
+		{ id: 'events', texto: 'Events and data' },
+		{ id: 'integrations', texto: 'Integrations' },
+		{ id: 'central', texto: 'Central' },
+		{ id: 'all', texto: 'All' }
+	] as const;
+	type Grupo = (typeof GRUPOS)[number]['id'];
+	const esGrupo = (x: string | null): x is Grupo => GRUPOS.some((g) => g.id === x);
+
+	/* Los enlaces que llegan de otras páginas apuntan a un bloque (#central…). */
+	const GRUPO_DEL_ANCLA: Record<string, Grupo> = {
+		dominio: 'general',
+		'free-registration': 'general',
+		actualizaciones: 'general',
+		acceso: 'access',
+		certificado: 'access',
+		entra: 'access',
+		'recuperacion-panel': 'recovery',
+		central: 'central'
+	};
+	let porAncla = $state<Grupo | null>(null);
+	$effect(() => {
+		void page.url.href;
+		const ancla = location.hash.slice(1);
+		porAncla = GRUPO_DEL_ANCLA[ancla] ?? null;
+		/* El bloque estaba oculto cuando el navegador quiso ir a él. */
+		if (porAncla) tick().then(() => document.getElementById(ancla)?.scrollIntoView());
+	});
+
+	const grupo = $derived.by((): Grupo => {
+		const pedido = page.url.searchParams.get('tab');
+		if (esGrupo(pedido)) return pedido;
+		if (porAncla) return porAncla;
+		return page.url.searchParams.has('entra') ? 'access' : 'general';
+	});
+	const oculto = (g: Grupo) => grupo !== 'all' && grupo !== g;
 </script>
 
 <svelte:head>
@@ -31,10 +80,19 @@
 	<h1>Settings</h1>
 </div>
 
+<nav class="grupos" aria-label="Settings sections">
+	{#each GRUPOS as g (g.id)}
+		<a
+			href="{resolve('/settings')}{g.id === 'general' ? '' : `?tab=${g.id}`}"
+			aria-current={grupo === g.id ? 'page' : undefined}>{g.texto}</a
+		>
+	{/each}
+</nav>
+
 {#if form?.mensaje}<p class="mensaje" role="status">{form.mensaje}</p>{/if}
 {#if form?.error}<p class="error" role="alert">{form.error}</p>{/if}
 
-<section class="panel bloque" id="acceso">
+<section class="panel bloque" id="acceso" hidden={oculto('access')}>
 	<h2>Console access</h2>
 	<p class="ayuda">
 		{#if data.acceso.estado === 'restringida'}
@@ -47,7 +105,7 @@
 	<a class="boton" href="/settings/access">Choose who can open the console</a>
 </section>
 
-<section class="panel bloque" id="certificado">
+<section class="panel bloque" id="certificado" hidden={oculto('access')}>
 	<h2>Console certificate</h2>
 	<p class="ayuda">
 		{#if data.ca === 'pendiente' || data.ca === 'fallida'}
@@ -61,11 +119,11 @@
 	<a class="boton" href="/settings/certificate">View the certificate root</a>
 </section>
 
-<section class="panel bloque" id="dominio">
+<section class="panel bloque" id="dominio" hidden={oculto('general')}>
 	<h2>Your company domain</h2>
 	<p class="ayuda">
-		With it, new decoys suggest names similar to those on your network instead of the factory
-		defaults. You can change them on each decoy.
+		With it, new honeypots suggest names similar to those on your network instead of the factory
+		defaults. You can change them on each honeypot.
 	</p>
 	<form method="POST" action="?/identidad" use:enhance class="dominio">
 		<input
@@ -87,9 +145,9 @@
 	{#if data.trampasDeFabrica.length}
 		<form method="POST" action="?/aplicarIdentidad" use:enhance>
 			<p class="ayuda">
-				You can apply it to the decoys you already have. They restart for a few seconds. Anything
-				you changed by hand is left alone, and so are decoys marked External, which do not advertise
-				your company name.
+				You can apply it to the honeypots you already have. They restart for a few seconds. Anything
+				you changed by hand is left alone, and so are honeypots marked External, which do not
+				advertise your company name.
 			</p>
 			<ul class="cambios">
 				{#each data.trampasDeFabrica as t (t.nombre)}
@@ -100,13 +158,13 @@
 					</li>
 				{/each}
 			</ul>
-			<button class="boton">Apply the domain to these decoys</button>
+			<button class="boton">Apply the domain to these honeypots</button>
 		</form>
 	{/if}
 </section>
 
 {#if reg}
-	<section class="panel bloque" id="free-registration">
+	<section class="panel bloque" id="free-registration" hidden={oculto('general')}>
 		<h2>Free registration</h2>
 		{#if !reg.verificable}
 			<p class="ayuda">
@@ -115,7 +173,7 @@
 			</p>
 		{:else if reg.estado === 'vigente' && reg.caduca}
 			<p>
-				Registered with <strong>{reg.correo}</strong>. You have the registration decoys and
+				Registered with <strong>{reg.correo}</strong>. You have the registration honeypots and
 				automatic updates. The license is valid until {fechaLarga(reg.caduca)} and renews itself.
 			</p>
 			{#if reg.fallo}<p class="aviso">Last renewal: {reg.fallo}</p>{/if}
@@ -132,7 +190,7 @@
 		{:else}
 			{#if reg.estado === 'caducada' && reg.caduca}
 				<p class="aviso">
-					Your registration expired on {fechaLarga(reg.caduca)} and the registration decoys have stopped.
+					Your registration expired on {fechaLarga(reg.caduca)} and the registration honeypots have stopped.
 					The rest of the node is not affected. It renews itself if the node has internet access; otherwise,
 					paste a new code.
 				</p>
@@ -144,7 +202,7 @@
 				<p class="aviso">The saved license is not valid. Paste a new activation code.</p>
 			{:else}
 				<p class="ayuda">
-					Register your email to get automatic updates and these decoys at no cost: {reg.trampas.join(
+					Register your email to get automatic updates and these honeypots at no cost: {reg.trampas.join(
 						', '
 					)}.
 				</p>
@@ -185,7 +243,7 @@
 	</section>
 {/if}
 
-<section class="panel bloque" id="actualizaciones">
+<section class="panel bloque" id="actualizaciones" hidden={oculto('general')}>
 	<h2>Version and updates</h2>
 	<p class="version-actual">
 		You are on version <b class="mono">{data.version}</b>
@@ -216,7 +274,7 @@
 			No automatic updates: the console periodically checks for a newer published version and
 			notifies you at the top of the page. It installs nothing; you decide when to update.
 		</p>
-		<form method="POST" action="?/buscarActualizaciones" use:enhance>
+		<form method="POST" action="?/buscarActualizaciones" use:enhance={sinVaciar}>
 			<label class="interruptor">
 				<input type="checkbox" name="buscar" checked={data.buscarActualizaciones} />
 				<span><b>Notify me of new versions</b></span>
@@ -226,7 +284,7 @@
 	{/if}
 </section>
 
-<form class="panel bloque" method="POST" action="?/palabras" use:enhance>
+<form class="panel bloque" method="POST" action="?/palabras" use:enhance hidden={oculto('events')}>
 	<h2>Words that trigger an alert</h2>
 	<p class="ayuda">
 		If a password or username that was tried contains one of these words, the event becomes critical
@@ -240,7 +298,13 @@
 	<button class="boton">Save</button>
 </form>
 
-<form class="panel bloque" method="POST" action="?/conservacion" use:enhance>
+<form
+	class="panel bloque"
+	method="POST"
+	action="?/conservacion"
+	use:enhance
+	hidden={oculto('events')}
+>
 	<h2>How long events are kept</h2>
 	<p class="ayuda">
 		Events and quarantined items older than this period are deleted automatically every hour and
@@ -269,7 +333,7 @@
 	<button class="boton">Save</button>
 </form>
 
-<section class="panel bloque">
+<section class="panel bloque" hidden={oculto('events')}>
 	<h2>Event storage</h2>
 	<p class="ayuda">
 		How much space events take and how fast they grow. With the period above they do not grow
@@ -331,7 +395,7 @@
 </section>
 
 {#if data.loginLocal}
-	<section class="panel bloque">
+	<section class="panel bloque" hidden={oculto('access')}>
 		<h2>Local users</h2>
 		<p class="ayuda">
 			This node supports signing in with a username and password stored on the node itself. From
@@ -341,9 +405,11 @@
 	</section>
 {/if}
 
-<EntraPropio {...data.entra} error={form?.entraError} valores={form?.entraValores} />
+<div hidden={oculto('access')}>
+	<EntraPropio {...data.entra} error={form?.entraError} valores={form?.entraValores} />
+</div>
 
-<section class="panel bloque">
+<section class="panel bloque" hidden={oculto('recovery')}>
 	<h2>Emergency code</h2>
 	<p class="ayuda">
 		To sign in as an administrator if everything else is lost (password, email, Microsoft). It is
@@ -379,7 +445,7 @@
 </section>
 
 {#if data.gestionado}
-	<section class="panel bloque" id="recuperacion-panel">
+	<section class="panel bloque" id="recuperacion-panel" hidden={oculto('recovery')}>
 		<h2>Password recovery from Central</h2>
 		<p class="ayuda">
 			If you allow it, {data.operador} can send a recovery code for a local user from Central to your
@@ -394,7 +460,7 @@
 	</section>
 {/if}
 
-<section class="panel bloque">
+<section class="panel bloque" hidden={oculto('recovery')}>
 	<h2>Emergency keys</h2>
 	<p class="ayuda">
 		Another way to sign in as an administrator if everything else fails: a FIDO2 key. Have at least
@@ -423,7 +489,7 @@
 	<a class="boton" href="/emergency/enroll">Register a key</a>
 </section>
 
-<section class="panel bloque">
+<section class="panel bloque" hidden={oculto('recovery')}>
 	<h2>{data.operador} support access</h2>
 	{#if data.soporte.estado === 'solicitado' && data.soporte.solicitud}
 		<p class="peticion">
@@ -435,7 +501,7 @@
 				<label for="rol">Role</label>
 				<select id="rol" name="rol">
 					<option value="lector">Viewer: read-only</option>
-					<option value="operador">Operator: can change decoys</option>
+					<option value="operador">Operator: can change honeypots</option>
 				</select>
 			</div>
 			<div>
@@ -472,14 +538,14 @@
 	{/if}
 </section>
 
-<section class="panel bloque">
+<section class="panel bloque" hidden={oculto('integrations')}>
 	<h2>Event webhook</h2>
 	<p>
 		Sends every new event as-is (JSON) to a URL you own, so you can forward it to NATS, your SIEM or
 		whatever you use. It is basic and <em>best-effort</em>: reliability is up to you. (Managed,
 		reliable alerts such as email, Teams and Sentinel are part of Sugardaddy Cloud.)
 	</p>
-	<form method="POST" action="?/webhook" use:enhance>
+	<form method="POST" action="?/webhook" use:enhance={sinVaciar}>
 		<label for="wh-url">URL</label>
 		<input
 			id="wh-url"
@@ -519,7 +585,7 @@
 	</form>
 </section>
 
-<section class="panel bloque" id="central">
+<section class="panel bloque" id="central" hidden={oculto('central')}>
 	<h2>{data.operador} Central</h2>
 
 	{#if !c}
@@ -617,21 +683,21 @@
 			{/if}
 		</div>
 		<p class="ayuda">
-			Cutting the channel switches nothing off: decoys keep detecting and responses keep working
+			Cutting the channel switches nothing off: honeypots keep detecting and responses keep working
 			here. It only stops information reaching Central and stops accepting what it sends. It also
 			closes support access and deletes your incidents from Central, if you were sharing them.
 		</p>
 	{/if}
 </section>
 
-<section class="panel bloque">
+<section class="panel bloque" hidden={oculto('central')}>
 	<h2>Share with other customers</h2>
 	<p class="ayuda">
 		Shared intelligence through the {data.operador} Central: what attacks you alerts the others, and the
 		other way around.
 		{#if !c}This node must be enrolled in Central (above) for this to take effect.{/if}
 	</p>
-	<form method="POST" action="?/comparticion" use:enhance>
+	<form method="POST" action="?/comparticion" use:enhance={sinVaciar}>
 		<label class="interruptor">
 			<input type="checkbox" name="compartir" checked={data.comparticion.compartir} />
 			<span>
@@ -677,6 +743,38 @@
 	.error {
 		color: var(--crit);
 		background: color-mix(in oklab, var(--crit) 12%, var(--surface));
+	}
+
+	.grupos {
+		position: sticky;
+		top: 0;
+		z-index: 2;
+		display: flex;
+		flex-wrap: wrap;
+		gap: 4px;
+		max-width: 760px;
+		margin-bottom: 14px;
+		padding: 8px 0;
+		background: var(--bg);
+	}
+
+	.grupos a {
+		padding: 7px 14px;
+		border-radius: 99px;
+		font-size: 13.5px;
+		font-weight: 600;
+		color: var(--ink-2);
+		text-decoration: none;
+		white-space: nowrap;
+	}
+
+	.grupos a[aria-current='page'] {
+		background: var(--accent-soft);
+		color: var(--accent);
+	}
+
+	.bloque[hidden] {
+		display: none;
 	}
 
 	.bloque {

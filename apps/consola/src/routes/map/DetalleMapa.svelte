@@ -108,7 +108,7 @@
 			<LogoTrampa pictograma={detalle.familia} grande />
 			<div>
 				<h2>{detalle.nombre}</h2>
-				<p class="sub">{detalle.trampas.length} decoys of this type</p>
+				<p class="sub">{detalle.trampas.length} honeypots of this type</p>
 			</div>
 		</header>
 		{@render listaTrampas(detalle.trampas)}
@@ -155,7 +155,7 @@
 				<dt>Version</dt>
 				<dd class="mono">{x.version}</dd>
 			{/if}
-			<dt>Decoys</dt>
+			<dt>Honeypots</dt>
 			<dd>
 				{x.trampas.length} here, {x.sistemas.length}
 				linked {x.sistemas.length === 1 ? 'site' : 'sites'}
@@ -199,7 +199,7 @@
 			</p>
 		{/if}
 		{#if y.trampas.length}
-			<h3>Decoys here</h3>
+			<h3>Honeypots here</h3>
 			{@render listaTrampas(y.trampas)}
 		{/if}
 		<div class="acciones">

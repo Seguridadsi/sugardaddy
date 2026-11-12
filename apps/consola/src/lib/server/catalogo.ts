@@ -13,6 +13,7 @@ import type {
 	Via
 } from '@sugardaddy/contrato';
 import { coberturaLicencia, modulosDeRegistro, type Cobertura } from './candado';
+import { esDePartner, honeycosasDePartner, partnerAlDia } from './catalogo-partner';
 import { db, schema } from './db';
 import { esCommunity } from './edicion';
 import { MODULOS_GRATIS, esDePago, esDeRegistro } from './modulos-gratis';
@@ -24,7 +25,7 @@ import { MODULOS_GRATIS, esDePago, esDeRegistro } from './modulos-gratis';
  * La carpeta se mira en cada lectura, no al cargar el módulo, para que una
  * prueba pueda apuntar SUGARDADDY_MODULOS a un catálogo suyo.
  */
-const raiz = () => process.env.SUGARDADDY_MODULOS ?? join(process.cwd(), '../../modulos');
+export const raiz = () => process.env.SUGARDADDY_MODULOS ?? join(process.cwd(), '../../modulos');
 
 function cargar<T>(familia: string, fichero: string, leer: (yaml: string) => Resultado<T>) {
 	return readdirSync(join(raiz(), familia)).flatMap((id) => {
@@ -72,7 +73,12 @@ export function honeycosas(): Honeycosa[] {
 			ok: false,
 			errores: e
 		});
-	return validas;
+	/*
+	 * Las del partner de este nodo (docs/diseno/trampas-de-partner.md), ya comprobadas
+	 * contra su firma. Las nuestras mandan: una suya con un id nuestro no entra.
+	 */
+	const nuestras = new Set(validas.map((h) => h.id));
+	return [...validas, ...honeycosasDePartner().filter((h) => !nuestras.has(h.id))];
 }
 
 /*
@@ -143,7 +149,7 @@ export function textoDeFicha(texto: string, h: Honeycosa): string {
 			const [de, campo, ...mas] = x.split('.');
 			if (mas.length) return hueco;
 			if (de === 'destino') return campo === 'direccion' ? 'the target address' : 'the target';
-			if (de === 'trampa') return 'this decoy';
+			if (de === 'trampa') return 'this honeypot';
 			if (campo !== undefined && Object.hasOwn(props, de))
 				return campo === 'direccion'
 					? `the address of ${nombre(de)}`
@@ -211,10 +217,12 @@ export { MODULOS_GRATIS, esDePago, esDeRegistro };
 export const MODULOS_DE_SERIE: string[] = [];
 
 export async function autorizados(): Promise<string[]> {
+	/* Las del partner de este nodo valen para todas sus empresas: las autoriza su firma. */
+	const dePartner = ((await partnerAlDia())?.modulos ?? []).map((h) => h.id);
 	const [f] = await db.select().from(schema.ajustes).where(eq(schema.ajustes.clave, 'modulos'));
-	if (f?.valor) return f.valor as string[];
+	if (f?.valor) return [...(f.valor as string[]), ...dePartner];
 	if (esCommunity()) return [...MODULOS_GRATIS, ...(await modulosDeRegistro())];
-	return MODULOS_DE_SERIE;
+	return [...MODULOS_DE_SERIE, ...dePartner];
 }
 
 /*
@@ -234,6 +242,8 @@ export async function catalogoConSuscripcion() {
 			incluida,
 			licencia,
 			disponible: incluida && licencia === 'cubierta',
+			/* La desarrolla y la firma el partner de este nodo, no SeguridadSI. */
+			dePartner: esDePartner(h.id),
 			/* En Community: el catálogo la enseña y lleva a registrarse. */
 			conRegistro: esCommunity() && esDeRegistro(h.id)
 		};

@@ -36,6 +36,7 @@ import type {
 	DescripcionDestino,
 	Marca,
 	PasosGenerados,
+	PiezaPlantilla,
 	Severidad
 } from '@sugardaddy/contrato';
 
@@ -79,6 +80,13 @@ export const sensores = pgTable('sensores', {
 	registrarPropio: boolean('registrar_propio').notNull().default(false),
 	/* sha256 del token del sensor. El token solo se ve una vez, al darlo de alta. */
 	claveHash: text('clave_hash').notNull(),
+	/*
+	 * El token que se le ha dado al reinstalar y aún no ha usado: el anterior
+	 * sigue valiendo hasta que el sensor llega con este (gestion.ts, prepararToken).
+	 * Así una reinstalación que no termina no deja fuera al sensor que funciona.
+	 */
+	claveHashSiguiente: text('clave_hash_siguiente'),
+	claveSiguienteDesde: timestamp('clave_siguiente_desde', { withTimezone: true }),
 	/* Hash de la última línea aceptada: la siguiente tiene que traerlo en hashAnterior. */
 	ultimoHash: text('ultimo_hash').notNull().default('0'.repeat(64)),
 	ultimoLatido: timestamp('ultimo_latido', { withTimezone: true }),
@@ -214,6 +222,12 @@ export const trampas = pgTable(
 		 */
 		entorno: text('entorno', { enum: ['dentro', 'perimetro-web', 'aislada'] }),
 		/*
+		 * La dirección de la máquina de su sensor, de las varias que tenga, en la
+		 * que se publican sus puertos y solo en ella (una trampa de contenedor).
+		 * Nula = en todas, que es lo de siempre y lo que deja una consola anterior.
+		 */
+		escucha: text('escucha'),
+		/*
 		 * Dónde está puesta. Nula = la máquina de su sensor, que es lo que deja
 		 * el INSERT de una consola anterior (scripts/destinos.mjs lo completa al
 		 * arrancar); pasa a NOT NULL dos versiones después de la 0012.
@@ -238,6 +252,12 @@ export const trampas = pgTable(
 		senalTrampa: text('senal_trampa').references((): AnyPgColumn => trampas.id, {
 			onDelete: 'set null'
 		}),
+		/*
+		 * La plantilla de la que salió (contrato, plantilla.ts), del catálogo o propia;
+		 * nula si se puso suelta. Sin clave foránea: las del catálogo no están en la
+		 * base, y una propia borrada deja sus trampas puestas con su grupo.
+		 */
+		plantilla: text('plantilla'),
 		creado: creado()
 	},
 	(t) => [
@@ -777,6 +797,11 @@ export type AvisoGuardado = {
 		id: string;
 		nombre: string;
 	};
+	/*
+	 * De dónde viene, para el alcance por niveles (lib/alcance.ts), cuando no lo
+	 * dice «sobre»: los honeypots que toca. No va a los SIEM: es solo para repartir.
+	 */
+	origen?: { trampas?: string[]; sensor?: string };
 	/* El problema del que avisó antes se ha resuelto. */
 	resuelto?: boolean;
 	/* Datos que acompañan al aviso (p. ej. el resumen de lo descartado). */
@@ -856,6 +881,28 @@ export const salidasCola = pgTable(
 			.where(sql`${t.evento} IS NOT NULL`),
 		check('salidas_cola_contenido', sql`(${t.evento} IS NULL) <> (${t.aviso} IS NULL)`)
 	]
+);
+
+/*
+ * El alcance de cada salida por niveles (lib/alcance.ts): lo que un sensor o un
+ * honeypot dice de un canal, sí o no. Solo hay fila si lo dice; heredar es no
+ * tener fila. Sin claves a sensores ni a trampas, como el resto de estas tablas:
+ * la consola anterior los borra sin más, y una fila huérfana no hace nada.
+ */
+export const salidasAlcance = pgTable(
+	'salidas_alcance',
+	{
+		salida: uuid('salida')
+			.notNull()
+			.references(() => salidas.id, { onDelete: 'cascade' }),
+		nivel: text('nivel', { enum: ['sensor', 'trampa'] }).notNull(),
+		/* El id del sensor o del honeypot. */
+		objeto: text('objeto').notNull(),
+		envia: boolean('envia').notNull(),
+		quien: text('quien'),
+		cambiado: timestamp('cambiado', { withTimezone: true }).notNull().defaultNow()
+	},
+	(t) => [primaryKey({ columns: [t.salida, t.nivel, t.objeto] })]
 );
 
 /*
@@ -1274,4 +1321,20 @@ export const enlacesUsados = pgTable('enlaces_usados', {
 	accion: text('accion').notNull(),
 	quien: text('quien').notNull(),
 	usado: timestamp('usado', { withTimezone: true }).notNull().defaultNow()
+});
+
+/*
+ * Las plantillas propias del cliente (contrato, plantilla.ts): grupos de trampas que
+ * monta desde el constructor, en la edición Cloud. Las del catálogo no están
+ * aquí: viajan en modulos/plantillas. El id empieza por «custom-».
+ */
+export const plantillas = pgTable('plantillas', {
+	id: text('id').primaryKey(),
+	nombre: text('nombre').notNull(),
+	descripcion: text('descripcion').notNull(),
+	entorno: text('entorno'),
+	piezas: jsonb('piezas').$type<PiezaPlantilla[]>().notNull(),
+	quien: text('quien').notNull(),
+	creado: creado(),
+	cambiado: timestamp('cambiado', { withTimezone: true }).notNull().defaultNow()
 });

@@ -14,6 +14,8 @@
   resume en una línea ``cowrie.sugardaddy.log_dropped`` por minuto como
   mucho, y cada parte del registro que se llena deja una línea
   ``cowrie.sugardaddy.log_full``.
+* ``marcar_agente``: la marca de agente de IA en los eventos de comando (la
+  nota para agentes del sistema simulado, ver sugardaddy_fs.py).
 
 Sin dependencias de Twisted ni de la configuración de Cowrie: se prueba solo.
 """
@@ -186,6 +188,46 @@ def recortar_evento(ev: dict[str, Any]) -> dict[str, Any]:
         ev["message"] = mensaje
     if recortados:
         ev["recortado"] = cortar_texto(", ".join(recortados), TOPE_CAMPO)[0]
+    return ev
+
+
+# ---- Agentes de IA ---------------------------------------------------------
+
+# El sistema simulado lleva un fichero que los agentes de IA leen por convención
+# y una persona rara vez abre (AGENTS.md en el home del usuario; lo crea el
+# Dockerfile, ver parche.py). Pide «registrar la sesión» con una orden que lleva
+# un valor propio de esta instancia (sugardaddy_fs.token_agente). Dos escalones,
+# como la nota de la trampa login-web:
+#   * suspected: un comando nombra el fichero (lo ha leído o lo ha buscado).
+#   * confirmed: un comando lleva el valor de la orden. Solo sale del fichero:
+#     quien lo teclea lo ha leído y ha hecho lo que pedía.
+# No cambia lo que Cowrie contesta ni ejecuta nada: solo añade dos campos al
+# evento, que la consola enseña como agente de IA (lib/agente-ia.ts).
+EVENTOS_AGENTE = frozenset({"cowrie.command.input", "cowrie.command.failed"})
+FICHERO_AGENTES = "AGENTS.md"
+MOTIVO_CONFIRMADO = "AI agent: it ran the command that only a file written for AI agents asks for"
+MOTIVO_SOSPECHA = "AI agent suspected: it read the file written for AI agents"
+
+
+def marcar_agente(ev: dict[str, Any], token: str) -> dict[str, Any]:
+    """Marca, en el sitio, un evento de comando como de agente de IA:
+    ``agente_ia`` (confirmed o suspected) y ``motivo``. ``token`` es el valor
+    de la orden que pide el fichero en esta instancia; vacío (la nota está
+    quitada), no se marca nada.
+
+    Va DESPUÉS de ``recortar_evento``: mira el ``input`` ya recortado (lo que
+    queda apuntado, 4 KB como mucho) y lo que añade es fijo y corto (menos de
+    150 bytes), así que no pasa por el recorte ni le quita presupuesto a lo
+    del atacante; el cupo del día cuenta la línea ya con la marca."""
+    if not token or not isinstance(token, str) or ev.get("eventid") not in EVENTOS_AGENTE:
+        return ev
+    entrada = ev.get("input")
+    if not isinstance(entrada, str):
+        return ev
+    if token in entrada:
+        ev["agente_ia"], ev["motivo"] = "confirmed", MOTIVO_CONFIRMADO
+    elif FICHERO_AGENTES in entrada:
+        ev["agente_ia"], ev["motivo"] = "suspected", MOTIVO_SOSPECHA
     return ev
 
 

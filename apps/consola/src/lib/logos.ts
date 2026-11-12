@@ -85,8 +85,8 @@ export function iconosTrampa(p?: Procedencia | null, tipo?: TipoDeServicio | nul
 	const titulo = logo
 		? `Based on ${logo.proyecto}, open source`
 		: ajena
-			? `Sugardaddy decoy based on ${ajena}`
-			: 'Sugardaddy decoy';
+			? `Sugardaddy honeypot based on ${ajena}`
+			: 'Sugardaddy honeypot';
 	const iconos: IconoTrampa[] = [];
 	if (logo)
 		iconos.push({

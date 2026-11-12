@@ -1,12 +1,17 @@
 # SSH y Telnet falsos con Cowrie. Es el módulo de referencia: si un honeypot
 # nuevo no cabe en este formato, el que cambia es el formato, no el núcleo.
+# El sistema simulado lleva una nota para agentes de IA (un AGENTS.md en el home
+# del usuario): leerla y seguirla los delata (imagen/sugardaddy.py). Va puesta
+# de serie y se quita con el parámetro notaAgentes.
 version: 1
 id: cowrie
 nombre: Fake SSH and Telnet
 descripcion: >-
   An SSH and Telnet server that accepts weak credentials and drops the attacker
   into a simulated shell. It records every access attempt, every command and
-  every download.
+  every download, and flags an attacker driving an AI agent: the simulated
+  system carries a file that only an AI agent reads and follows. The file can
+  be switched off.
 # Ataque si está en la red interna (abre incidente al primer toque); fuera, por puntos.
 alerta:
   fidelidad: interno
@@ -14,7 +19,8 @@ ficha:
   detecta: >-
     Anyone trying to get in over SSH or Telnet: the passwords they try, the
     commands they type, what they try to download and whether they want to use
-    the machine as a stepping stone to others.
+    the machine as a stepping stone to others. It also tells when the attacker
+    is driving an AI agent.
   donde: >-
     Where an attacker would look for Linux servers: the server network, the DMZ
     or a user VLAN. With a hostname and a port that fit those on your network.
@@ -35,8 +41,8 @@ contenedor:
   # sin JA4H ni el resto de JA4+ con licencia FoxIO 1.1 (no comercial), y con
   # tope en lo que apunta del atacante (ver COWRIE_OUTPUT_JSONLOG_MAX_BYTES_DAY).
   # La construye y deja aquí su digest herramientas/publicar-trampa.sh cowrie.
-  imagen: ghcr.io/seguridadsi/sugardaddy-trampa-cowrie:3.1.2-sd5@sha256:a80a555c8f32399e0d4c1ab10fa67dd884291e09fdca8302e138510c10fcc50e
-  imagenPublica: ghcr.io/seguridadsi/sugardaddy-trampa-cowrie:3.1.2-sd5@sha256:a80a555c8f32399e0d4c1ab10fa67dd884291e09fdca8302e138510c10fcc50e
+  imagen: ghcr.io/seguridadsi/sugardaddy-trampa-cowrie:3.1.2-sd6@sha256:bc13ebd36035ba1d610ec09d92b2e670cf438ef075f64a9007ba7935f7cfe8f9
+  imagenPublica: ghcr.io/seguridadsi/sugardaddy-trampa-cowrie:3.1.2-sd6@sha256:bc13ebd36035ba1d610ec09d92b2e670cf438ef075f64a9007ba7935f7cfe8f9
   # Sin imagen pública: la de Docker Hub (cowrie/cowrie) lleva JA4+ con
   # licencia FoxIO 1.1 y no tiene el tope de cowrie.json. A un sensor sin
   # credencial del registro (anterior a la 0.12.1, o sin relevo) la consola
@@ -81,22 +87,51 @@ contenedor:
       valores:
         debian-12: SSH-2.0-OpenSSH_9.2p1 Debian-2+deb12u3
         ubuntu-22: SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.6
-        ubuntu-20: SSH-2.0-OpenSSH_8.2p1 Ubuntu-4ubuntu0.9
-        centos-7: SSH-2.0-OpenSSH_7.4
     COWRIE_SHELL_KERNEL_VERSION:
       segun: sistema
       valores:
         debian-12: 6.1.0-21-amd64
         ubuntu-22: 5.15.0-91-generic
-        ubuntu-20: 5.4.0-169-generic
-        centos-7: 3.10.0-1160.105.1.el7.x86_64
     COWRIE_SHELL_KERNEL_BUILD_STRING:
       segun: sistema
       valores:
         debian-12: '#1 SMP PREEMPT_DYNAMIC Debian 6.1.90-1 (2024-05-03)'
         ubuntu-22: '#101-Ubuntu SMP Tue Nov 14 13:30:08 UTC 2023'
-        ubuntu-20: '#187-Ubuntu SMP Thu Nov 23 14:52:28 UTC 2023'
-        centos-7: '#1 SMP Thu Dec 7 15:39:45 UTC 2023'
+    # SEN-8: el fs.pickle propio de la plantilla (createfs sobre el rootfs real;
+    # ver imagen/parche.py). El sistema simulado (passwd, /proc/cpuinfo, df,
+    # lscpu...) sale de la semilla al arrancar, no de los datos de serie de
+    # Cowrie. Solo se ofrecen los sistemas con fs propio y fiel: debian-12 y
+    # ubuntu-22. Antes ubuntu-20 y centos-7 reusaban el pickle del más cercano,
+    # así que /etc/os-release y /proc/version decían otra distro mientras el
+    # banner y uname decían la suya (y, en centos-7, el lscpu/df globales —no hay
+    # uno por sistema— jamás cuadrarían con un kernel el7): era un delator. No se
+    # ofrecen hasta construirles su rootfs propio.
+    COWRIE_SHELL_FILESYSTEM:
+      segun: sistema
+      valores:
+        debian-12: /cowrie/cowrie-git/src/cowrie/data/fs-debian-12.pickle
+        ubuntu-22: /cowrie/cowrie-git/src/cowrie/data/fs-ubuntu-22.pickle
+    # SEN-8: KEXINIT (y HASSH del servidor) a juego con el OpenSSH del banner.
+    # Twisted Conch solo implementa un subconjunto de lo que ofrece OpenSSH:
+    # se anuncia ese subconjunto, en el orden de OpenSSH, sin los algoritmos de
+    # Twisted por defecto (blowfish, cast128, 3des, hmac-md5, group14-sha1 en
+    # las versiones nuevas) que delatarían al honeypot.
+    COWRIE_SSH_KEX:
+      segun: sistema
+      valores:
+        debian-12: curve25519-sha256,curve25519-sha256@libssh.org,ecdh-sha2-nistp256,ecdh-sha2-nistp384,ecdh-sha2-nistp521
+        ubuntu-22: curve25519-sha256,curve25519-sha256@libssh.org,ecdh-sha2-nistp256,ecdh-sha2-nistp384,ecdh-sha2-nistp521
+    COWRIE_SSH_CIPHERS:
+      segun: sistema
+      valores:
+        debian-12: aes128-ctr,aes192-ctr,aes256-ctr
+        ubuntu-22: aes128-ctr,aes192-ctr,aes256-ctr
+    COWRIE_SSH_MACS: hmac-sha2-256,hmac-sha2-512,hmac-sha1
+    COWRIE_SSH_COMPRESSION: none,zlib@openssh.com
+    # La nota para agentes de IA (imagen/sugardaddy_fs.py): 'si' la pone, 'no'
+    # la quita entera (ni el AGENTS.md en el sistema simulado, ni marca en los
+    # eventos). Cualquier otro valor deja el de serie de la trampa, que es puesta.
+    COWRIE_HONEYPOT_SD_NOTA_AGENTES: ${notaAgentes}
   ficheros:
     # Formato de Cowrie: usuario:x:contraseña, con * para cualquiera y ! para rechazar.
     - { destino: /cowrie/sd-etc/userdb.txt, contenido: '${accesos}' }
@@ -146,12 +181,11 @@ parametros:
       type: string
       title: System it pretends to be
       description: Changes the SSH version it announces and what uname returns.
-      enum: [debian-12, ubuntu-22, ubuntu-20, centos-7]
+      # SEN-8: solo los sistemas con un fs propio y fiel (ver COWRIE_SHELL_FILESYSTEM).
+      enum: [debian-12, ubuntu-22]
       x-opciones:
         debian-12: Debian 12
         ubuntu-22: Ubuntu 22.04
-        ubuntu-20: Ubuntu 20.04
-        centos-7: CentOS 7
       default: debian-12
     accesos:
       type: string
@@ -169,6 +203,22 @@ parametros:
         root:x:*
         admin:x:*
         ubuntu:x:*
+    notaAgentes:
+      type: string
+      title: Note for AI agents
+      description: >-
+        Adds to the simulated system a file named AGENTS.md, in the home
+        directory of its user account, asking AI assistants and automated agents
+        to register the session with a command before doing anything else. A
+        command that names that file is recorded as a suspected AI agent, and
+        running the command the file asks for is recorded as a confirmed one.
+        When it is off, the file does not exist and no command is flagged. The
+        file is visible to anyone who lists that directory.
+      enum: ['si', 'no']
+      x-opciones:
+        'si': 'On'
+        'no': 'Off'
+      default: 'si'
 
 eventos:
   fuente: { tipo: fichero, ruta: cowrie.json }
@@ -233,6 +283,9 @@ eventos:
     - dst_port
     - data
     - ja4
+    # suspected o confirmed: la consola lo enseña como agente de IA (lib/agente-ia.ts).
+    - agente_ia
+    - motivo
     - recortado
     - aviso
     - lleno
@@ -248,7 +301,7 @@ eventos:
     - periodo_s
   sesion: session
   contrasena: password
-  resumen: [password, input, url, filename, version, duration, data, aviso, omitidos]
+  resumen: [password, input, motivo, url, filename, version, duration, data, aviso, omitidos]
   etiquetas:
     session: Session
     protocol: Protocol
@@ -266,6 +319,7 @@ eventos:
     dst_port: Destination port
     data: Sends
     ja4: TLS fingerprint (JA4)
+    motivo: Reason
     recortado: Truncated (original size)
     aviso: Alert
     lleno: Part full

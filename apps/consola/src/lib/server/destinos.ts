@@ -50,6 +50,7 @@ import { EJECUTORES_CONSOLA, autorizados, honeycosas, nombresModulos } from './c
 import { estadosVisibles, type EstadoVisible } from './colocacion';
 import { db, schema as s } from './db';
 import { hechosDe, type SensorDeHechos } from './hechos';
+import { puertosParaAbrir } from '$lib/puertos-abrir';
 
 export { slugDestino };
 
@@ -339,6 +340,7 @@ export async function trampasConPuertos(
 			modulo: s.trampas.modulo,
 			via: s.trampas.via,
 			parametros: s.trampas.parametros,
+			escucha: s.trampas.escucha,
 			destino
 		})
 		.from(s.trampas)
@@ -357,7 +359,10 @@ export async function trampasConPuertos(
 		const p = v && v.ejecutor === 'contenedor@1' && validarParametros(h.parametros, f.parametros);
 		if (!f.destino || !v || !p || !p.ok) continue;
 		const puertos = puertosPublicados(v.carga as CargaContenedor, p.valor);
-		r.set(f.destino, [...(r.get(f.destino) ?? []), { id: f.id, nombre: f.nombre, puertos }]);
+		r.set(f.destino, [
+			...(r.get(f.destino) ?? []),
+			{ id: f.id, nombre: f.nombre, puertos, escucha: f.escucha }
+		]);
 	}
 	return r;
 }
@@ -540,6 +545,14 @@ export async function fichaDestino(id: string) {
 			return estado ? [{ ...t, estado }] : [];
 		}),
 		queCabe: await queCabeEn(destinoDelElector(d, x)),
+		/* Lo que hay que abrir en el cortafuegos de esta máquina, por dirección. */
+		abrir: x
+			? puertosParaAbrir(
+					(
+						await trampasConPuertos(new Map(honeycosas().map((h) => [h.id, h])), { destino: id })
+					).get(id) ?? []
+				)
+			: [],
 		formulario: {
 			bloqueados,
 			delSensor: Object.fromEntries(

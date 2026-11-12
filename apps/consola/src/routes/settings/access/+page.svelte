@@ -48,19 +48,24 @@
 {#if page.url.searchParams.has('guardado')}
 	<p class="mensaje" role="status">
 		Saved. In about a minute the console port stops answering addresses outside the list.
+		{#if data.configuracion.pendiente}<a href="/setup">Continue setup</a>{/if}
 	</p>
 {/if}
 {#if page.url.searchParams.has('abierta')}
-	<p class="mensaje" role="status">The console stays open to everyone.</p>
+	<p class="mensaje" role="status">
+		The console stays open to everyone.
+		{#if data.configuracion.pendiente}<a href="/setup">Continue setup</a>{/if}
+	</p>
 {/if}
 {#if form?.error}<p class="error" role="alert">{form.error}</p>{/if}
 
 <section class="panel bloque">
 	<h2>Who can open this console</h2>
 	<p class="ayuda">
-		The console runs on the same machine and IP address as the decoys. Anyone who scans the network
-		and opens that address sees this console's sign-in page, and knows the machine is a decoy. With
-		a list, the console port only answers the addresses in it: to everyone else it looks closed.
+		The console runs on the same machine and IP address as the honeypots. Anyone who scans the
+		network and opens that address sees this console's sign-in page, and knows the machine is a
+		honeypot. With a list, the console port only answers the addresses in it: to everyone else it
+		looks closed.
 	</p>
 
 	{#if a.estado === 'restringida'}
@@ -211,6 +216,15 @@
 {/if}
 
 <style>
+	.bloque {
+		margin-bottom: 16px;
+		padding: 18px 20px 20px;
+		max-width: 760px;
+	}
+	.bloque h2 {
+		font-size: 16px;
+		font-weight: 600;
+	}
 	.estado {
 		font-weight: 600;
 	}

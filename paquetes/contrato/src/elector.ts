@@ -62,7 +62,13 @@ export interface ContextoElector {
 	/* Hechos del nodo (canal.rele…). Los del destino ganan si se repite una clave. */
 	hechosNodo: Hechos;
 	/* Trampas activas del mismo destino (menos la que se modifica), con sus puertos. */
-	trampasDelDestino: { id: string; nombre: string; puertos: Puerto[] }[];
+	trampasDelDestino: { id: string; nombre: string; puertos: Puerto[]; escucha?: string | null }[];
+	/*
+	 * La dirección de la máquina en la que se publicaría la trampa que se mira:
+	 * una de las suyas; null, en todas; sin indicar, aún no se ha elegido (el paso
+	 * «¿dónde?»): entonces vale el destino si queda alguna forma de ponerla.
+	 */
+	escucha?: string | null;
 	/* Para la fuente «trampa»: las trampas del cliente por id. */
 	trampas: Record<string, TrampaDelCliente>;
 	/* La vía que eligió el cliente (también por un id de «antes»). */

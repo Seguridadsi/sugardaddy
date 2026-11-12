@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import { sinVaciar } from '$lib/guardar';
 	import { haceCuanto } from '$lib/formato';
 
 	let { data, form } = $props();
@@ -78,7 +79,7 @@
 		</div>
 
 		<div class="acciones">
-			<form method="POST" action="?/roles" use:enhance>
+			<form method="POST" action="?/roles" use:enhance={sinVaciar}>
 				<input type="hidden" name="id" value={u.id} />
 				<fieldset class="roles">
 					<legend>Roles</legend>

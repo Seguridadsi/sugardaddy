@@ -214,6 +214,25 @@ export async function borrarAuditoriaAntesDe(limite: Date) {
 }
 
 /*
+ * Las sesiones que ya no pueden valer: ninguna dura más de ocho horas
+ * (auth/sesion.ts), así que una de hace más de una semana solo ocupa. Quién
+ * entró y cuándo queda en la auditoría, no aquí.
+ */
+export const SESIONES_MUERTAS_MS = 7 * 24 * 60 * 60_000;
+export async function borrarSesionesMuertas(ahora = new Date()) {
+	const limite = new Date(ahora.getTime() - SESIONES_MUERTAS_MS);
+	const [{ n }] = await db.execute<{ n: number }>(sql`
+		with borradas as (
+			delete from ${s.sesiones}
+			where ${s.sesiones.creada} < ${limite.toISOString()}
+			returning 1
+		)
+		select count(*)::int as n from borradas
+	`);
+	return n;
+}
+
+/*
  * Lo que corre cada hora (hooks.server.ts). Primero los eventos y su apunte de
  * la cadena; después la auditoría, que nunca alcanza a ese apunte recién hecho.
  */
@@ -222,6 +241,7 @@ export async function purgar(ahora = new Date()) {
 	 * margen del plazo de conservación de eventos (y de su aviso de 30 días). */
 	const listas = await borrarListasVencidasAntesDe(ahora);
 	if (listas) await auditar('node', 'expired list entries deleted', { entradas: listas });
+	await borrarSesionesMuertas(ahora);
 	const c = await conservacion(ahora);
 	const limite = limiteDeBorrado(c, ahora);
 	const limiteAuditoria = limiteDeAuditoria(c, ahora);

@@ -118,7 +118,7 @@
 				? `${z.sensores.length} ${z.sensores.length === 1 ? 'sensor' : 'sensors'}`
 				: null,
 			sistemas ? `${sistemas} ${sistemas === 1 ? 'system' : 'systems'}` : null,
-			`${trampas} ${trampas === 1 ? 'decoy' : 'decoys'}`
+			`${trampas} ${trampas === 1 ? 'honeypot' : 'honeypots'}`
 		]
 			.filter(Boolean)
 			.join(' · ');
@@ -338,7 +338,7 @@
 			{#if x.trampas.length}
 				<TablaTrampas trampas={x.trampas} todas={filtrando} conRuta={!x.ruta} />
 			{:else}
-				<p class="vacio">No decoys deployed yet.</p>
+				<p class="vacio">No honeypots deployed yet.</p>
 			{/if}
 		</article>
 	</div>
@@ -354,7 +354,7 @@
 					><b>{resumen.sistemas}</b>
 					{resumen.sistemas === 1 ? 'site without a sensor' : 'sites without a sensor'}</span
 				>
-				<span><b>{resumen.trampas}</b> {resumen.trampas === 1 ? 'decoy' : 'decoys'}</span>
+				<span><b>{resumen.trampas}</b> {resumen.trampas === 1 ? 'honeypot' : 'honeypots'}</span>
 				{#each estados as e (e)}
 					<span class="estado">
 						<GlifoEstado estado={e} />
@@ -373,7 +373,7 @@
 			<input
 				type="search"
 				bind:value={texto}
-				placeholder="Search IP, machine, decoy or port"
+				placeholder="Search IP, machine, honeypot or port"
 				aria-label="Search the map"
 			/>
 			<button
@@ -603,7 +603,7 @@
 								</div>
 							</div>
 						{:else if z.tipo === 'sin-senal'}
-							<p class="vacio">Deploy a decoy on these sites to connect them to the map.</p>
+							<p class="vacio">Deploy a honeypot on these sites to connect them to the map.</p>
 							<div class="sueltos">
 								{#each z.sistemas as x (x.id)}
 									{@render tarjetaSistema(x, false)}
@@ -647,7 +647,7 @@
 									{#if x.trampas.length}
 										<TablaTrampas trampas={x.trampas} todas={filtrando} conRuta />
 									{:else if !x.sistemas.length}
-										<p class="vacio">No decoys deployed yet.</p>
+										<p class="vacio">No honeypots deployed yet.</p>
 									{/if}
 								</article>
 								{#if x.sistemas.length}
@@ -673,7 +673,7 @@
 
 	<footer class="leyenda">
 		<div>
-			<b>Decoy</b>
+			<b>Honeypot</b>
 			{#each estados as e (e)}
 				<span><GlifoEstado estado={e} />{resumen.etiquetas[e]}</span>
 			{/each}

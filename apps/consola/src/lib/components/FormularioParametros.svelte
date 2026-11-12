@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
+	import { resolve } from '$app/paths';
 	import type { EsquemaParametros } from '@sugardaddy/contrato';
 
 	/*
@@ -20,6 +21,9 @@
 		/* Extensiones de Sugardaddy: nombre de cada opción y texto de varias líneas. */
 		'x-opciones'?: Record<string, string>;
 		'x-multilinea'?: boolean;
+		/* Un HTML: además de pegarlo, se puede subir de un fichero o clonar de una dirección. */
+		'x-html'?: boolean;
+		maxLength?: number;
 		/* Elegir una trampa del cliente de esos módulos (§2.5). */
 		'x-trampa'?: { modulos?: string[] };
 		/*
@@ -118,6 +122,72 @@
 		const desde = p.startsWith('^') ? p.slice(1) : `.*(?:${p})`;
 		return desde.endsWith('$') && !desde.endsWith('\\$') ? desde.slice(0, -1) : `(?:${desde}).*`;
 	}
+	/*
+	 * x-html: el HTML se puede subir de un fichero (se lee aquí, en el
+	 * navegador) o clonar de una dirección (lo baja la consola, con sus
+	 * guardas). Las dos cosas solo rellenan el cuadro: quien despliega lo ve,
+	 * lo retoca y lo guarda con el resto del formulario.
+	 */
+	let html = $state<Record<string, string>>(
+		untrack(() =>
+			Object.fromEntries(
+				(Object.entries(esquema.properties) as [string, Campo][])
+					.filter(([, c]) => c['x-html'])
+					.map(([k, c]) => [k, valor(k, c)])
+			)
+		)
+	);
+	let clon = $state<Record<string, { url: string; ocupado: boolean; aviso: string; mal: boolean }>>(
+		{}
+	);
+	const estadoClon = (k: string) => clon[k] ?? { url: '', ocupado: false, aviso: '', mal: false };
+	const kb = (n: number) => `${Math.ceil(n / 1000)} KB`;
+	async function subirHtml(k: string, c: Campo, e: Event & { currentTarget: HTMLInputElement }) {
+		const fichero = e.currentTarget.files?.[0];
+		e.currentTarget.value = '';
+		if (!fichero) return;
+		const max = c.maxLength ?? Infinity;
+		const texto = fichero.size > max * 4 ? null : await fichero.text();
+		if (texto === null || texto.length > max) {
+			clon[k] = {
+				...estadoClon(k),
+				mal: true,
+				aviso: `${fichero.name} is larger than the ${kb(max)} the decoy holds`
+			};
+			return;
+		}
+		html[k] = texto;
+		clon[k] = {
+			...estadoClon(k),
+			mal: false,
+			aviso: `${fichero.name} loaded (${kb(texto.length)})`
+		};
+	}
+	async function clonarHtml(k: string) {
+		const url = estadoClon(k).url.trim();
+		if (!url) return;
+		clon[k] = { url, ocupado: true, aviso: '', mal: false };
+		try {
+			const r = await fetch(resolve('/decoys/clone'), {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ url })
+			});
+			const d = (await r.json()) as { html?: string; error?: string };
+			if (!r.ok || typeof d.html !== 'string')
+				throw new Error(d.error ?? 'Could not clone the page');
+			html[k] = d.html;
+			clon[k] = {
+				url,
+				ocupado: false,
+				mal: false,
+				aviso: `Page cloned (${kb(d.html.length)}). Review it before saving.`
+			};
+		} catch (err) {
+			clon[k] = { url, ocupado: false, mal: true, aviso: (err as Error).message };
+		}
+	}
+
 	/* Sin nada elegido, la única que vale ya va elegida. */
 	function objetivoDe(k: string) {
 		if (valores[k] !== undefined) return String(valores[k]);
@@ -156,7 +226,7 @@
 				required={obligatorio(clave)}
 			>
 				<option value="" disabled
-					>{opciones.length ? 'Choose a decoy' : 'You have no decoys of this type'}</option
+					>{opciones.length ? 'Choose a honeypot' : 'You have no honeypots of this type'}</option
 				>
 				{#each opciones as o (o.id)}
 					<option value={o.id} disabled={!!o.motivo}
@@ -199,6 +269,49 @@
 				<option value="true">Yes</option>
 				<option value="false">No</option>
 			</select>
+		{:else if c['x-html']}
+			{@const ec = estadoClon(clave)}
+			<div class="html-origen">
+				<label class="subir">
+					Upload an HTML file
+					<input
+						type="file"
+						accept=".html,.htm,text/html"
+						onchange={(e) => subirHtml(clave, c, e)}
+					/>
+				</label>
+				<span class="o">or</span>
+				<input
+					type="url"
+					class="mono"
+					placeholder="https://intranet.example.com/login"
+					aria-label="Address of the page to clone"
+					value={ec.url}
+					oninput={(e) => (clon[clave] = { ...ec, url: e.currentTarget.value })}
+					onkeydown={(e) => {
+						if (e.key === 'Enter') {
+							e.preventDefault();
+							clonarHtml(clave);
+						}
+					}}
+				/>
+				<button
+					type="button"
+					class="boton"
+					disabled={ec.ocupado || !ec.url.trim()}
+					onclick={() => clonarHtml(clave)}>{ec.ocupado ? 'Cloning…' : 'Clone page'}</button
+				>
+			</div>
+			{#if ec.aviso}<p class="ayuda" class:mal={ec.mal} role="status">{ec.aviso}</p>{/if}
+			<textarea
+				id="p-{clave}"
+				name="p.{clave}"
+				rows="10"
+				maxlength={c.maxLength}
+				required={obligatorio(clave)}
+				class="mono"
+				spellcheck="false"
+				bind:value={html[clave]}></textarea>
 		{:else if c['x-multilinea']}
 			<textarea
 				id="p-{clave}"
@@ -239,6 +352,39 @@
 		margin: 5px 0 0;
 		font-size: 12px;
 		color: var(--ink-3);
+	}
+
+	.html-origen {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 8px;
+		margin-bottom: 8px;
+	}
+
+	.html-origen input[type='url'] {
+		flex: 1 1 240px;
+		min-width: 0;
+	}
+
+	.html-origen .o {
+		font-size: 12px;
+		color: var(--ink-3);
+	}
+
+	.subir {
+		font-weight: 400;
+		font-size: 13px;
+	}
+
+	.subir input {
+		display: block;
+		margin-top: 4px;
+		font-size: 12px;
+	}
+
+	.ayuda.mal {
+		color: var(--crit);
 	}
 
 	.casilla {

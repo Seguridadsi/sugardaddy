@@ -14,8 +14,10 @@ import {
 import { listaDestinos } from '$lib/server/destinos';
 import { esCommunity } from '$lib/server/edicion';
 import { ErrorCliente, altaSensorRemoto, lineaSensorRemoto } from '$lib/server/sensores-remotos';
+import { nombreConsola } from '$lib/server/direccion-consola';
 import { esLocal, quitarSensorDelAcceso } from '$lib/server/acceso';
 import { normalizarIp } from '$lib/server/pruebas';
+import { silenciosPorObjeto } from '$lib/server/alcance-ficha';
 
 export const load = async ({ url }) => {
 	const destinos = await listaDestinos();
@@ -25,6 +27,8 @@ export const load = async ({ url }) => {
 		/* En community no se añaden destinos a mano (no hay señuelos manuales): sin su sección. */
 		community: esCommunity(),
 		sensores: await sensores(),
+		/* Por qué salidas de avisos no sale lo de cada sensor (lib/alcance.ts). */
+		silencios: (await silenciosPorObjeto()).sensores,
 		cuarentena: await ultimaCuarentena(),
 		/* La ficha de la máquina de cada sensor, y los destinos sin sensor (un servidor, un NAS, una cuenta de nube). */
 		fichas: Object.fromEntries(destinos.flatMap((d) => (d.sensor ? [[d.sensor.id, d.id]] : []))),
@@ -37,7 +41,16 @@ export const actions = {
 		const u = exigir(locals, 'ajustes');
 		const f = await request.formData();
 		const nombre = String(f.get('nombre') ?? '').trim();
-		const v = { id: identificador(String(f.get('id') ?? ''), nombre), nombre };
+		/*
+		 * Dónde está: uno expuesto a internet no debe proponer nombres con el dominio
+		 * interno del cliente, y eso depende de que se sepa desde el primer honeypot.
+		 */
+		const donde = String(f.get('entorno') ?? '');
+		const v = {
+			id: identificador(String(f.get('id') ?? ''), nombre),
+			nombre,
+			entorno: esEntorno(donde) ? donde : null
+		};
 		/* La IP de su máquina: con el acceso a la consola limitado, entra en la lista. */
 		const ip = String(f.get('ip') ?? '').trim();
 		if (!v.id) return fail(400, { error: SIN_IDENTIFICADOR, ...v, ip });
@@ -46,7 +59,7 @@ export const actions = {
 			const linea = await altaSensorRemoto(u.correo, v, undefined, ip);
 			if (!linea)
 				return fail(400, { error: 'A sensor with that identifier already exists.', ...v, ip });
-			return { linea, para: v.id };
+			return { linea, para: v.id, consola: nombreConsola() };
 		} catch (e) {
 			return fail(e instanceof ErrorCliente ? 400 : 500, { error: (e as Error).message, ...v, ip });
 		}
@@ -57,7 +70,9 @@ export const actions = {
 		const id = String(f.get('id'));
 		try {
 			const linea = await lineaSensorRemoto(u.correo, id, String(f.get('ip') ?? '').trim());
-			return linea ? { linea, para: id } : fail(404, { error: 'That sensor is not remote.' });
+			return linea
+				? { linea, para: id, consola: nombreConsola() }
+				: fail(404, { error: 'That sensor is not remote.' });
 		} catch (e) {
 			return fail(e instanceof ErrorCliente ? 400 : 500, {
 				error: (e as Error).message,
@@ -103,7 +118,7 @@ export const actions = {
 		const u = exigir(locals, 'ajustes');
 		const id = String((await request.formData()).get('id'));
 		const r = await retirarSensor(u.correo, id);
-		if (r === 'tiene trampas') return fail(400, { error: 'Remove its decoys first.' });
+		if (r === 'tiene trampas') return fail(400, { error: 'Remove its honeypots first.' });
 		/* Su máquina deja de poder entrar al puerto de la consola (salvo que eso deje fuera a quien lo borra). */
 		let ip: string | null = null;
 		try {

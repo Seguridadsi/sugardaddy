@@ -19,6 +19,7 @@ import {
 	type LicenciaFirmada
 } from '@sugardaddy/canal';
 import { env } from '$env/dynamic/private';
+import { esDePartner } from './catalogo-partner';
 import { confianza } from './claves';
 import { db, schema as s } from './db';
 import { esCommunity } from './edicion';
@@ -59,6 +60,8 @@ export async function coberturaLicencia(): Promise<(modulo: string) => Cobertura
 	const lic = await licenciaGuardada();
 	const v = lic ? verificarLicencia(clave, lic) : null;
 	return (modulo) => {
+		/* Una del partner de este nodo no lleva nuestra licencia: la autoriza su firma. */
+		if (esDePartner(modulo)) return 'cubierta';
 		if (!esDePago(modulo)) return 'cubierta';
 		if (!v) return sin(modulo);
 		if (!v.ok) {

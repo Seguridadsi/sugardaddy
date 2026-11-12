@@ -31,6 +31,7 @@ import { db, schema as s } from './db';
 import type { Bd } from './destinos';
 import { hechosDe } from './hechos';
 import { nonceAbierto } from './pruebas';
+import { comprobarSello } from './sello-pasos';
 
 /*
  * Lo que dice trampas.donde de una trampa a mano: no la pone ningún sensor,
@@ -199,6 +200,8 @@ export function fichaDePasos(p: PasosGenerados) {
 		destino: p.nombres.destino,
 		generado: p.generado,
 		sha256: p.sha256,
+		/* El sello, la versión firmada por el nodo (BAL-10): el .md y el script lo llevan para compararlo. */
+		sello: p.sello ?? null,
 		integros: sha256Pasos(p) === p.sha256,
 		bloque: bloqueDeVariables(p),
 		/* Con lenguaje «ninguno» no hay bloque: las variables se dicen una a una. */
@@ -220,6 +223,13 @@ export type FichaDePasos = ReturnType<typeof fichaDePasos>;
  * no se guarda con los pasos ni se enseña en la ficha): si no se puede leer,
  * no se descarga. Cada descarga deja su línea en la auditoría con la huella
  * de lo descargado, nunca el secreto.
+ *
+ * Antes de servirlos se comprueba su sello (BAL-10): el HMAC con la clave del
+ * nodo que autentica que los generó este nodo y nadie los cambió luego en la
+ * base de datos. Si no cuadra, no se descargan («sello-roto»); si el nodo ya no
+ * puede comprobarlo (su clave falta o cambió), hay que regenerarlos
+ * («sello-ilegible»). Unos pasos de antes, sin sello, se sirven con el sha256 a
+ * secas, como siempre.
  */
 export async function descargarPasos(
 	quien: string,
@@ -233,6 +243,8 @@ export async function descargarPasos(
 	| 'sin-prueba'
 	| 'otro-lenguaje'
 	| 'no-cuadran'
+	| 'sello-roto'
+	| 'sello-ilegible'
 	| 'sin-secreto'
 > {
 	const [t] = await db
@@ -246,6 +258,11 @@ export async function descargarPasos(
 	if (parte === 'probar' && !nonce) return 'sin-prueba';
 	if (!formatosDe(p).includes(formato)) return 'otro-lenguaje';
 	if (sha256Pasos(p) !== p.sha256) return 'no-cuadran';
+	if (p.sello) {
+		const sello = comprobarSello(p.sha256, p.sello);
+		if (sello === 'sin-clave' || sello === 'otra-clave') return 'sello-ilegible';
+		if (sello !== 'ok') return 'sello-roto';
+	}
 	const conSecretos = parte === 'colocar' && (formato === 'ps1' || formato === 'sh');
 	const secretos: Record<string, string> | null | undefined =
 		conSecretos && p.secretos?.length ? null : undefined;

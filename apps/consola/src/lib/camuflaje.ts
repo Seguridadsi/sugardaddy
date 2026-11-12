@@ -265,3 +265,112 @@ export function cambiosDeFabrica(
 /* El título de un parámetro, para enseñar qué va a cambiar. */
 export const tituloDe = (esquema: Esquema, clave: string) =>
 	(esquema.properties[clave] as Parametro | undefined)?.title ?? clave;
+
+/* --- Metadatos de los documentos cebo (auditoría BAL-9) --- */
+
+/*
+ * Piezas para un nombre de persona sintético (nunca datos reales): el autor de
+ * un documento cebo. Sin esto todos los cebos salen con «Usuario» y una sola
+ * regla los reconoce. La elección sale del dominio y la semilla del cliente, así
+ * que es estable por cliente y, con este código público pero sin la semilla, no
+ * se puede calcular sabiendo solo el dominio.
+ */
+const NOMBRES = [
+	'Laura',
+	'Carlos',
+	'Marta',
+	'Javier',
+	'Ana',
+	'Sergio',
+	'Elena',
+	'David',
+	'Cristina',
+	'Pablo',
+	'Lucía',
+	'Alberto',
+	'Raquel',
+	'Jorge',
+	'Patricia',
+	'Rubén'
+];
+const APELLIDOS = [
+	'García',
+	'Martínez',
+	'López',
+	'Sánchez',
+	'Fernández',
+	'Gómez',
+	'Ruiz',
+	'Díaz',
+	'Moreno',
+	'Álvarez',
+	'Romero',
+	'Navarro',
+	'Torres',
+	'Molina',
+	'Ortega',
+	'Castro'
+];
+
+/*
+ * Títulos creíbles por familia de documento, para que dc:title (y /Title en el
+ * PDF) no sea el mismo en todos los clientes. Son genéricos de oficina, sin
+ * marcas ni datos personales.
+ */
+const TITULOS: Readonly<Record<string, string[]>> = {
+	word: [
+		'Nota interna',
+		'Comunicación interna',
+		'Memorando interno',
+		'Documento interno',
+		'Nota de servicio'
+	],
+	excel: [
+		'Nóminas 2026',
+		'Retribuciones 2026',
+		'Resumen de nóminas',
+		'Control de nóminas 2026',
+		'Nóminas'
+	],
+	pptx: [
+		'Plan comercial 2026',
+		'Plan de ventas 2026',
+		'Estrategia comercial 2026',
+		'Plan comercial'
+	],
+	pdf: ['Nota interna', 'Documento interno', 'Comunicación interna', 'Nota de servicio']
+};
+
+/* La empresa para docProps/Company: el prefijo del dominio con mayúscula inicial. */
+function nombreEmpresa(dominio: string): string {
+	const p = prefijoDe(dominio);
+	return p ? p.charAt(0).toUpperCase() + p.slice(1) : p;
+}
+
+export type MetadatosDocumento = { autor?: string; empresa?: string; titulo?: string };
+
+/*
+ * Los metadatos de un documento cebo a partir del camuflaje del cliente
+ * (auditoría BAL-9): autor (dc:creator/lastModifiedBy y /Author del PDF), empresa
+ * (docProps/Company) y título (dc:title y /Title). `tipo` es la familia
+ * (word/excel/pptx/pdf) y elige el pool de títulos. Sin dominio ni semilla no hay
+ * con qué variar y se devuelve vacío: el documento sale con lo de la plantilla.
+ */
+export function metadatosDocumento(
+	dominio: string | null,
+	semilla: string | undefined,
+	tipo: string
+): MetadatosDocumento {
+	if (!dominio && !semilla) return {};
+	const base = `${dominio ?? ''}|${semilla ?? ''}`;
+	const autor = `${NOMBRES[resumen(`autor-nombre|${base}`) % NOMBRES.length]} ${
+		APELLIDOS[resumen(`autor-apellido|${base}`) % APELLIDOS.length]
+	}`;
+	const pool = TITULOS[tipo];
+	const titulo = pool ? pool[resumen(`titulo|${tipo}|${base}`) % pool.length] : undefined;
+	return {
+		autor,
+		...(dominio ? { empresa: nombreEmpresa(dominio) } : {}),
+		...(titulo !== undefined ? { titulo } : {})
+	};
+}

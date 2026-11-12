@@ -21,13 +21,13 @@
 		ip: 'IP or range',
 		usuario: 'Username',
 		comando: 'Command or text',
-		trampa: 'Decoy'
+		trampa: 'Honeypot'
 	};
 	const PISTA: Record<string, string> = {
 		ip: 'An IP address (10.0.0.5) or a CIDR range (10.0.0.0/24, 2001:db8::/32).',
 		usuario: 'The exact username the attacker tried (e.g. root).',
 		comando: 'Text to look for in what the attacker typed or sent (e.g. /etc/passwd).',
-		trampa: 'All events from this decoy.'
+		trampa: 'All events from this honeypot.'
 	};
 
 	/*
@@ -97,7 +97,7 @@
 			</select>
 		</div>
 		<div class="campo valor">
-			<label for="valor">{criterio === 'trampa' ? 'is from the decoy' : 'matches'}</label>
+			<label for="valor">{criterio === 'trampa' ? 'is from the honeypot' : 'matches'}</label>
 			{#if criterio === 'trampa'}
 				<select id="valor" name="valor" bind:value={valorTrampa}>
 					{#each data.trampas as t (t.id)}

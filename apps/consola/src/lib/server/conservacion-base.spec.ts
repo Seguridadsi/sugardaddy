@@ -169,3 +169,40 @@ describe.skipIf(!hayBase)('la consola borra las entradas de lista caducadas', ()
 		expect(quedan).toContain('203.0.113.203');
 	});
 });
+
+describe.skipIf(!hayBase)('la consola borra las sesiones que ya no pueden valer', () => {
+	const vieja = `${P}-sesion-vieja`;
+	const reciente = `${P}-sesion-reciente`;
+	const fila = (id: string, creada: Date) => ({
+		id,
+		oid: `${P}-oid`,
+		correo: 'zz@example.test',
+		nombre: 'zz',
+		roles: [],
+		creada,
+		ultimaActividad: creada
+	});
+	const limpiar = () => db.delete(s.sesiones).where(like(s.sesiones.id, `${P}-sesion%`));
+	beforeAll(async () => {
+		await limpiar();
+		await db
+			.insert(s.sesiones)
+			.values([
+				fila(vieja, new Date(Date.now() - 8 * 24 * 60 * 60_000)),
+				fila(reciente, new Date(Date.now() - 60 * 60_000))
+			]);
+	});
+	afterAll(limpiar);
+
+	it('se van las de hace más de una semana; las demás se quedan', async () => {
+		const { borrarSesionesMuertas } = await import('./conservacion');
+		expect(await borrarSesionesMuertas()).toBeGreaterThanOrEqual(1);
+		const quedan = (
+			await db
+				.select({ id: s.sesiones.id })
+				.from(s.sesiones)
+				.where(like(s.sesiones.id, `${P}-sesion%`))
+		).map((q) => q.id);
+		expect(quedan).toEqual([reciente]);
+	});
+});

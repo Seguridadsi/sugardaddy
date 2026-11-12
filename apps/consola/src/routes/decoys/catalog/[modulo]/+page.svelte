@@ -2,7 +2,7 @@
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import LogoTrampa from '$lib/components/LogoTrampa.svelte';
-	import { nombreTipo } from '$lib/formato';
+	import { licenciaVisible, nombreTipo } from '$lib/formato';
 	import { iconoTrampa } from '$lib/logos';
 	import { puede } from '$lib/permisos';
 
@@ -18,7 +18,7 @@
 	<title>{m.nombre} — Sugardaddy</title>
 </svelte:head>
 
-<a class="volver" href={resolve('/decoys')}>← Decoys</a>
+<a class="volver" href={resolve('/decoys/catalog')}>← Catalog</a>
 
 <div class="cabecera">
 	<div class="titulo">
@@ -32,7 +32,7 @@
 	{#if m.instaladas > 0}
 		<p class="estado instalada">
 			✓ Deployed{m.instaladas > 1 ? ` · ${m.instaladas}` : ''}
-			<a href="/decoys">View in Decoys</a>
+			<a href="/decoys">View in Honeypots</a>
 		</p>
 	{:else if m.disponible}
 		<p class="estado incluida">Available</p>
@@ -137,13 +137,19 @@
 			<p class="eyebrow">Image</p>
 			<p class="mono imagen">{m.imagen}</p>
 		{/if}
+		{#if m.dePartner}
+			<p class="eyebrow">Signed by</p>
+			<p>Developed and signed by {data.operador}. Not reviewed by SeguridadSI.</p>
+		{/if}
 		{#if m.procedencia}
 			<p class="eyebrow">Origin</p>
 			<p>
 				<a href={m.procedencia.url} rel="noreferrer noopener" target="_blank"
 					>{m.procedencia.proyecto}</a
 				>
-				· {m.procedencia.licencia} · reviewed and signed by SeguridadSI
+				· {licenciaVisible(m.procedencia.licencia)}{m.dePartner
+					? ''
+					: ' · reviewed and signed by SeguridadSI'}
 			</p>
 			{#if credito}
 				<p class="credito">{credito}</p>

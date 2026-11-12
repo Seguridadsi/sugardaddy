@@ -414,7 +414,7 @@ describe.skipIf(!hayBase)('la página Destinos', () => {
 			status: 400,
 			data: {
 				errores: [
-					'The decoy "Credencial de fs01" points to the address of this target: remove it first.'
+					'The honeypot "Credencial de fs01" points to the address of this target: remove it first.'
 				]
 			}
 		});
@@ -481,7 +481,7 @@ describe.skipIf(!hayBase)('la página Destinos', () => {
 		const cow = `${P}-cow`;
 		expect(await accion(rutaFicha, 'baja', cow)).toMatchObject({
 			status: 400,
-			data: { accion: 'baja', error: 'Remove its decoys first.' }
+			data: { accion: 'baja', error: 'Remove its honeypots first.' }
 		});
 		expect(await accion(rutaFicha, 'baja', `${P}-local`)).toMatchObject({
 			status: 400,

@@ -9,6 +9,17 @@
  * eventos; solo lee lo ya guardado.
  */
 import { createHmac } from 'node:crypto';
+import http from 'node:http';
+import https from 'node:https';
+import { isIP } from 'node:net';
+import {
+	ErrorDestino,
+	explicarError,
+	puertoDePrueba,
+	resolver,
+	sinCorchetes,
+	type Direccion
+} from './destino-red';
 import {
 	eventosParaWebhook,
 	guardarFalloWebhook,
@@ -25,6 +36,60 @@ const TIMEOUT_MS = 10_000;
 let enviando = false;
 /* El último fallo apuntado, para no reescribirlo en cada tic. */
 let ultimoFallo: string | null | undefined;
+
+/*
+ * El POST a la dirección del cliente. El nombre se resuelve y se comprueba
+ * antes (destino-red: nunca al propio nodo, a sus contenedores ni a los
+ * metadatos de la nube) y se conecta a esa dirección ya comprobada, sin volver
+ * a preguntar al DNS. Sin seguir redirecciones (CON-8) y sin leer el cuerpo de
+ * la respuesta: solo importan el estado y, si redirige, a dónde.
+ */
+async function publicar(
+	url: URL,
+	cabeceras: Record<string, string>,
+	cuerpo: string
+): Promise<{ estado: number; destino?: string }> {
+	if (url.protocol !== 'https:' && url.protocol !== 'http:')
+		throw new ErrorDestino('the address must start with http:// or https://');
+	const dirs = await resolver(url.hostname);
+	const servidor = sinCorchetes(url.hostname);
+	const cifrado = url.protocol === 'https:';
+	const puerto = puertoDePrueba(url.hostname) ?? (url.port ? Number(url.port) : cifrado ? 443 : 80);
+	return new Promise((resolve, reject) => {
+		const peticion = (cifrado ? https : http).request(
+			{
+				method: 'POST',
+				host: servidor,
+				port: puerto,
+				path: `${url.pathname}${url.search}`,
+				headers: {
+					host: url.host,
+					'content-length': String(Buffer.byteLength(cuerpo)),
+					...cabeceras
+				},
+				...(cifrado && !isIP(servidor) ? { servername: servidor } : {}),
+				lookup: (_h: string, opciones: { all?: boolean } | unknown, cb?: unknown) => {
+					const f = (typeof opciones === 'function' ? opciones : cb) as (
+						e: Error | null,
+						a: string | Direccion[],
+						fam?: number
+					) => void;
+					if (typeof opciones === 'object' && (opciones as { all?: boolean })?.all) f(null, dirs);
+					else f(null, dirs[0].address, dirs[0].family);
+				},
+				agent: false,
+				signal: AbortSignal.timeout(TIMEOUT_MS)
+			},
+			(r) => {
+				const destino = r.headers.location;
+				r.resume();
+				resolve({ estado: r.statusCode ?? 0, ...(destino ? { destino } : {}) });
+			}
+		);
+		peticion.on('error', reject);
+		peticion.end(cuerpo);
+	});
+}
 
 async function apuntar(detalle: string | null) {
 	if (detalle === ultimoFallo) return;
@@ -54,27 +119,30 @@ export async function enviarWebhookPendientes() {
 				cabeceras['x-sugardaddy-firma'] =
 					'sha256=' + createHmac('sha256', secreto).update(cuerpo).digest('hex');
 			try {
-				const res = await fetch(cfg.url, {
-					method: 'POST',
-					headers: cabeceras,
-					body: cuerpo,
-					/* Una redirección no se sigue: llevaría los eventos a otra dirección (CON-8). */
-					redirect: 'manual',
-					signal: AbortSignal.timeout(TIMEOUT_MS)
-				});
+				const res = await publicar(new URL(cfg.url), cabeceras, cuerpo);
 				/* Si el cliente no lo acepta (también una redirección), se para y se reintenta
 				 * desde aquí en el próximo tic (no se avanza la marca de agua). */
-				if (!res.ok) {
-					const destino = res.headers.get('location');
+				if (res.estado < 200 || res.estado >= 300) {
 					await apuntar(
-						res.status >= 300 && res.status < 400
-							? `HTTP ${res.status}: the receiver redirects${destino ? ` to ${destino.slice(0, 200)}` : ''}, and redirects are not followed. Put the final URL.`
-							: `HTTP ${res.status}`
+						res.estado >= 300 && res.estado < 400
+							? `HTTP ${res.estado}: the receiver redirects${res.destino ? ` to ${res.destino.slice(0, 200)}` : ''}, and redirects are not followed. Put the final URL.`
+							: `HTTP ${res.estado}`
 					);
 					return;
 				}
 			} catch (e) {
-				await apuntar(`no response: ${String((e as Error).message ?? e).slice(0, 200)}`);
+				/* Un destino prohibido se dice tal cual; lo demás, explicado sin la ruta. */
+				let donde = 'the receiver';
+				try {
+					donde = new URL(cfg.url).host;
+				} catch {
+					/* La dirección guardada no es una URL: lo dirá el error. */
+				}
+				await apuntar(
+					e instanceof ErrorDestino
+						? `not sent: ${e.message}`
+						: `no response: ${explicarError(e, donde).slice(0, 200)}`
+				);
 				return;
 			}
 			await apuntar(null);

@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path';
 import { parse } from 'yaml';
 import { describe, expect, it } from 'vitest';
 import {
+	direccionesLibres,
 	EJECUTORES,
 	MOTIVOS,
 	elegir,
@@ -491,7 +492,7 @@ const casos: Caso[] = [
 					hecho: 'motor.codigo',
 					valor: 'motor.inalcanzable',
 					texto:
-						'The container engine is failing right now; the decoy will wait until it recovers (Engine failure: motor.inalcanzable).'
+						'The container engine is failing right now; the honeypot will wait until it recovers (Engine failure: motor.inalcanzable).'
 				})
 		}
 	},
@@ -598,7 +599,7 @@ const casos: Caso[] = [
 			vias: { contenedor: { motivos: ['puertos.otra-trampa'] } },
 			ademas: (r) =>
 				expect(primero(r, 'contenedor', 'puertos.otra-trampa').texto).toBe(
-					'Port 2222 is already used by the decoy SSH viejo on this target.'
+					'Port 2222 is already used by the honeypot SSH viejo on this target.'
 				)
 		},
 		sondeo: {
@@ -657,7 +658,7 @@ const casos: Caso[] = [
 			vias: { contenedor: { motivos: ['carga.imagen-sin-publicar'] } },
 			ademas: (r) =>
 				expect(primero(r, 'contenedor', 'carga.imagen-sin-publicar').texto).toBe(
-					'The image for this decoy has not been published yet.'
+					'The image for this honeypot has not been published yet.'
 				)
 		}
 	},
@@ -725,7 +726,7 @@ const casos: Caso[] = [
 		reales: {
 			elegida: null,
 			global: 'modulo.sin-vias',
-			ademas: (r) => expect(r.global!.texto).toBe('This decoy has no way to be deployed yet.')
+			ademas: (r) => expect(r.global!.texto).toBe('This honeypot has no way to be deployed yet.')
 		}
 	},
 	{
@@ -868,7 +869,7 @@ const casos: Caso[] = [
 			/* Con el nombre del módulo para el cliente, no su id. */
 			ademas: (r) =>
 				expect(primero(r, 'windows', 'senal.trampa-objetivo').texto).toBe(
-					'Needs a "SSH y Telnet falsos" decoy deployed to receive its signal.'
+					'Needs a "SSH y Telnet falsos" honeypot deployed to receive its signal.'
 				)
 		}
 	},
@@ -1139,7 +1140,7 @@ const casos: Caso[] = [
 			ademas: (r) =>
 				expect(primero(r, 'windows', 'senal.marca-repetida')).toMatchObject({
 					texto:
-						'The decoy Credencial de fs02 already uses "SVC_SQL4K7" against SSH de copias: choose another value to tell which of the two was used.',
+						'The honeypot Credencial de fs02 already uses "SVC_SQL4K7" against SSH de copias: choose another value to tell which of the two was used.',
 					valor: 'svc_sql4k7'
 				})
 		},
@@ -1328,7 +1329,7 @@ const otros: Caso[] = [
 			vias: { contenedor: { avisos: ['agente.sin-contacto'] } },
 			ademas: (r) =>
 				expect(r.elegida!.avisos[0].texto).toBe(
-					'The sensor on srv01 is not responding; the decoy will be deployed when it returns.'
+					'The sensor on srv01 is not responding; the honeypot will be deployed when it returns.'
 				)
 		}
 	},
@@ -1485,6 +1486,96 @@ describe('elector: casos de §7.5', () => {
 				const r = correr(caso.h, caso.d, caso.c ?? {}, caso.p ?? {}, modo);
 				comprobar(r, modo === 'sondeo' ? (caso.sondeo ?? caso.reales) : caso.reales);
 			});
+});
+
+/*
+ * Una máquina con varias direcciones: una trampa puede publicarse en una sola
+ * (ContextoElector.escucha) y dos con el mismo puerto caben si van en
+ * direcciones distintas. Solo si el sensor dice que sabe hacerlo.
+ */
+describe('elector: una trampa en una sola dirección de la máquina', () => {
+	const varias = (sabe = true) =>
+		motor(ROOTFUL, {
+			...IP_REAL,
+			'red.direcciones': { valor: ['10.50.0.4', '10.50.0.5'] },
+			...(sabe ? { 'sensor.escuchaPorTrampa': { valor: true } } : {})
+		});
+	const otra = (escucha: string | null) => ({
+		trampasDelDestino: [
+			{
+				id: 'ssh-viejo',
+				nombre: 'SSH viejo',
+				puertos: [{ puerto: 2222, protocolo: 'tcp' as const, fijo: false, interno: 2222 }],
+				escucha
+			}
+		]
+	});
+	const p = { puertoSsh: 2222 };
+	const choca: Esperado = {
+		elegida: null,
+		vias: { contenedor: { motivos: ['puertos.otra-trampa'] } }
+	};
+
+	it('mismo puerto en otra dirección: cabe', () => {
+		const r = correr(cowrie, varias(), { ...otra('10.50.0.4'), escucha: '10.50.0.5' }, p, 'reales');
+		comprobar(r, { elegida: 'contenedor', vias: { contenedor: {} } });
+	});
+
+	it('mismo puerto en la misma dirección: choca', () => {
+		const r = correr(cowrie, varias(), { ...otra('10.50.0.4'), escucha: '10.50.0.4' }, p, 'reales');
+		comprobar(r, choca);
+	});
+
+	it('en todas las direcciones choca con la que ya tiene una', () => {
+		const r = correr(cowrie, varias(), { ...otra('10.50.0.4'), escucha: null }, p, 'reales');
+		comprobar(r, choca);
+	});
+
+	it('en una dirección choca con la que está en todas', () => {
+		const r = correr(cowrie, varias(), { ...otra(null), escucha: '10.50.0.5' }, p, 'reales');
+		comprobar(r, choca);
+	});
+
+	it('sin elegir aún: vale si queda alguna dirección libre, y no si no queda', () => {
+		comprobar(correr(cowrie, varias(), otra('10.50.0.4'), p, 'reales'), {
+			elegida: 'contenedor',
+			vias: { contenedor: {} }
+		});
+		comprobar(correr(cowrie, varias(), otra(null), p, 'reales'), choca);
+		/* Un sensor que no sabe publicar en una sola: como siempre. */
+		comprobar(correr(cowrie, varias(false), otra('10.50.0.4'), p, 'reales'), choca);
+	});
+
+	it('una dirección que no es de la máquina no vale', () => {
+		const r = correr(cowrie, varias(), { trampasDelDestino: [], escucha: '10.9.9.9' }, p, 'reales');
+		comprobar(r, { elegida: null, vias: { contenedor: { motivos: ['puertos.direccion-ajena'] } } });
+		expect(primero(r, 'contenedor', 'puertos.direccion-ajena').texto).toBe(
+			'10.9.9.9 is not one of the addresses of srv01: choose one of its addresses, or all of them.'
+		);
+	});
+
+	it('con un sensor que aún no sabe, no se puede elegir dirección', () => {
+		const r = correr(
+			cowrie,
+			varias(false),
+			{ trampasDelDestino: [], escucha: '10.50.0.5' },
+			p,
+			'reales'
+		);
+		comprobar(r, {
+			elegida: null,
+			vias: { contenedor: { motivos: ['puertos.direccion-sin-soporte'] } }
+		});
+	});
+
+	it('direccionesLibres da las que se pueden elegir', () => {
+		const puertos = [{ puerto: 2222, protocolo: 'tcp' as const, fijo: false, interno: 2222 }];
+		expect(
+			direccionesLibres(puertos, varias().hechos, otra('10.50.0.4').trampasDelDestino)
+		).toEqual(['10.50.0.5']);
+		expect(direccionesLibres(puertos, varias().hechos, otra(null).trampasDelDestino)).toEqual([]);
+		expect(direccionesLibres(puertos, varias(false).hechos, [])).toEqual([]);
+	});
 });
 
 describe('elector: lo demás', () => {

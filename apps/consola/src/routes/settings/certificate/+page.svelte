@@ -61,16 +61,16 @@
 					It only works for {data.direccion ?? 'this console'}, and only for websites.
 				</p>
 				<p class="ayuda">
-					If someone took over this machine, which sits next to the decoys and is meant to attract
-					attackers, this root would only let them pretend to be this console: not your other
-					websites, your software updates or your email. A name also covers the names below it (<code
-						>x.{data.direccion}</code
-					>), so do not use names under the console's for anything else.
+					If someone took over this machine, which sits next to the honeypots and is meant to
+					attract attackers, this root would only let them pretend to be this console: not your
+					other websites, your software updates or your email. A name also covers the names below it
+					(<code>x.{data.direccion}</code>), so do not use names under the console's for anything
+					else.
 				</p>
 			{:else if data.modo === 'caddy'}
 				<p class="estado mal">This root can be used for any website.</p>
 				<p class="ayuda">
-					Its key lives on this machine, which sits next to the decoys and is meant to attract
+					Its key lives on this machine, which sits next to the honeypots and is meant to attract
 					attackers. Whoever took it could impersonate any website to the computers that trust it.
 					Replace it with the new root below.
 				</p>

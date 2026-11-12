@@ -347,10 +347,10 @@ describe('renderizar', () => {
 		const p = deCredencial();
 		const { objetivo: _, ...sinObjetivo } = p;
 		expect(errores(credencial, 'linux', sinObjetivo)).toEqual([
-			'Trampa SSH a la que apunta: the decoy it points to is missing'
+			'Trampa SSH a la que apunta: the honeypot it points to is missing'
 		]);
 		expect(errores(credencial, 'linux', { ...p, objetivo: 'no-esta' })).toEqual([
-			'Trampa SSH a la que apunta: decoy no-esta does not exist'
+			'Trampa SSH a la que apunta: honeypot no-esta does not exist'
 		]);
 		expect(
 			errores(
@@ -360,7 +360,7 @@ describe('renderizar', () => {
 				contexto({ trampas: { 'cowrie-1': { parametros: { puertoSsh: 22 } } } })
 			)
 		).toEqual([
-			'Trampa SSH a la que apunta: the target of decoy cowrie-1 has no address; set it in Targets'
+			'Trampa SSH a la que apunta: the target of honeypot cowrie-1 has no address; set it in Targets'
 		]);
 		/* En sh llega como SD_OBJETIVO_PUERTOSSH: también se busca. */
 		expect(
@@ -371,7 +371,7 @@ describe('renderizar', () => {
 				contexto({ trampas: { 'cowrie-1': { direccion: '10.20.0.5', parametros: {} } } })
 			)
 		).toEqual([
-			'Trampa SSH a la que apunta: decoy cowrie-1 has no the parameter for SD_OBJETIVO_PUERTOSSH'
+			'Trampa SSH a la que apunta: honeypot cowrie-1 has no the parameter for SD_OBJETIVO_PUERTOSSH'
 		]);
 		expect(
 			errores(
@@ -465,7 +465,7 @@ describe('renderizar', () => {
 		m.vias[1].comprobacion.prueba.pasos[0].texto = 'Haz un GET a ${baliza_url}: sale la imagen.';
 		const h = honeycosa(m);
 		expect(errores(h, 'linux', deCredencial())).toEqual([
-			'Beacon URL: the beacon URL of this decoy is missing (it is minted when the decoy is enrolled)'
+			'Beacon URL: the beacon URL of this honeypot is missing (it is minted when the honeypot is enrolled)'
 		]);
 		const url = 'https://nube.empresa.example/b/clave-cebo-123';
 		const p = generar(h, 'linux', deCredencial(), contexto({ baliza_url: url }));
@@ -678,7 +678,7 @@ describe('exportar', () => {
 		const t = texto(exportar(windows, 'ps1').contenido).replace(/^\uFEFF/, '');
 		const [primera, segunda, ...resto] = t.split('\r\n');
 		expect(primera).toBe(
-			`# Sugardaddy · decoy ssh-fs01 · target fs01 · method windows · 2026-10-17T10:00:00.000Z · sha256 ${windows.sha256}`
+			`# Sugardaddy · honeypot ssh-fs01 · target fs01 · method windows · 2026-10-17T10:00:00.000Z · sha256 ${windows.sha256}`
 		);
 		expect(segunda).toBe(
 			'# Deploy "Credencial de fs01" on fs01 · Credencial SSH sembrada 0.1.0 · Pasos para Windows'
@@ -692,7 +692,7 @@ describe('exportar', () => {
 		expect(t).toContain("  'objetivo_puertoSsh' = '2222'\r\n");
 		const s = texto(exportar(linux, 'sh').contenido).split('\n');
 		expect(s[1]).toBe(
-			`# Sugardaddy · decoy ssh-fs01 · target fs01 · method linux · 2026-10-17T10:00:00.000Z · sha256 ${linux.sha256}`
+			`# Sugardaddy · honeypot ssh-fs01 · target fs01 · method linux · 2026-10-17T10:00:00.000Z · sha256 ${linux.sha256}`
 		);
 		expect(s).toContain("SD_OBJETIVO_PUERTOSSH='2222'");
 		expect(s).toContain("SD_USUARIO='svc_sql4k7'");
@@ -1203,4 +1203,132 @@ $x -join '|'
 			expect(a.status).toBe(0);
 		}
 	);
+});
+
+/* BAL-10: un comodín suelto que llegara a una orden la silenciaría (excluir='*'). */
+describe('renderizar no deja un comodín suelto en una orden', () => {
+	const conOrden = (lenguaje: 'sh' | 'powershell') =>
+		manual(lenguaje, [
+			{
+				texto: 'Usa ${v0}.',
+				orden: lenguaje === 'sh' ? 'printf %s "$SD_V0"' : 'Write-Output $sd.v0'
+			}
+		]);
+	const soloTexto = (lenguaje: 'sh' | 'powershell') => manual(lenguaje, [{ texto: 'Usa ${v0}.' }]);
+
+	it('rechaza "*" o "?" solos, también como trozo separado por ";"', () => {
+		for (const lenguaje of ['sh', 'powershell'] as const)
+			for (const malo of ['*', '?', ' * ', '*;ACME\\svc', 'ACME\\svc;*', 'a;?; b'])
+				expect(errores(conOrden(lenguaje), 'eco', { v0: malo }), `${lenguaje} ${malo}`).toEqual([
+					'Valor 0: "*" or "?" on its own would match everything; narrow it to a full path or an account name'
+				]);
+	});
+
+	it('acepta un comodín dentro de una ruta o de una cuenta', () => {
+		for (const bueno of ['C:\\Program Files\\Veeam\\*', 'ACME\\svc_*', 'ACME\\svc;C:\\a\\b\\*'])
+			expect(errores(conOrden('powershell'), 'eco', { v0: bueno }), bueno).toEqual([]);
+	});
+
+	it('un "*" que solo va a un texto (no a una orden) no se corta', () => {
+		expect(errores(soloTexto('sh'), 'eco', { v0: '*' })).toEqual([]);
+	});
+});
+
+describe('el sello (seal) de unos pasos', () => {
+	const base = generar(credencial, 'windows', deCredencial());
+	const sellado: PasosGenerados = { ...base, sello: 'v1.0123456789abcdef.AbCdEf' };
+
+	it('no entra en el sha256: ponerlo no cambia la huella del contenido', () => {
+		expect(sha256Pasos(sellado)).toBe(base.sha256);
+	});
+
+	it('sale en la cabecera del script y en el .md y .txt cuando está', () => {
+		const ps1 = texto(exportar(sellado, 'ps1').contenido).replace(/^\uFEFF/, '');
+		expect(ps1.split('\r\n')[0]).toContain('· seal v1.0123456789abcdef.AbCdEf');
+		expect(texto(exportar(sellado, 'md').contenido)).toContain(
+			'**seal (version signed by the node):** `v1.0123456789abcdef.AbCdEf`'
+		);
+		expect(texto(exportar(sellado, 'txt').contenido)).toContain(
+			'seal (version signed by the node): v1.0123456789abcdef.AbCdEf'
+		);
+		/* Sin sello, la cabecera no lo nombra. */
+		expect(texto(exportar(base, 'ps1').contenido)).not.toContain('seal ');
+	});
+});
+
+describe('el paso inicial de integridad para si cambian los valores tras la descarga', () => {
+	const reemplazar = (t: string, de: string, a: string) => {
+		if (!t.includes(de)) throw new Error(`no está ${de}`);
+		return t.replace(de, a);
+	};
+	const eco = (lenguaje: 'sh' | 'powershell') =>
+		manual(lenguaje, [
+			{
+				texto: 'Uno ${v0}.',
+				orden: lenguaje === 'sh' ? 'printf %s "$SD_V0"' : 'Write-Output $sd.v0'
+			}
+		]);
+
+	const shDisponibles = ['sh', 'dash'].filter(hay);
+	it.runIf(shDisponibles.length)('el .sh cambiado para antes de ejecutar ningún paso', () => {
+		const p = generar(eco('sh'), 'eco', { v0: 'original' });
+		const f = exportar(p, 'sh');
+		const tocado = {
+			...f,
+			contenido: new TextEncoder().encode(
+				reemplazar(texto(f.contenido), "SD_V0='original'", "SD_V0='cambiado'")
+			)
+		};
+		for (const orden of shDisponibles) {
+			const r = ejecutar([orden], tocado);
+			expect(r.codigo, orden).toBe(1);
+			expect(r.error, orden).toContain('do not match the reviewed steps');
+			expect(r.salida, orden).not.toContain('cambiado');
+		}
+		const bien = ejecutar(['sh'], f);
+		expect([bien.codigo, bien.error]).toEqual([0, '']);
+		expect(bien.salida).toContain('original');
+	});
+
+	it('unos pasos sin variables de bloque no llevan paso de integridad y corren igual', () => {
+		for (const [lenguaje, orden] of [
+			['sh', "printf '%s\\n' hecho"],
+			['powershell', "Write-Output 'hecho'"]
+		] as const) {
+			const p = generar(manual(lenguaje, [{ texto: 'Uno.', orden }]), 'eco', {});
+			const t = texto(exportar(p, lenguaje === 'sh' ? 'sh' : 'ps1').contenido);
+			expect(t, lenguaje).not.toContain('Integrity check');
+		}
+		const sh = ['sh', 'dash'].filter(hay);
+		if (sh.length) {
+			const p = generar(
+				manual('sh', [{ texto: 'Uno.', orden: "printf '%s\\n' hecho" }]),
+				'eco',
+				{}
+			);
+			const r = ejecutar(['sh'], exportar(p, 'sh'));
+			expect([r.codigo, r.error]).toEqual([0, '']);
+			expect(r.salida).toContain('hecho');
+		}
+	});
+
+	const pwsh = ['pwsh', 'pwsh-preview'].find(hay);
+	it.runIf(pwsh)('el .ps1 cambiado para antes de ejecutar ningún paso', { timeout: 60_000 }, () => {
+		const orden = [pwsh!, '-NoProfile', '-NonInteractive', '-File'];
+		const p = generar(eco('powershell'), 'eco', { v0: 'original' });
+		const f = exportar(p, 'ps1');
+		const tocado = {
+			...f,
+			contenido: new TextEncoder().encode(
+				reemplazar(texto(f.contenido), "'original'", "'cambiado'")
+			)
+		};
+		const r = ejecutar(orden, tocado);
+		expect(r.codigo).not.toBe(0);
+		expect(r.error).toContain('do not match the reviewed steps');
+		expect(r.salida).not.toContain('cambiado');
+		const bien = ejecutar(orden, f);
+		expect([bien.codigo, bien.error]).toEqual([0, '']);
+		expect(bien.salida).toContain('original');
+	});
 });

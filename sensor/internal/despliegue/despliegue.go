@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -105,7 +106,51 @@ const (
 	CodigoCatalogo = "catalogo.fuera"
 	CodigoSalida   = "aislamiento.salida"
 	CodigoID       = "plan.id"
+	// CodigoEscucha: la trampa pide publicarse en una dirección que esta máquina no tiene.
+	CodigoEscucha = "plan.escucha"
 )
+
+// errorConCodigo es un rechazo de config con su código estable para la consola.
+type errorConCodigo struct{ codigo, texto string }
+
+func (e *errorConCodigo) Error() string { return e.texto }
+
+// escuchaDe da la dirección en la que se publica una trampa que pide una sola
+// (plan.TrampaPlan.Escucha). La dirección la manda la consola y no va firmada:
+// solo vale una IPv4 de las que el propio sensor ha medido en su máquina
+// (nunca la local ni un puente de Docker, que DireccionesDeRed ya deja fuera)
+// y, si el sensor publica en una fija, esa. Lo demás es un error con código, no
+// un «en todas»: publicarla donde no se pidió es justo lo que se quería evitar.
+func escuchaDe(o Opciones, s plan.TrampaPlan) (string, error) {
+	pedida := strings.TrimSpace(s.Escucha)
+	if pedida == "" {
+		return "", nil
+	}
+	ip, err := netip.ParseAddr(pedida)
+	if err != nil || !ip.Is4() || ip.IsLoopback() || ip.IsUnspecified() {
+		return "", &errorConCodigo{CodigoEscucha, fmt.Sprintf("decoy %s asks to listen on %q, which is not a usable IPv4 address", s.ID, recortar(pedida, 60))}
+	}
+	if o.Escucha != "" && o.Escucha != "0.0.0.0" {
+		if o.Escucha != ip.String() {
+			return "", &errorConCodigo{CodigoEscucha, fmt.Sprintf("decoy %s asks to listen on %s, but this sensor publishes only on %s", s.ID, ip, o.Escucha)}
+		}
+		return ip.String(), nil
+	}
+	if len(o.Direcciones) == 0 {
+		return "", &errorConCodigo{CodigoEscucha, fmt.Sprintf("decoy %s asks to listen on %s and the sensor has not measured the addresses of its machine yet", s.ID, ip)}
+	}
+	if !slices.Contains(o.Direcciones, ip.String()) {
+		return "", &errorConCodigo{CodigoEscucha, fmt.Sprintf("decoy %s asks to listen on %s, which is not an address of this machine (%s)", s.ID, ip, strings.Join(o.Direcciones, ", "))}
+	}
+	return ip.String(), nil
+}
+
+func recortar(t string, n int) string {
+	if len(t) <= n {
+		return t
+	}
+	return t[:n]
+}
 
 type Estado struct {
 	ID    string `json:"id"`
@@ -187,10 +232,20 @@ func config(o Opciones, sensor, licenciaRuta string, s plan.TrampaPlan, conDisco
 		return nil, nil, fmt.Errorf("decoy %s is missing its container or isolation", s.ID)
 	}
 
+	// La dirección propia de esta trampa, si pide una sola de las de la máquina.
+	escucha, err := escuchaDe(o, s)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	rellenar := func(t string) string {
 		return hueco.ReplaceAllStringFunc(t, func(h string) string {
 			nombre := h[2 : len(h)-1]
 			if nombre == "sd.ipsAnfitrion" {
+				// La que anuncia es por la que le llegan: la suya, si tiene una.
+				if escucha != "" {
+					return escucha
+				}
 				return ipsAnfitrion(o)
 			}
 			return fmt.Sprint(s.Parametros[nombre])
@@ -229,7 +284,6 @@ func config(o Opciones, sensor, licenciaRuta string, s plan.TrampaPlan, conDisco
 		if s.Manifiesto.Red.Modo != "ip-propia" {
 			return nil, nil, fmt.Errorf("decoy %s has network mode %q and the sensor only understands ip-propia (docs/diseno/red.md §1)", s.ID, s.Manifiesto.Red.Modo)
 		}
-		var err error
 		ipPropia, err = IPPropia(o, s)
 		if err != nil {
 			return nil, nil, err
@@ -246,7 +300,10 @@ func config(o Opciones, sensor, licenciaRuta string, s plan.TrampaPlan, conDisco
 			}
 			expuestos[clave] = map[string]any{}
 			ips := []string{o.Escucha}
-			if o.Escucha == "0.0.0.0" && o.EnLaRed != nil {
+			if escucha != "" {
+				// Solo en la suya: ni en las demás de la máquina ni en la local.
+				ips = []string{escucha}
+			} else if o.Escucha == "0.0.0.0" && o.EnLaRed != nil {
 				if en := o.EnLaRed(p.Protocolo, anfitrion); len(en) > 0 {
 					ips = en
 				}
@@ -716,7 +773,12 @@ func Aplicar(ctx context.Context, d *docker.Cliente, o Opciones, p plan.Plan) ([
 		nec := necesidad(s, licenciaRuta, volsImagen)
 		cfg, donde, err := config(o, p.Sensor, licenciaRuta, s, conDisco, volsImagen)
 		if err != nil {
-			estados = append(estados, Estado{ID: s.ID, Donde: "error: " + err.Error()})
+			e := Estado{ID: s.ID, Donde: "error: " + err.Error()}
+			var conCodigo *errorConCodigo
+			if errors.As(err, &conCodigo) {
+				e.Codigo = conCodigo.codigo
+			}
+			estados = append(estados, e)
 			continue
 		}
 		aqui := strings.Join(donde, ", ")

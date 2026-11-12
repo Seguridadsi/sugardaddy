@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import { sinVaciar } from '$lib/guardar';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import { diaCorto } from '$lib/fechas-pantalla';
@@ -57,7 +58,7 @@
 			{/if}
 		</section>
 		<div class="lateral">
-			<form class="panel bloque" method="POST" action="?/tor" use:enhance>
+			<form class="panel bloque" method="POST" action="?/tor" use:enhance={sinVaciar}>
 				<h2>What to do with it</h2>
 				<p class="nota">
 					Events arriving from Tor are always flagged. Sending the list to your firewalls is your

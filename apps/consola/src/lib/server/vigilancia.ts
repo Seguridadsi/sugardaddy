@@ -126,7 +126,7 @@ export async function incidentesPorSubir(v: Vigilancia, limite = POR_ENVIO) {
 		eventos: f.eventos,
 		trampas: f.trampas
 			.slice(0, MAX_TRAMPAS)
-			.map((x) => acotar(nombres[x] ?? 'Removed decoy', 60) || 'Unnamed'),
+			.map((x) => acotar(nombres[x] ?? 'Removed honeypot', 60) || 'Unnamed'),
 		primero: f.primero.toISOString(),
 		ultimo: f.ultimo.toISOString(),
 		abierto: f.abierto.toISOString(),

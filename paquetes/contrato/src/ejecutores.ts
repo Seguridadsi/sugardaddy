@@ -1,7 +1,7 @@
 import type { Hechos } from './capacidades.ts';
 import type { ContextoElector, Destino } from './elector.ts';
 import { motivo, type Motivo } from './motivos.ts';
-import { puertosPublicados } from './puertos.ts';
+import { puertosPublicados, type Puerto } from './puertos.ts';
 import type { CargaContenedor, Fuente, IdEjecutor, Requisito, TipoDestino, Via } from './tipos.ts';
 
 /*
@@ -53,6 +53,35 @@ function lista(hechos: Hechos, clave: string): string[] {
 /* Un digest en ceros: la imagen aún no se ha publicado (la dejan así los módulos nuevos). */
 const SIN_PUBLICAR = /@sha256:0{64}$/;
 
+/* Dos trampas comparten dirección si alguna de las dos se publica en todas, o en la misma. */
+function mismaDireccion(a: string | null | undefined, b: string | null | undefined) {
+	return !a || !b || a === b;
+}
+
+/*
+ * Las direcciones de la máquina en las que estos puertos no los tiene ya otra
+ * trampa del destino: las que se pueden elegir para publicarla en una sola.
+ * Vacía si el sensor no sabe hacerlo (sensor.escuchaPorTrampa) o no ha contado
+ * sus direcciones.
+ */
+export function direccionesLibres(
+	puertos: Puerto[],
+	hechos: Hechos,
+	otras: ContextoElector['trampasDelDestino']
+): string[] {
+	if (hechos['sensor.escuchaPorTrampa']?.valor !== true) return [];
+	return lista(hechos, 'red.direcciones').filter(
+		(ip) =>
+			!otras.some(
+				(o) =>
+					mismaDireccion(ip, o.escucha) &&
+					o.puertos.some((y) =>
+						puertos.some((x) => x.puerto === y.puerto && x.protocolo === y.protocolo)
+					)
+			)
+	);
+}
+
 /*
  * Lo que hoy hacen plan() y choquesDePuertos() en la consola, con código:
  * imagen sin publicar, imagen privada para un sensor sin credencial y choques
@@ -74,14 +103,33 @@ function comprobarContenedor(
 	if (!contenedor.imagenPublica && privado === false) motivos.push(motivo('carga.sin-credencial'));
 	const reservados = lista(d.hechos, 'puertos.reservados');
 	const ocupados = lista(d.hechos, 'puertos.ocupados');
-	for (const x of puertosPublicados({ contenedor }, p)) {
+	const publicados = puertosPublicados({ contenedor }, p);
+	const direcciones = lista(d.hechos, 'red.direcciones');
+	const porDireccion = d.hechos['sensor.escuchaPorTrampa']?.valor === true;
+	if (c.escucha) {
+		if (!porDireccion) motivos.push(motivo('puertos.direccion-sin-soporte', { destino: d.nombre }));
+		else if (!direcciones.includes(c.escucha))
+			motivos.push(motivo('puertos.direccion-ajena', { direccion: c.escucha, destino: d.nombre }));
+	}
+	/*
+	 * Sin elegir aún (el paso «¿dónde?»): las otras trampas no estorban si queda
+	 * alguna dirección de la máquina con esos puertos libres; se elige en el formulario.
+	 */
+	const cabeEnAlguna =
+		c.escucha === undefined &&
+		direccionesLibres(publicados, d.hechos, c.trampasDelDestino).length > 0;
+	for (const x of publicados) {
 		const clave = `${x.protocolo}/${x.puerto}`;
 		const datos = { puerto: x.puerto, proto: x.protocolo.toUpperCase(), destino: d.nombre };
 		if (reservados.includes(clave))
 			motivos.push(motivo('puertos.reservado', datos, { valor: clave }));
 		if (ocupados.includes(clave)) motivos.push(motivo('puertos.ocupado', datos, { valor: clave }));
+		if (cabeEnAlguna) continue;
 		for (const o of c.trampasDelDestino)
-			if (o.puertos.some((y) => y.puerto === x.puerto && y.protocolo === x.protocolo))
+			if (
+				mismaDireccion(c.escucha, o.escucha) &&
+				o.puertos.some((y) => y.puerto === x.puerto && y.protocolo === x.protocolo)
+			)
 				motivos.push(
 					motivo('puertos.otra-trampa', { ...datos, nombre: o.nombre }, { valor: clave })
 				);
@@ -139,22 +187,23 @@ export const EJECUTORES: Readonly<Record<string, Ejecutor>> = congelar({
 				hecho: 'motor.arquitectura',
 				en: ['amd64'],
 				siFalta: 'ignora',
-				motivo: 'Decoy images exist only for amd64.'
+				motivo: 'Honeypot images exist only for amd64.'
 			},
 			{
 				/* Aún no ha llegado nada: hace falta una trampa puesta para saberlo. */
 				hecho: 'red.ipOrigenReal',
 				igual: true,
 				siFalta: 'ignora',
-				motivo: 'The decoys on this machine see the container engine IP, not the attacker IP.',
+				motivo: 'The honeypots on this machine see the container engine IP, not the attacker IP.',
 				remedio:
-					'If you have only tested from the machine itself, test one of its decoys from another computer ("Test"): the warning clears with the first outside IP. Otherwise, check that Docker has iptables enabled.'
+					'If you have only tested from the machine itself, test one of its honeypots from another computer ("Test"): the warning clears with the first outside IP. Otherwise, check that Docker has iptables enabled.'
 			},
 			{
 				hecho: 'motor.codigo',
 				presente: false,
 				nivel: 'avisa',
-				motivo: 'The container engine is failing right now; the decoy will wait until it recovers.'
+				motivo:
+					'The container engine is failing right now; the honeypot will wait until it recovers.'
 			}
 		],
 		pausable: true,

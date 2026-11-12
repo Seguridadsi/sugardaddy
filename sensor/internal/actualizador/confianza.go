@@ -155,6 +155,12 @@ func firmaBuena(pub crypto.PublicKey, texto, firmaB64 string) bool {
 	return false
 }
 
+// FirmaVale dice si esa clave suelta (la de un certificado de delegación, no una de las de
+// confianza) firmó el texto. Mismas dos formas de firma que el resto.
+func FirmaVale(pub crypto.PublicKey, texto, firmaB64 string) bool {
+	return firmaBuena(pub, texto, firmaB64)
+}
+
 // ClaveVerificable lee una clave pública en DER (spki) base64: Ed25519 (la de legado y las de
 // reserva) o ECDSA P-256 (las principales, en el HSM del Key Vault). Cualquier otra, error.
 func ClaveVerificable(b64 string) (crypto.PublicKey, error) {

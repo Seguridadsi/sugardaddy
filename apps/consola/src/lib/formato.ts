@@ -20,15 +20,15 @@ export function entreComillas(nombres: string[]) {
 export function recibeSenalDe(dependientes: string[]) {
 	const cuales = entreComillas(dependientes);
 	const primero = dependientes.length > 1 ? 'remove them first' : `remove ${cuales} first`;
-	return `This decoy feeds ${cuales}: ${primero}.`;
+	return `This honeypot feeds ${cuales}: ${primero}.`;
 }
 
 /* Por qué no se para una trampa: lo sembrado que apunta a ella (§8.4) dejaría de avisar. */
 export function noSeParaPor(dependientes: string[]) {
 	const cuales = entreComillas(dependientes);
 	return dependientes.length > 1
-		? `${cuales} point to this decoy: if you stop it, they will stop alerting. Remove them first.`
-		: `${cuales} points to this decoy: if you stop it, it will stop alerting. Remove it first.`;
+		? `${cuales} point to this honeypot: if you stop it, they will stop alerting. Remove them first.`
+		: `${cuales} points to this honeypot: if you stop it, it will stop alerting. Remove it first.`;
 }
 
 /*
@@ -40,8 +40,8 @@ export function noSeCambiaPor(dependientes: string[], ajustes: string[]) {
 	const que = entreComillas(ajustes);
 	const uno = ajustes.length > 1 ? 'those settings' : 'that setting';
 	return dependientes.length > 1
-		? `${cuales} point to this decoy using its ${que}: if you change it, they will stop alerting. Remove them first or leave ${uno} as ${ajustes.length > 1 ? 'they were' : 'it was'}.`
-		: `${cuales} points to this decoy using its ${que}: if you change it, it will stop alerting. Remove it first or leave ${uno} as ${ajustes.length > 1 ? 'they were' : 'it was'}.`;
+		? `${cuales} point to this honeypot using its ${que}: if you change it, they will stop alerting. Remove them first or leave ${uno} as ${ajustes.length > 1 ? 'they were' : 'it was'}.`
+		: `${cuales} points to this honeypot using its ${que}: if you change it, it will stop alerting. Remove it first or leave ${uno} as ${ajustes.length > 1 ? 'they were' : 'it was'}.`;
 }
 
 /* «Pasos para Windows» → «pasos para Windows»: el nombre de una forma en mitad de una frase. */
@@ -180,3 +180,13 @@ export const textoGeo = (g: Geo | null | undefined) =>
 				.filter(Boolean)
 				.join(' · ')
 		: '';
+
+/*
+ * La licencia de la procedencia de una trampa viene del manifiesto, escrita en castellano
+ * en lo que es nuestro: se enseña en inglés, como el resto de la consola.
+ */
+export function licenciaVisible(texto: string): string {
+	return texto
+		.replace(/Código propio/g, 'In-house code')
+		.replace(/biblioteca estándar de Go/g, 'Go standard library');
+}

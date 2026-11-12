@@ -21,6 +21,7 @@ import {
 	viaDe
 } from '@sugardaddy/contrato';
 import type {
+	CargaContenedor,
 	CargaManual,
 	ContextoElector,
 	Destino,
@@ -32,6 +33,7 @@ import type {
 	Via
 } from '@sugardaddy/contrato';
 import { plataformaDe } from '$lib/destinos';
+import { porDireccion } from '$lib/red';
 import { noSeCambiaPor } from '$lib/formato';
 import { hechosNodo, receptorDelNodo } from './balizas';
 import { honeycosas, nombresModulos, textoDeFicha } from './catalogo';
@@ -51,6 +53,7 @@ import {
 	type Tx
 } from './destinos';
 import { DONDE_MANUAL, generarPasos, objetivosDe, opcionesDeObjetivo } from './pasos';
+import { sellarPasos } from './sello-pasos';
 
 type Fila = {
 	destino: typeof s.destinos.$inferSelect;
@@ -114,10 +117,10 @@ async function bloquear(
 async function contextoEn(
 	bd: Bd,
 	destino: string,
-	extra: { preferida?: string; excepto?: string } = {}
+	extra: { preferida?: string; excepto?: string; escucha?: string | null } = {}
 ): Promise<ContextoElector> {
 	const catalogo = new Map(honeycosas().map((h) => [h.id, h]));
-	const { preferida, excepto } = extra;
+	const { preferida, excepto, escucha } = extra;
 	return {
 		autorizado: true,
 		ejecutoresConsola: EJECUTORES_CONSOLA,
@@ -126,7 +129,9 @@ async function contextoEn(
 			(await trampasConPuertos(catalogo, { destino, excepto }, bd)).get(destino) ?? [],
 		trampas: await trampasDelCliente(bd, excepto),
 		nombresModulos: nombresModulos(catalogo.values()),
-		...(preferida === undefined ? {} : { preferida })
+		...(preferida === undefined ? {} : { preferida }),
+		/* Sin indicar: aún no se ha elegido (ContextoElector.escucha). */
+		...(escucha === undefined ? {} : { escucha })
 	};
 }
 
@@ -139,7 +144,7 @@ async function contextoEn(
 function bloqueoDeAlta(ejecutor: string, d: Destino): string | null {
 	if (Object.hasOwn(EJECUTORES, ejecutor) && EJECUTORES[ejecutor].corre === 'agente')
 		if (d.agente && !d.agente.vivo)
-			return `The sensor on ${d.nombre} is not responding right now, and decoys are deployed while the sensor is online. Come back when it responds.`;
+			return `The sensor on ${d.nombre} is not responding right now, and honeypots are deployed while the sensor is online. Come back when it responds.`;
 	return null;
 }
 
@@ -163,7 +168,13 @@ function resumenDestino(f: Fila, d: Destino) {
  * de la lista de Destinos. Tres consultas, tenga el cliente los destinos que
  * tenga.
  */
-export async function dondePoner(h: Honeycosa) {
+export const dondePoner = async (h: Honeycosa) => (await sondeoDeDestinos())(h);
+
+/*
+ * El sondeo de «¿dónde?» para varias honeycosas a la vez (una plantilla): lee
+ * los destinos y su contexto una sola vez y contesta por cada una.
+ */
+export async function sondeoDeDestinos() {
 	const ahora = Date.now();
 	const catalogo = new Map(honeycosas().map((x) => [x.id, x]));
 	const filas = await db
@@ -177,34 +188,37 @@ export async function dondePoner(h: Honeycosa) {
 	const nombres = nombresModulos(catalogo.values());
 	/* canal.rele es del nodo entero: el mismo para todos los destinos. */
 	const nodo = await hechosNodo();
-	const lista = filas.map((f) => {
-		const d = destinoDelElector(f.destino, f.sensor, ahora);
-		const e = elegir({
-			honeycosa: h,
-			destino: d,
-			parametros: { modo: 'sondeo' },
-			contexto: {
-				autorizado: true,
-				ejecutoresConsola: EJECUTORES_CONSOLA,
-				hechosNodo: nodo,
-				trampasDelDestino: puertos.get(d.id) ?? [],
-				trampas,
-				nombresModulos: nombres
-			}
+	return (h: Honeycosa) => sondear(h);
+	function sondear(h: Honeycosa) {
+		const lista = filas.map((f) => {
+			const d = destinoDelElector(f.destino, f.sensor, ahora);
+			const e = elegir({
+				honeycosa: h,
+				destino: d,
+				parametros: { modo: 'sondeo' },
+				contexto: {
+					autorizado: true,
+					ejecutoresConsola: EJECUTORES_CONSOLA,
+					hechosNodo: nodo,
+					trampasDelDestino: puertos.get(d.id) ?? [],
+					trampas,
+					nombresModulos: nombres
+				}
+			});
+			const { elegida, motivo } = resumenEleccion(h, e);
+			const bloqueo = elegida ? bloqueoDeAlta(elegida.ejecutor, d) : null;
+			/* Con el sensor sin contacto lo dice el bloqueo, y el aviso del elector («se pondrá cuando vuelva») confundiría. */
+			if (elegida && bloqueo)
+				elegida.avisos = elegida.avisos.filter((a) => a.codigo !== 'agente.sin-contacto');
+			return { ...resumenDestino(f, d), elegida, motivo, bloqueo };
 		});
-		const { elegida, motivo } = resumenEleccion(h, e);
-		const bloqueo = elegida ? bloqueoDeAlta(elegida.ejecutor, d) : null;
-		/* Con el sensor sin contacto lo dice el bloqueo, y el aviso del elector («se pondrá cuando vuelva») confundiría. */
-		if (elegida && bloqueo)
-			elegida.avisos = elegida.avisos.filter((a) => a.codigo !== 'agente.sin-contacto');
-		return { ...resumenDestino(f, d), elegida, motivo, bloqueo };
-	});
-	const grupo = (x: (typeof lista)[number]) =>
-		!x.elegida ? 3 : x.bloqueo ? 2 : x.elegida.avisos.length ? 1 : 0;
-	return lista
-		.map((x, i) => ({ x, i }))
-		.sort((a, b) => grupo(a.x) - grupo(b.x) || a.i - b.i)
-		.map(({ x }) => x);
+		const grupo = (x: (typeof lista)[number]) =>
+			!x.elegida ? 3 : x.bloqueo ? 2 : x.elegida.avisos.length ? 1 : 0;
+		return lista
+			.map((x, i) => ({ x, i }))
+			.sort((a, b) => grupo(a.x) - grupo(b.x) || a.i - b.i)
+			.map(({ x }) => x);
+	}
 }
 
 /*
@@ -250,8 +264,75 @@ export async function formaEn(h: Honeycosa, destino: string, preferida?: string)
 		bloqueo: via ? bloqueoDeAlta(via.ejecutor, d) : null,
 		manifiesto,
 		pasos: via?.ejecutor === 'manual@1' ? pasosDeVia(h, via) : null,
-		objetivos: opcionesDeObjetivo(h, contexto.trampas)
+		objetivos: opcionesDeObjetivo(h, contexto.trampas),
+		/* Las direcciones de esa máquina entre las que elegir dónde escucha; vacía si no se elige. */
+		direcciones: via ? direccionesParaElegir(via, d) : []
 	};
+}
+
+/*
+ * Las direcciones de la máquina de un destino entre las que se puede elegir
+ * dónde se publica una trampa de contenedor: las que cuenta su sensor, si sabe
+ * publicar en una sola (sensor.escuchaPorTrampa). Vacía con una trampa de «IP
+ * propia» (ya tiene la suya) o de otra vía.
+ */
+function direccionesParaElegir(via: Via, d: Destino): string[] {
+	if (via.ejecutor !== 'contenedor@1' || (via.carga as CargaContenedor).red) return [];
+	if (d.hechos['sensor.escuchaPorTrampa']?.valor !== true) return [];
+	const v = d.hechos['red.direcciones']?.valor;
+	return Array.isArray(v)
+		? v.filter((x): x is string => typeof x === 'string').sort(porDireccion)
+		: [];
+}
+
+/*
+ * Las direcciones de la máquina de un destino entre las que repartir las trampas
+ * de un módulo (una plantilla con «una por dirección»), y las que ya tiene
+ * cogidas alguna trampa de ese destino. Vacías si ahí no se elige.
+ */
+export async function direccionesDeDestino(
+	h: Honeycosa,
+	destino: string
+): Promise<{ direcciones: string[]; usadas: string[] }> {
+	const f = await leerDestino(db, destino);
+	if (!f) return { direcciones: [], usadas: [] };
+	const d = destinoDelElector(f.destino, f.sensor);
+	const e = elegir({
+		honeycosa: h,
+		destino: d,
+		parametros: { modo: 'sondeo' },
+		contexto: await contextoEn(db, d.id)
+	});
+	const via = e.elegida ? viaDe(h, e.elegida.via) : undefined;
+	if (!via) return { direcciones: [], usadas: [] };
+	const usadas = await db
+		.selectDistinct({ escucha: s.trampas.escucha })
+		.from(s.trampas)
+		.where(
+			sql`${s.trampas.destino} = ${d.id} and ${s.trampas.activo} and ${s.trampas.escucha} is not null`
+		);
+	return {
+		direcciones: direccionesParaElegir(via, d),
+		usadas: usadas.map((u) => u.escucha!).filter(Boolean)
+	};
+}
+
+/*
+ * Para la ficha de una trampa de contenedor: dónde escucha hoy (null, en todas)
+ * y las direcciones de su máquina entre las que se puede cambiar. null si ahí
+ * no hay nada que elegir (una sola dirección y escuchando en todas, otra vía,
+ * un sensor que aún no sabe).
+ */
+export async function opcionesDeEscucha(t: FilaTrampa, h: Honeycosa) {
+	const via = viaDe(h, t.via);
+	const destino = await destinoDe(db, t);
+	const f = destino ? await leerDestino(db, destino) : null;
+	if (!via || !f) return null;
+	const direcciones = direccionesParaElegir(via, destinoDelElector(f.destino, f.sensor));
+	if (t.escucha && !direcciones.includes(t.escucha)) direcciones.push(t.escucha);
+	direcciones.sort(porDireccion);
+	if (direcciones.length < 2 && !t.escucha) return null;
+	return { actual: t.escucha ?? null, direcciones };
 }
 
 export type FalloAlta = { errores: string[]; motivos: MotivoVisible[] };
@@ -305,7 +386,7 @@ async function conPasos(
 						.from(s.trampas)
 						.where(eq(s.trampas.id, id))
 				: [];
-		if (!o) return fallo(['The decoy it points to no longer exists: choose another.']);
+		if (!o) return fallo(['The honeypot it points to no longer exists: choose another.']);
 		sensor = o.sensor;
 		senalTrampa = o.id;
 	} else if (fuente.tipo === 'rele') {
@@ -321,7 +402,10 @@ async function conPasos(
 	if (!sensor) return fallo([`Nothing would receive its signal on ${d.nombre}.`]);
 	const r = await generarPasos(tx, h, via, trampa, d, parametros, balizaUrl);
 	if (!r.ok) return fallo([], [motivo('parametros.invalidos', { errores: r.errores.join('; ') })]);
-	return { sensor, senalTrampa, manual: r.valor, donde: DONDE_MANUAL };
+	/* El sello autentica los pasos con la clave del nodo (BAL-10): sin clave, van sin él. */
+	const sello = sellarPasos(r.valor.sha256);
+	const manual = sello ? { ...r.valor, sello } : r.valor;
+	return { sensor, senalTrampa, manual, donde: DONDE_MANUAL };
 }
 
 /*
@@ -341,6 +425,10 @@ export async function darDeAlta(
 		destino: string;
 		via?: string;
 		parametros: Record<string, unknown>;
+		/* La plantilla desde la que se pone, para agruparla con las demás de ella. */
+		plantilla?: string;
+		/* La dirección de la máquina en la que se publica (contenedor); sin ella, en todas. */
+		escucha?: string | null;
 	}
 ): Promise<'creada' | 'con-pasos' | FalloAlta> {
 	const h = v.honeycosa;
@@ -356,7 +444,11 @@ export async function darDeAlta(
 			honeycosa: h,
 			destino: d,
 			parametros: { modo: 'reales', valor: { ok: true, valor: v.parametros } },
-			contexto: await contextoEn(tx, d.id, pedida ? { preferida: pedida.id } : {})
+			/* Al guardar ya está elegida: una dirección o, sin ella, todas (nunca «sin indicar»). */
+			contexto: await contextoEn(tx, d.id, {
+				...(pedida ? { preferida: pedida.id } : {}),
+				escucha: v.escucha?.trim() || null
+			})
 		});
 		const via = pedida ?? (e.elegida ? viaDe(h, e.elegida.via) : undefined);
 		if (!e.elegida || !via || e.elegida.via !== via.id) return fallo([], motivosDe(e, via?.id));
@@ -370,9 +462,10 @@ export async function darDeAlta(
 			destino: d.id,
 			via: via.id,
 			ejecutor: via.ejecutor,
-			parametros: v.parametros
+			parametros: v.parametros,
+			...(v.plantilla ? { plantilla: v.plantilla } : {})
 		};
-		const repetida = fallo(['Identifier: a decoy with that name already exists']);
+		const repetida = fallo(['Identifier: a honeypot with that name already exists']);
 		if (via.ejecutor === 'manual@1') {
 			/*
 			 * El acuñado del documento cebo (honeycosas de fichero) y el token de
@@ -388,7 +481,8 @@ export async function darDeAlta(
 		/* contenedor@1: la despliega el sensor del destino (sin él, el elector ya da agente.falta). */
 		const sensor = d.agente?.sensor;
 		if (!sensor) return fallo([`A sensor is required on ${d.nombre}.`]);
-		return (await crearTrampa(quien, { ...fila, sensor }, tx)) ? 'creada' : repetida;
+		const escucha = v.escucha?.trim() || null;
+		return (await crearTrampa(quien, { ...fila, sensor, escucha }, tx)) ? 'creada' : repetida;
 	});
 }
 
@@ -415,14 +509,14 @@ export async function regenerarPasos(
 ): Promise<'generados' | FalloAlta> {
 	return db.transaction(async (tx: Tx) => {
 		const [antes] = await tx.select().from(s.trampas).where(eq(s.trampas.id, id));
-		if (!antes) return fallo(['That decoy no longer exists.']);
+		if (!antes) return fallo(['That honeypot no longer exists.']);
 		const destino = await destinoDe(tx, antes);
 		await bloquear(tx, { destino, trampa: id, objetivos: objetivosDe(h, v.parametros) });
 		const [t] = await tx.select().from(s.trampas).where(eq(s.trampas.id, id));
-		if (!t || t.ejecutor !== 'manual@1') return fallo(['This decoy is not deployed manually.']);
+		if (!t || t.ejecutor !== 'manual@1') return fallo(['This honeypot is not deployed manually.']);
 		if (t.colocacion !== 'por-colocar')
 			return fallo([
-				'It has already been marked as deployed: a manually deployed decoy cannot be changed. Remove it and deploy another.'
+				'It has already been marked as deployed: a manually deployed honeypot cannot be changed. Remove it and deploy another.'
 			]);
 		const via = viaDe(h, t.via);
 		const f = destino ? await leerDestino(tx, destino) : null;
@@ -490,10 +584,10 @@ export async function cambiarSitio(
 	return db.transaction(async (tx: Tx) => {
 		await bloquear(tx, { destino: nuevo, trampa: id, objetivos: objetivosDe(h, parametros) });
 		const [t] = await tx.select().from(s.trampas).where(eq(s.trampas.id, id));
-		if (!t) return fallo(['That decoy no longer exists.']);
+		if (!t) return fallo(['That honeypot no longer exists.']);
 		if (t.ejecutor !== 'manual@1')
 			return fallo([
-				"A container decoy runs on its sensor's machine: to move it, remove it and deploy it on the other one."
+				"A container honeypot runs on its sensor's machine: to move it, remove it and deploy it on the other one."
 			]);
 		if (t.colocacion === 'retirando')
 			return fallo(['It is being removed: finish removing it, or deploy it again elsewhere.']);
@@ -558,7 +652,9 @@ async function eleccionAlModificar(
 	bd: Bd,
 	t: FilaTrampa,
 	h: Honeycosa,
-	parametros: Record<string, unknown>
+	parametros: Record<string, unknown>,
+	/* La dirección nueva, si lo que se cambia es dónde escucha; sin indicar, la que tiene. */
+	escucha?: string | null
 ): Promise<{ bloquean: Motivo[]; avisos: Motivo[] }> {
 	const destino = await destinoDe(bd, t);
 	const f = destino ? await leerDestino(bd, destino) : null;
@@ -568,7 +664,11 @@ async function eleccionAlModificar(
 		honeycosa: h,
 		destino: destinoDelElector(f.destino, f.sensor),
 		parametros: { modo: 'reales', valor: { ok: true, valor: parametros } },
-		contexto: await contextoEn(bd, f.destino.id, { preferida: via.id, excepto: t.id })
+		contexto: await contextoEn(bd, f.destino.id, {
+			preferida: via.id,
+			excepto: t.id,
+			escucha: escucha === undefined ? t.escucha : escucha
+		})
 	});
 	const x = [...e.validas, ...e.descartadas].find((y) => y.via === via.id);
 	const motivos = x?.motivos ?? (e.global ? [e.global] : []);
@@ -650,12 +750,48 @@ export async function modificarConElector(
 	return db.transaction(async (tx: Tx) => {
 		await bloquear(tx, { destino: await destinoDe(tx, t), trampa: t.id });
 		const [ahora] = await tx.select().from(s.trampas).where(eq(s.trampas.id, t.id));
-		if (!ahora) return fallo(['That decoy no longer exists.']);
+		if (!ahora) return fallo(['That honeypot no longer exists.']);
 		const sembrado = await sembradoQueUsa(tx, t.id, h, ahora.parametros, v.parametros);
 		if (sembrado) return fallo([noSeCambiaPor(sembrado.dependientes, sembrado.ajustes)]);
 		const { bloquean } = await eleccionAlModificar(tx, ahora, h, v.parametros);
 		if (bloquean.length) return fallo([], bloquean);
 		await modificarTrampa(quien, t.id, v, tx);
+		return 'modificada';
+	});
+}
+
+/*
+ * Cambiar la dirección de la máquina en la que se publica una trampa de
+ * contenedor: una de las de su sensor o, con null, todas. Con el destino y la
+ * trampa bloqueados y el elector con la dirección nueva: si ahí choca un puerto
+ * con otra trampa, o la dirección no es de esa máquina, no se guarda y vuelven
+ * sus motivos. El sensor la rehace al leer el plan.
+ */
+export async function cambiarEscucha(
+	quien: string,
+	t: FilaTrampa,
+	h: Honeycosa,
+	escucha: string | null
+): Promise<'modificada' | FalloAlta> {
+	const nueva = escucha?.trim() || null;
+	if (t.ejecutor !== 'contenedor@1')
+		return fallo(['Only a honeypot that runs on a sensor has a listening address.']);
+	return db.transaction(async (tx: Tx) => {
+		await bloquear(tx, { destino: await destinoDe(tx, t), trampa: t.id });
+		const [ahora] = await tx.select().from(s.trampas).where(eq(s.trampas.id, t.id));
+		if (!ahora) return fallo(['That honeypot no longer exists.']);
+		if ((ahora.escucha ?? null) === nueva) return 'modificada';
+		const { bloquean } = await eleccionAlModificar(tx, ahora, h, ahora.parametros, nueva);
+		if (bloquean.length) return fallo([], bloquean);
+		await tx
+			.update(s.trampas)
+			.set({ escucha: nueva, donde: 'aplicando cambios…' })
+			.where(eq(s.trampas.id, t.id));
+		await tx.insert(s.auditoria).values({
+			quien,
+			accion: 'decoy listening address changed',
+			detalle: { id: t.id, escucha: nueva }
+		});
 		return 'modificada';
 	});
 }

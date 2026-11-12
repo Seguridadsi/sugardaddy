@@ -7,10 +7,17 @@ documentacion/community/
 documentacion/cloud/
 documentacion/static/
 documentacion/marca.css
+documentacion/i18n/*/docusaurus-plugin-content-docs*/
 documentacion/build/
+documentacion/interna/
+documentacion/build-interna/
 documentacion/.docusaurus/
 
 # Lo generan drizzle-kit y scripts/mapa-espana.ts: formatearlos a mano no sirve.
 apps/*/drizzle/meta/
 apps/consola/src/lib/mapa/espana.json
 .publicacion/
+
+# Las fuentes de los esquemas (marca/README.md): de ellas sale la imagen tal cual, y
+# reformatearlas puede mover espacios del dibujo.
+marca/diagramas/fuente/

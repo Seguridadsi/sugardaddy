@@ -2,9 +2,11 @@ package despliegue
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/kinomakino/sugardaddy/sensor/internal/plan"
@@ -219,5 +221,82 @@ func TestHuecoIPsAnfitrion(t *testing.T) {
 		if env := cfg["Env"].([]string); len(env) != 1 || env[0] != caso.quiero {
 			t.Fatalf("con %+v: %v, quiero %s", caso.o, env, caso.quiero)
 		}
+	}
+}
+
+// Una trampa que pide una sola dirección de la máquina (plan.TrampaPlan.Escucha)
+// se publica solo en ella: ni en las demás ni donde diga EnLaRed. Así dos trampas
+// con el mismo puerto caben en una máquina con varias IP, cada una en la suya.
+func TestTrampaConDireccionPropiaDeLaMaquina(t *testing.T) {
+	var c plan.Contenedor
+	if err := json.Unmarshal([]byte(`{
+		"imagen": "x@sha256:1", "registros": "/log",
+		"entorno": {"IPS": "${sd.ipsAnfitrion}"},
+		"puertos": [{"interno": 8443, "expuesto": 443, "protocolo": "tcp"}]
+	}`), &c); err != nil {
+		t.Fatal(err)
+	}
+	trampa := func(id, escucha string) plan.TrampaPlan {
+		return plan.TrampaPlan{
+			ID: id, Escucha: escucha,
+			Manifiesto: plan.Manifiesto{Contenedor: &c, Aislamiento: &plan.Aislamiento{CPU: 0.25, MemoriaMb: 128}},
+		}
+	}
+	todas := func(string, int) []string { return []string{"10.50.0.4", "10.50.0.5", "10.50.0.6"} }
+	o := Opciones{Datos: t.TempDir(), Escucha: "0.0.0.0", EnLaRed: todas, Direcciones: []string{"10.50.0.4", "10.50.0.5", "10.50.0.6"}}
+
+	cfg, donde, err := config(o, "s", "", trampa("vpn", "10.50.0.5"), false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(donde, []string{"10.50.0.5:443"}) {
+		t.Fatalf("donde: %v", donde)
+	}
+	enlaces := cfg["HostConfig"].(map[string]any)["PortBindings"].(map[string]any)["8443/tcp"].([]map[string]string)
+	if len(enlaces) != 1 || enlaces[0]["HostIp"] != "10.50.0.5" || enlaces[0]["HostPort"] != "443" {
+		t.Fatalf("enlaces: %v", enlaces)
+	}
+	// Lo que anuncia de sí misma es su dirección, no todas las de la máquina.
+	if e := cfg["Env"].([]string); !slices.Contains(e, "IPS=10.50.0.5") {
+		t.Fatalf("entorno: %v", e)
+	}
+	// Otra trampa, mismo puerto, otra dirección: no comparten enlace.
+	_, donde2, err := config(o, "s", "", trampa("copias", "10.50.0.6"), false, nil)
+	if err != nil || !reflect.DeepEqual(donde2, []string{"10.50.0.6:443"}) {
+		t.Fatalf("la segunda: %v %v", donde2, err)
+	}
+	// Sin dirección propia, como siempre.
+	_, donde3, _ := config(o, "s", "", trampa("todas", ""), false, nil)
+	if len(donde3) != 3 {
+		t.Fatalf("sin dirección propia: %v", donde3)
+	}
+	// Cambiarle la dirección rehace el contenedor.
+	cfgOtra, _, _ := config(o, "s", "", trampa("vpn", "10.50.0.6"), false, nil)
+	if huella(cfgOtra) == huella(cfg) {
+		t.Fatal("cambiar la dirección tiene que rehacer el contenedor")
+	}
+
+	// La dirección viene de la consola y no va firmada: solo valen las de la máquina.
+	for _, mala := range []string{"10.99.0.1", "127.0.0.1", "0.0.0.0", "::1", "fe80::1", "no-es-ip", "10.50.0.5/24", "172.17.0.1"} {
+		_, _, err := config(o, "s", "", trampa("x", mala), false, nil)
+		var conCodigo *errorConCodigo
+		if !errors.As(err, &conCodigo) || conCodigo.codigo != CodigoEscucha {
+			t.Fatalf("%q tenía que rechazarse con %s: %v", mala, CodigoEscucha, err)
+		}
+	}
+	// Sin direcciones medidas no se publica «en todas»: es un error que se arregla solo al medirlas.
+	sin := o
+	sin.Direcciones = nil
+	if _, _, err := config(sin, "s", "", trampa("x", "10.50.0.5"), false, nil); err == nil {
+		t.Fatal("sin direcciones medidas no puede publicarse")
+	}
+	// Un sensor que publica en una dirección fija solo admite esa.
+	fija := o
+	fija.Escucha = "10.50.0.4"
+	if _, _, err := config(fija, "s", "", trampa("x", "10.50.0.5"), false, nil); err == nil {
+		t.Fatal("con escucha fija, otra dirección no vale")
+	}
+	if _, donde, err := config(fija, "s", "", trampa("x", "10.50.0.4"), false, nil); err != nil || donde[0] != "10.50.0.4:443" {
+		t.Fatalf("con escucha fija, la misma: %v %v", donde, err)
 	}
 }

@@ -258,6 +258,8 @@ async function datosDe(t: Trampa) {
 		const v = hechosDe(fila, sensor)['destino.direccion']?.valor;
 		if (typeof v === 'string') direccion = v;
 	}
+	/* Publicada en una sola dirección de la máquina: es ahí donde contesta. */
+	if (t.escucha) direccion = t.escucha;
 	const destino: DestinoDePrueba = {
 		id: fila?.id ?? t.sensor,
 		nombre: fila?.nombre ?? t.sensor,

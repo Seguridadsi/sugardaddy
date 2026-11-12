@@ -1,0 +1,1 @@
+ALTER TABLE "trampas" ADD COLUMN "escucha" text;

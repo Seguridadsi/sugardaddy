@@ -196,6 +196,13 @@ export type EstadoDeseado = {
 	 */
 	operador?: string;
 	/*
+	 * sha256 del paquete de trampas del partner que lleva este panel (su catálogo firmado y
+	 * sus manifiestos), o nulo si no tiene (docs/diseno/trampas-de-partner.md). El nodo lo
+	 * pide aparte cuando cambia y comprueba la cadena entera con sus claves de publicación.
+	 * Opcional: los nodos anteriores lo ignoran, y el panel de SeguridadSI no lo manda.
+	 */
+	catalogoPartner?: string | null;
+	/*
 	 * Incidentes que alguien del panel atiende y el nodo aún no lo sabe: al aplicarlos dejan
 	 * de escalarse (docs/diseno/vista-soc.md). Opcional: los nodos anteriores lo ignoran.
 	 */
@@ -564,6 +571,7 @@ export type { KeyObject };
 
 export * from './indicadores.ts';
 export * from './licencia.ts';
+export * from './catalogo-partner.ts';
 export * from './planes.ts';
 export * from './registro.ts';
 export * from './confianza.ts';

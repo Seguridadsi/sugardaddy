@@ -3,24 +3,24 @@ id: login-web
 nombre: Web login portal with decoy credential
 descripcion: >-
   An HTTP login portal that pretends to be an internal website (intranet,
-  administration panel or employee portal). It serves the form at /login,
-  answers every credential tried with a believable error page and accepts the
-  decoy credential, showing fake content. It records every user and password
-  tried in full with IP, User-Agent, path and method; flags SQL injections and
-  Path Traversal; and raises to high a sign-in with the decoy credential, which
-  can only come from credential theft.
+  administration panel or employee portal). It answers every credential tried
+  with a believable error page and accepts the decoy credential, showing fake
+  content. It records every user and password tried in full, flags SQL
+  injections and Path Traversal, raises a sign-in with the decoy credential to
+  high, and flags an attacker driving an AI agent: the form carries a note that
+  only an AI agent reads and follows.
 alerta:
   fidelidad: interno
 ficha:
   detecta: >-
     Anyone attacking the login form of an internal website: brute force and
-    credential spraying (every user and password tried is recorded in full, with
-    the IP and the User-Agent), anyone reusing the seeded decoy credential (it
-    is accepted, fake content is shown and the access rises to high: that
-    credential can only have come from a data theft) and anyone trying SQL
-    injection or Path Traversal against the user, the password or the path.
-    Probes and scanners sweeping the port (nmap -sV, http-title) come out with
-    low severity.
+    credential spraying (every user and password tried is recorded in full),
+    anyone reusing the seeded decoy credential (it is accepted, fake content is
+    shown and the access rises to high) and anyone trying SQL injection or Path
+    Traversal. Probes and scanners come out with low severity. It also tells
+    you when the attacker is an AI agent: the form carries a note no person
+    sees; whoever requests the page it points to is suspected, and whoever then
+    does what that page says is flagged.
   donde: >-
     On the internal network, on 8080 or the web port you choose: where an
     attacker already inside the network looks for the intranet, the
@@ -41,8 +41,8 @@ procedencia:
   licencia: Código propio (SeguridadSI); biblioteca estándar de Go, BSD-3-Clause
 
 contenedor:
-  imagen: ghcr.io/seguridadsi/sugardaddy-registro-login-web:0.1.3@sha256:eeea0eabc2b90f9256b3d0bb061ec7461e34b8475a60b591dd1b90eadcd6205f
-  imagenPublica: ghcr.io/seguridadsi/sugardaddy-registro-login-web:0.1.3@sha256:eeea0eabc2b90f9256b3d0bb061ec7461e34b8475a60b591dd1b90eadcd6205f
+  imagen: ghcr.io/seguridadsi/sugardaddy-registro-login-web:0.1.6@sha256:4da1956d5959e8a5cccd4ab7bc4312e9422a1fc56fc6b3eaf77b7983d8693d3d
+  imagenPublica: ghcr.io/seguridadsi/sugardaddy-registro-login-web:0.1.6@sha256:4da1956d5959e8a5cccd4ab7bc4312e9422a1fc56fc6b3eaf77b7983d8693d3d
   puertos:
     - { interno: 8080, expuesto: '${puertoWeb}', protocolo: tcp }
   entorno:
@@ -53,6 +53,7 @@ contenedor:
     SD_LOGINWEB_PASSWORD: ${contrasenaCebo}
     SD_LOGINWEB_PUERTO: '${puertoWeb}'
     SD_LOGINWEB_SEMILLA: ''
+    SD_LOGINWEB_NOTA_AGENTES: ${notaAgentes}
     SD_LOGINWEB_MAX_CONN: '512'
     SD_LOGINWEB_MAX_CONN_IP: '32'
     SD_LOGINWEB_MAX_CUERPO_BYTES: '8192'
@@ -108,6 +109,22 @@ parametros:
       pattern: '^[\x21-\x7e]{0,128}$'
       maxLength: 128
       default: 'admin'
+    notaAgentes:
+      type: string
+      title: Note for AI agents
+      description: >-
+        Adds to the sign-in form a note that a person does not see, asking AI
+        assistants and automated agents to read a policy page before using the
+        form. Whoever requests that page is recorded as a suspected AI agent,
+        and whoever then does what the page says is recorded as a confirmed
+        one. When it is off, the form carries no note, the page does not exist
+        and none of these events are raised. The note is visible to anyone who
+        reads the source code of the page.
+      enum: ['si', 'no']
+      x-opciones:
+        'si': 'On'
+        'no': 'Off'
+      default: 'si'
 
 eventos:
   fuente: { tipo: fichero, ruta: login-web.json }
@@ -126,12 +143,15 @@ eventos:
       web.login: autenticacion
       web.login.cebo: autenticacion
       web.comando: comando
+      web.agente.lee: conexion
+      web.agente.obedece: conexion
     porDefecto: otra
   severidad:
     porDefecto: media
     porValor:
       web.login.cebo: alta
       web.comando: alta
+      web.agente.obedece: alta
       web.session.rechazos: alta
       web.session.tope: alta
       web.log.tope: alta
@@ -150,6 +170,7 @@ eventos:
     - agente
     - resultado
     - grave
+    - agente_ia
     - motivo
     - duration
     - omitidos

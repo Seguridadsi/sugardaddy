@@ -1,3 +1,5 @@
+import { isIP } from 'node:net';
+import { motivoHost, motivoIp, sinCorchetes } from '$lib/server/destino-red';
 import { operador } from '$lib/server/operador';
 import { fail, redirect } from '@sveltejs/kit';
 import { leerDominio, proponer, sugerirDominio } from '$lib/camuflaje';
@@ -172,15 +174,15 @@ export const actions = {
 		if (!dominio)
 			return fail(400, { error: `"${texto.trim()}" is not a domain. Enter it as company.com.` });
 		await guardarIdentidad(u.correo, { decidido: true, dominio });
-		return { mensaje: `Saved: ${dominio}. New decoys will take names from that domain.` };
+		return { mensaje: `Saved: ${dominio}. New honeypots will take names from that domain.` };
 	},
 	aplicarIdentidad: async ({ locals }) => {
 		const u = exigir(locals, 'ajustes');
 		const { cambiadas, sinCambiar } = await aplicarIdentidad(u.correo);
 		const partes = [
 			cambiadas.length === 1
-				? '1 decoy updated: the sensor redeploys it on its next check-in.'
-				: `${cambiadas.length} decoys updated: the sensor redeploys them on its next check-in.`,
+				? '1 honeypot updated: the sensor redeploys it on its next check-in.'
+				: `${cambiadas.length} honeypots updated: the sensor redeploys them on its next check-in.`,
 			...sinCambiar.map((x) => `"${x.nombre}" stays as it is: ${x.motivo}.`)
 		];
 		return { mensaje: partes.join(' ') };
@@ -213,7 +215,7 @@ export const actions = {
 		const codigo = String((await request.formData()).get('codigo') ?? '');
 		const r = await activar(u.correo, codigo);
 		if (!r.ok) return fail(400, { error: r.error });
-		return { mensaje: 'Registration activated. You can now deploy the registration decoys.' };
+		return { mensaje: 'Registration activated. You can now deploy the registration honeypots.' };
 	},
 	renovarRegistro: async ({ locals }) => {
 		exigir(locals, 'ajustes');
@@ -257,6 +259,10 @@ export const actions = {
 				ok = false;
 			}
 			if (!ok) return fail(400, { error: 'Enter a valid http(s) URL to enable the webhook.' });
+			/* Lo que se ve sin preguntar al DNS; el resto se comprueba en cada envío. */
+			const servidor = sinCorchetes(new URL(url).hostname);
+			const motivo = motivoHost(servidor) ?? (isIP(servidor) ? motivoIp(servidor) : null);
+			if (motivo) return fail(400, { error: `The webhook cannot be sent there: ${motivo}.` });
 		}
 		if (secreto.length > 512) return fail(400, { error: 'The signing secret is too long.' });
 		/*

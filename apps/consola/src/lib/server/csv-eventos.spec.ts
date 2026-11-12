@@ -58,7 +58,7 @@ describe('construirCsvEventos', () => {
 		expect(campos[c.indexOf('organization')]).toBe('Google LLC');
 		expect(campos[c.indexOf('asn')]).toBe('15169');
 		expect(campos[c.indexOf('tor')]).toBe('yes');
-		expect(campos[c.indexOf('decoy')]).toBe('SSH de RRHH');
+		expect(campos[c.indexOf('honeypot')]).toBe('SSH de RRHH');
 	});
 
 	it('una IP sin geo deja esas celdas vacías y tor en no', () => {

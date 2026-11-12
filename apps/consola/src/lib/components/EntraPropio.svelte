@@ -54,7 +54,7 @@
 
 	const NOMBRES: Record<string, string> = {
 		lector: 'Viewer: sees everything, changes nothing',
-		operador: 'Operator: deploys and stops decoys',
+		operador: 'Operator: deploys and stops honeypots',
 		aprobador: 'Approver: approves blocks',
 		'admin-listas': 'List administrator',
 		admin: 'Administrator: everything, including settings'

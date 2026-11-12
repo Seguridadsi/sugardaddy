@@ -115,6 +115,9 @@ describe.skipIf(!hayBase)('secreto del webhook de eventos (CON-8)', () => {
 		});
 		await new Promise<void>((r) => srv.listen(0, '127.0.0.1', r));
 		const puerto = (srv.address() as AddressInfo).port;
+		/* El receptor de prueba está en esta máquina: solo en las pruebas se deja salir ahí. */
+		const { pruebas } = await import('./destino-red');
+		pruebas.destinosLocales = true;
 		try {
 			await c.guardarWebhook('prueba', {
 				url: `http://127.0.0.1:${puerto}/eventos`,
@@ -150,7 +153,17 @@ describe.skipIf(!hayBase)('secreto del webhook de eventos (CON-8)', () => {
 			expect((await c.falloWebhook())?.detalle).toMatch(
 				/HTTP 307: the receiver redirects to \/otra/
 			);
+			/*
+			 * Y sin ese permiso, que es lo que hay en una consola de verdad, a la
+			 * propia máquina no se llama: ni se conecta, ni avanza, y queda dicho.
+			 */
+			pruebas.destinosLocales = false;
+			await enviarWebhookPendientes();
+			expect(pedidas).toBe(1);
+			expect(await c.webhookPos()).toEqual(pos);
+			expect((await c.falloWebhook())?.detalle).toMatch(/^not sent: /);
 		} finally {
+			pruebas.destinosLocales = false;
 			srv.close();
 			await db.delete(s.eventos).where(eq(s.eventos.id, EVENTO));
 			await db.delete(s.sensores).where(eq(s.sensores.id, 'zz-webhook'));
