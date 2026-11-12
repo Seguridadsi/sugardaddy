@@ -88,6 +88,9 @@ jobs:
           echo "fijado=si" >> "$GITHUB_OUTPUT"
           # Las imágenes del nodo salen del commit nuevo, no de este.
           gh workflow run publicar-imagenes.yml --ref main -R "${{ github.repository }}"
+          # Un commit hecho por el Action no dispara «Pruebas» (es de github-actions[bot]),
+          # y la firma exige verlas en verde en el último commit: se piden aquí.
+          gh workflow run pruebas.yml --ref main -R "${{ github.repository }}"
 
   nodo:
     needs: publicar
