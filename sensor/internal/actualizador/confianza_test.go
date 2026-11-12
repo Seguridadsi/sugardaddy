@@ -124,3 +124,37 @@ func TestVectorECDSA(t *testing.T) {
 		t.Fatal("una versión tocada no debería pasar")
 	}
 }
+
+// Desde la 0.29.2 la versión de Community lleva la configuración del nodo, como la de
+// Cloud: un nodo Community la acepta y uno Cloud no, y lo que no es compose.yml o
+// Caddyfile sigue fuera aunque venga firmado.
+func TestCommunityConConfiguracion(t *testing.T) {
+	comm, priv := claveB64(t)
+	c := LeerConfianza("community:"+comm, "")
+	img := func(s string) string {
+		return `ghcr.io/seguridadsi/sugardaddy-` + s + `:0.29.2@sha256:` + strings.Repeat("a", 64)
+	}
+	version := func(ficheros string) ReleaseFirmada {
+		texto := `{"version":"0.29.2","publicada":"x","notas":"x","servicios":{"consola":"` + img("consola") +
+			`","sensor":"` + img("sensor") + `"},"actualizador":"` + img("actualizador") +
+			`","nodo":{"ficheros":{` + ficheros + `},"entorno":{"generar":["CLAVE_SECRETOS"]}}}`
+		f := firmar(t, priv, texto)
+		f.Firmas = []Firma{{Clave: Huella(priv.Public()), Firma: f.Firma}}
+		f.Firma = ""
+		return f
+	}
+	buena := version(`"compose.yml":"services: {}","Caddyfile":":443"`)
+	r, err := VerificarEnNodo(c, "community", buena)
+	if err != nil {
+		t.Fatalf("un nodo Community debería aceptarla: %v", err)
+	}
+	if r.Nodo == nil || r.Nodo.Ficheros["compose.yml"] == "" || r.Actualizador == "" {
+		t.Fatalf("la configuración o el actualizador no se leen: %+v", r)
+	}
+	if _, err := VerificarEnNodo(c, "cloud", buena); err == nil {
+		t.Fatal("un nodo Cloud no debería aceptar una versión de Community")
+	}
+	if _, err := VerificarEnNodo(c, "community", version(`"compose.yml":"x","instalar.sh":"x"`)); err == nil {
+		t.Fatal("un fichero que no es compose.yml ni Caddyfile no debería pasar")
+	}
+}
