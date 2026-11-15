@@ -9,6 +9,10 @@
 	import { fechaCorta, fechaHora, fechaLarga, horaCorta } from '$lib/fechas-pantalla';
 	import { haceCuanto } from '$lib/formato';
 	import EntraPropio from '$lib/components/EntraPropio.svelte';
+	import SoporteAcceso from '$lib/components/SoporteAcceso.svelte';
+	import MigrarEntra from '$lib/components/MigrarEntra.svelte';
+	import MenuAjustes from '$lib/components/MenuAjustes.svelte';
+	import { GRUPOS_AJUSTES, type GrupoAjustes } from '$lib/ajustes-menu';
 
 	let { data, form } = $props();
 	const c = $derived(data.canal);
@@ -31,16 +35,8 @@
 	 * JavaScript y aguanta una recarga. Los bloques ocultos siguen en la página
 	 * (atributo hidden), de modo que ningún formulario pierde lo escrito.
 	 */
-	const GRUPOS = [
-		{ id: 'general', texto: 'General' },
-		{ id: 'access', texto: 'Access' },
-		{ id: 'recovery', texto: 'Recovery and support' },
-		{ id: 'events', texto: 'Events and data' },
-		{ id: 'integrations', texto: 'Integrations' },
-		{ id: 'central', texto: 'Central' },
-		{ id: 'all', texto: 'All' }
-	] as const;
-	type Grupo = (typeof GRUPOS)[number]['id'];
+	const GRUPOS = GRUPOS_AJUSTES;
+	type Grupo = GrupoAjustes;
 	const esGrupo = (x: string | null): x is Grupo => GRUPOS.some((g) => g.id === x);
 
 	/* Los enlaces que llegan de otras páginas apuntan a un bloque (#central…). */
@@ -80,14 +76,7 @@
 	<h1>Settings</h1>
 </div>
 
-<nav class="grupos" aria-label="Settings sections">
-	{#each GRUPOS as g (g.id)}
-		<a
-			href="{resolve('/settings')}{g.id === 'general' ? '' : `?tab=${g.id}`}"
-			aria-current={grupo === g.id ? 'page' : undefined}>{g.texto}</a
-		>
-	{/each}
-</nav>
+<MenuAjustes actual={grupo} />
 
 {#if form?.mensaje}<p class="mensaje" role="status">{form.mensaje}</p>{/if}
 {#if form?.error}<p class="error" role="alert">{form.error}</p>{/if}
@@ -429,6 +418,9 @@
 
 <div hidden={oculto('access')}>
 	<EntraPropio {...data.entra} error={form?.entraError} valores={form?.entraValores} />
+	{#if data.entra.b2b === 'activo'}
+		<MigrarEntra propio={data.entra.propio} equipo={data.equipoB2B} error={form?.migrarError} />
+	{/if}
 </div>
 
 <section class="panel bloque" hidden={oculto('recovery')}>
@@ -511,54 +503,16 @@
 	<a class="boton" href="/emergency/enroll">Register a key</a>
 </section>
 
-<section class="panel bloque" hidden={oculto('recovery')}>
-	<h2>{data.operador} support access</h2>
-	{#if data.soporte.estado === 'solicitado' && data.soporte.solicitud}
-		<p class="peticion">
-			<b>{data.soporte.solicitud.por}</b> is requesting access:
-			<span>"{data.soporte.solicitud.motivo}"</span>
-		</p>
-		<form class="soporte-decision" method="POST" action="?/soporteAceptar" use:enhance>
-			<div>
-				<label for="rol">Role</label>
-				<select id="rol" name="rol">
-					<option value="lector">Viewer: read-only</option>
-					<option value="operador">Operator: can change honeypots</option>
-				</select>
-			</div>
-			<div>
-				<label for="horas">Duration</label>
-				<select id="horas" name="horas">
-					<option value="2">2 hours</option>
-					<option value="8">8 hours</option>
-					<option value="continuo">Until I close it</option>
-				</select>
-			</div>
-			<button class="boton principal">Grant access</button>
-		</form>
-		<form method="POST" action="?/soporteRechazar" use:enhance>
-			<button class="boton">Reject</button>
-		</form>
-	{:else if data.soporte.estado === 'abierto'}
-		<p class="ayuda">
-			Open as <b>{nombreRol(data.soporte.rol ? [data.soporte.rol] : [])}</b>
-			{#if data.soporte.hasta}
-				until {fechaHora(data.soporte.hasta)}.
-			{:else}
-				until you close it.
-			{/if}
-			Everything they do is recorded in the audit logs.
-		</p>
-		<form method="POST" action="?/soporteCerrar" use:enhance>
-			<button class="boton peligro">Close now</button>
-		</form>
-	{:else}
-		<p class="ayuda">
-			Closed. {data.operador} can only request access; whether to grant it, for how long and with which
-			role is your decision.
-		</p>
-	{/if}
-</section>
+<div hidden={oculto('recovery')}>
+	<SoporteAcceso
+		soporte={data.soporte}
+		operador={data.operador}
+		modo={data.accesoModo}
+		clientId={data.entra.propio?.activo ? data.entra.propio.clientId : null}
+		consola={data.entra.retorno.replace(/\/auth\/callback$/, '/')}
+		porCaducar={data.soportePorCaducar}
+	/>
+</div>
 
 <section class="panel bloque" hidden={oculto('integrations')}>
 	<h2>Event webhook</h2>
@@ -652,9 +606,12 @@
 			<dt>Central fingerprint</dt>
 			<dd
 				class="mono"
-				title="Pinned at enrollment. A state signed with a different key is rejected."
+				title="Pinned at enrollment. A state signed with a different key is rejected. Only a version signed by SeguridadSI can add or replace Central keys."
 			>
 				{c.huellaPanel}
+				{#each c.huellasPanel.filter((h) => h !== c.huellaPanel) as h (h)}
+					· {h}
+				{/each}
 			</dd>
 			<dt>This node's fingerprint</dt>
 			<dd class="mono">{c.huellaNodo}</dd>
@@ -767,34 +724,6 @@
 		background: color-mix(in oklab, var(--crit) 12%, var(--surface));
 	}
 
-	.grupos {
-		position: sticky;
-		top: 0;
-		z-index: 2;
-		display: flex;
-		flex-wrap: wrap;
-		gap: 4px;
-		max-width: 760px;
-		margin-bottom: 14px;
-		padding: 8px 0;
-		background: var(--bg);
-	}
-
-	.grupos a {
-		padding: 7px 14px;
-		border-radius: 99px;
-		font-size: 13.5px;
-		font-weight: 600;
-		color: var(--ink-2);
-		text-decoration: none;
-		white-space: nowrap;
-	}
-
-	.grupos a[aria-current='page'] {
-		background: var(--accent-soft);
-		color: var(--accent);
-	}
-
 	.bloque[hidden] {
 		display: none;
 	}
@@ -840,7 +769,7 @@
 	.interruptor input {
 		width: auto;
 		margin-top: 3px;
-		accent-color: var(--accent);
+		accent-color: var(--link);
 	}
 
 	.interruptor span {
@@ -959,23 +888,6 @@
 
 	.llaves small {
 		color: var(--ink-3);
-	}
-
-	.peticion {
-		margin: 10px 0 4px;
-		font-size: 14px;
-	}
-
-	.peticion span {
-		color: var(--ink-2);
-	}
-
-	.soporte-decision {
-		display: flex;
-		gap: 12px;
-		align-items: flex-end;
-		flex-wrap: wrap;
-		margin-bottom: 8px;
 	}
 
 	dl {

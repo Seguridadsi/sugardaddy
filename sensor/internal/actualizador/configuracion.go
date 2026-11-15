@@ -31,6 +31,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/kinomakino/sugardaddy/sensor/internal/canodo"
 	"github.com/kinomakino/sugardaddy/sensor/internal/docker"
 )
 
@@ -313,7 +314,8 @@ func (a *Aplicacion) restaurar(copia string) (err error) {
 	return nil
 }
 
-var postgresMayor = regexp.MustCompile(`image:\s*["']?postgres:(\d+)`)
+// Con o sin registro delante (${TERCEROS:-docker.io/library}/postgres:17, docs/diseno/proxy-salida.md).
+var postgresMayor = regexp.MustCompile(`image:\s*["']?(?:\S*/)?postgres:(\d+)`)
 
 // guardaPostgres impide cambiar de versión mayor de Postgres: sus datos no
 // se migran solos y volver atrás no sería posible.
@@ -514,6 +516,9 @@ func (a *Aplicacion) aplicarConfianza(r Release) error {
 	if r.Confianza.RetirarLegado {
 		fijar["PUBLICACION_CLAVE_PUBLICA"] = ""
 	}
+	if m := strings.TrimSpace(r.Confianza.Marcas); m != "" {
+		fijar["PUBLICACION_MARCAS"] = m
+	}
 	return fijarVariables(a.ruta(".env"), fijar)
 }
 
@@ -664,6 +669,18 @@ func (a *Aplicacion) exportarRaiz(ctx context.Context) {
 	if err != nil || (env["TLS_MODO"] != "" && env["TLS_MODO"] != "interno") {
 		return
 	}
+	if env["CA_NODO"] == "nodo" {
+		// Con la CA propia, la raíz en uso es la suya, con límite de nombres. La CA
+		// local de Caddy, si queda, es un resto por destruir: nunca se vuelve a
+		// publicar (auditoría del 2026-11-14).
+		ca, err := canodo.Leer(a.ruta(DirCA))
+		if err != nil {
+			a.Log("could not read the node CA", "err", err)
+			return
+		}
+		a.publicarRaiz(ctx, ca.RaizPEM())
+		return
+	}
 	tmp, err := os.MkdirTemp("", "raiz")
 	if err != nil {
 		a.Log("could not copy the node CA root", "err", err)
@@ -692,13 +709,18 @@ func (a *Aplicacion) exportarRaiz(ctx context.Context) {
 			return
 		}
 	}
+	a.publicarRaiz(ctx, raiz)
+}
+
+// publicarRaiz deja la raíz en ca-raiz.crt y, si es otro fichero, reinicia la
+// consola, que sigue viendo el que montó hasta entonces.
+func (a *Aplicacion) publicarRaiz(ctx context.Context, raiz []byte) {
 	nuevo, err := escribirEnSuSitio(a.ruta("ca-raiz.crt"), raiz, 0o644)
 	if err != nil {
 		a.Log("could not write ca-raiz.crt", "err", err)
 		return
 	}
 	if nuevo {
-		// Es otro fichero: la consola sigue viendo el que montó hasta que se reinicie.
 		if out, err := a.compose(ctx, "restart", "consola"); err != nil {
 			a.Log("could not restart the console after writing ca-raiz.crt", "err", err, "salida", cola(out, 3))
 		}

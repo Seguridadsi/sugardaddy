@@ -32,7 +32,7 @@
 set -uo pipefail
 
 # --- publication keys (written by herramientas/etapa1.ts; do not edit by hand) ---
-SD_CLAVES='cloud:MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEK4wY19UHamiOcmyuoLsEQ9GvV6MZ7G+Y6qb5C+Y3Pzdq/tNwVujF2gTAvf/Cv+TS0tqCbDPVGlvYxBsFzty7WQ==,cloud:MCowBQYDK2VwAyEAceDEute8W7AXB/02qZDMWZQFyM98tGUVh1Sfq3SAJFw=,licencias:MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEEeWKEJxZsCgrcZppbKnUvDsMzIbfaGe7I1TLHf4frgzvC3k4nl96+uT1rfvV8q0RkuJ09RwSdD/cAf86a9POiA==,licencias:MCowBQYDK2VwAyEApv+AOrzC7Ewm02EtXJvGz91E0TktgvFDBupo5goBQVE=,delegaciones:MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAECJcCrOn2crd7VUOyriPZmr92zZF4u5PGIbxpcnOyz9RYZXwd88fJhws+DAtq/0wbLlp7Bg/piXmj+WjgoUHBaA==,delegaciones:MCowBQYDK2VwAyEAXzv9xDKMWCwMtaEC8EBEQrrOfyE6oLqBhOm08TOgqwQ='
+SD_CLAVES='cloud:MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEK4wY19UHamiOcmyuoLsEQ9GvV6MZ7G+Y6qb5C+Y3Pzdq/tNwVujF2gTAvf/Cv+TS0tqCbDPVGlvYxBsFzty7WQ==,cloud:MCowBQYDK2VwAyEAceDEute8W7AXB/02qZDMWZQFyM98tGUVh1Sfq3SAJFw=,licencias:MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEEeWKEJxZsCgrcZppbKnUvDsMzIbfaGe7I1TLHf4frgzvC3k4nl96+uT1rfvV8q0RkuJ09RwSdD/cAf86a9POiA==,licencias:MCowBQYDK2VwAyEApv+AOrzC7Ewm02EtXJvGz91E0TktgvFDBupo5goBQVE=,delegaciones:MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAECJcCrOn2crd7VUOyriPZmr92zZF4u5PGIbxpcnOyz9RYZXwd88fJhws+DAtq/0wbLlp7Bg/piXmj+WjgoUHBaA==,delegaciones:MCowBQYDK2VwAyEAXzv9xDKMWCwMtaEC8EBEQrrOfyE6oLqBhOm08TOgqwQ=,cloud:MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE1AiclbVIwOsaieN2nmqKC7mwfeMHbLVcFCgOG28OPGSYlF2AIl7JwAR1VL+1XJJ1myAe9muCXL8e0OuUNPbatw==,licencias:MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAElPf/zVYh7NXepp8vBFOoH4/BeOpRsojZZmUv2hbr5aD8Tvcb+U8V7d+T94pR0XP840C9LqIJTJOkKBAC3JM6TQ==,delegaciones:MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEEzCvd2qw3Xldn+5I+S1UJTt3vdCBLc2PPYERir8VGOD+0qPLvJTPr3/NVtNfOoOZwR2eZoDEpoqRJ7nGI+4xQg=='
 SD_LEGADO='MCowBQYDK2VwAyEA+mhA3YHVr2fHVfTPf9Xik4haX9NglBXS27t7rQx+bwA='
 # --- end of publication keys ---
 
@@ -322,6 +322,20 @@ sd_instalar() {
 	mkdir -p "$SD_TMP/piezas" "$SD_TMP/datos"
 	t=$SD_TMP
 
+	# Behind an outbound proxy: SUGARDADDY_PROXY=http://[user:password@]proxy:3128 and, if the
+	# proxy inspects TLS, SUGARDADDY_PROXY_CA=<its CA in PEM>. instalar.sh then sets up the
+	# system, Docker and the node with them; here only this stage's own downloads use them.
+	if [[ -n ${SUGARDADDY_PROXY:-} && $SUGARDADDY_PROXY != none ]]; then
+		export https_proxy="$SUGARDADDY_PROXY" HTTPS_PROXY="$SUGARDADDY_PROXY"
+	fi
+	if [[ -n ${SUGARDADDY_PROXY_CA:-} && $SUGARDADDY_PROXY_CA != none ]]; then
+		if ! cat /etc/ssl/certs/ca-certificates.crt "$SUGARDADDY_PROXY_CA" > "$t/ca.pem" 2> /dev/null; then
+			sd_di "cannot read the proxy CA in $SUGARDADDY_PROXY_CA. The line is still valid."
+			return $SD_SIGUE
+		fi
+		export CURL_CA_BUNDLE="$t/ca.pem"
+	fi
+
 	# 1. The signed release and its files, as data. It uses nothing up.
 	if ! curl -fsS --connect-timeout 15 --max-time 300 --max-filesize 8388608 \
 		-o "$t/version" "$panel/instalar/$codigo/datos"; then
@@ -422,11 +436,12 @@ sd_instalar() {
 	TRAMPAS_DESPLAZAR="$(sd_dato TRAMPAS_DESPLAZAR '^[0-9]{1,5}$')" || { sd_di "$usada"; return 1; }
 	export REGISTRO REGISTRO_USUARIO REGISTRO_TOKEN PANEL_ALTA_CODIGO
 	export TRAMPAS_DESPLAZAR="${TRAMPAS_DESPLAZAR:-0}"
-	for v in ENTRA_TENANT_ID ENTRA_CLIENT_ID ENTRA_CLIENT_SECRET ENTRA_GRUPO_CLIENTE ENTRA_GRUPO_SOPORTE; do
-		[[ -f $t/datos/$v ]] || continue
-		rc="$(sd_dato "$v" '^[!-~]*$')" || { sd_di "$usada"; return 1; }
-		export "$v=$rc"
-	done
+	# Local sign-in: the first administrator is printed at the end. Central no longer sends
+	# the SeguridadSI Entra ID; the customer connects their own from Settings.
+	if [[ -f $t/datos/LOGIN_LOCAL ]]; then
+		LOGIN_LOCAL="$(sd_dato LOGIN_LOCAL '^[01]$')" || { sd_di "$usada"; return 1; }
+		export LOGIN_LOCAL
+	fi
 	# Central is the address you typed, not one it sent back.
 	export PANEL_URL="$panel" SUGARDADDY_CONFIGURACION="$SD_VERSION"
 	# The Sugardaddy virtual machine has no SSH and no local DNS: decoys use their real ports.

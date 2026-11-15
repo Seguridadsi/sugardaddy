@@ -1,0 +1,19 @@
+{
+	"nota": "Raíz de prueba con una llave Ed25519 y otra ECDSA P-256 (como una YubiKey), umbral 2. Claves de usar y tirar.",
+	"confianza": "2:MCowBQYDK2VwAyEAJo5MBjoG4ypOFIBZFC/JDiHZs8kIswuWiFxh8wQTbbs=,MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEmMFsN98O51qSrNlKqk8rqU2XJsjTzhknOYOaovDr+xUMhc1UcbeZOVZwLGH5BryCkBb3g+SIzfEHVTnHs0QqFQ==",
+	"ahora": "2026-12-01T00:00:00Z",
+	"claves": "cloud:MCowBQYDK2VwAyEA6yGaC1QMhE7Cc+7YNK1T8LIGRUteo/pEhzo8WcWpq7s=",
+	"firmada": {
+		"raiz": "{\"tipo\":\"raiz\",\"version\":1,\"emitida\":\"2026-11-14T00:00:00Z\",\"caduca\":\"2027-11-14T00:00:00Z\",\"raiz\":{\"claves\":[\"MCowBQYDK2VwAyEAJo5MBjoG4ypOFIBZFC/JDiHZs8kIswuWiFxh8wQTbbs=\",\"MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEmMFsN98O51qSrNlKqk8rqU2XJsjTzhknOYOaovDr+xUMhc1UcbeZOVZwLGH5BryCkBb3g+SIzfEHVTnHs0QqFQ==\"],\"umbral\":2},\"claves\":\"cloud:MCowBQYDK2VwAyEA6yGaC1QMhE7Cc+7YNK1T8LIGRUteo/pEhzo8WcWpq7s=\",\"marcas\":\"MCowBQYDK2VwAyEA6yGaC1QMhE7Cc+7YNK1T8LIGRUteo/pEhzo8WcWpq7s=\"}",
+		"firmas": [
+			{
+				"clave": "81af36e3fe24f9d4",
+				"firma": "91S/ftSF2xWhqApfRC9d/tCt7Qh1FE08/SnQdzx90s2gcA/u4shubnuSCGm+Hb3+l+cywiDY6clkrPtqk+9GCQ=="
+			},
+			{
+				"clave": "0b5f795ce0a9ff6c",
+				"firma": "AF3vqSBG1g5fxotWdY2qH462U7peY5OtvGjD1fYQI5HlKpVpGfwrisgpyUSinre6xykijd8jm6A2ar1BcjmFFw=="
+			}
+		]
+	}
+}

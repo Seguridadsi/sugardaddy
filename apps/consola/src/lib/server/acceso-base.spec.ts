@@ -5,6 +5,7 @@
  * emergencia, lo que recibe y confirma el cortafuegos, y la segunda barrera.
  */
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { borrarAuditoriaDePrueba } from './db/pruebas-auditoria';
 
 vi.mock('$env/dynamic/private', () => ({ env: process.env }));
 vi.mock('$app/environment', () => ({ building: false, dev: true }));
@@ -28,11 +29,14 @@ describe.skipIf(!process.env.DATABASE_URL)('acceso a la consola', async () => {
 
 	const limpiar = async () => {
 		await db.delete(s.ajustes).where(inArray(s.ajustes.clave, CLAVES));
-		await db.delete(s.auditoria).where(inArray(s.auditoria.quien, [QUIEN, 'machine']));
+		await borrarAuditoriaDePrueba(db, inArray(s.auditoria.quien, [QUIEN, 'machine']));
 		await db.delete(s.sensores).where(like(s.sensores.id, `${PREFIJO}%`));
 		a._olvidarAcceso();
 		a._ponerPuertaDeEnlace(undefined);
 		delete process.env.CONSOLA_ACCESO;
+		delete process.env.CONSOLA_NACE_CERRADA;
+		delete process.env.SENSOR_LOCAL_RED;
+		delete process.env.CONSOLA_ACCESO_PROPUESTA;
 	};
 	beforeEach(limpiar);
 	afterAll(limpiar);
@@ -186,6 +190,70 @@ describe.skipIf(!process.env.DATABASE_URL)('acceso a la consola', async () => {
 		x = await a.leerAcceso();
 		expect(x.entradas.map((e) => e.red)).toEqual(['10.0.9.9', '10.70.0.30']);
 		expect(x.entradas[1].sensor).toBeUndefined();
+	});
+
+	it('un nodo nuevo nace cerrado: solo su red y la IP desde la que se instaló', async () => {
+		process.env.SENSOR_LOCAL_RED = '10.70.0.0/24';
+		process.env.CONSOLA_ACCESO_PROPUESTA = '192.168.5.9';
+		/* Uno de antes (sin la marca del instalador) sigue pendiente: no se cierra al actualizarse. */
+		expect((await a.leerAcceso()).estado).toBe('pendiente');
+		process.env.CONSOLA_NACE_CERRADA = '1';
+		a._olvidarAcceso();
+		const x = await a.leerAcceso();
+		expect(x).toMatchObject({ estado: 'restringida', quien: 'installer' });
+		expect(x.entradas).toEqual([
+			{ red: '10.70.0.0/24', nota: 'Node network' },
+			{ red: '192.168.5.9', nota: 'Installed from' }
+		]);
+		expect(await a.paraElCortafuegos()).toMatchObject({
+			estado: 'restringida',
+			redes: ['10.70.0.0/24', '192.168.5.9']
+		});
+		expect(a.puedeEntrar('10.70.0.44', x, false)).toBe(true);
+		expect(a.puedeEntrar('203.0.113.9', x, false)).toBe(false);
+		/* La IP del instalador dentro de la red no se repite. */
+		process.env.CONSOLA_ACCESO_PROPUESTA = '10.70.0.8';
+		a._olvidarAcceso();
+		expect((await a.leerAcceso()).entradas.map((e) => e.red)).toEqual(['10.70.0.0/24']);
+		/* Sin nada que poner, pendiente: no se cierra a todo el mundo. */
+		delete process.env.SENSOR_LOCAL_RED;
+		delete process.env.CONSOLA_ACCESO_PROPUESTA;
+		a._olvidarAcceso();
+		expect((await a.leerAcceso()).estado).toBe('pendiente');
+	});
+
+	it('la emergencia caduca a las 24 horas, vuelve a la lista y queda en la auditoría', async () => {
+		await a.guardarAcceso(QUIEN, [{ red: '10.0.9.9' }], '10.0.9.9', false);
+		const t0 = Date.parse('2026-11-14T10:00:00Z');
+		await a.abiertaPorEmergencia(t0);
+		let x = await a.leerAcceso();
+		expect(x).toMatchObject({
+			estado: 'abierta',
+			emergencia: true,
+			emergenciaHasta: '2026-11-15T10:00:00.000Z',
+			antesDeEmergencia: 'restringida'
+		});
+		/* Que el actualizador lo repita no alarga el plazo. */
+		await a.abiertaPorEmergencia(t0 + 3600_000);
+		expect((await a.leerAcceso()).emergenciaHasta).toBe('2026-11-15T10:00:00.000Z');
+		expect(await a.cerrarEmergenciaCaducada(t0 + a.EMERGENCIA_MS - 1)).toBe(false);
+		expect(await a.cerrarEmergenciaCaducada(t0 + a.EMERGENCIA_MS)).toBe(true);
+		x = await a.leerAcceso();
+		expect(x.estado).toBe('restringida');
+		expect(x.entradas.map((e) => e.red)).toEqual(['10.0.9.9']);
+		expect(x.emergencia).toBeUndefined();
+		const acciones = (
+			await db.select().from(s.auditoria).where(eq(s.auditoria.quien, 'machine'))
+		).map((f) => f.accion);
+		expect(acciones).toContain('console access opened from the machine');
+		expect(acciones).toContain('console access: emergency opening expired');
+		/* Abierta a propósito antes de la emergencia: vuelve a abierta, sin emergencia. */
+		await a.dejarAbierta(QUIEN);
+		await a.abiertaPorEmergencia(t0);
+		await a.cerrarEmergenciaCaducada(t0 + a.EMERGENCIA_MS);
+		x = await a.leerAcceso();
+		expect(x).toMatchObject({ estado: 'abierta', quien: 'machine' });
+		expect(x.emergencia).toBeUndefined();
 	});
 
 	it('la emergencia de la máquina la deja abierta y lo apunta; volver a guardar la limita', async () => {

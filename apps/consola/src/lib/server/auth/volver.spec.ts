@@ -26,13 +26,23 @@ describe('volverSeguro', () => {
 		'/ /evil.example',
 		'/x\\y',
 		'/\u0000/evil.example',
-		'/\u0085/evil.example'
+		'/\u0085/evil.example',
+		/* Normalizada empezaría por «//» (auditoría del 2026-11-14). */
+		'/..//evil.example',
+		'/a/../..//evil.example',
+		'/.//evil.example'
 	])('manda a la portada %j', (v) => {
 		expect(volverSeguro(v)).toBe('/');
 	});
 
 	it('lo que deja, resuelto en cualquier origen, sigue en él', () => {
-		for (const v of ['/a', '/%09/evil.example', '/%2F%2Fevil.example', '/a?u=//evil'])
+		for (const v of [
+			'/a',
+			'/%09/evil.example',
+			'/%2F%2Fevil.example',
+			'/a?u=//evil',
+			'/..//evil.example'
+		])
 			expect(new URL(volverSeguro(v), 'https://consola.example').origin).toBe(
 				'https://consola.example'
 			);

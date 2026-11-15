@@ -448,7 +448,7 @@
 
 	.abajo.propia {
 		font: 600 12px/1.2 var(--font-mono);
-		color: var(--accent);
+		color: var(--link);
 	}
 
 	/* Un nombre largo se corta a dos líneas: entero, en su detalle. */

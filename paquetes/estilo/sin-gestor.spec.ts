@@ -41,9 +41,10 @@ const CON_GESTOR: Record<string, string[]> = {
 	'apps/consola/src/routes/settings/+page.svelte': ['correo'],
 	/* Quien atiende un aviso escribe su nombre. */
 	'apps/consola/src/routes/alert/[enlace]/+page.svelte': ['nombre'],
-	/* La web pública: el correo de quien se registra o se da de baja. */
-	'apps/central/src/routes/community/+page.svelte': ['correo'],
-	'apps/central/src/routes/register/+page.svelte': ['correo'],
+	/*
+	 * La web pública: el correo de quien se da de baja. Registrarse ya no pide
+	 * correo en la web (3a46f64b): se hace desde Settings de la consola.
+	 */
 	'apps/central/src/routes/register/unsubscribe/+page.svelte': ['correo']
 };
 

@@ -8,6 +8,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { borrarAuditoriaDePrueba } from './db/pruebas-auditoria';
 
 vi.mock('$env/dynamic/private', () => ({ env: process.env }));
 vi.mock('$app/environment', () => ({ building: false, dev: true }));
@@ -57,7 +58,7 @@ describe.skipIf(!process.env.DATABASE_URL || !hayOpenssl)('CA propia del nodo', 
 
 	const limpiar = async () => {
 		await db.delete(s.ajustes).where(eq(s.ajustes.clave, 'ca-nodo'));
-		await db.delete(s.auditoria).where(inArray(s.auditoria.quien, [QUIEN, 'machine']));
+		await borrarAuditoriaDePrueba(db, inArray(s.auditoria.quien, [QUIEN, 'machine']));
 		await db.delete(s.sensores).where(like(s.sensores.id, `${PREFIJO}%`));
 		writeFileSync(fichero, vieja);
 		process.env.CA_RAIZ = fichero;

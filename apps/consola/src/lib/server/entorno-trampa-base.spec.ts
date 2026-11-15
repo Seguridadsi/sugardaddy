@@ -6,6 +6,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { borrarAuditoriaDePrueba } from './db/pruebas-auditoria';
 
 try {
 	for (const l of readFileSync('.env', 'utf8').split('\n')) {
@@ -33,7 +34,7 @@ const quien = `${P}-admin`;
 async function limpiar() {
 	await db.delete(s.trampas).where(like(s.trampas.id, `${P}%`));
 	await db.delete(s.sensores).where(like(s.sensores.id, `${P}%`));
-	await db.delete(s.auditoria).where(like(s.auditoria.quien, `${P}%`));
+	await borrarAuditoriaDePrueba(db, like(s.auditoria.quien, `${P}%`));
 }
 
 describe.skipIf(!hayBase)('el entorno por honeypot, contra la base', () => {

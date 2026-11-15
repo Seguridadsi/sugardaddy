@@ -48,8 +48,8 @@ procedencia:
   licencia: MIT
 
 contenedor:
-  imagen: ghcr.io/seguridadsi/sugardaddy-registro-dns-ntp:2.0.1-sd7@sha256:2af5ee69a00f978fea2e4208b8bf4b391cc575304ea036731184d5c8a42a5177
-  imagenPublica: ghcr.io/seguridadsi/sugardaddy-registro-dns-ntp:2.0.1-sd7@sha256:2af5ee69a00f978fea2e4208b8bf4b391cc575304ea036731184d5c8a42a5177
+  imagen: ghcr.io/seguridadsi/sugardaddy-registro-dns-ntp:2.0.1-sd8@sha256:209ce2215e47f265a86170e8622c882f827ef2c72edda30357a6d662990f9af6
+  imagenPublica: ghcr.io/seguridadsi/sugardaddy-registro-dns-ntp:2.0.1-sd8@sha256:209ce2215e47f265a86170e8622c882f827ef2c72edda30357a6d662990f9af6
   puertos:
     - { interno: 1053, expuesto: '${puertoDns}', protocolo: udp, si: dns }
     - { interno: 1053, expuesto: '${puertoDns}', protocolo: tcp, si: dns }

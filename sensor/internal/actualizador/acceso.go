@@ -25,9 +25,14 @@ import (
 )
 
 // FicheroAbrir: si existe en la carpeta del nodo, el puerto de la consola se
-// abre a todos y la consola queda «abierta» hasta que alguien guarde la lista.
-// Es la salida de emergencia: sudo touch /opt/sugardaddy/abrir-consola.
+// abre a todos durante 24 horas (la consola lleva la cuenta y lo apunta en la
+// auditoría). Es la salida de emergencia: sudo touch /opt/sugardaddy/abrir-consola.
 const FicheroAbrir = "abrir-consola"
+
+// VidaEmergencia: un fichero de emergencia más viejo que esto no abre nada y se
+// borra. Cuenta cuando la consola no contesta: si contesta, el fichero se borra en
+// cuanto lo sabe y es ella la que cierra a las 24 horas.
+const VidaEmergencia = 24 * time.Hour
 
 // NombreCortafuegos: el nombre del auxiliar hace de cerrojo.
 const NombreCortafuegos = "sugardaddy-cortafuegos"
@@ -98,8 +103,19 @@ func (a *Acceso) Vuelta(ctx context.Context) error {
 }
 
 func (a *Acceso) hayEmergencia() bool {
-	_, err := os.Stat(filepath.Join(a.Local, FicheroAbrir))
-	return err == nil
+	f := filepath.Join(a.Local, FicheroAbrir)
+	st, err := os.Stat(f)
+	if err != nil {
+		return false
+	}
+	if time.Since(st.ModTime()) > VidaEmergencia {
+		_ = os.Remove(f)
+		if a.Log != nil {
+			a.Log("console access: emergency file older than 24 hours, ignored and removed")
+		}
+		return false
+	}
+	return true
 }
 
 // aplicar pone la lista si cambió o toca repasarla y, si se puede, informa a la consola.

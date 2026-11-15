@@ -123,6 +123,35 @@
 					{/each}
 				</tbody>
 			</table>
+			{#if data.espera?.entradas.length}
+				<h2 class="espera-titulo">
+					Waiting for the shared list <span class="mono">{data.espera.entradas.length}</span>
+				</h2>
+				<p class="nota">
+					At most {data.espera.tope} new addresses from the shared list reach your firewalls each day.
+					These are next, oldest first, as long as Central keeps listing them.
+				</p>
+				<table>
+					<thead>
+						<tr>
+							<th>Value</th>
+							<th>Reason</th>
+							<th>Waiting since</th>
+							<th>Expires</th>
+						</tr>
+					</thead>
+					<tbody>
+						{#each data.espera.entradas as l (l.valor)}
+							<tr>
+								<td class="mono valor" title={l.valor}>{l.valor}</td>
+								<td>{l.motivo}</td>
+								<td class="mono fecha">{diaCorto(l.recibida)}</td>
+								<td class="mono fecha">{diaCorto(l.caduca)}</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			{/if}
 		</section>
 
 		<div class="lateral">
@@ -209,7 +238,7 @@
 
 	.pestanas a[aria-current='page'] {
 		background: var(--accent-soft);
-		color: var(--accent);
+		color: var(--link);
 	}
 
 	.rejilla {
@@ -326,7 +355,7 @@
 	.interruptor input {
 		width: auto;
 		margin-top: 3px;
-		accent-color: var(--accent);
+		accent-color: var(--link);
 	}
 
 	.interruptor span {
@@ -362,6 +391,12 @@
 		color: var(--ink-2);
 		max-height: 520px;
 		overflow-y: auto;
+	}
+
+	.espera-titulo {
+		font-size: 15px;
+		font-weight: 700;
+		margin: 22px 0 2px;
 	}
 
 	.nota {

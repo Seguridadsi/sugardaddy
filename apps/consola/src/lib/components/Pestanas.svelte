@@ -30,15 +30,19 @@
 		z-index: 2;
 		display: flex;
 		flex-wrap: wrap;
-		gap: 4px;
-		margin-bottom: 14px;
-		padding: 8px 0;
+		gap: 0;
+		margin-bottom: 18px;
+		padding: 8px 0 0;
 		background: var(--bg);
+		border-bottom: 1px solid var(--line);
 	}
 
+	/* Pestañas de verdad: subrayado miel en la activa, sin píldoras. */
 	.pestanas a {
-		padding: 7px 14px;
-		border-radius: 99px;
+		padding: 7px 2px;
+		margin-right: 18px;
+		border-radius: 0;
+		border-bottom: 2px solid transparent;
 		font-size: 13.5px;
 		font-weight: 600;
 		color: var(--ink-2);
@@ -46,8 +50,12 @@
 		white-space: nowrap;
 	}
 
+	.pestanas a:hover {
+		color: var(--ink);
+	}
+
 	.pestanas a[aria-current='page'] {
-		background: var(--accent-soft);
-		color: var(--accent);
+		color: var(--ink);
+		border-bottom-color: var(--accent);
 	}
 </style>

@@ -113,3 +113,62 @@ describe('con el Entra propio del cliente', () => {
 		expect(identidadPropia({ ...suyo, oid: undefined })).toEqual({ rechazo: 'sin_oid' });
 	});
 });
+
+describe('el soporte de SeguridadSI, invitado en el tenant del cliente', () => {
+	const SSI = '9601c73a-aa80-40bc-a17d-54b4f7738e92';
+	const puerta = { correo: 'Kino@SeguridadSI.com', tenant: SSI, rol: 'lector' as const };
+	const invitado = {
+		oid: 'inv',
+		email: 'kino@seguridadsi.com',
+		name: 'Kino',
+		roles: ['soporte'],
+		acct: 1,
+		idp: `https://sts.windows.net/${SSI}/`
+	};
+
+	it('entra con el soporte abierto, siendo quien lo pidió, y con el rol que eligió el cliente', () => {
+		expect(identidadPropia(invitado, puerta)).toEqual({
+			oid: 'inv',
+			correo: 'kino@seguridadsi.com',
+			nombre: 'Kino',
+			roles: ['lector'],
+			soporte: true
+		});
+		expect(
+			identidadPropia({ ...invitado, idp: `https://login.microsoftonline.com/${SSI}/v2.0` }, puerta)
+		).toMatchObject({ soporte: true });
+	});
+
+	it('con el soporte cerrado no entra, aunque tenga el rol en la aplicación', () => {
+		expect(identidadPropia(invitado, null)).toEqual({ rechazo: 'soporte_cerrado' });
+	});
+
+	it('otra persona de SeguridadSI, un no invitado o alguien de otro tenant no entran', () => {
+		expect(identidadPropia({ ...invitado, email: 'otro@seguridadsi.com' }, puerta)).toEqual({
+			rechazo: 'soporte_otro'
+		});
+		expect(identidadPropia({ ...invitado, acct: 0 }, puerta)).toEqual({ rechazo: 'soporte_otro' });
+		expect(identidadPropia({ ...invitado, acct: undefined }, puerta)).toEqual({
+			rechazo: 'soporte_otro'
+		});
+		expect(
+			identidadPropia(
+				{ ...invitado, idp: 'https://sts.windows.net/11111111-1111-1111-1111-111111111111/' },
+				puerta
+			)
+		).toEqual({ rechazo: 'soporte_otro' });
+		expect(identidadPropia({ ...invitado, idp: undefined }, puerta)).toEqual({
+			rechazo: 'soporte_otro'
+		});
+		/* Una petición sin tenant (de un panel antiguo) no abre la puerta. */
+		expect(identidadPropia(invitado, { ...puerta, tenant: null })).toEqual({
+			rechazo: 'soporte_otro'
+		});
+	});
+
+	it('un empleado del cliente con el rol de soporte por error no entra como soporte', () => {
+		expect(
+			identidadPropia({ ...invitado, email: 'luis@kebaps.es', acct: 0, idp: undefined }, puerta)
+		).toEqual({ rechazo: 'soporte_otro' });
+	});
+});

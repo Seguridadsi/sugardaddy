@@ -1,5 +1,6 @@
 <script lang="ts">
 	import '@sugardaddy/estilo/app.css';
+	import '@sugardaddy/estilo/senaletica.css';
 	import { ICONOS_MENU, type IconoMenu } from '@sugardaddy/estilo/iconos-menu';
 	import { asset, resolve } from '$app/paths';
 	import { afterNavigate, invalidateAll } from '$app/navigation';
@@ -8,7 +9,7 @@
 	import { enhance } from '$app/forms';
 	import { onMount } from 'svelte';
 	import SelectorZona from '$lib/components/SelectorZona.svelte';
-	import { anotarZonaDelNavegador, diaHora, horaCorta } from '$lib/fechas-pantalla';
+	import { anotarZonaDelNavegador, diaHora, fechaHora } from '$lib/fechas-pantalla';
 
 	let { data, children } = $props();
 
@@ -105,10 +106,12 @@
 					(data.soporte?.estado === 'solicitado' && esAdmin)) &&
 					'soporte',
 				(data.acceso.estado !== 'restringida' || data.acceso.cortafuegosMal) && 'acceso',
+				data.b2b === 'activo' && 'migrar',
 				data.pentest && 'pentest',
 				data.modoDesarrollo && 'desarrollo',
 				!data.identidad.decidido && esAdmin && 'dominio',
 				data.ca && 'ca',
+				data.marca && 'marca',
 				data.actualizacion?.version && 'actualizacion',
 				data.community && !data.gestionado && !data.autoActualizar.decidido && esAdmin && 'oferta'
 			] as (string | false | null | undefined)[]
@@ -145,6 +148,9 @@
 		<b>Sugardaddy</b>
 	</a>
 {/snippet}
+
+<!-- Enciende el tema Señalética (paquetes/estilo/senaletica.css) en toda la consola. -->
+<div class="senaletica" hidden></div>
 
 {#if data.usuario && data.cliente}
 	<div class="armazon">
@@ -246,7 +252,7 @@
 										not apply it: anyone who reaches the machine can still find the console port.
 									{/if}
 								{:else if data.acceso.emergencia}
-									The console was opened to everyone from the machine itself.
+									The console was opened to everyone from the machine itself, for 24 hours.
 								{:else}
 									Anyone who reaches this machine can see the console, and that it sits next to the
 									honeypots.
@@ -271,6 +277,21 @@
 							</p>
 						{/if}
 
+						{#if avisoActual === 'marca' && data.marca}
+							<p class="emergencia">
+								{#if data.marca.registro}
+									{data.marca.registro}.
+								{:else if data.marca.estado === 'retenida'}
+									Version {data.marca.ultima} was published by SeguridadSI some time ago and this node
+									has not received it: whoever manages updates may be holding it back.
+								{:else}
+									This node has no fresh signed release timestamp: it cannot tell whether it is
+									being held on an old version.
+								{/if}
+								Check with SeguridadSI.
+							</p>
+						{/if}
+
 						{#if avisoActual === 'pentest' && data.pentest}
 							<p class="pentest">
 								Pentest mode "{data.pentest.nombre}" until {diaHora(data.pentest.hasta)}: activity
@@ -285,22 +306,28 @@
 								{#if data.usuario.soporte}
 									You are signed in with the support access opened by {data.cliente.nombre}, as {data
 										.soporte.rol}{#if data.soporte.hasta}, until
-										{horaCorta(data.soporte.hasta)}{/if}.
+										{fechaHora(data.soporte.hasta)}{/if}.
 								{:else}
 									{data.operador} has support access ({nombreRol(
 										data.soporte.rol ? [data.soporte.rol] : []
-									)}) {#if data.soporte.hasta}
-										until
-										{horaCorta(data.soporte.hasta)}.
-									{:else}
-										until you close it.
-									{/if}
-									<a href="/settings">Manage</a>
+									)}){#if data.soporte.hasta}
+										until {fechaHora(data.soporte.hasta)}{/if}.{#if data.soportePorCaducar}
+										It expires soon: renew it in Settings if they still need it.{/if}
+									<a href="/settings?tab=recovery#soporte">Manage</a>
 								{/if}
 							</p>
 						{:else if avisoActual === 'soporte'}
 							<p class="soporte">
-								{data.operador} is requesting support access. <a href="/settings">Review</a>
+								{data.operador} is requesting support access.
+								<a href="/settings?tab=recovery#soporte">Review</a>
+							</p>
+						{/if}
+
+						{#if avisoActual === 'migrar'}
+							<p class="soporte">
+								This console still signs in through the {data.operador} Entra ID. Move it to your own
+								Entra ID so only your organization decides who signs in.
+								<a href="/settings?tab=access#migrar">Move it</a>
 							</p>
 						{/if}
 
@@ -402,11 +429,13 @@
 		display: block;
 	}
 
+	/* La franja de avisos es negra, como el menú: lo que pasa en la máquina. */
 	.franja {
 		display: flex;
 		align-items: stretch;
-		background: var(--surface);
-		border-bottom: 1px solid var(--line);
+		background: #111;
+		color: #f4f1e8;
+		border-bottom: 0;
 	}
 
 	.franja-aviso {
@@ -421,8 +450,8 @@
 		gap: 4px;
 		padding: 0 8px;
 		font-size: 12px;
-		color: var(--ink-2);
-		border-left: 1px solid var(--line);
+		color: #c9c4b6;
+		border-left: 1px solid #2e2d2a;
 	}
 
 	.franja-pasar button {
@@ -437,17 +466,32 @@
 	}
 
 	.franja-pasar button:hover {
-		background: var(--surface-2);
-		color: var(--ink);
+		background: var(--accent);
+		color: #111;
 	}
 
 	.emergencia {
 		margin: 0;
 		padding: 7px 20px;
 		font-size: 12.5px;
-		font-weight: 700;
-		background: var(--crit);
-		color: var(--accent-ink);
+		font-weight: 600;
+		/* Se ve sin gritar: fondo apenas teñido y la barra en el borde. */
+		/* Cinta de peligro a la izquierda, como la de una zona acotada. */
+		background: #111;
+		color: #f4f1e8;
+		padding-left: 64px;
+		background-image: repeating-linear-gradient(-45deg, var(--accent) 0 10px, #111 10px 20px);
+		background-size: 44px 100%;
+		background-repeat: no-repeat;
+	}
+
+	.emergencia :global(a) {
+		color: var(--accent);
+		text-decoration-color: var(--accent);
+	}
+
+	.emergencia :global(a:hover) {
+		color: #111;
 	}
 
 	.pentest {
@@ -540,6 +584,49 @@
 		padding: 3px 10px;
 		cursor: pointer;
 		white-space: nowrap;
+	}
+
+	/*
+	 * Todos los avisos sobre la franja negra: texto claro y una barra de su
+	 * color a la izquierda (miel: hay que hacer algo; azul: soporte; verde: novedad).
+	 */
+	.pentest,
+	.soporte,
+	.desarrollo,
+	.actualizacion {
+		background: transparent;
+		color: #f4f1e8;
+		padding-left: 24px;
+		box-shadow: inset 5px 0 0 var(--tono);
+	}
+
+	.pentest,
+	.desarrollo {
+		--tono: var(--accent);
+	}
+
+	.soporte {
+		--tono: #5b8cff;
+	}
+
+	.actualizacion {
+		--tono: #3fb860;
+	}
+
+	.pentest a,
+	.soporte a,
+	.actualizacion a {
+		color: var(--accent);
+	}
+
+	.actualizacion.dominio input {
+		color: #111;
+		background: #fff;
+	}
+
+	.actualizacion :global(label) {
+		margin: 0;
+		color: inherit;
 	}
 
 	.logo {

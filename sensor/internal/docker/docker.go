@@ -677,6 +677,53 @@ func (c *Cliente) Crear(ctx context.Context, nombre string, config map[string]an
 	return r.ID, err
 }
 
+// CabeceraManifiesto: la de sd-motor (intermediario.CabeceraManifiesto). Docker la ignora.
+const CabeceraManifiesto = "X-Sugardaddy-Manifiesto"
+
+// CrearTrampa crea el contenedor de una trampa con su manifiesto en una cabecera:
+// sd-motor lo mide contra el catálogo firmado y comprueba que la petición sale de
+// él (docs/diseno/aislamiento-trampas.md). Contra Docker directamente, igual que Crear.
+func (c *Cliente) CrearTrampa(ctx context.Context, nombre string, config map[string]any, manifiesto []byte) (string, error) {
+	var r struct {
+		ID string `json:"Id"`
+	}
+	cab := map[string]string{CabeceraManifiesto: base64.StdEncoding.EncodeToString(manifiesto)}
+	err := c.llamarCon(ctx, http.MethodPost, "/containers/create?name="+url.QueryEscape(nombre), config, &r, cab)
+	return r.ID, err
+}
+
+// Aislamiento pregunta a sd-motor con qué aísla las trampas (motor.aislamiento).
+// Contra Docker directamente no existe: error.
+func (c *Cliente) Aislamiento(ctx context.Context) (map[string]any, error) {
+	var r map[string]any
+	err := c.pedir(ctx, http.MethodGet, "/sd/v1/aislamiento", nil, &r, nil)
+	return r, err
+}
+
+// Perforar pide a sd-motor que libere lo ya leído de un registro de trampa
+// (intermediario.RutaPerforar). El fallo vuelve con su errno.
+func (c *Cliente) Perforar(ctx context.Context, ruta string, hasta int64) error {
+	var r struct {
+		Errno int    `json:"errno"`
+		Error string `json:"error"`
+	}
+	if err := c.pedir(ctx, http.MethodPost, "/sd/v1/perforar", map[string]any{"ruta": ruta, "hasta": hasta}, &r, nil); err != nil {
+		return err
+	}
+	if r.Errno != 0 {
+		return fmt.Errorf("sd-motor: %s: %w", r.Error, syscall.Errno(r.Errno))
+	}
+	if r.Error != "" {
+		return errors.New("sd-motor: " + r.Error)
+	}
+	return nil
+}
+
+// Discos pasa a sd-motor un pedido de discos para el servicio sd-discos del anfitrión.
+func (c *Cliente) Discos(ctx context.Context, pedido, resultado any) error {
+	return c.pedir(ctx, http.MethodPost, "/sd/v1/discos", pedido, resultado, nil)
+}
+
 func (c *Cliente) Arrancar(ctx context.Context, id string) error {
 	return c.llamar(ctx, http.MethodPost, "/containers/"+id+"/start", nil, nil)
 }

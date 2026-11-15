@@ -27,6 +27,7 @@ cat > "$T/instalar-falso.sh" <<'FIN'
 	echo "puerto=${CONSOLA_PUERTO:-}"
 	echo "acceso=${CONSOLA_ACCESO:-}"
 	echo "local=${LOGIN_LOCAL:-}"
+	echo "proxy=${SUGARDADDY_PROXY:-}|${SUGARDADDY_NO_PROXY:-}|${SUGARDADDY_PROXY_CA:-}"
 } > "$LLAMADA"
 echo "Node running. Console at https://falso"
 FIN
@@ -58,7 +59,7 @@ espera() { # descripción, condición ya evaluada
 tiene() { grep -qF -- "$2" "$1"; echo $?; }
 
 caso "instalación nueva con todos los datos"
-printf '%s\n' /opt/sd-prueba 'Grupo Aldanza' nodo-mad01 consola.aldanza.local 10.0.0.0/24,192.168.1.20 y \
+printf '%s\n' /opt/sd-prueba 'Grupo Aldanza' nodo-mad01 consola.aldanza.local 10.0.0.0/24,192.168.1.20 '' y \
 	| bash "$T/asistente.sh" > "$T/salida" 2>&1
 espera "acaba bien" "$?"
 espera "llama al instalador con los cuatro datos" "$(tiene "$LLAMADA" 'args=/opt/sd-prueba|nodo-mad01|Grupo Aldanza|consola.aldanza.local')"
@@ -67,15 +68,25 @@ espera "puerto 443 si está libre" "$(tiene "$LLAMADA" 'puerto=443')"
 espera "enciende la entrada con contraseña si no hay Entra" "$(tiene "$LLAMADA" 'local=1')"
 espera "enseña el resumen antes de instalar" "$(tiene "$T/salida" 'This is what will be installed:')"
 espera "dice qué viene después" "$(tiene "$T/salida" 'The console then guides you')"
+espera "sin proxy: lo dice y lo quita" "$(tiene "$LLAMADA" 'proxy=none|none|')"
+
+caso "detrás de un proxy: se pregunta, se prueba y llega al instalador"
+printf '%s\n' /opt/sd-proxy 'Banco' nodo-banco consola.banco.local 10.0.0.0/24 'proxy.banco.local:3128' 'http://u%40:cl%24ve@proxy.banco.local:3128/' 'intranet.local' '' y y \
+	| bash "$T/asistente.sh" > "$T/salida" 2>&1
+espera "acaba bien" "$?"
+espera "vuelve a preguntar un proxy mal escrito" "$(tiene "$T/salida" 'Write it as http://proxy.example.com:3128')"
+espera "pasa el proxy y sus excepciones" "$(tiene "$LLAMADA" 'proxy=http://u%40:cl%24ve@proxy.banco.local:3128|intranet.local|')"
+espera "el resumen no enseña la contraseña" "$([[ "$(tiene "$T/salida" 'cl%24ve')" != 0 ]]; echo $?)"
+espera "avisa si por el proxy no se llega" "$(tiene "$T/salida" 'does not answer')"
 
 caso "valores propuestos: basta con el nombre de la empresa"
-printf '%s\n' '' 'Talleres Pérez & Hijos' '' 10.1.2.3 '' y | bash "$T/asistente.sh" > "$T/salida" 2>&1
+printf '%s\n' '' 'Talleres Pérez & Hijos' '' 10.1.2.3 '' '' y | bash "$T/asistente.sh" > "$T/salida" 2>&1
 espera "acaba bien" "$?"
 espera "carpeta por defecto e identificador sacado del nombre" "$(tiene "$LLAMADA" 'args=/opt/sugardaddy|node-talleres-p-rez-hijos|Talleres Pérez & Hijos|10.1.2.3')"
 espera "sin lista: el acceso se decide al entrar" "$(tiene "$LLAMADA" 'acceso=')"
 
 caso "lo que no vale se vuelve a preguntar"
-printf '%s\n' relativa /opt/sd 'Mi "empresa"' 'Mi empresa' 'Nodo Malo' nodo-ok 'https://consola' consola.local 'no es una ip' 10.0.0.5 y \
+printf '%s\n' relativa /opt/sd 'Mi "empresa"' 'Mi empresa' 'Nodo Malo' nodo-ok 'https://consola' consola.local 'no es una ip' 10.0.0.5 '' y \
 	| bash "$T/asistente.sh" > "$T/salida" 2>&1
 espera "acaba bien" "$?"
 espera "se queda con los valores buenos" "$(tiene "$LLAMADA" 'args=/opt/sd|nodo-ok|Mi empresa|consola.local')"
@@ -83,7 +94,7 @@ espera "y con la IP buena" "$(tiene "$LLAMADA" 'acceso=10.0.0.5')"
 
 caso "cancelar en el resumen no instala nada"
 set +e
-printf '%s\n' /opt/sd 'Mi empresa' nodo-ok consola.local '' n | bash "$T/asistente.sh" > "$T/salida" 2>&1
+printf '%s\n' /opt/sd 'Mi empresa' nodo-ok consola.local '' '' n | bash "$T/asistente.sh" > "$T/salida" 2>&1
 r=$?
 set -e
 espera "sale con error" "$([[ $r != 0 ]]; echo $?)"
@@ -101,7 +112,7 @@ espera "no pregunta nada" "$([[ "$(tiene "$T/salida" 'Folder where the node will
 espera "no llama al instalador" "$([[ ! -e "$LLAMADA" ]]; echo $?)"
 
 caso "con Entra en el entorno no se enciende la entrada con contraseña"
-printf '%s\n' /opt/sd 'Mi empresa' nodo-ok consola.local '' y \
+printf '%s\n' /opt/sd 'Mi empresa' nodo-ok consola.local '' '' y \
 	| ENTRA_TENANT_ID=11111111-1111-1111-1111-111111111111 bash "$T/asistente.sh" > "$T/salida" 2>&1
 espera "acaba bien" "$?"
 espera "entrada local sin tocar" "$(grep -qx 'local=' "$LLAMADA"; echo $?)"
@@ -112,7 +123,7 @@ if command -v python3 >/dev/null && command -v ss >/dev/null; then
 	python3 -c 'import socket,time; s=socket.socket(); s.bind(("0.0.0.0",443)); s.listen(); time.sleep(60)' &
 	oyente=$!
 	sleep 1
-	printf '%s\n' /opt/sd 'Mi empresa' nodo-ok consola.local '' '' y | bash "$T/asistente.sh" > "$T/salida" 2>&1
+	printf '%s\n' /opt/sd 'Mi empresa' nodo-ok consola.local '' '' '' y | bash "$T/asistente.sh" > "$T/salida" 2>&1
 	espera "acaba bien" "$?"
 	espera "avisa de que está en uso" "$(tiene "$T/salida" 'Port 443 is already in use')"
 	espera "instala en el 8443 propuesto" "$(tiene "$LLAMADA" 'puerto=8443')"
@@ -129,7 +140,7 @@ NODO_NOMBRE="Empresa de antes"
 CONSOLA_DOMINIO=consola.antes.local
 CONSOLA_PUERTO=8443
 FIN
-printf '%s\n' /opt/sd-ya '' y | bash "$T/asistente.sh" > "$T/salida" 2>&1
+printf '%s\n' /opt/sd-ya '' '' y | bash "$T/asistente.sh" > "$T/salida" 2>&1
 espera "acaba bien" "$?"
 espera "avisa de que se actualiza" "$(tiene "$T/salida" 'already holds a node (nodo-viejo)')"
 espera "conserva nodo, empresa, dirección y puerto" "$(tiene "$LLAMADA" 'args=/opt/sd-ya|nodo-viejo|Empresa de antes|consola.antes.local')"

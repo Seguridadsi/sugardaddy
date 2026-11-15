@@ -243,7 +243,7 @@
 
 	.detalle.propia {
 		font: 500 14px var(--font-mono);
-		color: var(--accent);
+		color: var(--link);
 	}
 
 	.detalle.propia.falta {

@@ -1,0 +1,322 @@
+/*
+ * Tema «Señalética» de la consola: papel, tinta negra y miel, cantos vivos y
+ * reglas gruesas, como el cartel de «cuidado» (la abeja es negra y miel).
+ * Va DESPUÉS de app.css y solo se aplica donde hay un elemento con la clase
+ * «senaletica»: la consola entera y el panel central. La web pública, que
+ * sale del mismo panel, no la lleva y sigue con app.css tal cual; al navegar
+ * de una a otra sin recargar, el :has() quita o pone el tema solo.
+ *
+ * Los !important de abajo son a propósito: las páginas tienen estilos propios
+ * con más especificidad (Svelte les añade su clase) y el tema tiene que ganar.
+ */
+
+@import '@fontsource/archivo/800.css';
+@import '@fontsource/archivo/900.css';
+
+:root:has(.senaletica) {
+	& {
+		--bg: #efebe1;
+		--surface: #f8f6f0;
+		--surface-2: #e6e1d4;
+		--sunk: #ffffff;
+
+		--ink: #111111;
+		--ink-2: #45423b;
+		--ink-3: #6e6a60;
+
+		--line: #cfc9ba;
+		--line-strong: #111111;
+
+		--accent: #f5b800;
+		--accent-ink: #111111;
+		--accent-soft: #fbe7a6;
+		/* Enlaces y datos que se pulsan, como las IPs: tinta, con el subrayado miel. */
+		--link: #111111;
+
+		--logo-fondo: #ffffff;
+
+		--ok: #1f7a3a;
+		--warn: #a85d00;
+		--crit: #c8281c;
+
+		--s-baja: #8a857a;
+		--s-media: #1d4fd8;
+		--s-alta: #e26a00;
+		--s-critica: #d42a1c;
+
+		--shadow: none;
+		--shadow-lift: 4px 4px 0 #111111;
+
+		--r: 0px;
+		--r-sm: 0px;
+
+		color-scheme: light;
+	}
+
+	/* ===================================================================
+	 * Señalética: la capa que cambia el carácter de toda la consola.
+	 * Cantos vivos, reglas de tinta, titulares gruesos, menú negro y
+	 * la severidad como bloque de color macizo.
+	 * =================================================================== */
+
+	*,
+	*::before,
+	*::after {
+		border-radius: 0 !important;
+	}
+
+	body {
+		font-size: 14.5px;
+	}
+
+	h1 {
+		font-family: var(--font-display) !important;
+		font-weight: 900 !important;
+		font-size: clamp(34px, 4.4vw, 52px) !important;
+		letter-spacing: -0.035em !important;
+		line-height: 0.95 !important;
+		text-transform: none;
+	}
+
+	h2 {
+		font-weight: 800 !important;
+		letter-spacing: -0.02em !important;
+	}
+
+	.panel {
+		background: var(--surface);
+		border: 1.5px solid var(--ink);
+		box-shadow: none;
+	}
+
+	.eyebrow {
+		color: var(--ink);
+		font-weight: 500;
+	}
+
+	/* Botones: rectángulos de tinta; el principal, bloque de miel con sombra dura. */
+	.boton,
+	.menu-boton {
+		border: 1.5px solid var(--ink) !important;
+		background: var(--surface) !important;
+		color: var(--ink) !important;
+		font-weight: 700;
+		letter-spacing: 0.01em;
+	}
+
+	.boton:hover,
+	.menu-boton:hover {
+		background: var(--ink) !important;
+		color: var(--bg) !important;
+	}
+
+	.boton.principal,
+	.menu-boton.principal {
+		background: var(--accent) !important;
+		color: var(--ink) !important;
+		box-shadow: 3px 3px 0 var(--ink);
+	}
+
+	.boton.principal:hover,
+	.menu-boton.principal:hover {
+		background: var(--accent) !important;
+		color: var(--ink) !important;
+		transform: translate(-1px, -1px);
+		box-shadow: 4px 4px 0 var(--ink);
+	}
+
+	.boton.principal:active {
+		transform: translate(2px, 2px);
+		box-shadow: 1px 1px 0 var(--ink);
+	}
+
+	input,
+	select,
+	textarea {
+		border: 1.5px solid var(--ink);
+		background: var(--sunk);
+	}
+
+	input:focus,
+	select:focus,
+	textarea:focus {
+		outline: none;
+		box-shadow: 0 0 0 3px var(--accent);
+	}
+
+	:focus-visible {
+		outline: 3px solid var(--accent) !important;
+		outline-offset: 1px;
+	}
+
+	label {
+		font-family: var(--font-mono);
+		font-size: 10.5px;
+		font-weight: 500;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		color: var(--ink);
+	}
+
+	a {
+		color: var(--ink);
+		text-decoration: underline;
+		text-decoration-thickness: 2px;
+		text-decoration-color: var(--accent);
+		text-underline-offset: 3px;
+	}
+
+	a:hover {
+		color: var(--ink);
+		background: var(--accent);
+	}
+
+	/* Severidad: bloque macizo. Lo crítico, rojo con letra blanca; lo bajo, solo texto. */
+	.sev {
+		display: inline-block;
+		padding: 3px 7px;
+		font-family: var(--font-mono);
+		font-size: 10.5px;
+		font-weight: 600;
+		letter-spacing: 0.06em;
+		color: #fff;
+		background: var(--sev);
+	}
+
+	.sev::before {
+		display: none;
+	}
+
+	.sev.sev-baja {
+		color: var(--ink-2);
+		background: transparent;
+		outline: 1px solid var(--line);
+	}
+
+	.tag {
+		border: 1px solid var(--ink);
+		background: transparent;
+		color: var(--ink);
+	}
+
+	.tag.on {
+		background: var(--accent);
+		color: var(--ink);
+	}
+
+	/* El menú: un bloque negro, con la miel marcando dónde estás. */
+	.menu-lateral {
+		--surface: #111111;
+		--surface-2: #222120;
+		--sunk: #1a1918;
+		--ink: #f4f1e8;
+		--ink-2: #c9c4b6;
+		--ink-3: #8f8a7d;
+		--line: #2e2d2a;
+		background: #111111 !important;
+		color: var(--ink);
+		border-right: 0 !important;
+	}
+
+	/* La marca del menú es un enlace, pero no se subraya como los del texto. */
+	.marca,
+	.marca:hover {
+		text-decoration: none !important;
+		background: transparent !important;
+	}
+
+	.menu-lateral .marca b {
+		font-weight: 900;
+		font-size: 19px;
+		letter-spacing: -0.03em;
+	}
+
+	.menu-lateral .menu-boton {
+		border-color: #f4f1e8 !important;
+		background: transparent !important;
+		color: #f4f1e8 !important;
+	}
+
+	.menu-lateral .menu-boton.principal {
+		border-color: var(--accent) !important;
+		background: var(--accent) !important;
+		color: #111 !important;
+		box-shadow: none;
+	}
+
+	.menu-grupo-titulo {
+		color: var(--accent) !important;
+	}
+
+	.menu-grupo a {
+		font-weight: 600 !important;
+		color: var(--ink-2) !important;
+		text-decoration: none !important;
+	}
+
+	.menu-grupo a:hover {
+		background: #222120 !important;
+		color: #fff !important;
+	}
+
+	.menu-grupo a[aria-current='page'] {
+		background: var(--accent) !important;
+		color: #111 !important;
+		box-shadow: none !important;
+	}
+
+	.menu-grupo a[aria-current='page'] .menu-icono {
+		stroke: #111 !important;
+	}
+
+	.menu-lateral select,
+	.menu-lateral input {
+		background: #1a1918;
+		color: #f4f1e8;
+		border-color: #4a4843;
+	}
+
+	.menu-cuenta {
+		border-color: #2e2d2a !important;
+	}
+
+	.menu-movil {
+		background: #111 !important;
+		color: #f4f1e8;
+	}
+
+	main.contenido {
+		max-width: 1360px;
+		padding-inline: 28px;
+		padding-top: 34px;
+	}
+
+	/* Cabeceras de tabla: rótulo mono sobre una regla de tinta. */
+	th {
+		font-family: var(--font-mono) !important;
+		font-size: 10.5px !important;
+		font-weight: 500 !important;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		color: var(--ink) !important;
+		border-bottom: 2px solid var(--ink) !important;
+	}
+
+	.menu-grupo-titulo {
+		padding-top: 6px;
+		font-family: var(--font-mono);
+		font-size: 10.5px;
+		font-weight: 500;
+		letter-spacing: 0.08em;
+	}
+
+	.menu-globo {
+		background: var(--accent);
+		color: #111;
+		font-weight: 700;
+	}
+
+	.menu-nodo {
+		color: #c9c4b6;
+	}
+}

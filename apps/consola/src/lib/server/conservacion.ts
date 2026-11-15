@@ -200,17 +200,19 @@ export async function borrarListasVencidasAntesDe(ahora: Date) {
 	return n;
 }
 
-/* La auditoría anterior a «limite», de una vez: dice cuántas entradas, no cuáles. */
+/*
+ * La auditoría anterior a «limite»: dice cuántas entradas, no cuáles. La auditoría
+ * no se deja borrar (migración 0058): lo hace auditoria_purgar, con su propio rol,
+ * y deja en la cadena la fila «audit log purged» con hasta qué id llegó y el hash
+ * de la última que borró, del que cuelga la primera que queda. Solo se va el
+ * principio de la cadena: una fila con una fecha del pasado no se lleva las de
+ * después.
+ */
 export async function borrarAuditoriaAntesDe(limite: Date) {
-	const [{ n }] = await db.execute<{ n: number }>(sql`
-		with borradas as (
-			delete from ${s.auditoria}
-			where ${s.auditoria.cuando} < ${limite.toISOString()}
-			returning 1
-		)
-		select count(*)::int as n from borradas
-	`);
-	return n;
+	const [{ n }] = await db.execute<{ n: number }>(
+		sql`select auditoria_purgar(${limite.toISOString()}::timestamptz) as n`
+	);
+	return Number(n);
 }
 
 /*
@@ -252,11 +254,7 @@ export async function purgar(ahora = new Date()) {
 			antesDe: limite.toISOString(),
 			...r
 		});
+	/* La propia purga deja su fila en la auditoría («audit log purged»). */
 	const auditoria = await borrarAuditoriaAntesDe(limiteAuditoria);
-	if (auditoria)
-		await auditar('node', 'old audit log entries deleted', {
-			antesDe: limiteAuditoria.toISOString(),
-			entradas: auditoria
-		});
 	return { ...r, auditoria, listas };
 }

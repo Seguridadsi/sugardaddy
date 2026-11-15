@@ -20,7 +20,7 @@ import { and, eq, isNull, lte, ne, or, sql } from 'drizzle-orm';
 import { db, schema as s } from '../db';
 import { auditar } from '../consultas';
 import { ROLES, type Rol } from './permisos';
-import type { Identidad } from './entra';
+import { configuradoEnEntorno, type Identidad } from './entra';
 
 /* Parámetros de scrypt. 2^15 de coste; maxmem explícito porque 2^15 pasa del tope por defecto. */
 const N = 1 << 15;
@@ -55,8 +55,16 @@ export const usuarioValido = (u: string) => USUARIO_RE.test(norma(u));
 const CORREO_RE = /^[^\s@]{1,64}@[^\s@]+\.[^\s@.]{2,}$/;
 export const correoValido = (c: string) => c.trim().length <= 254 && CORREO_RE.test(c.trim());
 
+/*
+ * Encendido con LOGIN_LOCAL=1, en Community, y en un nodo Cloud que no trae el
+ * Entra de SeguridadSI en el .env: un Cloud nuevo ya no lo trae (entra con login
+ * local o con su propio Entra, docs/diseno/identidad-clientes.md §1), y así no se
+ * queda sin entrada aunque su instalación no pasara LOGIN_LOCAL. LOGIN_LOCAL=0 lo
+ * apaga a propósito.
+ */
 export function loginLocalHabilitado() {
-	return env.LOGIN_LOCAL === '1' || env.EDICION === 'community';
+	if (env.LOGIN_LOCAL === '1' || env.EDICION === 'community') return true;
+	return env.EDICION === 'cloud' && env.LOGIN_LOCAL !== '0' && !configuradoEnEntorno();
 }
 
 /* ---------- hash de contraseñas (scrypt) ---------- */
@@ -499,6 +507,23 @@ export async function crear(
  * pueden dejar el nodo con cero administradores entre las dos.
  */
 
+/*
+ * Revoca DE VERDAD los tokens de API activos de un usuario local (no solo que
+ * dejen de valer mientras siga así): si mañana vuelve a ser administrador o
+ * recupera su contraseña, sus tokens de antes no resucitan. La tabla viaja con
+ * el esquema compartido; en Community no tiene filas y esto no hace nada.
+ */
+export async function revocarTokensApiDe(quien: string, id: string, motivo: string) {
+	const revocados = await db
+		.update(s.tokensApi)
+		.set({ revocado: new Date(), revocadoPor: quien })
+		.where(and(eq(s.tokensApi.creadorOid, `local:${id}`), isNull(s.tokensApi.revocado)))
+		.returning({ id: s.tokensApi.id, nombre: s.tokensApi.nombre });
+	for (const t of revocados)
+		await auditar(quien, 'API token revoked', { id: t.id, nombre: t.nombre, motivo });
+	return revocados.length;
+}
+
 export async function fijarRoles(
 	quien: string,
 	id: string,
@@ -523,7 +548,12 @@ export async function fijarRoles(
 		await tx.update(s.usuariosLocales).set({ roles: limpios }).where(eq(s.usuariosLocales.id, id));
 		return { ok: true as const };
 	});
-	if (r.ok) await auditar(quien, 'local user roles changed', { id, roles: limpios });
+	if (r.ok) {
+		await auditar(quien, 'local user roles changed', { id, roles: limpios });
+		/* Sin el rol que hacía falta para crearlos, sus tokens de API se revocan. */
+		if (!limpios.includes('admin'))
+			await revocarTokensApiDe(quien, id, 'creator is no longer an administrator');
+	}
 	return r;
 }
 
@@ -546,6 +576,8 @@ export async function restablecer(
 		.returning({ usuario: s.usuariosLocales.usuario });
 	if (!u) return { ok: false, error: 'That user no longer exists.' };
 	await cerrarSesionesDe(id);
+	/* Restablecer es lo que se hace con una cuenta que quizá está en otras manos: fuera sus tokens. */
+	await revocarTokensApiDe(quien, id, 'creator password reset');
 	await auditar(quien, 'local user password reset', { usuario: u.usuario });
 	return { ok: true };
 }
@@ -576,6 +608,9 @@ export async function retirar(
 		await tx.delete(s.preferenciasUsuario).where(eq(s.preferenciasUsuario.oid, `local:${id}`));
 		return { ok: true as const, usuario: u.usuario };
 	});
-	if (r.ok) await auditar(quien, 'local user removed', { usuario: r.usuario });
+	if (r.ok) {
+		await auditar(quien, 'local user removed', { usuario: r.usuario });
+		await revocarTokensApiDe(quien, id, 'creator removed');
+	}
 	return r.ok ? { ok: true } : r;
 }

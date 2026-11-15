@@ -113,7 +113,14 @@ export function volverSeguro(v: string | null): string {
 	if (/[\u0000-\u0020\u007f-\u009f\\]/.test(v)) return '/';
 	try {
 		const u = new URL(v, ORIGEN_PRUEBA);
-		return u.origin === ORIGEN_PRUEBA ? u.pathname + u.search + u.hash : '/';
+		if (u.origin !== ORIGEN_PRUEBA) return '/';
+		/*
+		 * Normalizada puede volver a empezar por «//»: «/..//evil.example» se queda en
+		 * «//evil.example», que el navegador lee como otro dominio (auditoría del
+		 * 2026-11-14).
+		 */
+		const ruta = u.pathname + u.search + u.hash;
+		return ruta.startsWith('//') ? '/' : ruta;
 	} catch {
 		return '/';
 	}

@@ -31,6 +31,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	stdhttp "net/http"
 	"net/url"
 	"os"
 	"os/signal"
@@ -143,6 +144,13 @@ func main() {
 			Anfitrion: cfg.anfitrion, Proyecto: cfg.proyecto, Red: cfg.red,
 			Log: func(m string, args ...any) { slog.Info(m, args...) }}
 	}
+	// Solo en el nodo: comparar la máquina con su versión firmada y contarlo (integridad.desviacion).
+	var integridad *actualizador.Integridad
+	if *modo != "sensor" && cfg.local != "" {
+		integridad = &actualizador.Integridad{Docker: d, Local: cfg.local, Confianza: clave,
+			Edicion: actualizador.EdicionDelNodo(os.Getenv), Consola: *consola, Token: token, HTTP: http,
+			Log: func(m string, args ...any) { slog.Warn(m, args...) }}
+	}
 	// En un sensor remoto: las raíces en las que confía para hablar con la consola.
 	var raices *actualizador.RaizRemota
 	if *modo == "sensor" && *ca != "" && cfg.local != "" {
@@ -159,7 +167,31 @@ func main() {
 			Partner: p, Confianza: clave, Log: func(m string, args ...any) { slog.Info(m, args...) }}
 	}
 
-	var ultimaFirmada, ultimoPartner time.Time
+	// La marca de tiempo (docs/diseno/firmas-raiz.md): solo en el nodo, que tiene su carpeta.
+	var vigia *actualizador.Vigia
+	if *modo != "sensor" && cfg.local != "" {
+		vigia = &actualizador.Vigia{
+			Estatica: strings.TrimRight(envO("MARCA_URL", actualizador.URLMarcaEstatica), "/"),
+			Consola:  *consola + "/api/actualizador/marca", Token: token, HTTP: http,
+			Fuera: &stdhttp.Client{Timeout: 15 * time.Second}, Dir: cfg.local,
+			Edicion: actualizador.EdicionDelNodo(os.Getenv), Versiones: *versiones,
+			Log: func(m string, args ...any) { slog.Info(m, args...) },
+			// Del .env en cada vuelta: una versión puede haber cambiado las claves.
+			Claves: func() (actualizador.Confianza, []string) {
+				env, _ := actualizador.LeerEnv(filepath.Join(cfg.local, ".env"))
+				get := func(k string) string {
+					if v, ok := env[k]; ok {
+						return v
+					}
+					return os.Getenv(k)
+				}
+				return actualizador.ConfianzaDelEntorno(get), actualizador.LeerClavesMarca(get("PUBLICACION_MARCAS"))
+			},
+		}
+		cfg.vigia = vigia
+	}
+
+	var ultimaFirmada, ultimoPartner, ultimaMarca time.Time
 	for {
 		// Un resultado que no llegó a la consola (porque se estaba reiniciando)
 		// se reintenta antes que nada: si no, el nodo se quedaría en "aplicando".
@@ -184,6 +216,16 @@ func main() {
 					slog.Warn("partner catalog", "err", err)
 				}
 			}
+			if vigia != nil && time.Since(ultimaMarca) > time.Hour {
+				ultimaMarca = time.Now()
+				e, err := vigia.Vuelta(ctx, time.Now())
+				if err != nil {
+					slog.Warn("timestamp", "err", err)
+				}
+				if e.Estado == "caducada" || e.Estado == "retenida" {
+					slog.Warn("timestamp", "estado", e.Estado, "detalle", e.Detalle)
+				}
+			}
 			r, err := vuelta(ctx, http, *consola, rutas, token, clave, a, *versiones, cfg)
 			if r != nil {
 				pendiente = r
@@ -199,6 +241,11 @@ func main() {
 			if caNodo != nil {
 				if err := caNodo.Vuelta(ctx); err != nil {
 					slog.Warn("node CA", "err", err)
+				}
+			}
+			if integridad != nil {
+				if err := integridad.Vuelta(ctx); err != nil {
+					slog.Warn("node integrity", "err", err)
 				}
 			}
 			if raices != nil {
@@ -261,6 +308,21 @@ func vuelta(ctx context.Context, c *http.Client, base string, ru rutas, token st
 			// Firmada, pero más antigua que la instalada: no se vuelve atrás aunque la consola lo pida.
 			d := fmt.Sprintf("version %s is older than the installed %s: not applied", r.Version, inst)
 			return final(ctx, c, base, ru, token, r.Version, "fallida", d), errors.New(d)
+		}
+	}
+	// El registro de transparencia (docs/diseno/firmas-raiz.md §4): una versión que no está en
+	// él no se instala. No se da por fallida (la consola no la volvería a ofrecer): se espera,
+	// se avisa y se vuelve a mirar, por si la copia pública aún no la tiene.
+	if cfg.vigia != nil {
+		estado, detalle := cfg.vigia.ComprobarRegistro(ctx, actualizador.EdicionDelNodo(os.Getenv), p.Release.Release, time.Now())
+		exigir := os.Getenv("REGISTRO_EXIGIR") == "1"
+		if estado == actualizador.RegistroAusente || (estado == actualizador.RegistroSinPrueba && exigir) {
+			_ = cfg.vigia.Informar(ctx, time.Now())
+			return nil, errors.New(detalle)
+		}
+		if estado == actualizador.RegistroSinPrueba {
+			slog.Warn("installing without a transparency log proof", "detalle", detalle)
+			_ = cfg.vigia.Informar(ctx, time.Now())
 		}
 	}
 	slog.Info("installing", "version", r.Version)
@@ -327,6 +389,7 @@ type configDeAuxiliar struct {
 	local               string // la misma carpeta, montada en este contenedor
 	docker              *docker.Cliente
 	informe             actualizador.Informe
+	vigia               *actualizador.Vigia // la marca y el registro de transparencia (solo en el nodo)
 }
 
 // puede: la versión trae configuración para este modo y este actualizador sabe dónde está la carpeta.

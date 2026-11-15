@@ -206,18 +206,43 @@
 		color: var(--ink);
 	}
 
+	/*
+	 * Una barra de herramientas, no un formulario: búsqueda ancha y los
+	 * filtros a su lado, en una fila. La lista empieza arriba del todo.
+	 */
 	.filtros {
 		display: grid;
-		grid-template-columns: repeat(4, minmax(0, 1fr)) auto;
-		gap: 14px;
+		grid-template-columns: minmax(240px, 2.4fr) repeat(5, minmax(0, 1fr)) auto;
+		gap: 10px;
 		align-items: end;
-		padding: 4px 17px 16px;
-		margin-bottom: 16px;
+		padding: 0 0 14px;
+		margin-bottom: 0;
+		background: none;
+		border: none;
+		border-bottom: 1px solid var(--line);
+		border-radius: 0;
 	}
 
-	/* La búsqueda ocupa su propia fila entera, encima de los filtros. */
-	.buscar {
-		grid-column: 1 / -1;
+	.filtros label {
+		margin-top: 0;
+	}
+
+	.filtros .boton {
+		grid-row: 1;
+		grid-column: -2 / -1;
+		padding-block: 7px;
+	}
+
+	.agrupar {
+		margin: 0;
+	}
+
+	/* La lista, pegada a la barra: sin caja alrededor. */
+	section.panel {
+		background: none;
+		border: none;
+		border-radius: 0;
+		margin-inline: -16px;
 	}
 
 	/* Agrupar repetidos: su propia fila, bajo los filtros. */
@@ -236,9 +261,14 @@
 		margin: 0;
 	}
 
-	@media (max-width: 1008px) {
+	@media (max-width: 1180px) {
 		.filtros {
 			grid-template-columns: minmax(0, 1fr);
+		}
+
+		.filtros .boton {
+			grid-row: auto;
+			grid-column: auto;
 		}
 	}
 

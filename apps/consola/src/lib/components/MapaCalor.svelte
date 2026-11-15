@@ -305,7 +305,7 @@
 		padding: 0;
 		border: 0;
 		background: none;
-		color: var(--accent);
+		color: var(--link);
 		font: inherit;
 		font-size: 12.5px;
 		cursor: pointer;

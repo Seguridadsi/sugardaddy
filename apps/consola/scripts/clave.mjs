@@ -11,7 +11,8 @@
  * reset y crear-admin imprimen una contraseña de UN SOLO USO (aquí y solo aquí);
  * la consola obliga a cambiarla al entrar. No tocan los roles de nadie, así que
  * no pueden dejar el nodo sin administradores; crear-admin es justo para el caso
- * de que no quede ninguno. Todo queda en la auditoría como «máquina del nodo».
+ * de que no quede ninguno. Todo queda en la auditoría como «máquina del nodo», y
+ * sale al SIEM del cliente como auditoria.emergencia, crítico (salidas/auditoria.ts).
  */
 import { randomBytes, randomUUID, scryptSync } from 'node:crypto';
 import postgres from 'postgres';
@@ -63,6 +64,9 @@ if (!process.env.DATABASE_URL) {
 		if (orden === 'listar') {
 			const filas = await sql`select usuario, nombre, roles, debe_cambiar, bloqueado_hasta,
 				ultimo_acceso from usuarios_locales order by usuario`;
+			/* Mirar los usuarios desde la máquina ya es usar la vía de emergencia: se audita (crítico en el SIEM). */
+			await sql`insert into auditoria (quien, accion, detalle)
+				values ('node machine', 'local users listed from the machine', ${JSON.stringify({ usuarios: filas.length })}::text::jsonb)`;
 			if (filas.length === 0) {
 				console.log(
 					'There are no local users. Create an admin: node scripts/clave.mjs crear-admin <username>'

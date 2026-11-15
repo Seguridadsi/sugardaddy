@@ -12,9 +12,10 @@ COPY . .
 RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$VERSION" -o /out/sensor ./cmd/sensor \
 	&& CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$VERSION" -o /out/actualizador ./cmd/actualizador
 
-# Distroless: sin shell ni gestor de paquetes. Corren como root porque hablan
-# con el socket de Docker, que ya equivale a root en la máquina: lo que se
-# protege es quién llega a ellos, no su usuario.
+# Distroless: sin shell ni gestor de paquetes. La imagen es root por defecto
+# porque de ella salen el actualizador y sd-motor, los únicos que hablan con el
+# socket de Docker, y el acompañante de captura (NET_RAW). El sensor ya no: los
+# compose lo arrancan como 65532 y sin el socket (docs/diseno/aislamiento-trampas.md).
 FROM gcr.io/distroless/static:nonroot@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3
 ARG BINARIO=sensor
 COPY --from=construccion /out/${BINARIO} /app

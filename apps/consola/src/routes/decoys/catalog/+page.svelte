@@ -162,7 +162,7 @@
 
 	.pestanas button[aria-pressed='true'] {
 		background: var(--accent-soft);
-		color: var(--accent);
+		color: var(--link);
 	}
 
 	.filtros input {

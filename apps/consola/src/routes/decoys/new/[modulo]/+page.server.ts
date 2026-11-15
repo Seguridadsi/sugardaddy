@@ -1,12 +1,9 @@
 import { error, fail, redirect } from '@sveltejs/kit';
-import { motivo, tipoEvento, validarParametros } from '@sugardaddy/contrato';
-import { SIN_IDENTIFICADOR, identificador } from '$lib/identificador';
+import { tipoEvento } from '@sugardaddy/contrato';
 import { darDeAlta, dondePoner, formaEn } from '$lib/server/alta';
+import { comprobarPedido, moduloParaAlta } from '$lib/server/alta-consola';
 import { exigir } from '$lib/server/auth/permisos';
-import { coberturaLicencia } from '$lib/server/candado';
 import { esDePartner } from '$lib/server/catalogo-partner';
-import { trampasAutorizadas } from '$lib/server/catalogo';
-import { existeTrampa } from '$lib/server/consultas';
 import { propuestasDeAlta } from '$lib/server/identidad';
 import { piezaParaAlta, plantillaPorId } from '$lib/server/plantillas';
 
@@ -18,14 +15,11 @@ import { piezaParaAlta, plantillaPorId } from '$lib/server/plantillas';
  * de contenedor la pone el sensor; una a mano se guarda con sus pasos, y se
  * va a su ficha a seguirlos.
  */
+/* Autorizado, cubierto por la licencia y con alguna vía (alta-consola.ts, como al aprobar una petición). */
 async function modulo(id: string) {
-	const h = (await trampasAutorizadas()).find((x) => x.id === id);
-	if (!h) error(404, 'That module is not in the catalog or is not authorized for this customer.');
-	/* Una de pago que la licencia no cubre se quedaría en espera: ni se pone. */
-	const licencia = (await coberturaLicencia())(h.id);
-	if (licencia !== 'cubierta') error(403, motivo(licencia).texto);
-	if (!h.vias.length) error(404, 'This honeypot has no way to be deployed yet.');
-	return h;
+	const m = await moduloParaAlta(id);
+	if (!m.ok) error(m.estado, m.error);
+	return m.h;
 }
 
 export const load = async ({ params, url }) => {
@@ -72,41 +66,31 @@ export const actions = {
 		const h = await modulo(params.modulo);
 		const form = await request.formData();
 		const nombre = String(form.get('nombre') ?? '').trim();
-		const id = identificador(String(form.get('id') ?? ''), nombre);
-		const destino = String(form.get('destino') ?? '');
-		const via = String(form.get('via') ?? '') || undefined;
 		/* La dirección de la máquina en la que se publica; vacía, en todas. */
 		const escucha = String(form.get('escucha') ?? '').trim();
 		/* Solo una plantilla que existe: el grupo no es texto libre. */
 		const plantilla = (await plantillaPorId(String(form.get('plantilla') ?? '')))?.id;
 
-		const valores: Record<string, unknown> = {};
+		const valores: Record<string, string> = {};
 		for (const [k, v] of form)
 			if (k.startsWith('p.')) valores[k.slice(2)] = String(v).replace(/\r\n/g, '\n');
 
-		const errores: string[] = [];
-		if (!id) errores.push(SIN_IDENTIFICADOR);
-		else if (await existeTrampa(id))
-			errores.push('Identifier: a honeypot with that name already exists');
-		if (!nombre) errores.push('Display name: required');
-		if (!destino) errores.push('Target: choose where to deploy it');
-		const p = validarParametros(h.parametros, valores);
-		if (!p.ok) errores.push(...p.errores);
-		const datos = { id, nombre, valores, escucha };
-		if (!p.ok || errores.length) return fail(400, { ...datos, errores, motivos: [] });
-
-		/* El elector decide con autoridad: si la vía pedida no vale aquí, vuelven sus motivos. */
-		const r = await darDeAlta(u.correo, {
-			honeycosa: h,
-			id,
+		/* Las comprobaciones de siempre (alta-consola.ts), las mismas que al aprobar una petición. */
+		const c = await comprobarPedido(h, {
+			id: String(form.get('id') ?? ''),
 			nombre,
-			destino,
-			via,
-			parametros: p.valor,
-			escucha: escucha || null,
+			destino: String(form.get('destino') ?? ''),
+			via: String(form.get('via') ?? '') || undefined,
+			escucha,
+			valores,
 			...(plantilla ? { plantilla } : {})
 		});
-		if (r === 'con-pasos') redirect(303, `/decoys/${encodeURIComponent(id)}`);
+		const datos = { id: c.ok ? c.valor.id : c.id, nombre, valores, escucha };
+		if (!c.ok) return fail(400, { ...datos, errores: c.errores, motivos: [] });
+
+		/* El elector decide con autoridad: si la vía pedida no vale aquí, vuelven sus motivos. */
+		const r = await darDeAlta(u.correo, { honeycosa: h, ...c.valor });
+		if (r === 'con-pasos') redirect(303, `/decoys/${encodeURIComponent(c.valor.id)}`);
 		if (r !== 'creada') return fail(400, { ...datos, ...r });
 		redirect(303, `/decoys?creado=${encodeURIComponent(nombre)}`);
 	}

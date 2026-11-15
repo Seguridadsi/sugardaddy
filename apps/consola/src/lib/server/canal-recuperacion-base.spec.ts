@@ -16,7 +16,28 @@ const canal = hayBase ? await import('./canal') : ({} as never);
 const local = hayBase ? await import('./auth/local') : ({} as never);
 const rec = hayBase ? await import('./auth/recuperar') : ({} as never);
 const { eq, like } = await import('drizzle-orm');
-const { hashCodigoRecuperacion } = await import('@sugardaddy/canal');
+const { firmanteDePrivada, firmarCon, generarClaves, hashCodigoRecuperacion } =
+	await import('@sugardaddy/canal');
+
+/* La clave de publicación del nodo de prueba: firma las órdenes (frenos-del-nodo.md). */
+const publicacion = generarClaves();
+process.env.PUBLICACION_CLAVE_PUBLICA = publicacion.publica;
+process.env.PUBLICACION_CLAVES = '';
+const CLIENTE = 'zz-panrec-cliente';
+type Plana = { id: string; usuario: string; codigoHash: string; caduca: string };
+const uuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+/* La orden firmada, como la deja herramientas/firmar-orden.sh; `con` otra clave para probar. */
+const firmada = (r: Plana, cliente = CLIENTE, con = publicacion.privada) => {
+	const orden = JSON.stringify({
+		tipo: 'recuperacion',
+		version: 1,
+		cliente,
+		...r,
+		emitida: new Date().toISOString()
+	});
+	return { orden, ...firmarCon(orden, firmanteDePrivada(con)) };
+};
+const guardar = (r: Plana) => canal.guardarRecuperacionPanel(r, firmada(r), CLIENTE);
 
 const P = 'zz-panrec';
 const clave = 'contraseña nueva bien larga';
@@ -45,8 +66,8 @@ describe.skipIf(!hayBase)('código de recuperación mandado desde el panel', () 
 
 	it('sin permitirlo en Ajustes no se guarda nada (SUP-12)', async () => {
 		expect(await canal.recuperacionPanelActiva()).toBe(false);
-		await canal.guardarRecuperacionPanel({
-			id: `${P}-0`,
+		await guardar({
+			id: uuid(0),
 			usuario: `${P}-admin`,
 			codigoHash: hashCodigoRecuperacion('999999'),
 			caduca: enUnaHora()
@@ -63,13 +84,13 @@ describe.skipIf(!hayBase)('código de recuperación mandado desde el panel', () 
 
 	it('lo guarda una sola vez aunque llegue en cada latido, y se canjea', async () => {
 		const r = {
-			id: `${P}-1`,
-			usuario: `${P}-ADMIN`,
+			id: uuid(1),
+			usuario: `${P}-admin`,
 			codigoHash: hashCodigoRecuperacion('424242'),
 			caduca: enUnaHora()
 		};
-		await canal.guardarRecuperacionPanel(r);
-		await canal.guardarRecuperacionPanel(r);
+		await guardar(r);
+		await guardar(r);
 		const filas = await db
 			.select()
 			.from(s.recuperacionesClave)
@@ -80,31 +101,61 @@ describe.skipIf(!hayBase)('código de recuperación mandado desde el panel', () 
 		expect((await rec.canjearCodigo(`${P}-admin`, '424242', clave)).ok).toBe(true);
 		expect((await local.verificar(`${P}-admin`, clave)).ok).toBe(true);
 		/* Ya canjeado: aunque el estado lo siga trayendo, no se vuelve a abrir. */
-		await canal.guardarRecuperacionPanel(r);
+		await guardar(r);
 		expect((await rec.canjearCodigo(`${P}-admin`, '424242', clave)).ok).toBe(false);
 	});
 
 	it('ignora lo caducado, el hash raro y el usuario que no existe', async () => {
 		const antes = (await db.select().from(s.recuperacionesClave)).length;
-		await canal.guardarRecuperacionPanel({
-			id: `${P}-2`,
+		await guardar({
+			id: uuid(2),
 			usuario: `${P}-admin`,
 			codigoHash: hashCodigoRecuperacion('111111'),
 			caduca: new Date(Date.now() - 1000).toISOString()
 		});
-		await canal.guardarRecuperacionPanel({
-			id: `${P}-3`,
+		await guardar({
+			id: uuid(3),
 			usuario: `${P}-admin`,
 			codigoHash: 'texto cualquiera',
 			caduca: enUnaHora()
 		});
-		await canal.guardarRecuperacionPanel({
-			id: `${P}-4`,
+		await guardar({
+			id: uuid(4),
 			usuario: `${P}-nadie`,
 			codigoHash: hashCodigoRecuperacion('111111'),
 			caduca: enUnaHora()
 		});
 		await canal.guardarRecuperacionPanel(null);
 		expect((await db.select().from(s.recuperacionesClave)).length).toBe(antes);
+	});
+
+	describe('sin la firma de la clave de publicación no vale (frenos del nodo)', () => {
+		const r = () => ({
+			id: uuid(9),
+			usuario: `${P}-admin`,
+			codigoHash: hashCodigoRecuperacion('777777'),
+			caduca: enUnaHora()
+		});
+		const nada = async () =>
+			expect((await rec.canjearCodigo(`${P}-admin`, '777777', clave)).ok).toBe(false);
+
+		it('la recuperación sin firmar, solo con la clave del panel, se ignora', async () => {
+			await canal.guardarRecuperacionPanel(r());
+			await nada();
+		});
+
+		it('firmada con otra clave (la del panel), no vale', async () => {
+			await canal.guardarRecuperacionPanel(
+				r(),
+				firmada(r(), CLIENTE, generarClaves().privada),
+				CLIENTE
+			);
+			await nada();
+		});
+
+		it('firmada para otro cliente, no vale', async () => {
+			await canal.guardarRecuperacionPanel(r(), firmada(r(), 'otro-cliente'), CLIENTE);
+			await nada();
+		});
 	});
 });

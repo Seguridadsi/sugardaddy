@@ -13,6 +13,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { conImagenPublicada } from './imagen-de-prueba';
+import { borrarAuditoriaDePrueba } from './db/pruebas-auditoria';
 
 let hayBase = false;
 try {
@@ -57,9 +58,10 @@ async function limpiar() {
 	await db.delete(s.trampas).where(mias);
 	await db.delete(s.destinos).where(like(s.destinos.id, `${P}%`));
 	await db.delete(s.sensores).where(like(s.sensores.id, `${P}%`));
-	await db
-		.delete(s.auditoria)
-		.where(or(eq(s.auditoria.quien, QUIEN), like(s.auditoria.quien, `sensor ${P}%`)));
+	await borrarAuditoriaDePrueba(
+		db,
+		or(eq(s.auditoria.quien, QUIEN), like(s.auditoria.quien, `sensor ${P}%`))
+	);
 }
 
 const trampa = async (id: string) =>

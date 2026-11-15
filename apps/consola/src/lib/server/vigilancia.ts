@@ -82,7 +82,7 @@ export async function paraLatido(soporteAbierto: boolean) {
 	return incidentes || soporteAbierto ? { vigilancia: { incidentes, consola: consola() } } : {};
 }
 
-const cambio = sql`greatest(${t.actividad}, ${t.cerrado}, ${t.atendido}, ${t.escalado})`;
+const cambio = sql`greatest(${t.actividad}, ${t.cerrado}, ${t.atendido}, ${t.atencionPanel}, ${t.escalado})`;
 
 /* Acotado sin dejar medio emoji: el panel no podría guardarlo y la fila se perdería. */
 const acotar = (v: string, max: number) =>
@@ -131,8 +131,12 @@ export async function incidentesPorSubir(v: Vigilancia, limite = POR_ENVIO) {
 		ultimo: f.ultimo.toISOString(),
 		abierto: f.abierto.toISOString(),
 		cerrado: iso(f.cerrado),
-		atendido: iso(f.atendido),
-		atendidoComo: f.atendidoComo,
+		/*
+		 * Lo que atiende el panel sube como atendido: así el panel deja de mandarlo en sus
+		 * atenciones. En el nodo no es `atendido`: el cliente sigue recibiendo sus avisos.
+		 */
+		atendido: iso(f.atendido ?? f.atencionPanel),
+		atendidoComo: f.atendidoComo ?? (f.atencionPanel ? 'lo-miro' : null),
 		escalados: f.escalados
 	}));
 	return { incidentes, marcas: filas.map(({ fila, marca }) => ({ id: fila.id, marca })) };
@@ -155,11 +159,19 @@ export async function aplicarAtenciones(lista: AtencionIncidente[] | undefined) 
 	for (const a of lista) {
 		if (!UUID.test(a.id)) continue;
 		const por = acotar(a.por, 120);
+		/*
+		 * Solo detiene el escalado hacia SeguridadSI (escalarPendientesAlPanel). No toca
+		 * `atendido`: el aviso, las novedades y el escalado a las salidas del cliente siguen
+		 * igual, aunque el panel diga que lo mira (docs/diseno/frenos-del-nodo.md).
+		 */
 		const [f] = await db
 			.update(t)
-			.set({ atendido: new Date(), atendidoPor: por, atendidoComo: 'lo-miro' })
-			.where(and(eq(t.id, a.id), isNull(t.atendido)))
+			.set({ atencionPanel: new Date(), atencionPanelPor: por })
+			.where(and(eq(t.id, a.id), isNull(t.atencionPanel)))
 			.returning({ origen: t.origen });
-		if (f) await auditar(por, 'Incident handled from Central', { origen: f.origen });
+		if (f)
+			await auditar(por, 'Incident handled from Central: no more escalation to Central', {
+				origen: f.origen
+			});
 	}
 }

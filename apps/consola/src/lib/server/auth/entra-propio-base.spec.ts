@@ -33,6 +33,7 @@ vi.mock('@sugardaddy/entra', async (original) => ({
 
 const { db, schema: s } = hayBase ? await import('../db') : ({} as never);
 const ep = hayBase ? await import('./entra-propio') : ({} as never);
+const b2b = hayBase ? await import('./b2b') : ({} as never);
 const { eq } = await import('drizzle-orm');
 
 const TENANT = '9b0c3a52-1111-4222-8333-444455556666';
@@ -174,12 +175,65 @@ describe.skipIf(!hayBase)('Entra propio del cliente', () => {
 		const r = await ep.canjearCodigo(
 			activa!,
 			{ codigo: 'c', redirectUri: 'https://x/auth/callback', verificador: 'v', nonce: 'n' },
-			null
+			{ grupo: null, invitado: null }
 		);
 		expect(r).toMatchObject({ correo: 'luis@kebaps.es', roles: ['lector'] });
 		expect(canjes[0]).toMatchObject({ tenant: TENANT, clientId: APP });
 
 		await ep.quitarEntraPropio('admin@local');
 		expect(await ep.configActiva()).toMatchObject({ modo: 'seguridadsi' });
+	});
+
+	describe('salir del B2B (b2b.ts)', () => {
+		const limpiar = () => db.delete(s.ajustes).where(eq(s.ajustes.clave, 'entra_b2b'));
+		beforeEach(async () => {
+			await limpiar();
+			Object.assign(process.env, {
+				ENTRA_TENANT_ID: 'tenant-seguridadsi',
+				ENTRA_CLIENT_ID: 'app-seguridadsi',
+				ENTRA_CLIENT_SECRET: 'x',
+				ENTRA_GRUPO_CLIENTE: 'grupo-kebaps'
+			});
+			delete process.env.LOGIN_LOCAL;
+			delete process.env.EDICION;
+		});
+		afterAll(limpiar);
+
+		it('no se retira sin el Entra propio activo: nadie se queda fuera', async () => {
+			expect(await b2b.estadoB2B()).toBe('activo');
+			expect(
+				await b2b.retirarB2B('ana@kebaps.es', null, await ep.estadoEntraPropio())
+			).toMatchObject({ ok: false });
+			await ep.guardarEntraPropio(
+				'admin@local',
+				{ tenant: TENANT, clientId: APP, secreto: SECRETO },
+				existe
+			);
+			/* Guardado pero sin probar tampoco. */
+			expect(
+				await b2b.retirarB2B('ana@kebaps.es', null, await ep.estadoEntraPropio())
+			).toMatchObject({ ok: false });
+			expect(await b2b.estadoB2B()).toBe('activo');
+		});
+
+		it('retirado, el Entra de SeguridadSI no vale aunque siga en el .env ni aunque falle el propio', async () => {
+			await ep.guardarEntraPropio(
+				'admin@local',
+				{ tenant: TENANT, clientId: APP, secreto: SECRETO },
+				existe
+			);
+			await ep.activarEntraPropio('admin@local', 'luis@kebaps.es');
+			expect(await b2b.retirarB2B('luis@kebaps.es', null, await ep.estadoEntraPropio())).toEqual({
+				ok: true
+			});
+			expect(await b2b.estadoB2B()).toBe('retirado');
+			expect(await ep.configActiva()).toMatchObject({ modo: 'propio' });
+
+			/* Sin login local, quitar el propio dejaría la consola sin entrada: no se deja. */
+			expect(await ep.quitarEntraPropio('luis@kebaps.es')).toMatchObject({ ok: false });
+			process.env.LOGIN_LOCAL = '1';
+			expect(await ep.quitarEntraPropio('luis@kebaps.es')).toEqual({ ok: true });
+			expect(await ep.configActiva()).toBeNull();
+		});
 	});
 });

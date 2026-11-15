@@ -357,7 +357,7 @@
 	}
 
 	.desglose a:hover {
-		color: var(--accent);
+		color: var(--link);
 		text-decoration: underline;
 	}
 

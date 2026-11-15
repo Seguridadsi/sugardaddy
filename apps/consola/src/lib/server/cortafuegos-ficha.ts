@@ -6,8 +6,15 @@
 export type CortafuegosDeSensor = {
 	proveedor: 'azure';
 	nsg: string | null;
-	conector: boolean;
-	enlaceConector: string;
+	credencial: {
+		tenant: string;
+		aplicacion: string;
+		final: string | null;
+		quien: string;
+		cuando: string;
+	} | null;
+	ilegible: string | null;
+	script: string;
 };
 export type PasoHecho = {
 	regla: string;
@@ -44,3 +51,14 @@ export async function abrirPuertos(
 ): Promise<ResultadoAbrir> {
 	return { ok: false, error: NO_ESTA };
 }
+
+export async function guardarCredencialNube(
+	_quien: string,
+	_datos: { tenant: string; aplicacion: string; secreto: string }
+): Promise<string | null> {
+	return NO_ESTA;
+}
+
+export async function quitarCredencialNube(_quien: string): Promise<void> {}
+
+export async function alCambiarAcceso(): Promise<void> {}

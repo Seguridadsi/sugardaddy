@@ -120,6 +120,16 @@ export function avisosSensor(c: Capacidades | null | undefined): Aviso[] {
 				"The container engine on this sensor does not let programs in recent images create threads (it blocks the clone3 call in its seccomp profile). This happens with Docker 20.10 releases before 20.10.10 that lack your distribution's patch. Honeypots that need it will not start and will say so in their status; the others work. Update Docker, or your distribution's docker.io package, and the warning will clear on its own."
 		});
 	}
+	const aislamiento = c.hechos['motor.aislamiento'];
+	if (aislamiento && aislamiento.valor === 'runc-docker') {
+		avisos.push({
+			codigo: aislamiento.motivo ?? 'aislamiento.sin-motor',
+			gravedad: 'aviso',
+			titulo: 'This sensor still talks to Docker directly',
+			texto:
+				'This sensor was installed before sd-motor: it runs as root with the Docker socket, and its honeypots use the default profile of the engine. Update the sensor and it will switch to sd-motor on its own, with gVisor or the Sugardaddy profiles for its honeypots.'
+		});
+	}
 	const disco = c.hechos['disco.trampas'];
 	if (disco && disco.valor === false) {
 		const motivo = disco.motivo ?? 'disco.error';

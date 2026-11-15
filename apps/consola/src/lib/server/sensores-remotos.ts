@@ -17,6 +17,7 @@ import { db, schema as s } from './db';
 import { credencialSensorRemoto } from './canal';
 import type { Entorno } from '$lib/entorno';
 import { crearSensor, prepararToken, reactivarSensor } from './gestion';
+import { PROXY_SH } from './proxy-sh';
 import { normalizarIp } from './pruebas';
 import { comprobarArquitectura } from './arquitectura-sh';
 import { detectarRed } from './red-sh';
@@ -24,6 +25,14 @@ import { anadirSensorAlAcceso, entradaValida, leerAcceso } from './acceso';
 import { raicesParaSensores } from './ca-nodo';
 import { contenidaEn } from '@sugardaddy/canal';
 import { direccionConsola, direccionConsolaDe } from './direccion-consola';
+import {
+	ErrorCliente,
+	type Descarga,
+	comprobarConsola,
+	comprobarIdSensor,
+	entornoDelSensor,
+	validarDescarga
+} from './script-sensor';
 
 const VIDA = 24 * 60 * 60_000;
 const hash = (t: string) => createHash('sha256').update(t).digest('hex');
@@ -33,11 +42,8 @@ const CARPETA = '/opt/sugardaddy-sensor';
 const LINEA_GASTADA =
 	'this line has already been used: for the other machine, generate a new one in Sensors in the console.';
 
-/*
- * Un error que se le puede enseñar tal cual a quien instala. El resto sale
- * con un mensaje genérico y queda en el registro de la consola.
- */
-export class ErrorCliente extends Error {}
+/* Un error que se le puede enseñar tal cual a quien instala (script-sensor.ts). */
+export { ErrorCliente };
 
 /*
  * La raíz de la CA de la consola, o null si su certificado es de una CA en la
@@ -182,6 +188,17 @@ async function comprobarAcceso(sensor: string, ip?: string) {
  * Con `consola` (aunque sea vacío) cambia en qué IP ve su máquina a la consola;
  * sin él, vale la que se indicó la última vez.
  */
+/*
+ * La línea se pega a mano, y con dos terminales abiertos es fácil pegarla en el propio
+ * ordenador: allí «sudo» pedía su contraseña y el instalador habría intentado poner el
+ * sensor en un Mac. Antes de pedir nada se comprueba que es un Linux. Con «;», «&&» y
+ * «||» vale en bash, dash, zsh y fish; la comprobación va dos veces para no meter
+ * paréntesis ni llaves, que fish no entiende.
+ */
+const SOLO_LINUX =
+	`uname | grep -qx Linux || echo "Sugardaddy: this line installs the sensor on a Linux machine. Paste it on the sensor machine, not on this computer." >&2; ` +
+	'uname | grep -qx Linux && ';
+
 export async function lineaSensorRemoto(
 	quien: string,
 	sensor: string,
@@ -230,7 +247,7 @@ export async function lineaSensorRemoto(
 			: '';
 	const curl = `curl -fsSL ${esperar}${resolverConsola(url, consolaIp)}`;
 	/* Sin <( ): la línea funciona en cualquier shell (bash, dash, zsh, fish). */
-	if (!ca) return `${curl}${url}/instalar-sensor/${codigo} | sudo bash`;
+	if (!ca) return `${SOLO_LINUX}${curl}${url}/instalar-sensor/${codigo} | sudo bash`;
 	/*
 	 * La CA va a un fichero de la carpeta de quien pega la línea, con un nombre que no se
 	 * puede adivinar. Antes era /tmp/sugardaddy-ca.pem: otro usuario de la máquina podía
@@ -238,7 +255,7 @@ export async function lineaSensorRemoto(
 	 * script, que corre como root.
 	 */
 	const fichero = `"$HOME/.sugardaddy-ca-${hash(codigo).slice(0, 12)}.pem"`;
-	return `echo ${Buffer.from(ca).toString('base64')} | base64 -d > ${fichero} && ${curl}--cacert ${fichero} ${url}/instalar-sensor/${codigo} | sudo bash; rm -f ${fichero}`;
+	return `${SOLO_LINUX}echo ${Buffer.from(ca).toString('base64')} | base64 -d > ${fichero} && ${curl}--cacert ${fichero} ${url}/instalar-sensor/${codigo} | sudo bash; rm -f ${fichero}`;
 }
 
 /* Gasta el código; si luego algo falla del lado de la consola o el panel, lo devuelve. */
@@ -270,9 +287,18 @@ export async function scriptSensorRemoto(codigo: string) {
 	if (!/^[A-Za-z0-9_-]{32}$/.test(codigo)) return null;
 	const inst = await gastar(codigo);
 	if (!inst) return null;
-	let token: string | null, cred: Awaited<ReturnType<typeof credencialSensorRemoto>>;
+	let token: string | null,
+		cred: Awaited<ReturnType<typeof credencialSensorRemoto>>,
+		descarga: Descarga;
 	try {
 		cred = await credencialSensorRemoto(inst.sensor);
+		/*
+		 * La credencial llega del panel sin firma: se vuelve a acotar aquí, donde se usa
+		 * (canal.ts ya la comprobó), antes de rotar el token. Ni ella ni nada del .env va
+		 * en código de shell.
+		 */
+		descarga = validarDescarga(cred.descarga);
+		comprobarIdSensor(inst.sensor);
 		/*
 		 * El token sale aquí y solo aquí: va en el script y en la consola queda su hash.
 		 * El anterior vale hasta que el sensor llega con este (rotación verificada).
@@ -295,6 +321,7 @@ export async function scriptSensorRemoto(codigo: string) {
 		);
 	const url = direccionConsola();
 	const dominio = new URL(url).hostname;
+	comprobarConsola(url, dominio);
 	/* En qué IP ve esta máquina a la consola, si no resuelve su nombre (ipDeConsola). */
 	const [fila] = await db
 		.select({ consolaIp: s.sensores.consolaIp, retirado: s.sensores.retirado })
@@ -318,7 +345,7 @@ export async function scriptSensorRemoto(codigo: string) {
 	 * empieza por otro: sin él, SENSOR_PROPAGACION se pegaba a la última línea, que es la
 	 * credencial del registro, y el sensor ya no podía descargar ninguna trampa (401).
 	 */
-	const entorno = [
+	const entorno = entornoDelSensor([
 		`# Generated by the Sugardaddy console. Contains secrets: it does not leave this machine.`,
 		`SENSOR_ID=${inst.sensor}`,
 		`CONSOLA_URL=${url}`,
@@ -334,13 +361,13 @@ export async function scriptSensorRemoto(codigo: string) {
 		...lineasDeClaves(),
 		/* Su edición: su actualizador y su sensor solo aceptan versiones de ella. */
 		`EDICION=${esCommunity() ? 'community' : 'cloud'}`,
-		`REGISTRO=${cred.descarga.registro}`,
-		`REGISTRO_USUARIO=${cred.descarga.usuario}`,
-		`REGISTRO_TOKEN=${cred.descarga.token}`,
+		`REGISTRO=${descarga.registro}`,
+		`REGISTRO_USUARIO=${descarga.usuario}`,
+		`REGISTRO_TOKEN=${descarga.token}`,
 		...lineasDePartner(),
 		...Object.entries(conf.entorno?.nuevas ?? {}).map(([k, v]) => `${k}=${v}`),
 		...(conf.entorno?.generar ?? []).map((k) => `${k}=${randomBytes(32).toString('hex')}`)
-	].join('\n');
+	]);
 	/* Con SUGARDADDY_CONFIGURACION: este compose es el firmado de la versión. */
 	const versiones = [
 		`# Written by the updater after installing a version. Do not edit by hand.`,
@@ -360,6 +387,13 @@ trap 'echo "Sugardaddy: the step \"$PASO\" failed. Check the message above; if i
 [[ "$(id -u)" == 0 ]] || { echo "This must be run with sudo" >&2; exit 1; }
 ${comprobarArquitectura('this sensor', LINEA_GASTADA)}
 DIR=${CARPETA}
+${PROXY_SH}
+# Detrás de un proxy: sudo SUGARDADDY_PROXY=http://proxy:3128 bash (y SUGARDADDY_PROXY_CA, la
+# CA de un proxy que inspecciona TLS). La consola nunca pasa por él.
+PASO="set up the outbound proxy"
+mkdir -p "$DIR"
+sd_proxy_preparar "$DIR" '${dominio}'${fija ? ` '${fija}'` : ''}
+sd_proxy_sistema "$DIR"
 PASO="install Docker"
 if ! command -v docker >/dev/null; then
 	command -v apt-get >/dev/null || { echo "Docker is required (automatic installation only on Ubuntu and Debian)"; exit 1; }
@@ -376,11 +410,12 @@ if ! command -v docker >/dev/null; then
 	echo "    installing Docker Engine"
 	$APT update -qq && $APT install -y -qq docker-ce docker-ce-cli containerd.io docker-compose-plugin >/dev/null
 fi
+sd_proxy_docker
 PASO="check the console"
 ${
 	fija
 		? `# La consola en ${fija}, indicada al dar de alta el sensor: esta máquina no tiene que resolver ${dominio}.`
-		: `getent hosts ${dominio} >/dev/null || { echo "Sugardaddy: this machine cannot resolve ${dominio}. In Sensors in the console, generate a new line and fill in 'Address of this console as seen from that machine' with the IP address this machine reaches the console at." >&2; exit 1; }`
+		: `getent hosts '${dominio}' >/dev/null || { echo "Sugardaddy: this machine cannot resolve ${dominio}. In Sensors in the console, generate a new line and fill in 'Address of this console as seen from that machine' with the IP address this machine reaches the console at." >&2; exit 1; }`
 }
 PASO="prepare the folder"
 mkdir -p "$DIR/datos"
@@ -388,6 +423,8 @@ chmod 700 "$DIR/datos"
 cd "$DIR"
 umask 077
 echo '${b64(entorno + '\n')}' | base64 -d > .env
+sd_proxy_env .env
+sd_proxy_guion "$DIR"
 umask 022
 echo '${b64(versiones)}' | base64 -d > versiones.env
 echo '${b64(compose)}' | base64 -d > compose.yml
@@ -397,7 +434,12 @@ mkdir -p firmado
 echo '${b64(JSON.stringify(cred.firmada))}' | base64 -d > firmado/version.json
 ${r.catalogo ? 'echo 1 > firmado/exigir' : ': # sin catálogo en esta versión'}
 PASO="download the images"
-grep '^REGISTRO_TOKEN=' .env | cut -d= -f2- | docker login '${cred.descarga.registro}' -u '${cred.descarga.usuario}' --password-stdin >/dev/null
+# Solo con credencial: un registro sin contraseña (el de desarrollo del panel, REGISTRO_DESARROLLO)
+# la da vacía, y docker login fallaba con «username is empty». Igual que instalar.sh del nodo.
+# El registro y el usuario salen del .env, nunca del texto del script: los da el panel sin firma.
+if grep -q '^REGISTRO_TOKEN=.' .env; then
+	grep '^REGISTRO_TOKEN=' .env | cut -d= -f2- | docker login "$(grep '^REGISTRO=' .env | cut -d= -f2-)" -u "$(grep '^REGISTRO_USUARIO=' .env | cut -d= -f2-)" --password-stdin >/dev/null
+fi
 # Los discos de las trampas (docs/diseno/discos-trampa.md): el sensor los ve si su carpeta le
 # llega con propagación. Solo si la máquina la admite; si no (un contenedor LXC con la raíz
 # privada), Docker no arrancaría el sensor con ella.
@@ -424,7 +466,7 @@ fi
 PASO="report its network"
 ${detectarRed}
 if [[ -n "$RED_DETECTADA$VLAN_DETECTADA" ]]; then
-	printf 'Authorization: Bearer %s\n' "$(grep '^SUGARDADDY_TOKEN=' .env | cut -d= -f2-)" | curl -fsS ${resolver}${ca ? '--cacert ca-consola.crt ' : ''}-H @- -H 'Content-Type: application/json' -d "{\"red\":\"$RED_DETECTADA\",\"vlan\":\"$VLAN_DETECTADA\"}" ${url}/api/sensor/red >/dev/null || echo "Sugardaddy: could not report its network to the console; enter it in Sensors."
+	printf 'Authorization: Bearer %s\n' "$(grep '^SUGARDADDY_TOKEN=' .env | cut -d= -f2-)" | curl -fsS ${resolver}${ca ? '--cacert ca-consola.crt ' : ''}-H @- -H 'Content-Type: application/json' -d "{\"red\":\"$RED_DETECTADA\",\"vlan\":\"$VLAN_DETECTADA\"}" '${url}/api/sensor/red' >/dev/null || echo "Sugardaddy: could not report its network to the console; enter it in Sensors."
 fi
 echo "Sensor ${inst.sensor} is running. It shows as online in Sensors in the console within a minute."
 echo "Open the ports of the honeypots you deploy on it in this machine's firewall."

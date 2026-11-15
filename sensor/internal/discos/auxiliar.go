@@ -283,6 +283,11 @@ func subcarpetas(datos string, m Montaje) error {
 	if err := os.Chmod(reg, 0o777|os.ModeSticky); err != nil {
 		return err
 	}
+	// El sensor ya no es root: su carpeta de registros es suya, para poder borrar
+	// los registros rotados que ya ha leído (docs/diseno/aislamiento-trampas.md).
+	if os.Geteuid() == 0 {
+		_ = os.Lchown(reg, UIDSensor, UIDSensor)
+	}
 	for i := 0; i < m.Escribibles; i++ {
 		if err := os.Mkdir(Escribible(datos, m.ID, i), 0o755); err != nil && !errors.Is(err, os.ErrExist) {
 			return err

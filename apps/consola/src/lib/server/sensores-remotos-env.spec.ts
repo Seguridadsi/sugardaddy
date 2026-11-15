@@ -16,6 +16,24 @@ describe('instalador del sensor remoto: el .env', () => {
 		expect(fuente).toContain("echo '${b64(entorno + '\\n')}' | base64 -d > .env");
 	});
 
+	/*
+	 * Con un registro sin contraseña (el panel en desarrollo da usuario y token vacíos)
+	 * el instalador se paraba en «download the images»: docker login con usuario vacío
+	 * falla. Lo vio el banco e2e del sensor remoto (herramientas/e2e/sensor-remoto.sh).
+	 */
+	it('solo entra en el registro si hay credencial, como el instalador del nodo', () => {
+		const lineas = fuente.split('\n');
+		const login = lineas.findIndex((l) => /\| docker login /.test(l));
+		expect(login).toBeGreaterThan(0);
+		expect(lineas[login - 1].trim()).toBe("if grep -q '^REGISTRO_TOKEN=.' .env; then");
+		expect(lineas[login + 1].trim()).toBe('fi');
+		const nodo = readFileSync(
+			join(import.meta.dirname, '../../../../../despliegue/nodo/instalar.sh'),
+			'utf8'
+		);
+		expect(nodo).toContain("if grep -q '^REGISTRO_TOKEN=.' .env; then");
+	});
+
 	it('lo que se le añade empieza y acaba en salto de línea', () => {
 		const anadidos = fuente.split('\n').filter((l) => />>\s*\.env\b/.test(l));
 		expect(anadidos.length).toBeGreaterThan(0);

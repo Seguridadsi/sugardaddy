@@ -128,6 +128,21 @@ func (c *Cliente) Informar(ctx context.Context, estados, motor any, hechos map[s
 // reintenta con menos líneas, nunca con las mismas.
 var ErrDemasiadoGrande = errors.New("delivery too large for the console")
 
+// ErrFalloConsola: la consola ha atendido la entrega y ha fallado al
+// procesarla (un 500, o un 5xx que no es de «no estoy»). Puede ser una línea
+// que no sabe guardar y que fallaría siempre (C01 de la auditoría de
+// 2026-11-14): el sensor parte el lote para aislarla (atasco.go en cmd/sensor).
+// 502, 503 y 504 los da un proxy o una consola que arranca: no son de la línea.
+var ErrFalloConsola = errors.New("the console failed to process the delivery")
+
+func falloAlProcesar(codigo int) bool {
+	switch codigo {
+	case http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		return false
+	}
+	return codigo >= 500 && codigo <= 599
+}
+
 type Recepcion struct {
 	OK         bool   `json:"ok"`
 	Aceptadas  int    `json:"aceptadas"`
@@ -151,6 +166,9 @@ func (c *Cliente) Entregar(ctx context.Context, lineas [][]byte) (Recepcion, err
 	}
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusConflict {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		if falloAlProcesar(resp.StatusCode) {
+			return r, fmt.Errorf("%w: events: %d %s", ErrFalloConsola, resp.StatusCode, b)
+		}
 		return r, fmt.Errorf("events: %d %s", resp.StatusCode, b)
 	}
 	return r, json.NewDecoder(resp.Body).Decode(&r)

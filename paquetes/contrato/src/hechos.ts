@@ -60,6 +60,11 @@ export const HECHOS: Record<string, { tipo: TipoHecho; fuentes: FuenteHecho[] }>
 		])
 	),
 	'motor.clone3': { tipo: 'booleano', fuentes: ['sensor'] },
+	/*
+	 * Con qué se aíslan las trampas del sensor (docs/diseno/aislamiento-trampas.md):
+	 * runsc (gVisor), runc-perfiles, runc-seccomp o runc-docker (sin sd-motor).
+	 */
+	'motor.aislamiento': { tipo: 'texto', fuentes: ['sensor'] },
 	'red.ipOrigenReal': { tipo: 'booleano', fuentes: ['sensor'] },
 	/*
 	 * Si cada trampa del sensor tiene su disco de tamaño fijo (SEN-4,
@@ -81,6 +86,16 @@ export const HECHOS: Record<string, { tipo: TipoHecho; fuentes: FuenteHecho[] }>
 	 * la IP desde la que le llega. Detrás de un NAT no está en red.direcciones.
 	 */
 	'red.ipPublica': { tipo: 'texto', fuentes: ['sensor'] },
+	/*
+	 * Si sale a internet por un proxy (docs/diseno/proxy-salida.md). La consola lo
+	 * da para el nodo entero; un sensor remoto, el suyo, que gana al fusionar.
+	 */
+	'proxy.presente': { tipo: 'booleano', fuentes: ['sensor', 'consola'] },
+	/*
+	 * Líneas de su cola que la consola no sabía procesar y el sensor apartó para
+	 * que lo demás llegue (atasco.go del sensor; C01 de la auditoría 2026-11-14).
+	 */
+	'entrega.apartadas': { tipo: 'numero', fuentes: ['sensor'] },
 	/* El sensor sabe publicar una trampa en una sola de las direcciones de su máquina. */
 	'sensor.escuchaPorTrampa': { tipo: 'booleano', fuentes: ['sensor'] },
 	'plataforma.so': { tipo: 'texto', fuentes: ['sensor', 'formulario'] },
@@ -140,6 +155,7 @@ export const NOMBRE_HECHO: Readonly<Record<string, string>> = Object.freeze({
 	'motor.codigo': 'Engine failure',
 	'motor.error': 'Failure message',
 	'motor.clone3': 'Allows thread creation (clone3)',
+	'motor.aislamiento': 'Honeypot isolation',
 	'red.ipOrigenReal': 'Honeypots see the real IP',
 	'disco.trampas': 'Each honeypot has its own fixed-size disk',
 	'red.capa2': 'Can give a honeypot its own IP',
@@ -147,6 +163,8 @@ export const NOMBRE_HECHO: Readonly<Record<string, string>> = Object.freeze({
 	'puertos.reservados': 'Reserved ports',
 	'red.direcciones': 'Machine addresses',
 	'red.ipPublica': 'Public IP',
+	'proxy.presente': 'Goes out through a proxy',
+	'entrega.apartadas': 'Queued events set aside because the console could not process them',
 	'sensor.escuchaPorTrampa': 'Can publish a honeypot on a single address',
 	'plataforma.so': 'Operating system',
 	'plataforma.edicion': 'Edition',

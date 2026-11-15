@@ -152,6 +152,24 @@ func TestEmergenciaAbreAunqueLaConsolaNoConteste(t *testing.T) {
 	}
 }
 
+func TestEmergenciaDeMasDe24HorasNoAbre(t *testing.T) {
+	c := &consolaFalsa{lista: listaConsola{Estado: "restringida", Redes: []string{"10.0.5.20"}}, caida: true}
+	a, pedidos := nuevoAcceso(t, c)
+	f := filepath.Join(a.Local, FicheroAbrir)
+	_ = os.WriteFile(f, nil, 0o600)
+	viejo := time.Now().Add(-VidaEmergencia - time.Minute)
+	_ = os.Chtimes(f, viejo, viejo)
+	_ = a.Vuelta(context.Background())
+	for _, p := range *pedidos {
+		if p.Abierta {
+			t.Fatalf("a stale emergency file opened the console: %+v", *pedidos)
+		}
+	}
+	if _, err := os.Stat(f); err == nil {
+		t.Fatal("the stale emergency file is still there")
+	}
+}
+
 func TestTrasReinicioPoneLaUltimaListaSinConsola(t *testing.T) {
 	c := &consolaFalsa{lista: listaConsola{Estado: "restringida", Redes: []string{"10.0.5.20"}, Huella: "abc"}, caida: true}
 	a, pedidos := nuevoAcceso(t, c)

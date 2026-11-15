@@ -1,5 +1,6 @@
 /* La zona horaria de los documentos del nodo: la de serie, la elegida y lo que no vale. */
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { borrarAuditoriaDePrueba } from './db/pruebas-auditoria';
 
 vi.mock('$env/dynamic/private', () => ({ env: process.env }));
 vi.mock('$app/environment', () => ({ building: false, dev: true }));
@@ -12,7 +13,7 @@ describe.skipIf(!process.env.DATABASE_URL)('la zona de los documentos del nodo',
 
 	const limpiar = async () => {
 		await db.delete(s.ajustes).where(eq(s.ajustes.clave, 'zona-documentos'));
-		await db.delete(s.auditoria).where(eq(s.auditoria.quien, QUIEN));
+		await borrarAuditoriaDePrueba(db, eq(s.auditoria.quien, QUIEN));
 	};
 	beforeEach(limpiar);
 	afterAll(limpiar);

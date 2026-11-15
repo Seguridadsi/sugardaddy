@@ -590,6 +590,37 @@ export async function recibirEventos(sensor: string, lineas: string[]): Promise<
  * eventos se consultan en la consola.
  */
 
+/*
+ * Un Map que, mientras está abierto, apunta lo que cambia para poder deshacerlo:
+ * el estado en memoria de una línea cuyo punto de guardado se ha deshecho no
+ * puede quedarse en el resto de la entrega.
+ */
+export class MapaConDeshacer<K, V> extends Map<K, V> {
+	private diario: { clave: K; habia: boolean; valor: V | undefined }[] | null = null;
+	override set(clave: K, valor: V): this {
+		this.diario?.push({ clave, habia: this.has(clave), valor: this.get(clave) });
+		return super.set(clave, valor);
+	}
+	override delete(clave: K): boolean {
+		this.diario?.push({ clave, habia: this.has(clave), valor: this.get(clave) });
+		return super.delete(clave);
+	}
+	abrir() {
+		this.diario = [];
+	}
+	cerrar() {
+		this.diario = null;
+	}
+	deshacer() {
+		const d = this.diario ?? [];
+		this.diario = null;
+		for (const { clave, habia, valor } of d.reverse()) {
+			if (habia) super.set(clave, valor as V);
+			else super.delete(clave);
+		}
+	}
+}
+
 async function guardarEntrega(
 	sensor: string,
 	lineas: string[],
@@ -616,7 +647,7 @@ async function guardarEntrega(
 		const deQuien = new Map(trampas.map((x) => [x.id, x.sensor]));
 		const viaDeTrampa = new Map(trampas.map((x) => [x.id, x.via]));
 		/* Para fijar «comprobada» con el primer evento, sin consultar por cada línea. */
-		const colocacion = new Map<string, FilaColocacion>(trampas.map((x) => [x.id, x]));
+		const colocacion = new MapaConDeshacer<string, FilaColocacion>(trampas.map((x) => [x.id, x]));
 		/*
 		 * Las pruebas abiertas de sus trampas, y la hora de la consola con que
 		 * se guardará «recibido» (now(), la misma en toda la transacción): un
@@ -663,115 +694,149 @@ async function guardarEntrega(
 				}
 			}
 
+			/*
+			 * La ruptura de la cadena se apunta aparte, en su punto de guardado: si la
+			 * línea falla después, la ruptura queda.
+			 */
 			if (e && e.hashAnterior !== anterior) {
-				await tx
-					.insert(s.rupturas)
-					.values({ sensor, esperado: anterior, recibido: e.hashAnterior, hash });
-				await tx.insert(s.auditoria).values({
-					quien: `sensor ${sensor}`,
-					accion: 'event chain broken',
-					detalle: { esperado: anterior, recibido: e.hashAnterior, hash }
-				});
-			}
-
-			if (e && !motivo) {
-				if (e.sensor !== sensor) motivo = 'the event claims to be from another sensor';
-				else if (deQuien.get(e.trampa.id) === undefined)
-					motivo = 'the honeypot no longer exists (removed)';
-				else if (deQuien.get(e.trampa.id) !== sensor)
-					motivo = 'the honeypot belongs to another sensor';
+				const ev = e;
+				const esperado = anterior;
+				try {
+					await tx.transaction(async (sp) => {
+						await sp
+							.insert(s.rupturas)
+							.values({ sensor, esperado, recibido: ev.hashAnterior, hash });
+						await sp.insert(s.auditoria).values({
+							quien: `sensor ${sensor}`,
+							accion: 'event chain broken',
+							detalle: { esperado, recibido: ev.hashAnterior, hash }
+						});
+					});
+				} catch (err) {
+					console.error('could not record the broken event chain', hash, err);
+				}
 			}
 
 			/*
-			 * Las balizas (cebos de fichero y URL con token) son una pieza de
-			 * pago, ausente en la edición community: aquí no hay receptor ni
-			 * tokens, así que un evento es de prueba solo por «Probar».
+			 * Cada línea, entera, en su propio punto de guardado (C01): lo que meta un
+			 * atacante en una línea no puede abortar la transacción de la entrega ni
+			 * impedir que se guarden las demás. Si su proceso falla, se deshace lo suyo
+			 * (también lo que haya cambiado en «colocacion») y la línea va a la
+			 * cuarentena con el motivo; la cadena sigue. Lo que deja para después del
+			 * lote (los eventos nuevos) solo se suma si la línea ha entrado.
 			 */
-			const deLaPrueba = e && !motivo ? pruebasDe(e, recibidoAhora, abiertas) : [];
-			const prueba = deLaPrueba.length > 0;
+			const nuevosLinea: Evento[] = [];
+			colocacion.abrir();
+			try {
+				await tx.transaction(async (lt) => {
+					if (e && !motivo) {
+						if (e.sensor !== sensor) motivo = 'the event claims to be from another sensor';
+						else if (deQuien.get(e.trampa.id) === undefined)
+							motivo = 'the honeypot no longer exists (removed)';
+						else if (deQuien.get(e.trampa.id) !== sensor)
+							motivo = 'the honeypot belongs to another sensor';
+					}
 
-			if (e && !motivo) {
-				const evento = e;
-				const leida = credencial(evento, viaDeTrampa.get(evento.trampa.id));
-				const c = prueba ? { ...leida, alerta: null, severidad: evento.severidad } : leida;
-				/* En su propio punto de guardado: si falla (p. ej. un id repetido), solo cae esta línea. */
-				let recibido: Date | null = null;
-				try {
-					recibido = await tx.transaction(async (sp) => {
-						const [x] = await sp
-							.insert(s.eventos)
-							.values({
-								id: evento.id,
-								sensor,
-								linea,
-								hash,
-								cuando: new Date(evento.cuando),
-								trampa: evento.trampa.id,
-								modulo: evento.trampa.modulo,
-								tipo: evento.trampa.tipo,
-								accion: evento.accion,
-								severidad: c.severidad,
-								ip: evento.origen.ip ?? null,
-								usuario: evento.origen.usuario ? sinNulos(evento.origen.usuario) : null,
-								conexionEstablecida: evento.conexionEstablecida,
-								contrasena: c.contrasena ? sinNulos(c.contrasena) : null,
-								alerta: c.alerta ? sinNulos(c.alerta) : null,
-								prueba
-							})
-							.returning({ recibido: s.eventos.recibido });
-						return x.recibido;
-					});
-				} catch (err) {
-					/* Se decide por el propio error: otra consulta aquí podría fallar y tumbar la entrega. */
-					const causa = ((err as { cause?: unknown }).cause ?? err) as {
-						code?: string;
-						constraint_name?: string;
-						message?: string;
-					};
-					motivo =
-						causa.code === '23505' && causa.constraint_name === 'eventos_pkey'
-							? 'repeats an event already received'
-							: `could not be saved: ${String(causa.message ?? err).slice(0, 200)}`;
-				}
-				/*
-				 * El primer evento real de su trampa la comprueba (§8.3). En su propio
-				 * punto de guardado: si no se puede, el evento ya está guardado y lo
-				 * intentará el siguiente.
-				 */
-				const f = colocacion.get(evento.trampa.id);
-				if (recibido && f && !f.comprobada) {
-					const cuando = recibido;
-					try {
-						const cambio = await tx.transaction((sp) =>
-							comprobarConEvento(sp, evento.trampa.id, f, cuando)
-						);
-						colocacion.set(evento.trampa.id, { ...f, ...cambio });
-					} catch (err) {
-						console.error('could not mark the decoy as verified', evento.trampa.id, err);
+					/*
+					 * Las balizas (cebos de fichero y URL con token) son una pieza de
+					 * pago, ausente en la edición community: aquí no hay receptor ni
+					 * tokens, así que un evento es de prueba solo por «Probar».
+					 */
+					const deLaPrueba = e && !motivo ? pruebasDe(e, recibidoAhora, abiertas) : [];
+					const prueba = deLaPrueba.length > 0;
+
+					if (e && !motivo) {
+						const evento = e;
+						const leida = credencial(evento, viaDeTrampa.get(evento.trampa.id));
+						const c = prueba ? { ...leida, alerta: null, severidad: evento.severidad } : leida;
+						/* En su propio punto de guardado: si falla (p. ej. un id repetido), solo cae esta línea. */
+						let recibido: Date | null = null;
+						try {
+							recibido = await lt.transaction(async (sp) => {
+								const [x] = await sp
+									.insert(s.eventos)
+									.values({
+										id: evento.id,
+										sensor,
+										linea,
+										hash,
+										cuando: new Date(evento.cuando),
+										trampa: evento.trampa.id,
+										modulo: evento.trampa.modulo,
+										tipo: evento.trampa.tipo,
+										accion: evento.accion,
+										severidad: c.severidad,
+										ip: evento.origen.ip ?? null,
+										usuario: evento.origen.usuario ? sinNulos(evento.origen.usuario) : null,
+										conexionEstablecida: evento.conexionEstablecida,
+										contrasena: c.contrasena ? sinNulos(c.contrasena) : null,
+										alerta: c.alerta ? sinNulos(c.alerta) : null,
+										prueba
+									})
+									.returning({ recibido: s.eventos.recibido });
+								return x.recibido;
+							});
+						} catch (err) {
+							/* Se decide por el propio error: otra consulta aquí podría fallar y tumbar la entrega. */
+							const causa = ((err as { cause?: unknown }).cause ?? err) as {
+								code?: string;
+								constraint_name?: string;
+								message?: string;
+							};
+							motivo =
+								causa.code === '23505' && causa.constraint_name === 'eventos_pkey'
+									? 'repeats an event already received'
+									: `could not be saved: ${String(causa.message ?? err).slice(0, 200)}`;
+						}
+						/*
+						 * El primer evento real de su trampa la comprueba (§8.3). En su propio
+						 * punto de guardado: si no se puede, el evento ya está guardado y lo
+						 * intentará el siguiente.
+						 */
+						const f = colocacion.get(evento.trampa.id);
+						if (recibido && f && !f.comprobada) {
+							const cuando = recibido;
+							try {
+								const cambio = await lt.transaction((sp) =>
+									comprobarConEvento(sp, evento.trampa.id, f, cuando)
+								);
+								colocacion.set(evento.trampa.id, { ...f, ...cambio });
+							} catch (err) {
+								console.error('could not mark the decoy as verified', evento.trampa.id, err);
+							}
+						}
+						/*
+						 * El de cada prueba que aún no tenía evento, y la comprobación de la
+						 * trampa probada si no es la suya (la que recibe la señal de otra).
+						 * También en su punto de guardado: si falla, el evento ya está.
+						 */
+						if (recibido && prueba) {
+							const cuando = recibido;
+							try {
+								await lt.transaction((sp) =>
+									anotarPrueba(sp, evento.id, deLaPrueba, cuando, colocacion, evento.trampa.id)
+								);
+							} catch (err) {
+								console.error('could not record the test for the event', evento.id, err);
+							}
+						}
+						/*
+						 * El motor de respuesta y las salidas (de pago, fuera de community)
+						 * solo verían lo que no es de prueba. nuevos se construye igual,
+						 * pero recibirEventos ya no lo pasa a nadie.
+						 */
+						if (recibido && !prueba) nuevosLinea.push({ ...evento, severidad: c.severidad });
 					}
-				}
-				/*
-				 * El de cada prueba que aún no tenía evento, y la comprobación de la
-				 * trampa probada si no es la suya (la que recibe la señal de otra).
-				 * También en su punto de guardado: si falla, el evento ya está.
-				 */
-				if (recibido && prueba) {
-					const cuando = recibido;
-					try {
-						await tx.transaction((sp) =>
-							anotarPrueba(sp, evento.id, deLaPrueba, cuando, colocacion, evento.trampa.id)
-						);
-					} catch (err) {
-						console.error('could not record the test for the event', evento.id, err);
-					}
-				}
-				/*
-				 * El motor de respuesta y las salidas (de pago, fuera de community)
-				 * solo verían lo que no es de prueba. nuevos se construye igual,
-				 * pero recibirEventos ya no lo pasa a nadie.
-				 */
-				if (recibido && !prueba) nuevos.push({ ...evento, severidad: c.severidad });
+				});
+				colocacion.cerrar();
+			} catch (err) {
+				colocacion.deshacer();
+				nuevosLinea.length = 0;
+				const causa = ((err as { cause?: unknown }).cause ?? err) as { message?: string };
+				motivo = `could not be processed: ${String(causa.message ?? err).slice(0, 200)}`;
+				console.error('[sensor] line sent to quarantine after failing', sensor, hash, err);
 			}
+			nuevos.push(...nuevosLinea);
 
 			if (motivo) {
 				const fila = {

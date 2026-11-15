@@ -22,7 +22,11 @@ const MENSAJES: Record<string, string> = {
 	demasiados_grupos:
 		'Your account is in too many groups to check access. Contact your support provider.',
 	sin_correo: 'Your account has no email address.',
-	sin_oid: 'The Microsoft token does not identify your account.'
+	sin_oid: 'The Microsoft token does not identify your account.',
+	soporte_cerrado:
+		'Support access to this console is not open. The customer opens it from Settings when you request it.',
+	soporte_otro:
+		'This support account cannot sign in: it must be the person who requested access, invited from their own organization.'
 };
 
 export const load = async ({ url, locals }) => {

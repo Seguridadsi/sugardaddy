@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kinomakino/sugardaddy/sensor/internal/canodo"
 	"github.com/kinomakino/sugardaddy/sensor/internal/docker"
 	"github.com/kinomakino/sugardaddy/sensor/internal/docker/motorfalso"
 )
@@ -244,6 +245,19 @@ func TestNoCambiaLaVersionMayorDePostgres(t *testing.T) {
 	}
 	if !strings.Contains(leer(t, n.dir, "compose.yml"), "postgres:17") {
 		t.Fatal("no se puede tocar nada")
+	}
+}
+
+func TestNoCambiaLaVersionMayorDePostgresConRegistroDelante(t *testing.T) {
+	n := nuevoNodo(t)
+	r := n.app.Aplicar(context.Background(), n.firmada(t, releaseConConfiguracion("services:\n  postgres:\n    image: ${TERCEROS:-docker.io/library}/postgres:18-alpine@sha256:z\n")))
+	if r.Estado != "fallida" || !strings.Contains(r.Detalle, "Postgres from 17 to 18") {
+		t.Fatalf("resultado: %+v", r)
+	}
+	// El mismo Postgres desde el registro propio sí se aplica.
+	r = n.app.Aplicar(context.Background(), n.firmada(t, releaseConConfiguracion("services:\n  postgres:\n    image: ${TERCEROS:-docker.io/library}/postgres:17-alpine@sha256:y\n")))
+	if r.Estado != "aplicada" {
+		t.Fatalf("resultado: %+v", r)
 	}
 }
 
@@ -509,5 +523,30 @@ func TestConfianzaYVersionFirmadaParaElSensor(t *testing.T) {
 	env = leer(t, n.dir, ".env")
 	if !strings.Contains(env, "PUBLICACION_CLAVES="+lista+"\n") || !strings.Contains(env, "PUBLICACION_CLAVE_PUBLICA=\n") || strings.Count(env, "PUBLICACION_CLAVES=") != 1 {
 		t.Fatalf("lista cambiada y legado retirado:\n%s", env)
+	}
+}
+
+// Con la CA propia activa (CA_NODO=nodo), exportarRaiz publica su raíz, la que
+// lleva el límite de nombres, y no vuelve a leer la CA local de Caddy aunque
+// quede (auditoría del 2026-11-14).
+func TestExportarRaizConLaCAPropiaNoLeeLaDeCaddy(t *testing.T) {
+	n := nuevoNodo(t)
+	f, _ := os.OpenFile(filepath.Join(n.dir, ".env"), os.O_APPEND|os.O_WRONLY, 0o600)
+	_, _ = f.WriteString("CA_NODO=nodo\n")
+	f.Close()
+	ca, err := canodo.Generar(filepath.Join(n.dir, DirCA), "consola.aldanza.local", "nodo-x", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(n.dir, "ca-raiz.crt"), []byte("la de caddy\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	n.app.exportarRaiz(context.Background())
+	if got := leer(t, n.dir, "ca-raiz.crt"); got != string(ca.RaizPEM()) {
+		t.Fatalf("ca-raiz.crt tiene que ser la raíz propia:\n%s", got)
+	}
+	llamadas := leer(t, n.dir, ".llamadas")
+	if strings.Contains(llamadas, "pki/authorities/local") {
+		t.Fatalf("no se lee la CA local de Caddy:\n%s", llamadas)
 	}
 }

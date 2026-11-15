@@ -1,8 +1,9 @@
 import { actualizacionDisponible, autoActualizar, cabecera } from '$lib/server/consultas';
 import { gestionado } from '$lib/server/actualizaciones';
 import { hayGeo } from '$lib/server/geo';
-import { soporte } from '$lib/server/soporte';
-import { logo } from '$lib/server/canal';
+import { porCaducar, soporte } from '$lib/server/soporte';
+import { estadoB2B } from '$lib/server/auth/b2b';
+import { estadoMarca, logo } from '$lib/server/canal';
 import { pentestActivo } from '$lib/server/pentest-activo';
 import { identidad } from '$lib/server/identidad';
 import { esCommunity } from '$lib/server/edicion';
@@ -68,10 +69,20 @@ export const load = async ({ locals, url, cookies }) =>
 				configuracion: await configuracion(locals.usuario, url.pathname),
 				/* La raíz nueva del HTTPS de la consola (docs/diseno/ca-nodo.md), solo para quien decide. */
 				ca: await avisoCa(puede(locals.usuario.roles, 'ajustes')),
+				/* La marca de tiempo (docs/diseno/firmas-raiz.md): solo si hay algo que decir. */
+				marca: await (async () => {
+					const m = await estadoMarca();
+					return m && (m.estado === 'caducada' || m.estado === 'retenida' || m.registro) ? m : null;
+				})(),
 				...(await zonasDe(locals.usuario, cookies)),
 				usuario: locals.usuario,
 				modoDesarrollo: locals.modoDesarrollo,
-				soporte: await soporte(),
+				...(await (async () => {
+					const sop = await soporte();
+					return { soporte: sop, soportePorCaducar: porCaducar(sop) };
+				})()),
+				/* Aún entra por el Entra de SeguridadSI: se avisa a quien puede migrarlo (b2b.ts). */
+				b2b: puede(locals.usuario.roles, 'ajustes') ? await estadoB2B() : 'no',
 				operador: await operador(),
 				logo: (await logo())?.huella.slice(0, 12) ?? null,
 				geo: hayGeo(),
@@ -94,10 +105,13 @@ export const load = async ({ locals, url, cookies }) =>
 				},
 				configuracion: { pendiente: false },
 				ca: null,
+				marca: null,
 				...(await zonasDe(null, cookies)),
 				usuario: null,
 				modoDesarrollo: false,
 				soporte: null,
+				soportePorCaducar: false,
+				b2b: 'no' as const,
 				operador: OPERADOR_POR_DEFECTO,
 				logo: null,
 				geo: false,

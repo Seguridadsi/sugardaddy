@@ -11,6 +11,7 @@
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { borrarAuditoriaDePrueba } from './db/pruebas-auditoria';
 
 try {
 	for (const l of readFileSync('.env', 'utf8').split('\n')) {
@@ -56,7 +57,7 @@ const evento = (id: string, hash: string, anterior: string, recibido: Date) => (
 });
 
 async function limpiar() {
-	await db.delete(s.auditoria).where(like(s.auditoria.quien, `${P}%`));
+	await borrarAuditoriaDePrueba(db, like(s.auditoria.quien, `${P}%`));
 	await db.delete(s.activaciones).where(like(s.activaciones.trampa, `${P}%`));
 	for (const t of [s.eventos, s.cuarentena]) await db.delete(t).where(like(t.sensor, `${P}%`));
 	await db.delete(s.sensores).where(like(s.sensores.id, `${P}%`));
@@ -111,19 +112,23 @@ describe.skipIf(!hayBase)('la consola borra los eventos que pasan del plazo', ()
 		expect(r.cadena[S]).toEqual([h(4)]);
 	});
 
-	it('la auditoría vieja se va; la reciente se queda', async () => {
+	/*
+	 * La purga de verdad, con la tabla vacía, está en auditoria-cadena-base.spec.ts.
+	 * Aquí, en la base compartida: una fila con fecha del pasado metida detrás de las
+	 * recientes no se va (solo se purga el principio de la cadena) ni arrastra nada.
+	 */
+	it('una entrada con fecha vieja detrás de las recientes no se va ni arrastra nada', async () => {
 		await db.insert(s.auditoria).values([
-			{ quien: `${P}-vieja`, accion: 'zz', cuando: viejaA },
-			{ quien: `${P}-reciente`, accion: 'zz', cuando: reciente }
+			{ quien: `${P}-reciente`, accion: 'zz', cuando: reciente },
+			{ quien: `${P}-vieja`, accion: 'zz', cuando: viejaA }
 		]);
-		expect(await borrarAuditoriaAntesDe(new Date('2020-06-01T00:00:00Z'))).toBeGreaterThanOrEqual(
-			1
-		);
+		await borrarAuditoriaAntesDe(new Date('2020-06-01T00:00:00Z'));
 		const quedan = await db
 			.select({ quien: s.auditoria.quien })
 			.from(s.auditoria)
-			.where(like(s.auditoria.quien, `${P}%`));
-		expect(quedan.map((q) => q.quien)).toEqual([`${P}-reciente`]);
+			.where(like(s.auditoria.quien, `${P}%`))
+			.orderBy(s.auditoria.id);
+		expect(quedan.map((q) => q.quien)).toEqual([`${P}-reciente`, `${P}-vieja`]);
 	});
 
 	it('sin nada viejo, no borra nada', async () => {

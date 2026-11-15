@@ -13,6 +13,7 @@ import {
 	type EstadoDeseado,
 	type IncidenteSubido
 } from '@sugardaddy/canal';
+import { borrarAuditoriaDePrueba } from './db/pruebas-auditoria';
 
 try {
 	for (const l of readFileSync('.env', 'utf8').split('\n')) {
@@ -319,7 +320,7 @@ describe.skipIf(!hayBase)('la vigilancia', async () => {
 				.from(s.auditoria)
 				.where(eq(s.auditoria.accion, 'Central discarded incidents'));
 			expect(a).toBeDefined();
-			await db.delete(s.auditoria).where(eq(s.auditoria.accion, 'Central discarded incidents'));
+			await borrarAuditoriaDePrueba(db, eq(s.auditoria.accion, 'Central discarded incidents'));
 			envios = [];
 			await latir();
 			expect(subidas()).toEqual([]);
@@ -412,7 +413,7 @@ describe.skipIf(!hayBase)('la vigilancia', async () => {
 	});
 
 	describe('lo que atiende el panel', () => {
-		it('queda atendido por esa persona y se confirma al subirlo', async () => {
+		it('solo frena el escalado hacia el panel: en el nodo sigue sin atender, y se confirma al subirlo', async () => {
 			const x = await abrir();
 			await v.compartirIncidentes('zz-vig', true);
 			await latir();
@@ -420,8 +421,9 @@ describe.skipIf(!hayBase)('la vigilancia', async () => {
 			envios = [];
 			await latir();
 			expect(await fila(x.id)).toMatchObject({
-				atendidoPor: 'Ana (ACME Seguridad)',
-				atendidoComo: 'lo-miro'
+				atendido: null,
+				atendidoPor: null,
+				atencionPanelPor: 'Ana (ACME Seguridad)'
 			});
 			/* En ese mismo latido sube ya atendido: es lo que le dice al panel que deje de mandarlo. */
 			expect(incidentes()[0]).toMatchObject({ id: x.id, atendidoComo: 'lo-miro' });
@@ -444,14 +446,18 @@ describe.skipIf(!hayBase)('la vigilancia', async () => {
 			};
 			await latir();
 			expect(await errorDelCanal()).toBeNull();
-			expect(await fila(x.id)).toMatchObject({ atendidoPor: 'Luis', atendidoComo: 'bloqueada' });
+			expect(await fila(x.id)).toMatchObject({
+				atendidoPor: 'Luis',
+				atendidoComo: 'bloqueada',
+				atencionPanelPor: 'Ana'
+			});
 		});
 
 		it('si no se comparten, no se aplica', async () => {
 			const x = await abrir();
 			extra = { atenciones: [{ id: x.id, por: 'Ana' }] };
 			await latir();
-			expect((await fila(x.id)).atendido).toBeNull();
+			expect((await fila(x.id)).atencionPanel).toBeNull();
 		});
 	});
 
@@ -459,9 +465,9 @@ describe.skipIf(!hayBase)('la vigilancia', async () => {
 		const pedir = () =>
 			so.recibirSolicitud({ por: 'Ana', motivo: 'Vigilancia', cuando: new Date().toISOString() });
 
-		it('se cierra el soporte, también el continuo', async () => {
+		it('se cierra el soporte abierto', async () => {
 			await pedir();
-			await so.aceptar('zz-vig', null, 'operador');
+			await so.aceptar('zz-vig', 720, 'operador');
 			await cortar('zz-vig');
 			expect(await so.abierto()).toBe(false);
 		});
@@ -502,23 +508,43 @@ describe.skipIf(!hayBase)('la vigilancia', async () => {
 		});
 	});
 
-	describe('el acceso continuo', () => {
+	describe('el plazo del acceso', () => {
 		const pedir = () =>
 			so.recibirSolicitud({ por: 'Ana', motivo: 'Vigilancia', cuando: new Date().toISOString() });
 
-		it('queda abierto sin plazo hasta que el cliente lo cierra', async () => {
+		it('ya no hay acceso sin plazo: como mucho 30 días, y se renueva', async () => {
 			await pedir();
-			expect(await so.aceptar('zz-vig', null, 'lector')).toBe(true);
-			expect(await so.soporte()).toMatchObject({ estado: 'abierto', hasta: null, rol: 'lector' });
-			expect(await so.abierto()).toBe(true);
+			expect(await so.aceptar('zz-vig', 10_000, 'lector')).toBe(true);
+			const { hasta } = await so.soporte();
+			expect(Date.parse(hasta!) - Date.now()).toBeLessThanOrEqual(720 * 3600_000);
+			expect(Date.parse(hasta!) - Date.now()).toBeGreaterThan(719 * 3600_000);
 			await latir();
-			expect(delLatido().soporte).toMatchObject({ estado: 'abierto', hasta: null });
+			expect(delLatido().soporte).toMatchObject({ estado: 'abierto', hasta });
 			expect(delLatido().vigilancia).toEqual({
 				incidentes: false,
 				consola: 'https://zeta.ejemplo.test'
 			});
+			const nuevo = await so.renovar('zz-vig', 8);
+			expect(Date.parse(nuevo!) - Date.now()).toBeLessThanOrEqual(8 * 3600_000);
 			expect(await so.cerrarYa('zz-vig')).toBe(true);
 			expect(await so.abierto()).toBe(false);
+			expect(await so.renovar('zz-vig', 8)).toBeNull();
+		});
+
+		it('un acceso abierto «hasta que lo cierre» de antes pasa a 30 días', async () => {
+			await db
+				.insert(s.ajustes)
+				.values({
+					clave: 'soporte',
+					valor: { estado: 'abierto', solicitud: null, hasta: null, rol: 'lector' }
+				})
+				.onConflictDoUpdate({
+					target: s.ajustes.clave,
+					set: { valor: { estado: 'abierto', solicitud: null, hasta: null, rol: 'lector' } }
+				});
+			const { hasta, estado } = await so.soporte();
+			expect(estado).toBe('abierto');
+			expect(Date.parse(hasta!) - Date.now()).toBeGreaterThan(719 * 3600_000);
 		});
 
 		it('con horas sigue caducando', async () => {

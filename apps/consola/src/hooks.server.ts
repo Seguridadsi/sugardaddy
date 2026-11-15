@@ -2,12 +2,14 @@ import { error, redirect, type Handle, type ServerInit } from '@sveltejs/kit';
 import { dev } from '$app/environment';
 import { env } from '$env/dynamic/private';
 import { rutaNueva } from '$lib/rutas-antiguas';
+import { esPublica } from '$lib/rutas-publicas';
 import { configuradoEnEntorno } from '$lib/server/auth/entra';
 import { COOKIE_SESION, leer } from '$lib/server/auth/sesion';
 import { altaAutomatica, latir } from '$lib/server/canal';
 import { partnerAlDia } from '$lib/server/catalogo-partner';
 import { renovar } from '$lib/server/registro';
 import { purgar } from '$lib/server/conservacion';
+import { sellar } from '$lib/server/auditoria-cadena';
 import { rellenarSiHaceFalta } from '$lib/server/credenciales';
 import { comprobarVersiones } from '$lib/server/actualizaciones';
 import { enviarWebhookPendientes } from '$lib/server/webhook';
@@ -46,8 +48,15 @@ export const init: ServerInit = () => {
 	void intentar(0);
 	/* Los eventos de antes de esta versión no tenían la contraseña aparte. */
 	void rellenarSiHaceFalta().catch((e) => console.error('[credenciales]', e));
-	/* Cada hora, los eventos y la auditoría que pasan de su plazo de conservación. */
-	const borrar = () => void purgar().catch((e) => console.error('[conservacion]', e));
+	/*
+	 * Cada hora, los eventos y la auditoría que pasan de su plazo de conservación y,
+	 * después, el sello de la cabeza de la auditoría (auditoria-cadena.ts).
+	 */
+	const borrar = () =>
+		void purgar()
+			.catch((e) => console.error('[conservacion]', e))
+			.then(() => sellar())
+			.catch((e) => console.error('[auditoria] seal', e));
 	const h = globalThis as { __conservacion?: ReturnType<typeof setInterval> };
 	if (h.__conservacion) clearInterval(h.__conservacion);
 	h.__conservacion = setInterval(borrar, 60 * 60_000);
@@ -74,25 +83,6 @@ export const init: ServerInit = () => {
 	w.__webhook = setInterval(enviarWebhook, 30_000);
 	w.__webhook.unref?.();
 };
-
-/*
- * Lo único que se ve sin sesión: la entrada (normal y de emergencia) y las
- * API de los sensores, el actualizador y los firewalls, que se autentican
- * cada una con su token.
- */
-const PUBLICO = [
-	'/sign-in',
-	'/auth/',
-	'/emergency',
-	'/api/sensor/',
-	/* Lo pide curl desde la máquina de un sensor remoto; lo protege el código de un solo uso. */
-	'/instalar-sensor/',
-	'/api/actualizador/',
-	'/api/salud',
-	'/api/edl/',
-	/* La raíz (pública) de la CA del nodo: hace falta antes de entrar sin avisos. */
-	'/ca-raiz.crt'
-];
 
 export const handle: Handle = async ({ event, resolve }) => {
 	/*
@@ -152,7 +142,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 		event.locals.modoDesarrollo = true;
 	}
 
-	const publico = PUBLICO.some((p) => event.url.pathname === p || event.url.pathname.startsWith(p));
+	const publico = esPublica(event.url.pathname);
 	if (!publico && !event.locals.usuario) {
 		if (event.request.method !== 'GET')
 			error(

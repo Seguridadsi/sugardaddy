@@ -25,6 +25,8 @@ import {
 	type KeyObject
 } from 'node:crypto';
 import type { LicenciaFirmada } from './licencia.ts';
+import type { MarcaFirmada } from './marca.ts';
+import type { OrdenFirmada } from './ordenes.ts';
 import { motivoInstalador, type InstaladorDeVersion } from './instalador.ts';
 import {
 	aConfianza,
@@ -33,10 +35,12 @@ import {
 	hayClave,
 	leerConfianza,
 	motivoClaves,
+	motivoClavesMarca,
 	motivoFirmas,
 	type Confianza,
 	type Firma
 } from './confianza.ts';
+import { firmadoPorPanel, motivoClavesPanel, type ClavesPanel } from './panel.ts';
 
 export type ParDeClaves = { privada: string; publica: string };
 
@@ -197,6 +201,13 @@ export type EstadoDeseado = {
 	 */
 	operador?: string;
 	/*
+	 * La marca de tiempo firmada con la clave de publicación (docs/diseno/firmas-raiz.md),
+	 * tal como la baja el panel de la copia estática: el panel solo la reparte. El
+	 * actualizador la compara con la que baja él mismo y avisa si caduca o si hay una
+	 * versión más nueva que no le llega. Opcional: los nodos anteriores la ignoran.
+	 */
+	marca?: MarcaFirmada | null;
+	/*
 	 * sha256 del paquete de trampas del partner que lleva este panel (su catálogo firmado y
 	 * sus manifiestos), o nulo si no tiene (docs/diseno/trampas-de-partner.md). El nodo lo
 	 * pide aparte cuando cambia y comprueba la cadena entera con sus claves de publicación.
@@ -208,6 +219,14 @@ export type EstadoDeseado = {
 	 * de escalarse (docs/diseno/vista-soc.md). Opcional: los nodos anteriores lo ignoran.
 	 */
 	atenciones?: AtencionIncidente[];
+	/*
+	 * La misma dirección del relé y el mismo código de recuperación, firmados además con una
+	 * clave de publicación (ordenes.ts, docs/diseno/frenos-del-nodo.md). Los nodos desde la
+	 * versión de los frenos solo aceptan `rele` y `recuperacion` si vienen así; los anteriores
+	 * siguen leyendo los campos sin firmar, que el panel manda mientras queden.
+	 */
+	releFirmado?: OrdenFirmada;
+	recuperacionFirmada?: OrdenFirmada;
 	emitido: string;
 	caduca: string;
 };
@@ -270,9 +289,15 @@ export function codigoRecuperacionCorrecto(codigo: string, almacenado: string) {
 	return a.length === b.length && timingSafeEqual(a, b);
 }
 
-export type SolicitudSoporte = { por: string; motivo: string; cuando: string };
+/*
+ * `tenant` (desde la 0.30): el tenant de Entra de SeguridadSI. Con el Entra propio del
+ * cliente, la persona de soporte entra como invitada y la consola comprueba que la
+ * autenticó ese tenant (claim `idp`). Va firmado con la petición para no fiarse del token.
+ */
+export type SolicitudSoporte = { por: string; motivo: string; cuando: string; tenant?: string };
 
-export type EstadoFirmado = { estado: string; firma: string };
+/* firmas: las de las claves nuevas del panel (panel.ts), junto a la de siempre en `firma`. */
+export type EstadoFirmado = { estado: string; firma: string; firmas?: Firma[] };
 
 /*
  * Se firma el texto exacto del estado, no un objeto: lo que verifica el nodo
@@ -286,24 +311,20 @@ export function firmarEstado(clavePrivada: string, estado: EstadoDeseado): Estad
 	};
 }
 
+/*
+ * claves: la clave del panel que el nodo fijó en el alta o, desde la rotación, la lista de las
+ * que le ha dado una versión firmada (panel.ts). Vale `firma` o una de `firmas`.
+ */
 export function verificarEstado(
-	clavePublicaPanel: string,
+	clavesPanel: string | readonly string[],
 	cliente: string,
 	f: EstadoFirmado,
 	ahora = Date.now()
 ): { ok: true; estado: EstadoDeseado } | { ok: false; motivo: string } {
-	let valida = false;
-	try {
-		valida = verify(
-			null,
-			Buffer.from(f.estado),
-			publica(clavePublicaPanel),
-			Buffer.from(f.firma, 'base64')
-		);
-	} catch {
-		valida = false;
-	}
-	if (!valida) return { ok: false, motivo: 'invalid Central signature' };
+	if (!f || typeof f.estado !== 'string' || motivoFirmas(f.firmas))
+		return { ok: false, motivo: 'invalid Central signature' };
+	if (!firmadoPorPanel(clavesPanel, f.estado, f.firma, f.firmas))
+		return { ok: false, motivo: 'invalid Central signature' };
 	const e = JSON.parse(f.estado) as EstadoDeseado;
 	if (e.version !== 1) return { ok: false, motivo: 'unknown state version' };
 	if (e.cliente !== cliente) return { ok: false, motivo: 'the state is for another customer' };
@@ -342,7 +363,8 @@ export type Release = {
 	 * legado. catalogo: lo único que el sensor puede arrancar, la huella de cada manifiesto
 	 * por módulo (SEN-3). commit: de qué commit sale la versión (SUP-4).
 	 */
-	confianza?: { claves: string; retirarLegado?: boolean };
+	/* marcas: las claves de la marca de tiempo (PUBLICACION_MARCAS, docs/diseno/firmas-raiz.md). */
+	confianza?: { claves: string; retirarLegado?: boolean; marcas?: string };
 	catalogo?: Record<string, string[]>;
 	commit?: string;
 	/*
@@ -351,6 +373,12 @@ export type Release = {
 	 * paneles anteriores lo ignoran.
 	 */
 	instalador?: InstaladorDeVersion;
+	/*
+	 * Las claves del panel en las que confiarán los nodos de ese panel (panel.ts): así rota
+	 * la clave del estado deseado sin reinstalar, firmado con la de publicación, que no vive
+	 * en Azure. Los nodos y los paneles anteriores lo ignoran.
+	 */
+	clavesPanel?: ClavesPanel;
 };
 
 /*
@@ -456,6 +484,11 @@ function motivoNovedades(r: Release, uso: ReturnType<typeof edicionDeRelease>): 
 		if (m) return m;
 		if (c.retirarLegado !== undefined && typeof c.retirarLegado !== 'boolean')
 			return 'malformed trusted keys';
+		if (c.marcas !== undefined) {
+			if (typeof c.marcas !== 'string') return 'malformed trusted keys';
+			const mm = motivoClavesMarca(c.marcas);
+			if (mm) return `timestamp keys: ${mm}`;
+		}
 		/* Sin una clave de su propio uso, el nodo no podría comprobar la versión siguiente. */
 		const usos = new Set(leerConfianza(c.claves).claves.map((k) => k.uso));
 		if (!uso || !usos.has(uso)) return 'the trusted keys leave this edition without a key';
@@ -480,6 +513,10 @@ function motivoNovedades(r: Release, uso: ReturnType<typeof edicionDeRelease>): 
 				huellas.some((h) => typeof h !== 'string' || !HUELLA_MANIFIESTO.test(h))
 			)
 				return `malformed decoy catalog entry (${modulo.slice(0, 64)})`;
+	}
+	if (r.clavesPanel !== undefined) {
+		const m = motivoClavesPanel(r.clavesPanel);
+		if (m) return m;
 	}
 	if (r.commit !== undefined && (typeof r.commit !== 'string' || !/^[0-9a-f]{40}$/.test(r.commit)))
 		return 'malformed commit';
@@ -572,7 +609,75 @@ export type Latido = {
 	 * necesita para vigilarle. Sin eso no sube nada, ni la dirección de la consola.
 	 */
 	vigilancia?: { incidentes: boolean; consola: string | null };
+	/*
+	 * Lo que el actualizador dice de la marca de tiempo (docs/diseno/firmas-raiz.md): si está
+	 * al día, si su marca caducó sin que nadie le dé otra o si hay una versión más nueva que
+	 * no le llega (retenida). Opcional: los nodos anteriores no lo mandan.
+	 */
+	marca?: EstadoMarcaNodo;
+	/*
+	 * Las huellas de las claves del panel en las que confía el nodo: el panel sabe así cuándo
+	 * puede dejar de firmar con la de antes (docs/diseno/panel-endurecido.md). Opcional.
+	 */
+	clavesPanel?: string[];
+	/*
+	 * Desde la 0.30: cómo se entra en la consola (`local`, `propio` = Entra del cliente,
+	 * `seguridadsi` = invitados B2B en el tenant de SeguridadSI) y en qué punto está su
+	 * salida del B2B. El panel lo enseña para seguir la migración (identidad-clientes.md §4).
+	 */
+	acceso?: { modo: 'local' | 'propio' | 'seguridadsi'; b2b: 'no' | 'activo' | 'retirado' };
+	/*
+	 * El último sello de la auditoría de la consola (docs/diseno/auditoria-inmutable.md):
+	 * el hash de su cabeza firmado con la clave del nodo. Opcional: los nodos anteriores
+	 * no lo mandan.
+	 */
+	auditoria?: {
+		hasta: number;
+		hash: string;
+		cuando: string;
+		algoritmo: 'ed25519' | 'hmac-sha256';
+		firma: string;
+	};
+	/*
+	 * Con qué se aíslan las trampas del nodo (motor.aislamiento,
+	 * docs/diseno/aislamiento-trampas.md): el más débil de sus sensores vivos que lo
+	 * dicen. runsc (gVisor), runc-perfiles (seccomp y AppArmor de Sugardaddy),
+	 * runc-seccomp (sin AppArmor) o runc-docker (un sensor sin sd-motor, con el
+	 * socket de Docker). Opcional: los nodos anteriores no lo mandan.
+	 */
+	aislamiento?: Aislamiento;
+	/*
+	 * Desde la 0.30 (docs/diseno/proxy-salida.md): si el nodo sale por un proxy y si llega a
+	 * cada destino que usa (nombres de SeguridadSI y Microsoft, nunca los del cliente ni el
+	 * proxy). Para ver desde el panel por qué un nodo detrás de un banco no se actualiza.
+	 */
+	salida?: {
+		proxy: boolean;
+		destinos: { destino: string; ok: boolean; detalle: string | null }[];
+		cuando: string;
+	};
 };
+
+export type EstadoMarcaNodo = {
+	estado: 'al-dia' | 'sin-marca' | 'caducada' | 'retenida';
+	detalle: string;
+	ultima: string | null;
+	caduca: string | null;
+	origen: string | null;
+	/* Si la última versión ofrecida no estaba en el registro de transparencia, o no se pudo ver. */
+	registro?: string | null;
+};
+
+/* Los valores de motor.aislamiento, del más fuerte al más débil. */
+export const AISLAMIENTOS = ['runsc', 'runc-perfiles', 'runc-seccomp', 'runc-docker'] as const;
+export type Aislamiento = (typeof AISLAMIENTOS)[number];
+
+/* El más débil de varios (undefined si ninguno es conocido). */
+export function aislamientoMasDebil(valores: unknown[]): Aislamiento | undefined {
+	let peor = -1;
+	for (const v of valores) peor = Math.max(peor, AISLAMIENTOS.indexOf(v as Aislamiento));
+	return peor < 0 ? undefined : AISLAMIENTOS[peor];
+}
 
 export type { KeyObject };
 
@@ -582,4 +687,11 @@ export * from './catalogo-partner.ts';
 export * from './planes.ts';
 export * from './registro.ts';
 export * from './confianza.ts';
+export * from './raiz.ts';
+export * from './marca.ts';
+export * from './transparencia.ts';
 export * from './instalador.ts';
+export * from './panel.ts';
+export * from './rangos-nubes.ts';
+export * from './ordenes.ts';
+export * from './rele-minimo.ts';

@@ -78,7 +78,9 @@
 	{:else if a.estado === 'abierta'}
 		<p class="estado mal">
 			{#if a.emergencia}
-				Open to everyone: it was opened from the machine with the emergency file.
+				Open to everyone: it was opened from the machine with the emergency file{#if a.emergenciaHasta},
+					until {fechaHora(a.emergenciaHasta)}{/if}. Then it goes back to how it was, unless you
+				save a list first.
 			{:else}
 				Open to everyone{#if a.quien}, by {a.quien}{/if}.
 			{/if}
@@ -192,8 +194,9 @@
 	<h2>If you lock yourself out</h2>
 	<p class="ayuda">
 		Once the machine firewall applies the list, you can always get in from the machine itself. To
-		open the console to everyone again, run this on the machine; the console will say so until
-		someone saves the list again:
+		open the console to everyone for 24 hours, run this on the machine; the console says so, the
+		audit log records it, and after 24 hours it goes back to how it was (on the virtual machine,
+		option 9 on its screen does the same):
 	</p>
 	<pre><code>sudo touch {data.carpeta}/abrir-consola</code></pre>
 </section>

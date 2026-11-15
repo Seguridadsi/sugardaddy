@@ -16,6 +16,7 @@ import {
 	elegir,
 	motivo,
 	proyectarParaSensor,
+	puertosPublicados,
 	tipoEvento,
 	validarParametros,
 	viaDe
@@ -498,6 +499,66 @@ export async function darDeAlta(
 		const escucha = v.escucha?.trim() || null;
 		return (await crearTrampa(quien, { ...fila, sensor, escucha }, tx)) ? 'creada' : repetida;
 	});
+}
+
+/*
+ * Lo que diría el elector al guardar, sin guardar nada: el mismo elector en
+ * modo reales, con los valores ya validados, la vía pedida y la dirección
+ * elegida, en el contexto de hoy del destino. Para el borrador del MCP guiado
+ * (lib/server/api/guiado.ts): enseña con qué vía y qué puertos se pondría.
+ * No bloquea el destino ni acuña balizas; la palabra final la tiene darDeAlta
+ * al aprobar, que lo vuelve a decidir todo dentro de su transacción.
+ */
+export async function simularAlta(v: {
+	honeycosa: Honeycosa;
+	destino: string;
+	via?: string;
+	parametros: Record<string, unknown>;
+	escucha?: string | null;
+}): Promise<
+	| {
+			ok: true;
+			destino: { id: string; nombre: string; sensor: string | null };
+			via: { id: string; ejecutor: string; nombre: string };
+			avisos: MotivoVisible[];
+			puertos: { puerto: number; protocolo: 'tcp' | 'udp' }[];
+	  }
+	| ({ ok: false } & FalloAlta)
+> {
+	const h = v.honeycosa;
+	const pedida = v.via === undefined ? undefined : viaDe(h, v.via);
+	if (v.via !== undefined && !pedida)
+		return { ok: false, ...fallo(['That deployment method does not exist in this module.']) };
+	const f = await leerDestino(db, v.destino);
+	if (!f) return { ok: false, ...fallo(['Target: that target does not exist.']) };
+	const d = destinoDelElector(f.destino, f.sensor);
+	const e = elegir({
+		honeycosa: h,
+		destino: d,
+		parametros: { modo: 'reales', valor: { ok: true, valor: v.parametros } },
+		contexto: await contextoEn(db, d.id, {
+			...(pedida ? { preferida: pedida.id } : {}),
+			escucha: v.escucha?.trim() || null
+		})
+	});
+	const via = pedida ?? (e.elegida ? viaDe(h, e.elegida.via) : undefined);
+	if (!e.elegida || !via || e.elegida.via !== via.id)
+		return { ok: false, ...fallo([], motivosDe(e, via?.id)) };
+	const bloqueo = bloqueoDeAlta(via.ejecutor, d);
+	if (bloqueo) return { ok: false, ...fallo([bloqueo]) };
+	return {
+		ok: true,
+		destino: { id: d.id, nombre: d.nombre, sensor: d.agente?.sensor ?? null },
+		via: { id: via.id, ejecutor: via.ejecutor, nombre: e.elegida.nombre },
+		avisos: e.elegida.avisos.map(enTexto),
+		puertos:
+			via.ejecutor === 'contenedor@1'
+				? puertosPublicados(via.carga as CargaContenedor, v.parametros).map((p) => ({
+						puerto: p.puerto,
+						protocolo: p.protocolo
+					}))
+				: []
+	};
 }
 
 type FilaTrampa = typeof s.trampas.$inferSelect;

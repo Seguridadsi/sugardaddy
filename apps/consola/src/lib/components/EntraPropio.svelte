@@ -24,12 +24,15 @@
 	let {
 		propio,
 		seguridadsi,
+		b2b,
 		retorno,
 		error,
 		valores
 	}: {
 		propio: Estado;
 		seguridadsi: boolean;
+		/* En qué punto está la salida del Entra de SeguridadSI (b2b.ts). */
+		b2b: 'no' | 'activo' | 'retirado';
 		retorno: string;
 		error?: string;
 		valores?: { tenant: string; clientId: string };
@@ -59,15 +62,33 @@
 		'admin-listas': 'List administrator',
 		admin: 'Administrator: everything, including settings'
 	};
-	const roles = JSON.stringify(
-		ROLES.map((r) => ({
-			allowedMemberTypes: ['User'],
-			description: NOMBRES[r],
-			displayName: NOMBRES[r].split(':')[0],
-			id: '@@',
-			isEnabled: true,
-			value: r
-		}))
+	/*
+	 * Los roles de la consola y el de soporte: con él, la persona de soporte que el
+	 * cliente invite a su tenant entra solo mientras tenga abierto el acceso
+	 * (auth/entra.ts, identidadPropia). `idp` y `acct` dicen de dónde viene un invitado.
+	 */
+	const roles = $derived(
+		JSON.stringify([
+			...ROLES.map((r) => ({
+				allowedMemberTypes: ['User'],
+				description: NOMBRES[r],
+				displayName: NOMBRES[r].split(':')[0],
+				id: '@@',
+				isEnabled: true,
+				value: r
+			})),
+			{
+				allowedMemberTypes: ['User'],
+				description: `${page.data.operador} support, only while support access is open`.replace(
+					/['"\\]/g,
+					''
+				),
+				displayName: `${page.data.operador} support`.replace(/['"\\]/g, ''),
+				id: '@@',
+				isEnabled: true,
+				value: 'soporte'
+			}
+		])
 	);
 
 	/* Para Azure Cloud Shell (bash): todo lo que hace falta en el tenant del cliente. */
@@ -76,7 +97,7 @@ ROLES='${roles}'
 ROLES=$(python3 -c 'import json,sys,uuid;r=json.loads(sys.argv[1]);[x.update(id=str(uuid.uuid4())) for x in r];print(json.dumps(r))' "$ROLES")
 APP=$(az ad app create --display-name 'Sugardaddy consola' --sign-in-audience AzureADMyOrg \\
   --web-redirect-uris "$RETORNO" --app-roles "$ROLES" \\
-  --optional-claims '{"idToken":[{"name":"email","essential":false}]}' --query appId -o tsv)
+  --optional-claims '{"idToken":[{"name":"email","essential":false},{"name":"idp","essential":false},{"name":"acct","essential":false}]}' --query appId -o tsv)
 SP=$(az ad sp create --id "$APP" --query id -o tsv)
 az ad sp update --id "$SP" --set appRoleAssignmentRequired=true
 ADMIN=$(az ad app show --id "$APP" --query "appRoles[?value=='admin'].id" -o tsv)
@@ -125,11 +146,11 @@ echo "Client:    $APP"; echo "Secret:    $SECRETO"`);
 			Saved but not tested: it is not in use yet. Click "Test" and sign in with an account that has
 			the "admin" role in the application.
 		</p>
-	{:else if seguridadsi}
-		<p>
-			Today this console signs in with Microsoft through the {page.data.operador} Entra. If you connect
-			your own, yours is used instead (and {page.data.operador} support access no longer signs in with
-			Microsoft).
+	{:else if seguridadsi && b2b === 'activo'}
+		<p class="aviso">
+			Today this console signs in with Microsoft through the {page.data.operador} Entra ID. Connect your
+			own: from then on only your organization decides who signs in, and {page.data.operador} support
+			signs in as a guest you invite. <a href="#migrar">How to move without losing access</a>
 		</p>
 	{/if}
 

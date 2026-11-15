@@ -2,6 +2,7 @@
 	import FormularioParametros from '$lib/components/FormularioParametros.svelte';
 	import { ENTORNOS, ENTORNO_ETIQUETA } from '$lib/entorno';
 	import { fechaCorta } from '$lib/fechas-pantalla';
+	import { CANALES_SIEM as SIEM } from '$lib/canales-siem';
 	import { nombreAccion } from '$lib/formato';
 	import type { EsquemaParametros } from '@sugardaddy/contrato';
 	import { untrack, type Snippet } from 'svelte';
@@ -38,6 +39,7 @@
 		respuesta?: boolean;
 		incidentes?: boolean;
 		resumenSemanal?: boolean;
+		auditoria?: boolean;
 	};
 	type Valores = {
 		nombre: string;
@@ -355,6 +357,22 @@
 			</small>
 		</span>
 	</label>
+
+	<label class="interruptor">
+		<input
+			type="checkbox"
+			name="auditoria"
+			checked={valores.reglas.auditoria ?? SIEM.includes(canal.tipo)}
+		/>
+		<span>
+			<b>Console audit log</b>
+			<small>
+				Who signs in or fails to, who changes users, roles, outputs, honeypots, access or
+				containment, every emergency access (always critical) and the hourly seal of the audit log.
+				On by default for a SIEM.
+			</small>
+		</span>
+	</label>
 </fieldset>
 
 <div class="parte" hidden={!ve('cuando')}>
@@ -471,7 +489,7 @@
 	.interruptor input {
 		width: auto;
 		margin-top: 3px;
-		accent-color: var(--accent);
+		accent-color: var(--link);
 	}
 
 	.interruptor span {
@@ -525,7 +543,7 @@
 
 	.marca input {
 		width: auto;
-		accent-color: var(--accent);
+		accent-color: var(--link);
 	}
 
 	.lista {

@@ -71,7 +71,11 @@ export const actions = {
 		try {
 			const linea = await altaSensorRemoto(u.correo, v, undefined, ip, consolaIp);
 			if (!linea)
-				return fail(400, { error: 'A sensor with that identifier already exists.', ...escrito });
+				return fail(400, {
+					error:
+						'A sensor with that identifier already exists and is in use. Choose another identifier, or remove that sensor in Sensors first: a removed sensor can be enrolled again with its identifier.',
+					...escrito
+				});
 			return { linea, para: v.id, consola: nombreConsola(), fija: consolaIp || null };
 		} catch (e) {
 			return fail(e instanceof ErrorCliente ? 400 : 500, {
@@ -110,7 +114,7 @@ export const actions = {
 		const r = redDelFormulario(f);
 		if ('error' in r) return fail(400, { error: r.error, cambiando: id });
 		if (!(await cambiarRed(u.correo, id, r)))
-			return fail(404, { error: 'That sensor no longer exists.' });
+			return fail(404, { error: 'That sensor no longer exists or has been removed.' });
 		return { mensaje: 'Sensor network saved.' };
 	},
 	entorno: async ({ request, locals }) => {
@@ -122,7 +126,7 @@ export const actions = {
 		const entorno = v === '' ? null : esEntorno(v) ? v : undefined;
 		if (entorno === undefined) return fail(400, { error: 'Invalid environment.', cambiando: id });
 		if (!(await cambiarEntorno(u.correo, id, entorno)))
-			return fail(404, { error: 'That sensor no longer exists.' });
+			return fail(404, { error: 'That sensor no longer exists or has been removed.' });
 		return { mensaje: 'Sensor environment saved.' };
 	},
 	registrarPropio: async ({ request, locals }) => {
@@ -130,7 +134,7 @@ export const actions = {
 		const f = await request.formData();
 		const registrar = f.get('registrar') === 'si';
 		if (!(await cambiarRegistrarPropio(u.correo, String(f.get('id')), registrar)))
-			return fail(404, { error: 'That sensor no longer exists.' });
+			return fail(404, { error: 'That sensor no longer exists or has been removed.' });
 		return {
 			mensaje: registrar
 				? 'The sensor will record connections from its own machine.'

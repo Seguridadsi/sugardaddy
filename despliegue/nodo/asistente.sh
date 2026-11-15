@@ -181,7 +181,7 @@ comprobar() {
 	if timeout 8 bash -c "exec 3<>/dev/tcp/${registro%%/*}/443" 2>/dev/null; then
 		BIEN+=("Internet access (${registro%%/*} answers)")
 	else
-		AVISOS+=("${registro%%/*} does not answer on port 443. Without internet access the images cannot be downloaded.")
+		AVISOS+=("${registro%%/*} does not answer on port 443. Without internet access the images cannot be downloaded. If this machine goes out through a proxy, you can enter it in a moment.")
 	fi
 }
 
@@ -208,6 +208,36 @@ de_env() { # fichero clave → valor (sin comillas)
 }
 
 DIR="" NOMBRE="" NODO_ID="" DOMINIO="" PUERTO="${CONSOLA_PUERTO:-443}" ACCESO="${CONSOLA_ACCESO:-}" YA=""
+PROXY="${SUGARDADDY_PROXY:-${HTTPS_PROXY:-${https_proxy:-}}}" PROXY_NO="${SUGARDADDY_NO_PROXY:-${NO_PROXY:-}}" PROXY_CA="${SUGARDADDY_PROXY_CA:-}"
+
+# Proxy de salida (docs/diseno/proxy-salida.md): lo aplica instalar.sh a apt, a Docker,
+# al almacén de CA del sistema y al nodo. Aquí solo se pregunta y se prueba.
+pregunta_proxy() {
+	local forma='^https?://([A-Za-z0-9._~%!*+,;=:-]+@)?[A-Za-z0-9.-]+(:[0-9]{1,5})?/?$' prueba registro="${REGISTRO:-ghcr.io}"
+	[[ -n "$YA" && -z "$PROXY" ]] && PROXY="$(de_env "$DIR/.env" PROXY_SALIDA)"
+	[[ -n "$YA" && -z "$PROXY_NO" ]] && PROXY_NO="$(de_env "$DIR/.env" PROXY_EXCEPCIONES_CLIENTE)"
+	while true; do
+		preguntar "Does this machine reach the internet through a proxy? Enter it as http://proxy.example.com:3128 (with user:password@ before the name if it asks for them, special characters percent-encoded). Leave it empty if it goes out directly." "$PROXY"
+		[[ -z "$RESPUESTA" || "$RESPUESTA" =~ $forma ]] && break
+		mensaje "Write it as http://proxy.example.com:3128 or http://user:password@proxy.example.com:3128."
+	done
+	PROXY="${RESPUESTA%/}"
+	[[ -n "$PROXY" ]] || return 0
+	preguntar "Names or networks that must NOT go through the proxy (your internal ones), separated by commas. This machine's network and the console address are added by themselves." "$PROXY_NO"
+	PROXY_NO="$RESPUESTA"
+	while true; do
+		preguntar "If the proxy inspects HTTPS, the path to its CA certificate in PEM (the root your company installs on its computers). Leave it empty if it does not." "$PROXY_CA"
+		[[ -z "$RESPUESTA" ]] || openssl x509 -in "$RESPUESTA" -noout 2>/dev/null && break
+		mensaje "$RESPUESTA is not a PEM certificate this machine can read."
+	done
+	PROXY_CA="$RESPUESTA"
+	# Una respuesta cualquiera del registro vale: el proxy deja pasar y el TLS cuadra.
+	if prueba="$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 10 --max-time 20 -x "$PROXY" ${PROXY_CA:+--cacert "$PROXY_CA"} "https://${registro%%/*}/v2/" 2>&1)"; then
+		mensaje "Through the proxy, ${registro%%/*} answers ($prueba)."
+	else
+		confirmar "Through the proxy, ${registro%%/*} does not answer:"$'\n\n'"  $(printf '%s' "$prueba" | tail -1 | sed -E 's#//[^@]*@#//***@#')"$'\n\n'"Check the proxy, its user and password, or that it lets that site through. Continue anyway?" "Continue" "Cancel" || cancelar
+	fi
+}
 
 preguntas() {
 	local propuesta
@@ -261,13 +291,15 @@ preguntas() {
 
 		propuesta="${ACCESO:-$(ip_ssh)}"
 		while true; do
-			preguntar "Which addresses can open the console? Enter IP addresses or networks (such as 10.0.0.0/24) separated by commas: the ones your browser will come from. Leave it empty to decide the first time you sign in." "$propuesta"
+			preguntar "Which addresses can open the console? Enter IP addresses or networks (such as 10.0.0.0/24) separated by commas: the ones your browser will come from. Leave it empty and, until you choose in the console, only this machine's network and the address you install from can open it." "$propuesta"
 			RESPUESTA="${RESPUESTA// /}"
 			[[ -z "$RESPUESTA" || "$RESPUESTA" =~ ^[0-9a-fA-F:.]+(/[0-9]{1,3})?(,[0-9a-fA-F:.]+(/[0-9]{1,3})?)*$ ]] && break
 			mensaje "Enter addresses such as 192.168.1.20 or 10.0.0.0/24, separated by commas."
 		done
 		ACCESO="$RESPUESTA"
 	fi
+
+	pregunta_proxy
 }
 
 resumen() {
@@ -277,8 +309,9 @@ resumen() {
 	texto+="  Node:            $NODO_ID"$'\n'
 	texto+="  Console:         $url"$'\n'
 	if [[ -z "$YA" ]]; then
-		texto+="  Console access:  ${ACCESO:-decided at first sign-in}"$'\n'
+		texto+="  Console access:  ${ACCESO:-the network of this machine and the address you install from}"$'\n'
 	fi
+	texto+="  Outbound proxy:  $([[ -n "$PROXY" ]] && printf '%s' "$PROXY" | sed -E 's#//[^@]*@#//***@#' || echo "none (direct)")${PROXY_CA:+, with its CA}"$'\n'
 	if [[ -n "$CONSTRUIR" ]]; then
 		texto+=$'\n'"The node images are built from source on this machine first. It takes a while the first time (10 to 20 minutes)."$'\n'
 	fi
@@ -316,6 +349,9 @@ if [[ -n "$CONSTRUIR" ]]; then
 fi
 
 export CONSOLA_PUERTO="$PUERTO"
+# instalar.sh aplica el proxy (y lo quita con «none» si se dejó vacío al reinstalar).
+export SUGARDADDY_PROXY="${PROXY:-none}" SUGARDADDY_NO_PROXY="${PROXY_NO:-none}"
+[[ -z "$PROXY_CA" ]] || export SUGARDADDY_PROXY_CA="$PROXY_CA"
 [[ -z "$ACCESO" ]] || export CONSOLA_ACCESO="$ACCESO"
 # Sin Entra configurado, la entrada es con usuario y contraseña: si no, no habría cómo entrar.
 [[ -n "${ENTRA_TENANT_ID:-}" || -n "${LOGIN_LOCAL:-}" ]] || export LOGIN_LOCAL=1

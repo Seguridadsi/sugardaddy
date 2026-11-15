@@ -7,6 +7,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { borrarAuditoriaDePrueba } from './db/pruebas-auditoria';
 
 let hayBase = false;
 try {
@@ -54,9 +55,10 @@ async function limpiar() {
 		.where(or(like(s.destinos.id, `${P}%`), like(s.destinos.sensor, `${P}%`)));
 	await db.delete(s.instaladoresSensor).where(like(s.instaladoresSensor.sensor, `${P}%`));
 	await db.delete(s.sensores).where(like(s.sensores.id, `${P}%`));
-	await db
-		.delete(s.auditoria)
-		.where(or(eq(s.auditoria.quien, QUIEN), like(s.auditoria.quien, `sensor ${P}%`)));
+	await borrarAuditoriaDePrueba(
+		db,
+		or(eq(s.auditoria.quien, QUIEN), like(s.auditoria.quien, `sensor ${P}%`))
+	);
 }
 
 const locals = (roles = ['admin']) => ({
@@ -295,7 +297,7 @@ describe.skipIf(!hayBase)('la página Destinos', () => {
 		});
 		expect(r).toMatchObject({ para: `${P}-fs01-sensor` });
 		expect((r as { linea: string }).linea).toMatch(
-			/^curl -fsSL https:\/\/consola\.prueba\/instalar-sensor\/[A-Za-z0-9_-]{32} \| sudo bash$/
+			/uname \| grep -qx Linux && curl -fsSL https:\/\/consola\.prueba\/instalar-sensor\/[A-Za-z0-9_-]{32} \| sudo bash$/
 		);
 		expect(await mios()).toBe(antes);
 		const [d] = await db.select().from(s.destinos).where(eq(s.destinos.id, FS01));

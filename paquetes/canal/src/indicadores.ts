@@ -14,9 +14,10 @@
  * Y lo que baja es una lista firmada por el panel, con caducidad.
  */
 import { isIP } from 'node:net';
-import { sign, verify } from 'node:crypto';
-import { createPrivateKey, createPublicKey } from 'node:crypto';
+import { createPrivateKey, sign } from 'node:crypto';
 import { contenidaEn } from './rangos.ts';
+import { motivoFirmas, type Firma } from './confianza.ts';
+import { firmadoPorPanel } from './panel.ts';
 
 export type IndicadorSubida = {
 	valor: string;
@@ -32,6 +33,13 @@ export type IndicadorSubida = {
 	 * la 0.26 no lo mandan.
 	 */
 	modulos?: string[];
+	/*
+	 * 'tcp': la IP completó la conexión con la trampa (el nodo solo sube esas). El panel solo
+	 * cuenta para el umbral de propagación los avistamientos que lo dicen
+	 * (docs/diseno/frenos-del-nodo.md). Opcional: los nodos anteriores no lo mandan, y sus
+	 * avistamientos se guardan pero no propagan.
+	 */
+	conexion?: 'tcp';
 };
 
 export const MAXIMO_MODULOS = 10;
@@ -59,7 +67,8 @@ export type ListaGlobal = {
 	indicadores: IndicadorGlobal[];
 };
 
-export type ListaFirmada = { lista: string; firma: string };
+/* firmas: las de las claves nuevas del panel (panel.ts). */
+export type ListaFirmada = { lista: string; firma: string; firmas?: Firma[] };
 
 /* Rangos que no se comparten nunca: privados, internos, documentación, multicast. */
 const NO_PUBLICAS_V4: [number, number][] = [
@@ -103,8 +112,6 @@ export { aCidrs, contenidaEn, rango, restar } from './rangos.ts';
 
 const privada = (b64: string) =>
 	createPrivateKey({ key: Buffer.from(b64, 'base64'), format: 'der', type: 'pkcs8' });
-const publica = (b64: string) =>
-	createPublicKey({ key: Buffer.from(b64, 'base64'), format: 'der', type: 'spki' });
 
 export function firmarLista(clavePrivada: string, l: ListaGlobal): ListaFirmada {
 	const texto = JSON.stringify(l);
@@ -115,21 +122,15 @@ export function firmarLista(clavePrivada: string, l: ListaGlobal): ListaFirmada 
 }
 
 export function verificarLista(
-	clavePublicaPanel: string,
+	clavesPanel: string | readonly string[],
 	f: ListaFirmada,
 	ahora = Date.now()
 ): { ok: true; lista: ListaGlobal } | { ok: false; motivo: string } {
-	let valida = false;
-	try {
-		valida = verify(
-			null,
-			Buffer.from(f.lista),
-			publica(clavePublicaPanel),
-			Buffer.from(f.firma, 'base64')
-		);
-	} catch {
-		valida = false;
-	}
+	const valida =
+		!!f &&
+		typeof f.lista === 'string' &&
+		!motivoFirmas(f.firmas) &&
+		firmadoPorPanel(clavesPanel, f.lista, f.firma, f.firmas);
 	if (!valida) return { ok: false, motivo: 'list not signed by Central' };
 	const l = JSON.parse(f.lista) as ListaGlobal;
 	if (l.version !== 1) return { ok: false, motivo: 'unknown list version' };
@@ -163,21 +164,15 @@ export function firmarListaTor(clavePrivada: string, l: ListaTor): ListaFirmada 
 }
 
 export function verificarListaTor(
-	clavePublicaPanel: string,
+	clavesPanel: string | readonly string[],
 	f: ListaFirmada,
 	ahora = Date.now()
 ): { ok: true; lista: ListaTor } | { ok: false; motivo: string } {
-	let valida = false;
-	try {
-		valida = verify(
-			null,
-			Buffer.from(f.lista),
-			publica(clavePublicaPanel),
-			Buffer.from(f.firma, 'base64')
-		);
-	} catch {
-		valida = false;
-	}
+	const valida =
+		!!f &&
+		typeof f.lista === 'string' &&
+		!motivoFirmas(f.firmas) &&
+		firmadoPorPanel(clavesPanel, f.lista, f.firma, f.firmas);
 	if (!valida) return { ok: false, motivo: 'list not signed by Central' };
 	const l = JSON.parse(f.lista) as ListaTor;
 	if (l.version !== 1 || l.tipo !== 'tor') return { ok: false, motivo: 'not a Tor list' };

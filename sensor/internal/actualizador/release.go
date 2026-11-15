@@ -40,6 +40,9 @@ type Release struct {
 type ConfianzaNueva struct {
 	Claves        string `json:"claves"`
 	RetirarLegado bool   `json:"retirarLegado,omitempty"`
+	// Las claves de la marca de tiempo (PUBLICACION_MARCAS, docs/diseno/firmas-raiz.md), aparte:
+	// los nodos de antes ignoran este campo, y no rechazarían la versión.
+	Marcas string `json:"marcas,omitempty"`
 }
 
 // Configuracion son los ficheros del compose (y el Caddyfile del nodo) y las
@@ -189,6 +192,9 @@ func validarNovedades(r Release, uso string) error {
 	if r.Confianza != nil {
 		if m := MotivoClaves(r.Confianza.Claves); m != "" {
 			return errors.New(m)
+		}
+		if m := MotivoClavesMarca(r.Confianza.Marcas); m != "" {
+			return errors.New("timestamp keys: " + m)
 		}
 		propia := false
 		for _, k := range LeerConfianza(r.Confianza.Claves, "").Claves {

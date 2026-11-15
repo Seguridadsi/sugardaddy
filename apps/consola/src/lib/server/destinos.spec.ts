@@ -6,6 +6,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { borrarAuditoriaDePrueba } from './db/pruebas-auditoria';
 
 let hayBase = false;
 try {
@@ -42,7 +43,7 @@ async function limpiar() {
 	await db.delete(s.destinos).where(like(s.destinos.id, `${P}%`));
 	await db.delete(s.instaladoresSensor).where(like(s.instaladoresSensor.sensor, `${P}%`));
 	await db.delete(s.sensores).where(like(s.sensores.id, `${P}%`));
-	await db.delete(s.auditoria).where(eq(s.auditoria.quien, QUIEN));
+	await borrarAuditoriaDePrueba(db, eq(s.auditoria.quien, QUIEN));
 }
 
 const destinos = async () =>

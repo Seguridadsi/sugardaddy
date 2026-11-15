@@ -98,6 +98,9 @@ func ViejoEn(id string, i int) string { return filepath.Join(raizViejos, id, fmt
 // raizViejos, variable para las pruebas.
 var raizViejos = "/viejos"
 
+// UIDSensor es el usuario con que corre el sensor (el «nonroot» de distroless).
+const UIDSensor = 65532
+
 // Pedido es lo que el sensor le pide al auxiliar.
 type Pedido struct {
 	// Datos es la carpeta del sensor, en la misma ruta en la máquina y en el auxiliar.

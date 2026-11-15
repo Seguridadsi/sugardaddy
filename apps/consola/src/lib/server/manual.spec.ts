@@ -14,6 +14,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { borrarAuditoriaDePrueba } from './db/pruebas-auditoria';
 
 let hayBase = false;
 try {
@@ -77,9 +78,10 @@ async function limpiar() {
 		.delete(s.destinos)
 		.where(or(like(s.destinos.id, `${P}%`), like(s.destinos.sensor, `${P}%`)));
 	await db.delete(s.sensores).where(like(s.sensores.id, `${P}%`));
-	await db
-		.delete(s.auditoria)
-		.where(or(eq(s.auditoria.quien, QUIEN), like(s.auditoria.quien, `sensor ${P}%`)));
+	await borrarAuditoriaDePrueba(
+		db,
+		or(eq(s.auditoria.quien, QUIEN), like(s.auditoria.quien, `sensor ${P}%`))
+	);
 }
 
 const locals = (roles = ['admin']) => ({

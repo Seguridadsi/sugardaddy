@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"github.com/kinomakino/sugardaddy/sensor/internal/registro"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -68,7 +69,7 @@ func medirRegistros(dir string) (bytes int64, entradas int) {
 var perforar = liberarLeido
 
 // errSinPerforar: en esta plataforma el sensor no sabe perforar ficheros.
-var errSinPerforar = errors.New("punching holes in files is only supported on Linux")
+var errSinPerforar = registro.ErrSinPerforar
 
 // causaCuota clasifica el fallo al liberar lo leído del registro activo.
 func causaCuota(err error) string {

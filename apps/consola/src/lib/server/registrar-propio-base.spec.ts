@@ -5,6 +5,7 @@
  */
 import { createHash } from 'node:crypto';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { borrarAuditoriaDePrueba } from './db/pruebas-auditoria';
 
 vi.mock('$env/dynamic/private', () => ({ env: process.env }));
 vi.mock('$app/environment', () => ({ building: false, dev: true }));
@@ -26,7 +27,7 @@ describe.skipIf(!process.env.DATABASE_URL)('registrar lo del propio sensor', asy
 		await db.delete(s.balizas).where(like(s.balizas.token, `${P}%`));
 		await db.delete(s.trampas).where(like(s.trampas.id, `${P}%`));
 		await db.delete(s.sensores).where(like(s.sensores.id, `${P}%`));
-		await db.delete(s.auditoria).where(eq(s.auditoria.quien, QUIEN));
+		await borrarAuditoriaDePrueba(db, eq(s.auditoria.quien, QUIEN));
 	};
 	beforeEach(async () => {
 		await limpiar();

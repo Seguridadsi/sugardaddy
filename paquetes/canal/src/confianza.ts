@@ -63,6 +63,35 @@ export function motivoClaves(texto: string): string | null {
 	return null;
 }
 
+/*
+ * Una lista de claves públicas sin uso, separadas por comas: la de las marcas de tiempo
+ * (PUBLICACION_MARCAS, marca.ts) y la de las raíces (raiz.ts). Qué falla, o null (vacía vale).
+ */
+export function motivoClavesMarca(texto: string): string | null {
+	if (typeof texto !== 'string') return 'the key list is not text';
+	if (texto.trim() === '') return null;
+	const partes = texto.split(',');
+	if (partes.length > 8) return 'more than 8 keys';
+	for (const p of partes)
+		if (!publicaValida(p.trim())) return 'a key is not an Ed25519 or ECDSA P-256 public key';
+	return null;
+}
+
+/* Lee una lista así; lo que no se entiende se ignora. */
+export const leerClavesMarca = (texto?: string | null) =>
+	[
+		...new Set(
+			(texto ?? '')
+				.split(',')
+				.map((p) => p.trim())
+				.filter((p) => publicaValida(p))
+		)
+	].slice(0, 8);
+
+/* Si es una clave pública que se sabe comprobar (Ed25519 o ECDSA P-256). */
+export const esClaveVerificable = (b64: unknown) =>
+	typeof b64 === 'string' && publicaValida(b64) !== null;
+
 /* Lee las dos variables. Lo que no se entiende se ignora: nunca da más confianza de la dicha. */
 export function leerConfianza(claves?: string | null, legado?: string | null): Confianza {
 	const lista: ClaveDeConfianza[] = [];

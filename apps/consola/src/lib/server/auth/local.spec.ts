@@ -103,4 +103,26 @@ describe('interruptor del login local', () => {
 		env.EDICION = 'community';
 		expect(loginLocalHabilitado()).toBe(true);
 	});
+
+	it('un nodo Cloud sin el Entra de SeguridadSI lo tiene encendido aunque falte LOGIN_LOCAL', () => {
+		env.EDICION = 'cloud';
+		expect(loginLocalHabilitado()).toBe(true);
+		env.LOGIN_LOCAL = '0';
+		expect(loginLocalHabilitado()).toBe(false);
+		delete env.LOGIN_LOCAL;
+		Object.assign(env, {
+			ENTRA_TENANT_ID: 't',
+			ENTRA_CLIENT_ID: 'c',
+			ENTRA_CLIENT_SECRET: 's',
+			ENTRA_GRUPO_CLIENTE: 'g'
+		});
+		expect(loginLocalHabilitado()).toBe(false);
+		for (const k of [
+			'ENTRA_TENANT_ID',
+			'ENTRA_CLIENT_ID',
+			'ENTRA_CLIENT_SECRET',
+			'ENTRA_GRUPO_CLIENTE'
+		])
+			delete env[k];
+	});
 });

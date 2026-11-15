@@ -5,6 +5,7 @@
  */
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Honeycosa } from '@sugardaddy/contrato';
+import { borrarAuditoriaDePrueba } from './db/pruebas-auditoria';
 
 vi.mock('$env/dynamic/private', () => ({ env: process.env }));
 vi.mock('$app/environment', () => ({ building: false, dev: true }));
@@ -89,7 +90,7 @@ describe.skipIf(!process.env.DATABASE_URL)('identidad', async () => {
 			.from(s.auditoria)
 			.where(eq(s.auditoria.quien, 'zz-identidad@prueba'));
 		expect(a.accion).toBe('company domain saved');
-		await db.delete(s.auditoria).where(eq(s.auditoria.quien, 'zz-identidad@prueba'));
+		await borrarAuditoriaDePrueba(db, eq(s.auditoria.quien, 'zz-identidad@prueba'));
 	});
 
 	it('la semilla se crea una vez y no cambia al corregir el dominio', async () => {

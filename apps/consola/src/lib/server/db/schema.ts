@@ -735,6 +735,19 @@ export const listas = pgTable(
 	(t) => [uniqueIndex('listas_unica').on(t.valor, t.lista, t.ambito)]
 );
 
+/*
+ * Lo que la lista común trae y aún no ha entrado en el EDL porque hoy ya entraron
+ * todas las nuevas que caben (docs/diseno/frenos-del-nodo.md). Entra en días
+ * siguientes si sigue en la lista. Tabla aparte a propósito: una consola anterior,
+ * si el nodo vuelve atrás, no la lee y no mete nada de aquí en el EDL.
+ */
+export const listaComunEspera = pgTable('lista_comun_espera', {
+	valor: text('valor').primaryKey(),
+	motivo: text('motivo').notNull(),
+	caduca: timestamp('caduca', { withTimezone: true }).notNull(),
+	recibida: timestamp('recibida', { withTimezone: true }).notNull().defaultNow()
+});
+
 /* ---------------------------------------------------------------------------
  * Salidas: avisos y SIEM (docs/diseno/avisos-y-siem.md)
  *
@@ -784,6 +797,12 @@ export type ReglasSalida = {
 	incidentes?: boolean;
 	/* El resumen de la semana, los lunes (resumen-semanal.ts). Sin poner, no. */
 	resumenSemanal?: boolean;
+	/*
+	 * La auditoría de la consola (auditoria.*, salidas/auditoria.ts): entradas,
+	 * cambios, emergencias y el sellado. Sin poner, sí en un SIEM y no en lo que
+	 * lee una persona (quiereAuditoria, reglas.ts).
+	 */
+	auditoria?: boolean;
 };
 
 /* Cada mensaje en cuanto se puede, o todos juntos cada N minutos. */
@@ -1075,6 +1094,21 @@ export const reglasTriaje = pgTable(
 	(t) => [index('reglas_triaje_activa').on(t.activa)]
 );
 
+/*
+ * La auditoría solo crece, y se puede comprobar (docs/diseno/auditoria-inmutable.md):
+ *
+ *   - Cada fila lleva el hash de la anterior y el suyo:
+ *     hash = SHA-256(hash_anterior || auditoria_canonica(fila)). Los pone un
+ *     trigger de la base (migración 0058) al insertar, no la aplicación: un
+ *     INSERT de cualquier versión de la consola o de un script de la máquina
+ *     entra encadenado. Lo que manda la aplicación en esas dos columnas se ignora.
+ *   - UPDATE, DELETE y TRUNCATE fallan (REVOKE y un trigger que lo impide). Solo
+ *     la purga por plazo (auditoria_purgar, del rol sugardaddy_purga) borra, y deja
+ *     una fila «audit log purged» con hasta qué id y el hash de la última borrada.
+ *   - Cada hora se sella la cabeza (auditoria_sellos, auditoria-cadena.ts).
+ *
+ * Se guarda 1 año o el plazo de los eventos (conservacion.ts).
+ */
 export const auditoria = pgTable(
 	'auditoria',
 	{
@@ -1082,11 +1116,43 @@ export const auditoria = pgTable(
 		cuando: timestamp('cuando', { withTimezone: true }).notNull().defaultNow(),
 		quien: text('quien').notNull(),
 		accion: text('accion').notNull(),
-		detalle: jsonb('detalle').$type<Record<string, unknown>>().notNull().default({})
+		detalle: jsonb('detalle').$type<Record<string, unknown>>().notNull().default({}),
+		/* Los rellena el trigger auditoria_encadenar: nunca la aplicación. */
+		hashAnterior: text('hash_anterior').notNull().default(''),
+		hash: text('hash').notNull().default('')
 	},
-	/* Se guarda 1 año o el plazo de los eventos: el borrado de cada hora (conservacion.ts) va por fecha. */
 	(t) => [index('auditoria_cuando').on(t.cuando)]
 );
+
+/*
+ * La cabeza de la cadena de la auditoría: una sola fila, que el trigger bloquea
+ * para encadenar las inserciones de una en una (dos a la vez no pueden colgar
+ * del mismo hash). Solo la escribe el trigger.
+ */
+export const auditoriaCabeza = pgTable('auditoria_cabeza', {
+	id: smallint('id').primaryKey(),
+	ultimo: bigint('ultimo', { mode: 'number' }).notNull().default(0),
+	hash: text('hash').notNull()
+});
+
+/*
+ * El sellado de cada hora: el hash de la cabeza de la auditoría firmado con la
+ * clave del nodo (la Ed25519 del canal con el panel o, sin panel, un HMAC con
+ * CLAVE_SECRETOS). Sale al SIEM del cliente (auditoria.sello) y en el latido:
+ * quien borre o rehaga la cadena entera en la base no puede rehacer lo que ya
+ * salió. Solo se sella si la cabeza ha cambiado.
+ */
+export const auditoriaSellos = pgTable('auditoria_sellos', {
+	id: bigserial('id', { mode: 'number' }).primaryKey(),
+	cuando: timestamp('cuando', { withTimezone: true }).notNull().defaultNow(),
+	/* El id y el hash de la fila de auditoría sellada. */
+	hasta: bigint('hasta', { mode: 'number' }).notNull(),
+	hash: text('hash').notNull(),
+	/* ed25519 (con huella de la clave pública del nodo) o hmac-sha256. */
+	algoritmo: text('algoritmo', { enum: ['ed25519', 'hmac-sha256'] }).notNull(),
+	clave: text('clave'),
+	firma: text('firma').notNull()
+});
 
 /*
  * Sesiones abiertas. La cookie solo lleva el id; todo lo demás está aquí, así
@@ -1220,6 +1286,14 @@ export const incidentesAbiertos = pgTable(
 		atendido: timestamp('atendido', { withTimezone: true }),
 		atendidoPor: text('atendido_por'),
 		atendidoComo: text('atendido_como'),
+		/*
+		 * Alguien del panel de SeguridadSI dijo que lo atiende (atenciones del estado deseado).
+		 * Solo para el escalado hacia SeguridadSI: el aviso y las salidas del cliente siguen
+		 * (docs/diseno/frenos-del-nodo.md). Antes ponía `atendido`, y un panel tomado podía
+		 * silenciar los incidentes de todos sus clientes.
+		 */
+		atencionPanel: timestamp('atencion_panel', { withTimezone: true }),
+		atencionPanelPor: text('atencion_panel_por'),
 		/* Hasta qué cambio lo tiene el panel, si el cliente comparte sus incidentes (vigilancia.ts). */
 		subido: timestamp('subido', { withTimezone: true }),
 		/* La última vez que se escaló por falta de respuesta, y cuántas van. */
@@ -1362,3 +1436,92 @@ export const plantillas = pgTable('plantillas', {
 	creado: creado(),
 	cambiado: timestamp('cambiado', { withTimezone: true }).notNull().defaultNow()
 });
+
+/*
+ * Tokens de la API pública de solo lectura y del MCP de control
+ * (lib/server/api/tokens.ts). Pieza de Cloud: en Community no hay rutas que la
+ * usen, aunque la tabla viaje con el esquema compartido.
+ *
+ * Del token solo se guarda su sha256: tiene 256 bits de azar, así que no hace
+ * falta un hash lento, y quien lea la base no puede usarlo. «prefijo» son sus
+ * primeros caracteres, para reconocerlo en la lista sin poder reconstruirlo.
+ *
+ * Vale lo que valga quien lo creó: «creadorOid» es su identidad (`local:<id>` o
+ * la de Entra), y en cada petición se mira que esa persona siga existiendo y
+ * siga siendo administradora. Revocar no borra la fila: la auditoría la nombra.
+ */
+export const tokensApi = pgTable(
+	'tokens_api',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		nombre: text('nombre').notNull(),
+		hash: text('hash').notNull(),
+		prefijo: text('prefijo').notNull(),
+		/* Hoy solo «read». Una lista para que un alcance nuevo no pida otra migración. */
+		alcance: jsonb('alcance').$type<string[]>().notNull().default(['read']),
+		creadorOid: text('creador_oid').notNull(),
+		creadorNombre: text('creador_nombre').notNull(),
+		creadorCorreo: text('creador_correo').notNull(),
+		creado: creado(),
+		/* Nula: no caduca (sigue valiendo solo mientras valga su creador). */
+		caduca: timestamp('caduca', { withTimezone: true }),
+		ultimoUso: timestamp('ultimo_uso', { withTimezone: true }),
+		revocado: timestamp('revocado', { withTimezone: true }),
+		revocadoPor: text('revocado_por')
+	},
+	(t) => [uniqueIndex('tokens_api_hash').on(t.hash)]
+);
+
+/*
+ * Peticiones de despliegue del MCP guiado (lib/server/api/peticiones.ts). Un
+ * agente con un token de alcance «propose» deja aquí un borrador ya validado;
+ * no se despliega nada hasta que un administrador lo aprueba en Ajustes → API,
+ * y al aprobar se vuelve a validar todo y se pone por el alta normal.
+ *
+ * «borrador» lleva solo lo que entiende el alta: módulo, destino, id, nombre,
+ * vía, dirección y parámetros, validados contra el esquema del módulo; nada
+ * que la consola ejecute tal cual. «motivo» y «objetivo» los escribió el agente:
+ * texto no confiable, recortado y sin caracteres invisibles al guardarlo, y
+ * escapado y marcado al enseñarlo. Pieza de Cloud, como tokens_api.
+ */
+export type PiezaPeticion = {
+	modulo: string;
+	destino: string;
+	id: string;
+	nombre: string;
+	via?: string;
+	escucha: string;
+	valores: Record<string, string>;
+};
+export type ResultadoPieza = {
+	id: string;
+	resultado: 'creada' | 'con-pasos' | 'fallida';
+	errores?: string[];
+};
+
+export const peticionesApi = pgTable(
+	'peticiones_api',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		/* El token con que se pidió y quién lo creó, copiados: el token puede revocarse después. */
+		tokenId: uuid('token_id').notNull(),
+		tokenNombre: text('token_nombre').notNull(),
+		creadorOid: text('creador_oid').notNull(),
+		creadorNombre: text('creador_nombre').notNull(),
+		creadorCorreo: text('creador_correo').notNull(),
+		creado: creado(),
+		caduca: timestamp('caduca', { withTimezone: true }).notNull(),
+		motivo: text('motivo').notNull(),
+		objetivo: text('objetivo'),
+		borrador: jsonb('borrador').$type<PiezaPeticion[]>().notNull(),
+		/* Caducada no es un estado: es una pendiente con «caduca» ya pasada. */
+		/* «parcial»: aprobada, pero alguna trampa no se pudo poner (resultado dice cuál). */
+		estado: text('estado', { enum: ['pendiente', 'aplicada', 'parcial', 'rechazada'] })
+			.notNull()
+			.default('pendiente'),
+		decidida: timestamp('decidida', { withTimezone: true }),
+		decididaPor: text('decidida_por'),
+		resultado: jsonb('resultado').$type<ResultadoPieza[]>()
+	},
+	(t) => [index('peticiones_api_token').on(t.tokenId, t.estado)]
+);

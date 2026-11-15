@@ -84,10 +84,11 @@ func main() {
 	atacante := flag.String("atacante", "sd-prueba/atacante:local", "imagen de herramientas/atacante")
 	socket := flag.String("docker", "/var/run/docker.sock", "socket de Docker")
 	datos := flag.String("datos", "", "carpeta de datos (por defecto, una temporal)")
+	motorSeguro := flag.String("motor", "", "socket de sd-motor: la trampa se crea a través de él, como en un nodo (docs/diseno/aislamiento-trampas.md); el atacante y la red de banco, con -docker")
 	licenciaRuta := flag.String("licencia", "", "fichero con la licencia de pago firmada, que se monta en la trampa")
 	flag.BoolVar(&conservar, "conservar", false, "no retirar la trampa al acabar (para mirar qué ha pasado)")
 	flag.Parse()
-	if err := probar(*rutaM, *rutaP, *imagen, *atacante, *socket, *datos, *licenciaRuta); err != nil {
+	if err := probar(*rutaM, *rutaP, *imagen, *atacante, *socket, *motorSeguro, *datos, *licenciaRuta); err != nil {
 		fmt.Fprintln(os.Stderr, "FALLA:", err)
 		os.Exit(1)
 	}
@@ -140,7 +141,7 @@ func subredSin(subred netip.Prefix, direcciones []net.Addr) error {
 	return nil
 }
 
-func probar(rutaM, rutaP, imagen, atacante, socket, datos, licenciaRuta string) error {
+func probar(rutaM, rutaP, imagen, atacante, socket, motorSeguro, datos, licenciaRuta string) error {
 	var m plan.Manifiesto
 	var p Prueba
 	if err := leerJSON(rutaM, &m); err != nil {
@@ -168,7 +169,17 @@ func probar(rutaM, rutaP, imagen, atacante, socket, datos, licenciaRuta string) 
 	ctx, cancelar := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancelar()
 	d := docker.Nuevo(socket)
-	o := despliegue.Opciones{Datos: datos, Escucha: "127.0.0.1"}
+	// dt: con quien se despliega la trampa. Con sd-motor, a través de él.
+	dt := d
+	if motorSeguro != "" {
+		dt = docker.Nuevo(motorSeguro)
+		if a, err := dt.Aislamiento(ctx); err == nil {
+			fmt.Println("sd-motor: aislamiento", a["valor"], a["motivo"])
+		} else {
+			return fmt.Errorf("sd-motor no contesta: %w", err)
+		}
+	}
+	o := despliegue.Opciones{Datos: datos, Escucha: "127.0.0.1", ImagenSonda: os.Getenv("SENSOR_IMAGEN")}
 	// Si la trampa trae el bloque red, se despliega como en producción con
 	// el modo «IP propia»: red de banco propia, IP fija, sin puertos
 	// publicados, y el atacante va a esa misma red y ataca la IP
@@ -213,7 +224,7 @@ func probar(rutaM, rutaP, imagen, atacante, socket, datos, licenciaRuta string) 
 			return
 		}
 		retirar := context.WithoutCancel(ctx)
-		_, _ = despliegue.Aplicar(retirar, d, o, plan.Plan{Sensor: sensor})
+		_, _ = despliegue.Aplicar(retirar, dt, o, plan.Plan{Sensor: sensor})
 		if m.Red == nil {
 			return
 		}
@@ -227,7 +238,7 @@ func probar(rutaM, rutaP, imagen, atacante, socket, datos, licenciaRuta string) 
 	// Desplegar, esperando a que la imagen esté (la descarga va aparte).
 	var donde string
 	for i := 0; ; i++ {
-		estados, err := despliegue.Aplicar(ctx, d, o, pl)
+		estados, err := despliegue.Aplicar(ctx, dt, o, pl)
 		if err != nil {
 			return fmt.Errorf("desplegar: %w", err)
 		}

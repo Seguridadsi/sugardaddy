@@ -5,6 +5,7 @@
 	"type": "module",
 	"exports": {
 		"./app.css": "./app.css",
+		"./senaletica.css": "./senaletica.css",
 		"./iconos-menu": "./iconos-menu.ts",
 		"./pictogramas": "./pictogramas.ts",
 		"./sin-gestor": {
@@ -20,8 +21,10 @@
 		"vitest": "^4.1.8"
 	},
 	"dependencies": {
+		"@fontsource/anton": "5.3.0",
 		"@fontsource/archivo": "5.3.0",
 		"@fontsource/ibm-plex-mono": "5.3.0",
-		"@fontsource/instrument-sans": "5.3.0"
+		"@fontsource/instrument-sans": "5.3.0",
+		"@fontsource/inter-tight": "5.3.0"
 	}
 }

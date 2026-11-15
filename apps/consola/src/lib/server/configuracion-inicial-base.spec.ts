@@ -4,6 +4,7 @@
  * al asistente. Los hechos que viven en otros módulos se sustituyen: tienen su banco.
  */
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { borrarAuditoriaDePrueba } from './db/pruebas-auditoria';
 
 vi.mock('$env/dynamic/private', () => ({ env: process.env }));
 vi.mock('$app/environment', () => ({ building: false, dev: true }));
@@ -42,7 +43,7 @@ describe.skipIf(!process.env.DATABASE_URL)('configuración inicial', async () =>
 
 	const limpiar = async () => {
 		await db.delete(s.ajustes).where(eq(s.ajustes.clave, CLAVE));
-		await db.delete(s.auditoria).where(eq(s.auditoria.quien, QUIEN));
+		await borrarAuditoriaDePrueba(db, eq(s.auditoria.quien, QUIEN));
 	};
 	beforeEach(async () => {
 		await limpiar();

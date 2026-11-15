@@ -17,7 +17,9 @@ import { alcanceDeFicha, fijarAlcance, leerAlcance } from '$lib/server/alcance-f
 import {
 	abrirPuertos,
 	cortafuegosDeFicha,
-	guardarCortafuegos
+	guardarCortafuegos,
+	guardarCredencialNube,
+	quitarCredencialNube
 } from '$lib/server/cortafuegos-ficha';
 
 export const load = async ({ params, url }) => {
@@ -71,6 +73,30 @@ export const actions = {
 			accion: 'cortafuegos' as const,
 			mensaje: nsg.trim() ? 'Network security group saved.' : 'Network security group removed.'
 		};
+	},
+
+	/*
+	 * La credencial de Azure con la que se abren los puertos: una aplicación de Entra
+	 * propia, no la del bloqueo (cortafuegos-ficha.ts). Es de la consola, no del sensor:
+	 * vale para las fichas de todos. Con «quitar», se borra y ya no se abre nada.
+	 */
+	credencialNube: async ({ request, locals }) => {
+		const u = exigir(locals, 'ajustes');
+		const f = await request.formData();
+		if (f.get('quitar') === 'si') {
+			await quitarCredencialNube(u.correo);
+			return { accion: 'credencialNube' as const, mensaje: 'Azure credential removed.' };
+		}
+		const tenant = String(f.get('tenant') ?? '');
+		const aplicacion = String(f.get('aplicacion') ?? '');
+		const mal = await guardarCredencialNube(u.correo, {
+			tenant,
+			aplicacion,
+			secreto: String(f.get('secreto') ?? '')
+		});
+		if (mal)
+			return fail(400, { accion: 'credencialNube' as const, error: mal, tenant, aplicacion });
+		return { accion: 'credencialNube' as const, mensaje: 'Azure credential saved.' };
 	},
 
 	/*
@@ -133,7 +159,11 @@ export const actions = {
 		if (!v.nombre) return fallo(400, 'The name is required.');
 		try {
 			const linea = await altaSensorRemoto(u.correo, v, params.id, ip, consolaIp);
-			if (!linea) return fallo(400, 'A sensor with that identifier already exists.');
+			if (!linea)
+				return fallo(
+					400,
+					'A sensor with that identifier already exists and is in use. Choose another identifier, or remove that sensor in Sensors first: a removed sensor can be enrolled again with its identifier.'
+				);
 			return { linea, para: v.id, consola: nombreConsola(), fija: consolaIp || null };
 		} catch (e) {
 			if (e instanceof DestinoNoDisponible) return fallo(409, e.message);

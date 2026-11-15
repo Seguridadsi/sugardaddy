@@ -9,7 +9,12 @@
  *   nodo de otro, y tener al menos un rol de la aplicación.
  * - Con el Entra propio del cliente (su tenant, configurado desde Ajustes,
  *   entra-propio.ts): ahí no hay grupo, porque el tenant ya es solo suyo; la
- *   aplicación exige asignación y basta con traer un rol.
+ *   aplicación exige asignación y basta con traer un rol. El soporte de
+ *   SeguridadSI entra como invitado en ese tenant, con el rol `soporte`
+ *   (identidadPropia; docs/diseno/identidad-clientes.md §2).
+ *
+ * El primero es el modelo de antes (B2B en el tenant de SeguridadSI). Ya no se
+ * ofrece a clientes nuevos; los que lo tienen migran desde Ajustes (b2b.ts).
  */
 import type { JWTPayload } from 'jose';
 import { env } from '$env/dynamic/private';
@@ -47,8 +52,18 @@ export type Identidad = {
 };
 
 export type Rechazo = {
-	rechazo: 'sin_grupo' | 'demasiados_grupos' | 'sin_rol' | 'sin_correo' | 'sin_oid';
+	rechazo:
+		| 'sin_grupo'
+		| 'demasiados_grupos'
+		| 'sin_rol'
+		| 'sin_correo'
+		| 'sin_oid'
+		| 'soporte_cerrado'
+		| 'soporte_otro';
 };
+
+/* El rol de aplicación que el cliente asigna a la persona de soporte invitada en su tenant. */
+export const ROL_SOPORTE = 'soporte';
 
 const rolesDe = (p: JWTPayload) =>
 	(Array.isArray(p.roles) ? p.roles : []).filter((r): r is Rol =>
@@ -97,16 +112,47 @@ export function identidadDesdePayload(
 }
 
 /*
+ * El soporte abierto, visto desde el Entra propio: quién lo pidió (firmado por
+ * el panel), de qué tenant es SeguridadSI (también firmado) y el rol que eligió
+ * el cliente. Nulo si el soporte no está abierto.
+ */
+export type PuertaInvitado = { correo: string; tenant: string | null; rol: Rol } | null;
+
+const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/* El claim `idp` de un invitado dice qué tenant le autenticó; tiene dos formas. */
+export function idpEsTenant(idp: unknown, tenant: string | null) {
+	if (typeof idp !== 'string' || !tenant || !GUID.test(tenant)) return false;
+	const t = tenant.toLowerCase();
+	const i = idp.toLowerCase().replace(/\/+$/, '');
+	return (
+		i === `https://sts.windows.net/${t}` || i === `https://login.microsoftonline.com/${t}/v2.0`
+	);
+}
+
+/*
  * Con el Entra propio del cliente: quien llega ya es de su tenant (lo garantiza
  * el emisor del token) y la aplicación solo deja pasar a quien tiene asignado
  * un rol. Los roles valen lo mismo que en el Entra de SeguridadSI.
+ *
+ * Con el rol `soporte`, solo entra la persona de SeguridadSI que pidió el acceso,
+ * como invitada (acct = 1), autenticada en el tenant de SeguridadSI (idp) y con
+ * el soporte abierto; y entra con el rol que eligió el cliente, no con el del token.
  */
-export function identidadPropia(p: JWTPayload): Identidad | Rechazo {
+export function identidadPropia(p: JWTPayload, puerta: PuertaInvitado = null): Identidad | Rechazo {
 	if (typeof p.oid !== 'string') return { rechazo: 'sin_oid' };
 	const correo = correoDe(p);
+	const nombre = typeof p.name === 'string' ? p.name : (correo ?? '');
+	if (Array.isArray(p.roles) && p.roles.includes(ROL_SOPORTE)) {
+		if (!puerta) return { rechazo: 'soporte_cerrado' };
+		if (!correo) return { rechazo: 'sin_correo' };
+		const invitado = p.acct === 1 || p.acct === '1';
+		if (!invitado || correo !== puerta.correo.toLowerCase() || !idpEsTenant(p.idp, puerta.tenant))
+			return { rechazo: 'soporte_otro' };
+		return { oid: p.oid, correo, nombre, roles: [puerta.rol], soporte: true };
+	}
 	const roles = rolesDe(p);
 	if (roles.length === 0) return { rechazo: 'sin_rol' };
 	if (!correo) return { rechazo: 'sin_correo' };
-	const nombre = typeof p.name === 'string' ? p.name : correo;
 	return { oid: p.oid, correo, nombre, roles, soporte: false };
 }

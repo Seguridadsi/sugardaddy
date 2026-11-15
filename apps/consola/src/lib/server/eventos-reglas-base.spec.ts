@@ -6,6 +6,7 @@
 import { readFileSync } from 'node:fs';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Evento } from '@sugardaddy/contrato';
+import { borrarAuditoriaDePrueba } from './db/pruebas-auditoria';
 
 let hayBase = false;
 try {
@@ -101,7 +102,7 @@ async function limpiar() {
 	await db.delete(s.trampas).where(eq(s.trampas.sensor, SENSOR));
 	await db.delete(s.sensores).where(eq(s.sensores.id, SENSOR));
 	await db.delete(s.reglasTriaje).where(eq(s.reglasTriaje.quien, QUIEN));
-	await db.delete(s.auditoria).where(eq(s.auditoria.quien, QUIEN));
+	await borrarAuditoriaDePrueba(db, eq(s.auditoria.quien, QUIEN));
 }
 
 describe.skipIf(!hayBase)('perfil de IP, reglas y triaje automático', () => {

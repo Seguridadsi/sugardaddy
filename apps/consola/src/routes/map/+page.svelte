@@ -799,12 +799,12 @@
 
 	.vistas button[aria-pressed='true'] {
 		background: var(--accent-soft);
-		color: var(--accent);
+		color: var(--link);
 	}
 
 	.boton[aria-pressed='true'] {
-		border-color: var(--accent);
-		color: var(--accent);
+		border-color: var(--link);
+		color: var(--link);
 	}
 
 	.lienzo {

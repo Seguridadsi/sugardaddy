@@ -185,135 +185,208 @@
 		{#if nube}
 			<section class="panel bloque">
 				<h2>Open them in Azure</h2>
-				{#if !nube.conector}
+				<p class="ayuda">
+					If this machine is behind an Azure network security group, the console can open these
+					ports in it for you. It writes one rule per honeypot and protocol, named
+					<span class="mono">trampa-…</span>, from priority 200 (always behind the block rule of the
+					response "IP block in Azure"): inbound from the Internet to the honeypot's own address and
+					ports. It removes the <span class="mono">trampa-…</span> rules of honeypots that are gone and
+					never touches any other rule.
+				</p>
+				<p class="ayuda">
+					It uses an Entra application of its own, never the one of "IP block in Azure": the key
+					that blocks attackers cannot open ports.
+				</p>
+
+				<h3>Azure credential</h3>
+				{#if nube.credencial}
 					<p class="ayuda">
-						If this machine is behind an Azure network security group, the console can open these
-						ports in it for you. It uses the Entra application of the response "IP block in Azure",
-						which is not set up on this console yet.
-					</p>
-					<p class="ayuda">
-						{#if admin}<a href={nube.enlaceConector}>Set up the Azure connector</a>.{:else}An
-							administrator sets it up under Response.{/if} Until then, open the ports above by hand.
+						Application <span class="mono">{nube.credencial.aplicacion}</span> in tenant
+						<span class="mono">{nube.credencial.tenant}</span>{#if nube.credencial.final}, secret
+							ending in <span class="mono">…{nube.credencial.final}</span>{/if}. Saved by {nube
+							.credencial.quien} on {nube.credencial.cuando.slice(0, 10)}. It is the same for every
+						sensor of this console.
 					</p>
 				{:else}
 					<p class="ayuda">
-						The console writes one rule per honeypot and protocol, named
-						<span class="mono">trampa-…</span>, from priority 200: inbound from the Internet to the
-						honeypot's own address and ports. It removes the
-						<span class="mono">trampa-…</span> rules of honeypots that are gone and never touches
-						any other rule. The application of the
-						<a href={nube.enlaceConector}>Azure connector</a> needs the Network Contributor role on this
-						group.
+						Not set up yet: until it is, nothing is opened in Azure. Open the ports above by hand.
 					</p>
-					{#if form?.accion === 'cortafuegos' && 'error' in form && form.error}
-						<p class="errores" role="alert">{form.error}</p>
-					{:else if form?.accion === 'cortafuegos' && 'mensaje' in form}
-						<p class="hecho" role="status">{form.mensaje}</p>
-					{/if}
-					{#if admin}
-						<form method="POST" action="?/cortafuegos&tab=firewall" use:enhance>
-							<label for="nsg">Network security group (resource ID)</label>
-							<input
-								id="nsg"
-								name="nsg"
-								class="mono"
-								placeholder="/subscriptions/…/resourceGroups/…/providers/Microsoft.Network/networkSecurityGroups/…"
-								value={form?.accion === 'cortafuegos' && 'nsg' in form
-									? form.nsg
-									: (nube.nsg ?? '')}
-							/>
-							<p class="ayuda">
-								{#if partesNsg}Resource group <b>{partesNsg.grupo}</b>, security group
-									<b>{partesNsg.nombre}</b>.
-								{/if}
-								In the Azure portal: the security group → Properties → Resource ID. Sensors behind the
-								same group share it: their honeypots are opened together.
-							</p>
-							<button class="boton enviar">Save</button>
-						</form>
-					{:else if partesNsg}
+				{/if}
+				{#if nube.ilegible}
+					<p class="errores" role="alert">{nube.ilegible}</p>
+				{/if}
+				{#if form?.accion === 'credencialNube' && 'error' in form && form.error}
+					<p class="errores" role="alert">{form.error}</p>
+				{:else if form?.accion === 'credencialNube' && 'mensaje' in form}
+					<p class="hecho" role="status">{form.mensaje}</p>
+				{/if}
+				{#if admin}
+					<p class="ayuda">
+						To create it, download the <a href={nube.script} download>preparation script</a> and run
+						it in Azure Cloud Shell (Bash) with
+						<span class="mono"
+							>bash sugardaddy-azure.sh --abrir-puertos &lt;NSG resource ID&gt;</span
+						>. It creates the application "Sugardaddy puertos en Azure" with only the custom role
+						"Sugardaddy NSG rules" (read the group and edit its rules) on that group, and prints
+						what goes here.
+					</p>
+					<form method="POST" action="?/credencialNube&tab=firewall" use:enhance>
+						<label for="nube-tenant">Tenant ID</label>
+						<input
+							id="nube-tenant"
+							name="tenant"
+							class="mono"
+							autocomplete="off"
+							value={form?.accion === 'credencialNube' && 'tenant' in form
+								? form.tenant
+								: (nube.credencial?.tenant ?? '')}
+						/>
+						<label for="nube-aplicacion">Application ID</label>
+						<input
+							id="nube-aplicacion"
+							name="aplicacion"
+							class="mono"
+							autocomplete="off"
+							value={form?.accion === 'credencialNube' && 'aplicacion' in form
+								? form.aplicacion
+								: (nube.credencial?.aplicacion ?? '')}
+						/>
+						<label for="nube-secreto">Application secret</label>
+						<input
+							id="nube-secreto"
+							name="secreto"
+							type="password"
+							autocomplete="new-password"
+							placeholder={nube.credencial ? 'Leave blank to keep the saved one' : ''}
+						/>
 						<p class="ayuda">
-							Resource group <b>{partesNsg.grupo}</b>, security group <b>{partesNsg.nombre}</b>.
+							If you change the tenant or the application, enter the secret again. The secret is
+							encrypted with this node's key and never shown again.
 						</p>
+						<button class="boton enviar">Save</button>
+						{#if nube.credencial}
+							<button class="boton" name="quitar" value="si">Remove</button>
+						{/if}
+					</form>
+				{/if}
+
+				<h3>Network security group</h3>
+				{#if d.sensor && !d.sensor.remoto}
+					<!-- La máquina de la propia consola: su puerto sigue a la lista de acceso. -->
+					<p class="ayuda">
+						This is the console's own machine. While access to the console is limited (<a
+							href="/settings/access">Settings → Access</a
+						>), the console also keeps a
+						<span class="mono">trampa-consola-https-tcp</span> rule that opens port 443 only to the addresses
+						in that list, and updates it by itself whenever the list changes, for example when you enroll
+						a remote sensor.
+					</p>
+				{/if}
+				{#if form?.accion === 'cortafuegos' && 'error' in form && form.error}
+					<p class="errores" role="alert">{form.error}</p>
+				{:else if form?.accion === 'cortafuegos' && 'mensaje' in form}
+					<p class="hecho" role="status">{form.mensaje}</p>
+				{/if}
+				{#if admin}
+					<form method="POST" action="?/cortafuegos&tab=firewall" use:enhance>
+						<label for="nsg">Network security group (resource ID)</label>
+						<input
+							id="nsg"
+							name="nsg"
+							class="mono"
+							placeholder="/subscriptions/…/resourceGroups/…/providers/Microsoft.Network/networkSecurityGroups/…"
+							value={form?.accion === 'cortafuegos' && 'nsg' in form ? form.nsg : (nube.nsg ?? '')}
+						/>
+						<p class="ayuda">
+							{#if partesNsg}Resource group <b>{partesNsg.grupo}</b>, security group
+								<b>{partesNsg.nombre}</b>.
+							{/if}
+							In the Azure portal: the security group → Properties → Resource ID. Sensors behind the same
+							group share it: their honeypots are opened together.
+						</p>
+						<button class="boton enviar">Save</button>
+					</form>
+				{:else if partesNsg}
+					<p class="ayuda">
+						Resource group <b>{partesNsg.grupo}</b>, security group <b>{partesNsg.nombre}</b>.
+					</p>
+				{:else}
+					<p class="ayuda">
+						An administrator has not entered the security group of this sensor yet.
+					</p>
+				{/if}
+
+				{#if admin && nube.nsg && nube.credencial}
+					<form
+						class="abrir-nube"
+						method="POST"
+						action="?/abrir&tab=firewall"
+						use:enhance={({ submitter }) => {
+							abriendo = submitter?.getAttribute('value') === 'si' ? 'simular' : 'abrir';
+							return async ({ update }) => {
+								await update({ reset: false });
+								abriendo = null;
+							};
+						}}
+					>
+						<button class="boton" name="simular" value="si" disabled={!!abriendo}
+							>{abriendo === 'simular' ? 'Reading the group…' : 'Preview'}</button
+						>
+						<button class="boton principal" disabled={!!abriendo}
+							>{abriendo === 'abrir'
+								? 'Opening… this can take a minute'
+								: 'Open these ports in Azure'}</button
+						>
+					</form>
+				{/if}
+				{#if form?.accion === 'abrir' && 'error' in form && form.error}
+					<p class="errores" role="alert">{form.error}</p>
+				{/if}
+				{#if resultado}
+					{@const fallos = resultado.pasos.filter((p) => !p.ok).length}
+					<p class={fallos ? 'errores' : 'hecho'} role="status">
+						{#if resultado.simulado}
+							Preview only: nothing has been changed in Azure.
+						{:else if fallos}
+							{fallos} of {resultado.pasos.length} rules could not be written. The rest are in place.
+						{:else}
+							Done: the group now has exactly the rules below for these honeypots.
+						{/if}
+					</p>
+					{#if resultado.pasos.length}
+						<table class="abrir">
+							<thead>
+								<tr
+									><th>Rule</th><th>Honeypot</th><th>Address</th><th>Ports</th><th>Priority</th><th
+										>Result</th
+									></tr
+								>
+							</thead>
+							<tbody>
+								{#each resultado.pasos as p (p.regla)}
+									<tr class:mal={!p.ok}>
+										<td class="mono">{p.regla}</td>
+										<td>{p.trampa ?? '—'}</td>
+										<td class="mono">{p.destino === '*' ? 'All addresses' : (p.destino ?? '—')}</td>
+										<td class="mono"
+											>{p.puertos.length
+												? `${p.puertos.join(', ')}/${p.protocolo?.toLowerCase()}`
+												: '—'}</td
+										>
+										<td class="mono">{p.prioridad ?? '—'}</td>
+										<td
+											>{#if !p.ok}Failed: {p.error}{:else if resultado.simulado}{QUE_HARIA[
+													p.accion
+												]}{:else}{QUE_HIZO[p.accion]}{/if}</td
+										>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
 					{:else}
 						<p class="ayuda">
-							An administrator has not entered the security group of this sensor yet.
+							There is nothing to open and no rule of these honeypots in the group.
 						</p>
-					{/if}
-
-					{#if admin && nube.nsg}
-						<form
-							class="abrir-nube"
-							method="POST"
-							action="?/abrir&tab=firewall"
-							use:enhance={({ submitter }) => {
-								abriendo = submitter?.getAttribute('value') === 'si' ? 'simular' : 'abrir';
-								return async ({ update }) => {
-									await update({ reset: false });
-									abriendo = null;
-								};
-							}}
-						>
-							<button class="boton" name="simular" value="si" disabled={!!abriendo}
-								>{abriendo === 'simular' ? 'Reading the group…' : 'Preview'}</button
-							>
-							<button class="boton principal" disabled={!!abriendo}
-								>{abriendo === 'abrir'
-									? 'Opening… this can take a minute'
-									: 'Open these ports in Azure'}</button
-							>
-						</form>
-					{/if}
-					{#if form?.accion === 'abrir' && 'error' in form && form.error}
-						<p class="errores" role="alert">{form.error}</p>
-					{/if}
-					{#if resultado}
-						{@const fallos = resultado.pasos.filter((p) => !p.ok).length}
-						<p class={fallos ? 'errores' : 'hecho'} role="status">
-							{#if resultado.simulado}
-								Preview only: nothing has been changed in Azure.
-							{:else if fallos}
-								{fallos} of {resultado.pasos.length} rules could not be written. The rest are in place.
-							{:else}
-								Done: the group now has exactly the rules below for these honeypots.
-							{/if}
-						</p>
-						{#if resultado.pasos.length}
-							<table class="abrir">
-								<thead>
-									<tr
-										><th>Rule</th><th>Honeypot</th><th>Address</th><th>Ports</th><th>Priority</th
-										><th>Result</th></tr
-									>
-								</thead>
-								<tbody>
-									{#each resultado.pasos as p (p.regla)}
-										<tr class:mal={!p.ok}>
-											<td class="mono">{p.regla}</td>
-											<td>{p.trampa ?? '—'}</td>
-											<td class="mono"
-												>{p.destino === '*' ? 'All addresses' : (p.destino ?? '—')}</td
-											>
-											<td class="mono"
-												>{p.puertos.length
-													? `${p.puertos.join(', ')}/${p.protocolo?.toLowerCase()}`
-													: '—'}</td
-											>
-											<td class="mono">{p.prioridad ?? '—'}</td>
-											<td
-												>{#if !p.ok}Failed: {p.error}{:else if resultado.simulado}{QUE_HARIA[
-														p.accion
-													]}{:else}{QUE_HIZO[p.accion]}{/if}</td
-											>
-										</tr>
-									{/each}
-								</tbody>
-							</table>
-						{:else}
-							<p class="ayuda">
-								There is nothing to open and no rule of these honeypots in the group.
-							</p>
-						{/if}
 					{/if}
 				{/if}
 			</section>
@@ -688,7 +761,7 @@
 	.token {
 		padding: 16px 18px 18px;
 		margin: 0 0 16px;
-		border-color: var(--accent);
+		border-color: var(--link);
 	}
 
 	.token h2 {
@@ -879,7 +952,7 @@
 	}
 
 	.modulo a:hover {
-		color: var(--accent);
+		color: var(--link);
 	}
 
 	.si,
@@ -891,7 +964,7 @@
 	.modulo a.poner {
 		font-size: 12px;
 		font-weight: 600;
-		color: var(--accent);
+		color: var(--link);
 	}
 
 	.si {
@@ -920,7 +993,7 @@
 
 	summary {
 		cursor: pointer;
-		color: var(--accent);
+		color: var(--link);
 		width: max-content;
 	}
 

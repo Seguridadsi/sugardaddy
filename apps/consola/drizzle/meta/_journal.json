@@ -1,398 +1,440 @@
 {
-  "version": "7",
-  "dialect": "postgresql",
-  "entries": [
-    {
-      "idx": 0,
-      "version": "7",
-      "when": 1791890716303,
-      "tag": "0000_inicial",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "7",
-      "when": 1791891274382,
-      "tag": "0001_sesiones",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "7",
-      "when": 1791891889715,
-      "tag": "0002_motor_respuesta",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "7",
-      "when": 1791908431084,
-      "tag": "0003_sesiones_soporte",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "7",
-      "when": 1791908635020,
-      "tag": "0004_llaves_emergencia",
-      "breakpoints": true
-    },
-    {
-      "idx": 5,
-      "version": "7",
-      "when": 1791995035020,
-      "tag": "0005_trampas",
-      "breakpoints": true
-    },
-    {
-      "idx": 6,
-      "version": "7",
-      "when": 1791995095020,
-      "tag": "0006_sensores_remotos",
-      "breakpoints": true
-    },
-    {
-      "idx": 7,
-      "version": "7",
-      "when": 1792050735156,
-      "tag": "0007_credenciales",
-      "breakpoints": true
-    },
-    {
-      "idx": 8,
-      "version": "7",
-      "when": 1792057558445,
-      "tag": "0008_cuarentena",
-      "breakpoints": true
-    },
-    {
-      "idx": 9,
-      "version": "7",
-      "when": 1792142577145,
-      "tag": "0009_configuracion",
-      "breakpoints": true
-    },
-    {
-      "idx": 10,
-      "version": "7",
-      "when": 1792179457967,
-      "tag": "0010_registro",
-      "breakpoints": true
-    },
-    {
-      "idx": 11,
-      "version": "7",
-      "when": 1792237235198,
-      "tag": "0011_capacidades",
-      "breakpoints": true
-    },
-    {
-      "idx": 12,
-      "version": "7",
-      "when": 1792264754980,
-      "tag": "0012_destinos",
-      "breakpoints": true
-    },
-    {
-      "idx": 13,
-      "version": "7",
-      "when": 1792277269951,
-      "tag": "0013_pruebas",
-      "breakpoints": true
-    },
-    {
-      "idx": 14,
-      "version": "7",
-      "when": 1792402372898,
-      "tag": "0014_salidas",
-      "breakpoints": true
-    },
-    {
-      "idx": 15,
-      "version": "7",
-      "when": 1792431570939,
-      "tag": "0015_balizas",
-      "breakpoints": true
-    },
-    {
-      "idx": 16,
-      "version": "7",
-      "when": 1792520274122,
-      "tag": "0016_clase_de_balizas",
-      "breakpoints": true
-    },
-    {
-      "idx": 17,
-      "version": "7",
-      "when": 1792675458141,
-      "tag": "0017_conservacion",
-      "breakpoints": true
-    },
-    {
-      "idx": 18,
-      "version": "7",
-      "when": 1793028354232,
-      "tag": "0018_usuarios_locales",
-      "breakpoints": true
-    },
-    {
-      "idx": 19,
-      "version": "7",
-      "when": 1793102177955,
-      "tag": "0019_sensores_red_vlan",
-      "breakpoints": true
-    },
-    {
-      "idx": 20,
-      "version": "7",
-      "when": 1793367400413,
-      "tag": "0020_eventos_usuario",
-      "breakpoints": true
-    },
-    {
-      "idx": 21,
-      "version": "7",
-      "when": 1793367638050,
-      "tag": "0021_enriquecimiento_ip",
-      "breakpoints": true
-    },
-    {
-      "idx": 22,
-      "version": "7",
-      "when": 1793368230548,
-      "tag": "0022_artefactos",
-      "breakpoints": true
-    },
-    {
-      "idx": 23,
-      "version": "7",
-      "when": 1793373705443,
-      "tag": "0023_entorno",
-      "breakpoints": true
-    },
-    {
-      "idx": 24,
-      "version": "7",
-      "when": 1793374596533,
-      "tag": "0024_respuestas_activa",
-      "breakpoints": true
-    },
-    {
-      "idx": 25,
-      "version": "7",
-      "when": 1793432388001,
-      "tag": "0025_abandoned_marvel_zombies",
-      "breakpoints": true
-    },
-    {
-      "idx": 26,
-      "version": "7",
-      "when": 1793444714598,
-      "tag": "0026_reglas_triaje",
-      "breakpoints": true
-    },
-    {
-      "idx": 27,
-      "version": "7",
-      "when": 1793446694380,
-      "tag": "0027_eventos_ip_cuando",
-      "breakpoints": true
-    },
-    {
-      "idx": 28,
-      "version": "7",
-      "when": 1793448562437,
-      "tag": "0028_eventos_usuario_cuando",
-      "breakpoints": true
-    },
-    {
-      "idx": 29,
-      "version": "7",
-      "when": 1793622985956,
-      "tag": "0029_recuperaciones_clave",
-      "breakpoints": true
-    },
-    {
-      "idx": 30,
-      "version": "7",
-      "when": 1793635155225,
-      "tag": "0030_pruebas_ips",
-      "breakpoints": true
-    },
-    {
-      "idx": 31,
-      "version": "7",
-      "when": 1793650206422,
-      "tag": "0031_incidentes_motor",
-      "breakpoints": true
-    },
-    {
-      "idx": 32,
-      "version": "7",
-      "when": 1793651897422,
-      "tag": "0032_origenes_conocidos",
-      "breakpoints": true
-    },
-    {
-      "idx": 33,
-      "version": "7",
-      "when": 1793653728518,
-      "tag": "0033_ventanas_pentest",
-      "breakpoints": true
-    },
-    {
-      "idx": 34,
-      "version": "7",
-      "when": 1793655118762,
-      "tag": "0034_botones_aviso",
-      "breakpoints": true
-    },
-    {
-      "idx": 35,
-      "version": "7",
-      "when": 1793781104269,
-      "tag": "0035_toques",
-      "breakpoints": true
-    },
-    {
-      "idx": 36,
-      "version": "7",
-      "when": 1793810336691,
-      "tag": "0036_respuestas_plazos",
-      "breakpoints": true
-    },
-    {
-      "idx": 37,
-      "version": "7",
-      "when": 1793828731302,
-      "tag": "0037_incidentes_subido",
-      "breakpoints": true
-    },
-    {
-      "idx": 38,
-      "version": "7",
-      "when": 1793879852236,
-      "tag": "0038_balizas_ultimo_vivo",
-      "breakpoints": true
-    },
-    {
-      "idx": 39,
-      "version": "7",
-      "when": 1793954250973,
-      "tag": "0039_sensores_red_nombre",
-      "breakpoints": true
-    },
-    {
-      "idx": 40,
-      "version": "7",
-      "when": 1793981233354,
-      "tag": "0040_preferencias_usuario",
-      "breakpoints": true
-    },
-    {
-      "idx": 41,
-      "version": "7",
-      "when": 1794037202359,
-      "tag": "0041_sensores_registrar_propio",
-      "breakpoints": true
-    },
-    {
-      "idx": 42,
-      "version": "7",
-      "when": 1794040392934,
-      "tag": "0042_balizas_url_rele",
-      "breakpoints": true
-    },
-    {
-      "idx": 43,
-      "version": "7",
-      "when": 1794040882971,
-      "tag": "0043_incidentes_sin_conexion",
-      "breakpoints": true
-    },
-    {
-      "idx": 44,
-      "version": "7",
-      "when": 1794044242404,
-      "tag": "0044_incidentes_al_panel",
-      "breakpoints": true
-    },
-    {
-      "idx": 45,
-      "version": "7",
-      "when": 1794050202142,
-      "tag": "0045_eventos_escaner",
-      "breakpoints": true
-    },
-    {
-      "idx": 46,
-      "version": "7",
-      "when": 1794168882072,
-      "tag": "0046_sensores_existentes_registran",
-      "breakpoints": true
-    },
-    {
-      "idx": 47,
-      "version": "7",
-      "when": 1794229190599,
-      "tag": "0047_sensores_direccion",
-      "breakpoints": true
-    },
-    {
-      "idx": 48,
-      "version": "7",
-      "when": 1794244550303,
-      "tag": "0048_balizas_firma_vigia",
-      "breakpoints": true
-    },
-    {
-      "idx": 49,
-      "version": "7",
-      "when": 1794250878343,
-      "tag": "0049_sensores_ca_confiada",
-      "breakpoints": true
-    },
-    {
-      "idx": 50,
-      "version": "7",
-      "when": 1794389681548,
-      "tag": "0050_plantillas",
-      "breakpoints": true
-    },
-    {
-      "idx": 51,
-      "version": "7",
-      "when": 1794394138474,
-      "tag": "0051_trampas_escucha",
-      "breakpoints": true
-    },
-    {
-      "idx": 52,
-      "version": "7",
-      "when": 1794424304368,
-      "tag": "0052_salidas_alcance",
-      "breakpoints": true
-    },
-    {
-      "idx": 53,
-      "version": "7",
-      "when": 1794431653617,
-      "tag": "0053_sensor_token_siguiente",
-      "breakpoints": true
-    },
-    {
-      "idx": 54,
-      "version": "7",
-      "when": 1794481327896,
-      "tag": "0054_sensores_retirado",
-      "breakpoints": true
-    },
-    {
-      "idx": 55,
-      "version": "7",
-      "when": 1794481503119,
-      "tag": "0055_sensor_cortafuegos_nube",
-      "breakpoints": true
-    }
-  ]
+	"version": "7",
+	"dialect": "postgresql",
+	"entries": [
+		{
+			"idx": 0,
+			"version": "7",
+			"when": 1791890716303,
+			"tag": "0000_inicial",
+			"breakpoints": true
+		},
+		{
+			"idx": 1,
+			"version": "7",
+			"when": 1791891274382,
+			"tag": "0001_sesiones",
+			"breakpoints": true
+		},
+		{
+			"idx": 2,
+			"version": "7",
+			"when": 1791891889715,
+			"tag": "0002_motor_respuesta",
+			"breakpoints": true
+		},
+		{
+			"idx": 3,
+			"version": "7",
+			"when": 1791908431084,
+			"tag": "0003_sesiones_soporte",
+			"breakpoints": true
+		},
+		{
+			"idx": 4,
+			"version": "7",
+			"when": 1791908635020,
+			"tag": "0004_llaves_emergencia",
+			"breakpoints": true
+		},
+		{
+			"idx": 5,
+			"version": "7",
+			"when": 1791995035020,
+			"tag": "0005_trampas",
+			"breakpoints": true
+		},
+		{
+			"idx": 6,
+			"version": "7",
+			"when": 1791995095020,
+			"tag": "0006_sensores_remotos",
+			"breakpoints": true
+		},
+		{
+			"idx": 7,
+			"version": "7",
+			"when": 1792050735156,
+			"tag": "0007_credenciales",
+			"breakpoints": true
+		},
+		{
+			"idx": 8,
+			"version": "7",
+			"when": 1792057558445,
+			"tag": "0008_cuarentena",
+			"breakpoints": true
+		},
+		{
+			"idx": 9,
+			"version": "7",
+			"when": 1792142577145,
+			"tag": "0009_configuracion",
+			"breakpoints": true
+		},
+		{
+			"idx": 10,
+			"version": "7",
+			"when": 1792179457967,
+			"tag": "0010_registro",
+			"breakpoints": true
+		},
+		{
+			"idx": 11,
+			"version": "7",
+			"when": 1792237235198,
+			"tag": "0011_capacidades",
+			"breakpoints": true
+		},
+		{
+			"idx": 12,
+			"version": "7",
+			"when": 1792264754980,
+			"tag": "0012_destinos",
+			"breakpoints": true
+		},
+		{
+			"idx": 13,
+			"version": "7",
+			"when": 1792277269951,
+			"tag": "0013_pruebas",
+			"breakpoints": true
+		},
+		{
+			"idx": 14,
+			"version": "7",
+			"when": 1792402372898,
+			"tag": "0014_salidas",
+			"breakpoints": true
+		},
+		{
+			"idx": 15,
+			"version": "7",
+			"when": 1792431570939,
+			"tag": "0015_balizas",
+			"breakpoints": true
+		},
+		{
+			"idx": 16,
+			"version": "7",
+			"when": 1792520274122,
+			"tag": "0016_clase_de_balizas",
+			"breakpoints": true
+		},
+		{
+			"idx": 17,
+			"version": "7",
+			"when": 1792675458141,
+			"tag": "0017_conservacion",
+			"breakpoints": true
+		},
+		{
+			"idx": 18,
+			"version": "7",
+			"when": 1793028354232,
+			"tag": "0018_usuarios_locales",
+			"breakpoints": true
+		},
+		{
+			"idx": 19,
+			"version": "7",
+			"when": 1793102177955,
+			"tag": "0019_sensores_red_vlan",
+			"breakpoints": true
+		},
+		{
+			"idx": 20,
+			"version": "7",
+			"when": 1793367400413,
+			"tag": "0020_eventos_usuario",
+			"breakpoints": true
+		},
+		{
+			"idx": 21,
+			"version": "7",
+			"when": 1793367638050,
+			"tag": "0021_enriquecimiento_ip",
+			"breakpoints": true
+		},
+		{
+			"idx": 22,
+			"version": "7",
+			"when": 1793368230548,
+			"tag": "0022_artefactos",
+			"breakpoints": true
+		},
+		{
+			"idx": 23,
+			"version": "7",
+			"when": 1793373705443,
+			"tag": "0023_entorno",
+			"breakpoints": true
+		},
+		{
+			"idx": 24,
+			"version": "7",
+			"when": 1793374596533,
+			"tag": "0024_respuestas_activa",
+			"breakpoints": true
+		},
+		{
+			"idx": 25,
+			"version": "7",
+			"when": 1793432388001,
+			"tag": "0025_abandoned_marvel_zombies",
+			"breakpoints": true
+		},
+		{
+			"idx": 26,
+			"version": "7",
+			"when": 1793444714598,
+			"tag": "0026_reglas_triaje",
+			"breakpoints": true
+		},
+		{
+			"idx": 27,
+			"version": "7",
+			"when": 1793446694380,
+			"tag": "0027_eventos_ip_cuando",
+			"breakpoints": true
+		},
+		{
+			"idx": 28,
+			"version": "7",
+			"when": 1793448562437,
+			"tag": "0028_eventos_usuario_cuando",
+			"breakpoints": true
+		},
+		{
+			"idx": 29,
+			"version": "7",
+			"when": 1793622985956,
+			"tag": "0029_recuperaciones_clave",
+			"breakpoints": true
+		},
+		{
+			"idx": 30,
+			"version": "7",
+			"when": 1793635155225,
+			"tag": "0030_pruebas_ips",
+			"breakpoints": true
+		},
+		{
+			"idx": 31,
+			"version": "7",
+			"when": 1793650206422,
+			"tag": "0031_incidentes_motor",
+			"breakpoints": true
+		},
+		{
+			"idx": 32,
+			"version": "7",
+			"when": 1793651897422,
+			"tag": "0032_origenes_conocidos",
+			"breakpoints": true
+		},
+		{
+			"idx": 33,
+			"version": "7",
+			"when": 1793653728518,
+			"tag": "0033_ventanas_pentest",
+			"breakpoints": true
+		},
+		{
+			"idx": 34,
+			"version": "7",
+			"when": 1793655118762,
+			"tag": "0034_botones_aviso",
+			"breakpoints": true
+		},
+		{
+			"idx": 35,
+			"version": "7",
+			"when": 1793781104269,
+			"tag": "0035_toques",
+			"breakpoints": true
+		},
+		{
+			"idx": 36,
+			"version": "7",
+			"when": 1793810336691,
+			"tag": "0036_respuestas_plazos",
+			"breakpoints": true
+		},
+		{
+			"idx": 37,
+			"version": "7",
+			"when": 1793828731302,
+			"tag": "0037_incidentes_subido",
+			"breakpoints": true
+		},
+		{
+			"idx": 38,
+			"version": "7",
+			"when": 1793879852236,
+			"tag": "0038_balizas_ultimo_vivo",
+			"breakpoints": true
+		},
+		{
+			"idx": 39,
+			"version": "7",
+			"when": 1793954250973,
+			"tag": "0039_sensores_red_nombre",
+			"breakpoints": true
+		},
+		{
+			"idx": 40,
+			"version": "7",
+			"when": 1793981233354,
+			"tag": "0040_preferencias_usuario",
+			"breakpoints": true
+		},
+		{
+			"idx": 41,
+			"version": "7",
+			"when": 1794037202359,
+			"tag": "0041_sensores_registrar_propio",
+			"breakpoints": true
+		},
+		{
+			"idx": 42,
+			"version": "7",
+			"when": 1794040392934,
+			"tag": "0042_balizas_url_rele",
+			"breakpoints": true
+		},
+		{
+			"idx": 43,
+			"version": "7",
+			"when": 1794040882971,
+			"tag": "0043_incidentes_sin_conexion",
+			"breakpoints": true
+		},
+		{
+			"idx": 44,
+			"version": "7",
+			"when": 1794044242404,
+			"tag": "0044_incidentes_al_panel",
+			"breakpoints": true
+		},
+		{
+			"idx": 45,
+			"version": "7",
+			"when": 1794050202142,
+			"tag": "0045_eventos_escaner",
+			"breakpoints": true
+		},
+		{
+			"idx": 46,
+			"version": "7",
+			"when": 1794168882072,
+			"tag": "0046_sensores_existentes_registran",
+			"breakpoints": true
+		},
+		{
+			"idx": 47,
+			"version": "7",
+			"when": 1794229190599,
+			"tag": "0047_sensores_direccion",
+			"breakpoints": true
+		},
+		{
+			"idx": 48,
+			"version": "7",
+			"when": 1794244550303,
+			"tag": "0048_balizas_firma_vigia",
+			"breakpoints": true
+		},
+		{
+			"idx": 49,
+			"version": "7",
+			"when": 1794250878343,
+			"tag": "0049_sensores_ca_confiada",
+			"breakpoints": true
+		},
+		{
+			"idx": 50,
+			"version": "7",
+			"when": 1794389681548,
+			"tag": "0050_plantillas",
+			"breakpoints": true
+		},
+		{
+			"idx": 51,
+			"version": "7",
+			"when": 1794394138474,
+			"tag": "0051_trampas_escucha",
+			"breakpoints": true
+		},
+		{
+			"idx": 52,
+			"version": "7",
+			"when": 1794424304368,
+			"tag": "0052_salidas_alcance",
+			"breakpoints": true
+		},
+		{
+			"idx": 53,
+			"version": "7",
+			"when": 1794431653617,
+			"tag": "0053_sensor_token_siguiente",
+			"breakpoints": true
+		},
+		{
+			"idx": 54,
+			"version": "7",
+			"when": 1794481327896,
+			"tag": "0054_sensores_retirado",
+			"breakpoints": true
+		},
+		{
+			"idx": 55,
+			"version": "7",
+			"when": 1794481503119,
+			"tag": "0055_sensor_cortafuegos_nube",
+			"breakpoints": true
+		},
+		{
+			"idx": 56,
+			"version": "7",
+			"when": 1794507742573,
+			"tag": "0056_sensores_retirados_antes",
+			"breakpoints": true
+		},
+		{
+			"idx": 57,
+			"version": "7",
+			"when": 1794514755576,
+			"tag": "0057_tokens_api",
+			"breakpoints": true
+		},
+		{
+			"idx": 58,
+			"version": "7",
+			"when": 1794656168541,
+			"tag": "0058_peticiones_api",
+			"breakpoints": true
+		},
+		{
+			"idx": 59,
+			"version": "7",
+			"when": 1794681821501,
+			"tag": "0059_lista_comun_espera",
+			"breakpoints": true
+		},
+		{
+			"idx": 60,
+			"version": "7",
+			"when": 1794681822501,
+			"tag": "0060_incidentes_atencion_panel",
+			"breakpoints": true
+		},
+		{
+			"idx": 61,
+			"version": "7",
+			"when": 1794682009037,
+			"tag": "0061_auditoria_inmutable",
+			"breakpoints": true
+		}
+	]
 }

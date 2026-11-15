@@ -167,3 +167,18 @@ func TestPlanSinCambiosNoSeVuelveABajar(t *testing.T) {
 		t.Fatalf("tras el cambio: enviados=%d", enviados)
 	}
 }
+
+// C01: un 500 al entregar es ErrFalloConsola (puede ser una línea que la
+// consola no sabe guardar); 502, 503 y 504 son la consola que no está.
+func TestEntregarDistingueElFalloDeLaConsola(t *testing.T) {
+	for codigo, fallo := range map[int]bool{500: true, 501: true, 502: false, 503: false, 504: false, 401: false} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "x", codigo)
+		}))
+		_, err := Nuevo(srv.URL, "t").Entregar(context.Background(), [][]byte{[]byte("{}")})
+		srv.Close()
+		if err == nil || errors.Is(err, ErrFalloConsola) != fallo {
+			t.Errorf("%d: err %v, ErrFalloConsola esperado %v", codigo, err, fallo)
+		}
+	}
+}

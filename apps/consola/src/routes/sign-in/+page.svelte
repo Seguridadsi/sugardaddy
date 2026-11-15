@@ -10,23 +10,9 @@
 </svelte:head>
 
 <div class="caja panel">
-	<!-- La consola va en oscuro: «Daddy» en claro. Con el tema claro, el logotipo original. -->
+	<!-- La consola va sobre papel claro: el logotipo original, con «Daddy» en negro. -->
 	<h1>
-		<img
-			class="logo oscuro"
-			src={asset('/logo-fondo-oscuro-512.webp')}
-			alt="Sugardaddy"
-			width="200"
-			height="193"
-		/>
-		<img
-			class="logo claro"
-			loading="lazy"
-			src={asset('/logo-512.webp')}
-			alt="Sugardaddy"
-			width="200"
-			height="193"
-		/>
+		<img class="logo" src={asset('/logo-512.webp')} alt="Sugardaddy" width="200" height="193" />
 	</h1>
 	<p class="sub">Node console</p>
 
@@ -99,15 +85,6 @@
 	.logo {
 		width: min(200px, 60vw);
 		height: auto;
-	}
-
-	.claro,
-	:global(:root[data-theme='light']) .oscuro {
-		display: none;
-	}
-
-	:global(:root[data-theme='light']) .claro {
-		display: inline;
 	}
 
 	.sub {

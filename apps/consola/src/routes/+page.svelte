@@ -351,55 +351,71 @@
 		margin-top: 3px;
 	}
 
+	/*
+	 * Las cifras, en una sola tira con separadores: se leen de un vistazo y
+	 * no compiten con lo que pide atención. El tono va en la cifra, no en la caja.
+	 */
 	.tarjetas {
 		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-		gap: 12px;
-		margin-bottom: 16px;
+		grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+		margin-bottom: 24px;
+		border: 2px solid var(--ink);
+		background: var(--surface);
+		overflow: hidden;
 	}
 
 	.tarjeta {
 		display: flex;
 		flex-direction: column;
-		gap: 4px;
-		padding: 14px 16px;
-		border: 1px solid var(--line);
-		border-radius: var(--r);
-		background: var(--surface);
+		gap: 2px;
+		padding: 14px 18px 16px;
+		border-left: 1.5px solid var(--ink);
+		margin-left: -1.5px;
 		color: var(--ink);
 		text-decoration: none;
 	}
 
 	.tarjeta:hover {
-		background: var(--surface-2);
+		background: var(--accent);
 	}
 
+	/* Lo que va mal se ve desde lejos: la casilla entera en rojo. */
 	.tarjeta.mal {
-		border-color: color-mix(in oklab, var(--crit) 55%, var(--line));
+		background: var(--crit);
+		color: #fff;
 	}
 
-	.tarjeta.ojo {
-		border-color: color-mix(in oklab, var(--warn) 55%, var(--line));
-	}
-
-	.tarjeta.bien {
-		border-color: color-mix(in oklab, var(--ok) 55%, var(--line));
+	.tarjeta.mal .tarjeta-titulo,
+	.tarjeta.mal small,
+	.tarjeta.mal b {
+		color: #fff !important;
 	}
 
 	.tarjeta-titulo {
-		font-size: 13px;
-		font-weight: 600;
-		color: var(--ink-2);
+		font-family: var(--font-mono);
+		font-size: 10.5px;
+		font-weight: 500;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		color: var(--ink-3);
 	}
 
 	.tarjeta b {
-		font-size: 26px;
-		font-weight: 500;
-		line-height: 1.15;
+		font-family: var(--font-display);
+		font-size: 52px;
+		font-weight: 900;
+		letter-spacing: -0.04em;
+		line-height: 1;
+		margin-top: 6px;
+		font-variant-numeric: tabular-nums;
 	}
 
 	.tarjeta.mal b {
 		color: var(--crit);
+	}
+
+	.tarjeta.ojo b {
+		color: var(--warn);
 	}
 
 	.tarjeta small {

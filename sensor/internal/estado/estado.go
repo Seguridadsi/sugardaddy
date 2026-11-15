@@ -39,6 +39,11 @@ type Estado struct {
 	UltimoHash string `json:"ultimoHash"`
 	// Bytes de la cola de salida ya aceptados por la consola.
 	Entregado int64 `json:"entregado"`
+	// Líneas de la cola que la consola no conseguía procesar y se apartaron
+	// para que el resto llegue (ver atasco.go en cmd/sensor), y la hora de la
+	// última: el hecho entrega.apartadas.
+	Apartadas      int       `json:"apartadas,omitempty"`
+	UltimaApartada time.Time `json:"ultimaApartada,omitzero"`
 	// Hora del último evento con una IP de atacante de verdad y del último
 	// con la IP del propio motor: deciden red.ipOrigenReal (ver motor.HechoOrigen).
 	OrigenReal   time.Time `json:"origenReal,omitzero"`

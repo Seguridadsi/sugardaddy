@@ -29,6 +29,161 @@ fi
 PASO="prepare"
 trap 'echo "Sugardaddy: the step \"$PASO\" failed. Check the message above and run the line again; if it does not fix itself, tell whoever gave you this line." >&2' ERR
 
+# Proxy de salida y CA corporativa: el mismo bloque que apps/consola/src/lib/server/proxy.sh
+# (lo comprueba proxy-sh.spec.ts), que usa también el instalador del sensor remoto.
+# --- proxy de salida (docs/diseno/proxy-salida.md) ---
+SD_PROXY="" SD_NO_PROXY="" SD_PROXY_CLIENTE="" SD_PROXY_CA="" SD_PROXY_CAMBIO=""
+sd_proxy_de_env() { # carpeta clave
+	[[ -f "$1/.env" ]] && grep "^$2=" "$1/.env" | head -1 | cut -d= -f2- || true
+}
+sd_proxy_preparar() { # carpeta excepciones-propias…
+	local dir="$1" x pem forma='^https?://([A-Za-z0-9._~%!*+,;=:-]+@)?[A-Za-z0-9.-]+(:[0-9]{1,5})?$'
+	shift
+	SD_PROXY="${SUGARDADDY_PROXY:-${HTTPS_PROXY:-${https_proxy:-$(sd_proxy_de_env "$dir" PROXY_SALIDA)}}}"
+	[[ "$SD_PROXY" == none ]] && SD_PROXY=""
+	SD_PROXY="${SD_PROXY%/}"
+	if [[ -n "$SD_PROXY" && ! "$SD_PROXY" =~ $forma ]]; then
+		echo "Sugardaddy: the proxy must look like http://proxy.example.com:3128 or http://user:password@proxy.example.com:3128, with any special character of the user or the password percent-encoded (\$ as %24, @ as %40). (code proxy.forma)" >&2
+		return 1
+	fi
+	SD_PROXY_CLIENTE="${SUGARDADDY_NO_PROXY:-${NO_PROXY:-${no_proxy:-$(sd_proxy_de_env "$dir" PROXY_EXCEPCIONES_CLIENTE)}}}"
+	[[ "$SD_PROXY_CLIENTE" == none ]] && SD_PROXY_CLIENTE=""
+	SD_PROXY_CLIENTE="$(printf '%s' "$SD_PROXY_CLIENTE" | tr ' ;' ',,' | tr -cd 'A-Za-z0-9.,:/*_-' | tr -s ',' | sed -e 's/^,//' -e 's/,$//')"
+	SD_NO_PROXY="localhost,127.0.0.1,::1,consola,postgres,https,sensor,actualizador"
+	for x in "$@" "$SD_PROXY_CLIENTE"; do [[ -n "$x" ]] && SD_NO_PROXY+=",$x"; done
+	mkdir -p "$dir/proxy"
+	chmod 755 "$dir/proxy"
+	if [[ "${SUGARDADDY_PROXY_CA:-}" == none ]]; then
+		rm -f "$dir/proxy/ca.crt"
+	elif [[ -n "${SUGARDADDY_PROXY_CA:-}" ]]; then
+		# Solo certificados, todos los del fichero (raíz e intermedias), sin nada más.
+		pem="$(openssl crl2pkcs7 -nocrl -certfile "$SUGARDADDY_PROXY_CA" 2>/dev/null | openssl pkcs7 -print_certs 2>/dev/null | sed -n '/-----BEGIN CERTIFICATE-----/,/-----END CERTIFICATE-----/p')"
+		if [[ -z "$pem" ]]; then
+			echo "Sugardaddy: $SUGARDADDY_PROXY_CA is not a PEM certificate. Give the proxy CA (the root your company installs on its computers) in PEM form. (code proxy.ca)" >&2
+			return 1
+		fi
+		[[ "$(cat "$dir/proxy/ca.crt" 2>/dev/null)" == "$pem" ]] || SD_PROXY_CAMBIO=1
+		printf '%s\n' "$pem" > "$dir/proxy/ca.crt.tmp"
+		chmod 644 "$dir/proxy/ca.crt.tmp"
+		mv "$dir/proxy/ca.crt.tmp" "$dir/proxy/ca.crt"
+	fi
+	SD_PROXY_CA=""
+	[[ -s "$dir/proxy/ca.crt" ]] && SD_PROXY_CA=1
+	if [[ -n "$SD_PROXY" ]]; then
+		export http_proxy="$SD_PROXY" https_proxy="$SD_PROXY" HTTP_PROXY="$SD_PROXY" HTTPS_PROXY="$SD_PROXY"
+		export no_proxy="$SD_NO_PROXY" NO_PROXY="$SD_NO_PROXY"
+		echo "==> Outbound proxy: $(printf '%s' "$SD_PROXY" | sed -E 's#//[^@]*@#//***@#')"
+	else
+		unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY no_proxy NO_PROXY
+	fi
+}
+sd_proxy_sistema() { # carpeta: apt y el almacén de CA del sistema
+	local dir="$1" ancla="" orden=""
+	if [[ -d /etc/apt/apt.conf.d ]]; then
+		if [[ -n "$SD_PROXY" ]]; then
+			printf 'Acquire::http::Proxy "%s";\nAcquire::https::Proxy "%s";\n' "$SD_PROXY" "$SD_PROXY" > /etc/apt/apt.conf.d/95sugardaddy-proxy
+			chmod 600 /etc/apt/apt.conf.d/95sugardaddy-proxy
+		else
+			rm -f /etc/apt/apt.conf.d/95sugardaddy-proxy
+		fi
+	fi
+	if [[ -d /usr/local/share/ca-certificates ]] && command -v update-ca-certificates >/dev/null; then
+		ancla=/usr/local/share/ca-certificates/sugardaddy-proxy.crt orden="update-ca-certificates"
+	elif [[ -d /etc/pki/ca-trust/source/anchors ]] && command -v update-ca-trust >/dev/null; then
+		ancla=/etc/pki/ca-trust/source/anchors/sugardaddy-proxy.crt orden="update-ca-trust"
+	fi
+	[[ -n "$ancla" ]] || { [[ -z "$SD_PROXY_CA" ]] || echo "Sugardaddy: this system has no CA store this installer knows; add $dir/proxy/ca.crt to it by hand." >&2; return 0; }
+	if [[ -n "$SD_PROXY_CA" ]]; then
+		cmp -s "$dir/proxy/ca.crt" "$ancla" || { install -m 644 "$dir/proxy/ca.crt" "$ancla" && $orden >/dev/null 2>&1 && SD_PROXY_CAMBIO=1; }
+	elif [[ -f "$ancla" ]]; then
+		rm -f "$ancla" && $orden >/dev/null 2>&1 && SD_PROXY_CAMBIO=1
+	fi
+	return 0
+}
+sd_proxy_docker() { # el motor de Docker descarga las imágenes: necesita el proxy y relee la CA al arrancar
+	local f=/etc/systemd/system/docker.service.d/sugardaddy-proxy.conf nuevo=""
+	command -v systemctl >/dev/null && [[ -d /run/systemd/system ]] || {
+		[[ -z "$SD_PROXY" ]] || echo "Sugardaddy: this machine does not run systemd: set the proxy for the Docker engine by hand (docs: outbound proxy)." >&2
+		return 0
+	}
+	if [[ -n "$SD_PROXY" ]]; then
+		nuevo="$(printf '[Service]\nEnvironment="HTTP_PROXY=%s" "HTTPS_PROXY=%s" "NO_PROXY=%s"\n' "${SD_PROXY//%/%%}" "${SD_PROXY//%/%%}" "$SD_NO_PROXY")"
+	fi
+	if [[ "$(cat "$f" 2>/dev/null)" != "$nuevo" ]]; then
+		if [[ -n "$nuevo" ]]; then
+			mkdir -p "${f%/*}" && (umask 077 && printf '%s\n' "$nuevo" > "$f")
+		else
+			rm -f "$f"
+		fi
+		SD_PROXY_CAMBIO=1
+	fi
+	if [[ -n "$SD_PROXY_CAMBIO" ]] && systemctl cat docker.service >/dev/null 2>&1; then
+		echo "==> Restarting Docker with the proxy settings"
+		systemctl daemon-reload
+		# En una máquina lenta el motor anterior tarda en soltar su pid y el arranque falla
+		# («process … is still running»): se reintenta hasta un par de minutos. Si systemd
+		# ya lo da por parado y su dockerd sigue vivo fuera de la unidad (visto en máquinas
+		# emuladas), nada lo va a parar: se le pide que acabe y, si no, se le corta.
+		local i viejo
+		for i in $(seq 1 24); do
+			systemctl restart docker 2>/dev/null && docker info >/dev/null 2>&1 && break
+			viejo="$(cat /var/run/docker.pid 2>/dev/null || true)"
+			if [[ "$viejo" =~ ^[0-9]+$ ]] && ! systemctl is-active -q docker \
+				&& [[ "$(cat "/proc/$viejo/comm" 2>/dev/null)" == dockerd ]]; then
+				kill -TERM "$viejo" 2>/dev/null || true
+				sleep 20
+				kill -0 "$viejo" 2>/dev/null && kill -KILL "$viejo" 2>/dev/null || true
+			fi
+			sleep 5
+			systemctl reset-failed docker 2>/dev/null || true
+		done
+		docker info >/dev/null 2>&1 || { echo "Sugardaddy: Docker did not start again with the proxy settings: check «journalctl -u docker». (code proxy.docker)" >&2; return 1; }
+		SD_PROXY_CAMBIO=""
+	fi
+	return 0
+}
+sd_proxy_env() { # fichero .env
+	local k v
+	for k in PROXY_SALIDA PROXY_EXCEPCIONES PROXY_EXCEPCIONES_CLIENTE PROXY_CA; do
+		case $k in
+			PROXY_SALIDA) v="$SD_PROXY" ;;
+			PROXY_EXCEPCIONES) v="" && [[ -z "$SD_PROXY" ]] || v="$SD_NO_PROXY" ;;
+			PROXY_EXCEPCIONES_CLIENTE) v="$SD_PROXY_CLIENTE" ;;
+			PROXY_CA) v="$SD_PROXY_CA" ;;
+		esac
+		{ grep -v "^$k=" "$1" || true; echo "$k=$v"; } > "$1.tmp"
+		chmod 600 "$1.tmp" && mv "$1.tmp" "$1"
+	done
+}
+# Deja en la carpeta un proxy.sh para cambiar o quitar el proxy después, sin la línea de
+# instalación (que es de un solo uso): sudo SUGARDADDY_PROXY=… <carpeta>/proxy.sh
+sd_proxy_guion() { # carpeta
+	{
+		echo '#!/usr/bin/env bash'
+		echo '# Cambia el proxy de salida de este nodo o sensor (docs: outbound proxy). Lo escribe su instalador.'
+		echo '#   sudo SUGARDADDY_PROXY=http://[user:password@]proxy:3128 [SUGARDADDY_NO_PROXY=…] [SUGARDADDY_PROXY_CA=ca.pem] ./proxy.sh'
+		echo '#   sudo SUGARDADDY_PROXY=none ./proxy.sh'
+		echo 'set -Eeuo pipefail'
+		echo 'SD_PROXY="" SD_NO_PROXY="" SD_PROXY_CLIENTE="" SD_PROXY_CA="" SD_PROXY_CAMBIO=""'
+		declare -f sd_proxy_de_env sd_proxy_preparar sd_proxy_sistema sd_proxy_docker sd_proxy_env
+		cat <<'FIN'
+[[ "$(id -u)" == 0 ]] || { echo "Run it with sudo" >&2; exit 1; }
+[[ -n "${SUGARDADDY_PROXY:-}${SUGARDADDY_NO_PROXY:-}${SUGARDADDY_PROXY_CA:-}" ]] || { sed -n '3,4p' "$0" | cut -c3- >&2; exit 1; }
+DIR="$(cd "$(dirname "$0")" && pwd)"
+url="$(sd_proxy_de_env "$DIR" CONSOLA_URL)" url="${url#*://}"
+fija="$(sd_proxy_de_env "$DIR" CONSOLA_FIJA)"
+sd_proxy_preparar "$DIR" "$(sd_proxy_de_env "$DIR" CONSOLA_DOMINIO)" "${url%%[:/]*}" "${fija#*:}" "$(sd_proxy_de_env "$DIR" SENSOR_LOCAL_RED)"
+sd_proxy_sistema "$DIR"
+sd_proxy_docker
+sd_proxy_env "$DIR/.env"
+cd "$DIR" && docker compose --env-file .env --env-file versiones.env up -d --wait >/dev/null
+echo "Done: the outbound proxy is applied."
+FIN
+	} > "$1/proxy.sh.tmp"
+	chmod 700 "$1/proxy.sh.tmp" && mv "$1/proxy.sh.tmp" "$1/proxy.sh"
+}
+# --- fin del proxy de salida ---
+
 instalar_docker() {
 	# Docker desde su repositorio oficial, en Ubuntu o Debian.
 	command -v apt-get >/dev/null || { echo "Docker is required (automatic installation only on Ubuntu and Debian)"; exit 1; }
@@ -45,7 +200,10 @@ if [[ "${1:-}" == --instalar-docker ]]; then
 	[[ "$(id -u)" == 0 ]] || { echo "This must be run as root (sudo)"; exit 1; }
 	# La arquitectura ya la ha mirado el asistente, que es quien llama así.
 	PASO="install only Docker"
+	sd_proxy_preparar "$(mktemp -d)"
+	sd_proxy_sistema /nonexistent
 	command -v docker >/dev/null || instalar_docker
+	sd_proxy_docker
 	exit 0
 fi
 
@@ -82,9 +240,29 @@ if [[ "$plataforma" =~ ^[a-z0-9]+/[a-z0-9_]+$ && "$plataforma" != linux/amd64 ]]
 	echo "Sugardaddy: this node needs a Linux amd64 (x86_64) Docker engine, and this machine has $plataforma, where its containers would not start. Install it on an x86_64 machine or VM. Nothing was changed on this one, but this line has already been used: for the other machine, ask whoever gave it to you for a new one. (code instalar.arquitectura)" >&2
 	exit 1
 fi
+# Antes de escribir nada: sin las imágenes de la versión no hay nada que instalar.
+[[ -f "$AQUI/imagenes.env" ]] || { echo "$AQUI/imagenes.env is missing; it holds the images of the version"; exit 1; }
+# La red de esta máquina (la de la interfaz por la que sale, p. ej.
+# 10.70.0.0/24) y su VLAN si esa interfaz es una 802.1Q: la consola las pone
+# al sensor local si aún no tiene. En cada instalación se vuelven a mirar; lo
+# que alguien haya escrito en Sensores no se toca. Si no se saben, vacías.
+# Mismo texto que detectarRed (apps/consola/src/lib/server/red-sh.ts).
+interfaz="$(ip -4 route show default 2>/dev/null | awk '{for (i = 1; i < NF; i++) if ($i == "dev") { print $(i + 1); exit }}' || true)"
+RED_DETECTADA="" VLAN_DETECTADA=""
+if [[ -n "$interfaz" ]]; then
+	RED_DETECTADA="$(ip -4 route show dev "$interfaz" proto kernel scope link 2>/dev/null | awk '$1 ~ /\// { print $1; exit }' || true)"
+	VLAN_DETECTADA="$(ip -d -o link show dev "$interfaz" 2>/dev/null | grep -o 'vlan protocol 802.1Q id [0-9]*' | awk '{ print $NF }' || true)"
+fi
+# Detrás de un proxy (un banco, una administración) nada sale directo: apt, Docker, la
+# consola y el sensor salen por él. Va antes de instalar Docker, que ya lo necesita.
+# La red del nodo y la dirección de la consola nunca pasan por el proxy.
+PASO="set up the outbound proxy"
+mkdir -p "$DIR"
+sd_proxy_preparar "$DIR" "$DOMINIO" "$RED_DETECTADA"
+sd_proxy_sistema "$DIR"
 PASO="install Docker"
 command -v docker >/dev/null || instalar_docker
-[[ -f "$AQUI/imagenes.env" ]] || { echo "$AQUI/imagenes.env is missing; it holds the images of the version"; exit 1; }
+sd_proxy_docker
 
 mkdir -p "$DIR/datos/sensor" "$DIR/certs"
 # Lo capturado (contraseñas y comandos del atacante, credenciales cebo) y los
@@ -143,6 +321,9 @@ if [[ ! -f "$DIR/.env" ]]; then
 	umask 077
 	cat > "$DIR/.env" <<FIN
 # Generado por instalar.sh el $(date +%F). Contiene secretos: no sale de esta máquina.
+# La consola nace cerrada (docs/diseno/acceso-consola.md): sin lista, el 443 solo deja
+# entrar a la red de esta máquina y a la IP desde la que se instaló.
+CONSOLA_NACE_CERRADA=1
 NODO_DIR=$DIR
 DATOS=$DIR/datos
 NODO_ID=$NODO_ID
@@ -169,14 +350,17 @@ REGISTRO_USUARIO=${REGISTRO_USUARIO:-}
 REGISTRO_TOKEN=${REGISTRO_TOKEN:-}
 # Trampas: puertos desplazados para no chocar con servicios reales (p. ej. 2200: SSH falso en el 2222).
 TRAMPAS_DESPLAZAR=${TRAMPAS_DESPLAZAR:-0}
-# Entra ID (lo trae el instalador del panel; a mano, despliegue/entra/registrar.sh).
+# Entra ID de SeguridadSI (modelo B2B de antes): solo para los nodos que aún lo
+# tienen. Ningún alta nueva lo trae; el cliente conecta su propio Entra desde
+# Ajustes (docs/diseno/identidad-clientes.md).
 ENTRA_TENANT_ID=${ENTRA_TENANT_ID:-}
 ENTRA_CLIENT_ID=${ENTRA_CLIENT_ID:-}
 ENTRA_CLIENT_SECRET=${ENTRA_CLIENT_SECRET:-}
 ENTRA_GRUPO_CLIENTE=${ENTRA_GRUPO_CLIENTE:-}
 ENTRA_GRUPO_SOPORTE=${ENTRA_GRUPO_SOPORTE:-}
-# Login local (usuario y contraseña del nodo): LOGIN_LOCAL=1 para activarlo en
-# vez de, o además de, Entra. Vacío = solo Entra. Al activarlo, la consola crea
+# Login local (usuario y contraseña del nodo): LOGIN_LOCAL=1 para activarlo (lo
+# trae la línea del panel). En Cloud sin el Entra de SeguridadSI también está
+# encendido aunque falte; LOGIN_LOCAL=0 lo apaga. Al activarlo, la consola crea
 # un primer administrador y escribe su contraseña de un solo uso en su registro
 # de arranque (sudo docker compose --env-file .env --env-file versiones.env logs consola,
 # desde $DIR). Ver docs/diseno/auth-login.md.
@@ -188,8 +372,8 @@ ENTRAR_CUALQUIER_IP=${ENTRAR_CUALQUIER_IP:-}
 # Panel central: el nodo se da de alta solo con este código la primera vez.
 PANEL_URL=${PANEL_URL:-}
 # Quién puede abrir la consola (docs/diseno/acceso-consola.md): IP o redes CIDR
-# separadas por comas. Vacío = se decide en la primera entrada a la consola, que
-# propone la IP de la sesión SSH desde la que se instaló (CONSOLA_ACCESO_PROPUESTA).
+# separadas por comas. Vacío = solo la red de esta máquina y la IP de la sesión SSH desde
+# la que se instaló (CONSOLA_ACCESO_PROPUESTA), hasta que se guarde la lista en la consola.
 CONSOLA_ACCESO=${CONSOLA_ACCESO:-}
 CONSOLA_ACCESO_PROPUESTA=$(ip_ssh)
 PANEL_ALTA_CODIGO=${PANEL_ALTA_CODIGO:-}
@@ -242,17 +426,6 @@ if [[ -s "$AQUI/entorno-extra.env" ]]; then
 		grep -q "^${linea%%=*}=" "$DIR/.env" || echo "$linea" >> "$DIR/.env"
 	done < "$AQUI/entorno-extra.env"
 fi
-# La red de esta máquina (la de la interfaz por la que sale, p. ej.
-# 10.70.0.0/24) y su VLAN si esa interfaz es una 802.1Q: la consola las pone
-# al sensor local si aún no tiene. En cada instalación se vuelven a mirar; lo
-# que alguien haya escrito en Sensores no se toca. Si no se saben, vacías.
-# Mismo texto que detectarRed (apps/consola/src/lib/server/red-sh.ts).
-interfaz="$(ip -4 route show default 2>/dev/null | awk '{for (i = 1; i < NF; i++) if ($i == "dev") { print $(i + 1); exit }}' || true)"
-RED_DETECTADA="" VLAN_DETECTADA=""
-if [[ -n "$interfaz" ]]; then
-	RED_DETECTADA="$(ip -4 route show dev "$interfaz" proto kernel scope link 2>/dev/null | awk '$1 ~ /\// { print $1; exit }' || true)"
-	VLAN_DETECTADA="$(ip -d -o link show dev "$interfaz" 2>/dev/null | grep -o 'vlan protocol 802.1Q id [0-9]*' | awk '{ print $NF }' || true)"
-fi
 SENSOR_LOCAL_RED="$RED_DETECTADA" SENSOR_LOCAL_VLAN="$VLAN_DETECTADA"
 for k in SENSOR_LOCAL_RED SENSOR_LOCAL_VLAN; do
 	grep -v "^$k=" "$DIR/.env" > "$DIR/.env.tmp" || true
@@ -261,6 +434,10 @@ for k in SENSOR_LOCAL_RED SENSOR_LOCAL_VLAN; do
 done
 # Un nodo instalado antes de la 0.15 no tiene la clave de los secretos: se
 # crea ahora, una sola vez (el actualizador hace lo mismo con entorno.json).
+# El proxy de salida y la CA corporativa, para la consola, el sensor y el actualizador, y
+# el proxy.sh con el que se cambia después.
+sd_proxy_env "$DIR/.env"
+sd_proxy_guion "$DIR"
 grep -q '^CLAVE_SECRETOS=.' "$DIR/.env" || echo "CLAVE_SECRETOS=$(openssl rand -hex 32)" >> "$DIR/.env"
 if [[ ! -f "$DIR/clave-copias" ]]; then
 	(umask 077 && openssl rand -base64 48 > "$DIR/clave-copias")
@@ -294,6 +471,108 @@ if docker run --rm --network none --read-only --cap-drop ALL --security-opt no-n
 	--mount "type=bind,source=$DIR/datos/sensor,target=/sd,readonly,bind-propagation=rslave" \
 	"$(grep '^SENSOR_IMAGEN=' versiones.env | cut -d= -f2-)" version >/dev/null 2>&1; then
 	fijar_env SENSOR_PROPAGACION rslave
+fi
+# El aislamiento de las trampas (docs/diseno/aislamiento-trampas.md). Nada de esto
+# para la instalación: lo que la máquina no admite, se queda sin ello y el panel lo
+# dice (motor.aislamiento, disco.trampas).
+PASO="isolate the decoys"
+SENSOR_IMG="$(grep '^SENSOR_IMAGEN=' versiones.env | cut -d= -f2-)"
+# 1. Perfil AppArmor de las trampas, si la máquina tiene AppArmor: sd-motor lo
+# pone a cada trampa que corre con runc (con gVisor no hace falta).
+if [[ -d /sys/kernel/security/apparmor ]] && command -v apparmor_parser >/dev/null; then
+	mkdir -p /etc/apparmor.d
+	cat > /etc/apparmor.d/sugardaddy-trampa <<'PERFIL'
+# Perfil de las trampas de Sugardaddy (docs/diseno/aislamiento-trampas.md §4).
+# El de Docker por defecto, más: sin enchufes crudos, sin ptrace, sin montar y
+# sin escribir en /proc ni /sys. Lo instala instalar.sh; lo aplica sd-motor.
+#include <tunables/global>
+profile sugardaddy-trampa flags=(attach_disconnected,mediate_deleted) {
+  #include <abstractions/base>
+  network inet stream,
+  network inet dgram,
+  network inet6 stream,
+  network inet6 dgram,
+  network unix,
+  network netlink dgram,
+  deny network raw,
+  deny network packet,
+  file,
+  deny mount,
+  deny umount,
+  deny pivot_root,
+  deny ptrace,
+  deny capability,
+  signal (send,receive) peer=sugardaddy-trampa,
+  signal (receive) peer=unconfined,
+  deny @{PROC}/* w,
+  deny @{PROC}/{[^1-9],[^1-9][^0-9],[^1-9s][^0-9y][^0-9s],[^1-9][^0-9][^0-9][^0-9/]*}/** w,
+  deny @{PROC}/sys/** wklx,
+  deny @{PROC}/sysrq-trigger rwklx,
+  deny @{PROC}/kcore rwklx,
+  deny @{PROC}/kmem rwklx,
+  deny @{PROC}/mem rwklx,
+  deny /sys/** wklx,
+  deny /sys/firmware/** rwklx,
+  deny /sys/kernel/security/** rwklx,
+  deny /var/run/docker.sock rwklx,
+  deny /run/docker.sock rwklx,
+}
+PERFIL
+	if apparmor_parser -r -W /etc/apparmor.d/sugardaddy-trampa 2>/dev/null; then
+		fijar_env TRAMPAS_APPARMOR sugardaddy-trampa
+	else
+		echo "WARNING: the AppArmor profile for decoys did not load; decoys run with seccomp only"
+		fijar_env TRAMPAS_APPARMOR ""
+	fi
+fi
+# 2. El servicio de discos del anfitrión (sd-discos): monta el disco de tamaño fijo
+# de cada trampa sin contenedor privilegiado. Es el binario firmado del sensor con
+# su orden discos-anfitrion, en una unidad con un único comando fijo. sd-motor le
+# deja la petición en el buzón y la unidad .path la arranca.
+if [[ -d /run/systemd/system ]] && command -v systemctl >/dev/null && [[ -n "$SENSOR_IMG" ]]; then
+	mkdir -p /usr/local/lib/sugardaddy /var/lib/sugardaddy/discos
+	chmod 700 /var/lib/sugardaddy/discos
+	if docker run --rm --user 0:0 --network none --read-only --cap-drop ALL --cap-add DAC_OVERRIDE \
+		-v /usr/local/lib/sugardaddy:/salida "$SENSOR_IMG" copiar-binario /salida/sd-discos >/dev/null; then
+		cat > /etc/systemd/system/sd-discos.service <<UNIDAD
+# Discos de las trampas de Sugardaddy (docs/diseno/aislamiento-trampas.md §5).
+[Unit]
+Description=Sugardaddy decoy disks
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/sugardaddy/sd-discos discos-anfitrion /var/lib/sugardaddy/discos $DIR/datos/sensor
+# Montar un fichero en loop y formatearlo pide CAP_SYS_ADMIN; dejar las carpetas a
+# quien las usa, CHOWN y FOWNER. Nada más. Sin red. Sin espacio de montaje propio
+# (ProtectSystem, PrivateTmp…): los discos que monta tienen que verse en la máquina.
+CapabilityBoundingSet=CAP_SYS_ADMIN CAP_CHOWN CAP_FOWNER CAP_DAC_OVERRIDE
+AmbientCapabilities=
+NoNewPrivileges=yes
+PrivateNetwork=yes
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+TimeoutStartSec=10min
+UNIDAD
+		cat > /etc/systemd/system/sd-discos.path <<UNIDAD
+[Unit]
+Description=Sugardaddy decoy disks: request mailbox
+[Path]
+PathExists=/var/lib/sugardaddy/discos/peticion.json
+[Install]
+WantedBy=multi-user.target
+UNIDAD
+		systemctl daemon-reload
+		if systemctl enable --now sd-discos.path >/dev/null 2>&1; then
+			: > /var/lib/sugardaddy/discos/instalado
+		else
+			echo "WARNING: the decoy disk service did not start; decoys run without their own disk"
+		fi
+	else
+		echo "WARNING: could not install the decoy disk service; decoys run without their own disk"
+	fi
 fi
 PASO="start the node"
 # La consola monta la raíz de la CA: tiene que existir, como fichero normal
@@ -356,8 +635,8 @@ if [[ "$TLS_MODO" == interno && -s ca-raiz.crt ]]; then
 	fi
 fi
 echo "Node running. Console at $URL"
-echo "The first time you sign in, choose which IP addresses can open the console."
-echo "If you ever lock yourself out, run this on this machine: sudo touch $DIR/abrir-consola"
+echo "Until you choose who can open it, the console only answers this machine's network${RED_DETECTADA:+ ($RED_DETECTADA)} and the address you installed from."
+echo "If you ever lock yourself out, run this on this machine: sudo touch $DIR/abrir-consola (it opens the console to everyone for 24 hours)"
 
 # Lo que el cliente tiene que guardar, junto y una sola vez: la contraseña del
 # primer administrador (si el nodo la acaba de crear, sale en el registro de la

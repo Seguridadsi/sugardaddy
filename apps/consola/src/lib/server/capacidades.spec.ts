@@ -7,6 +7,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { borrarAuditoriaDePrueba } from './db/pruebas-auditoria';
 
 let hayBase = false;
 try {
@@ -44,9 +45,10 @@ async function limpiar() {
 	await db.delete(s.trampas).where(like(s.trampas.id, `${P}%`));
 	await db.delete(s.destinos).where(like(s.destinos.id, `${P}%`));
 	await db.delete(s.sensores).where(like(s.sensores.id, `${P}%`));
-	await db
-		.delete(s.auditoria)
-		.where(or(eq(s.auditoria.quien, QUIEN), like(s.auditoria.quien, `sensor ${P}%`)));
+	await borrarAuditoriaDePrueba(
+		db,
+		or(eq(s.auditoria.quien, QUIEN), like(s.auditoria.quien, `sensor ${P}%`))
+	);
 }
 
 /* Un sensor dado de alta como desde Sensores (con su destino) y una trampa suya. */

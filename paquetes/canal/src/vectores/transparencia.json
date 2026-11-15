@@ -1,0 +1,31 @@
+{
+	"nota": "Registro de prueba con tres entradas (dos versiones y una licencia), la prueba de la última versión y una marca con su cabeza, firmada con una clave de marcas de usar y tirar.",
+	"registro": "{\"n\":0,\"tipo\":\"version\",\"huella\":\"b537fca521d0548fd10c198bfbb7c7792000682dabe66ef8d836b3b9b3468397\",\"clave\":\"ed8f534e24318ccc\",\"etiqueta\":\"0.30.0 cloud\",\"cuando\":\"2026-11-14T11:29:26.742Z\"}\n{\"n\":1,\"tipo\":\"licencia\",\"huella\":\"d61a2831ef947af13c8b43138a1624f83d0ad0271f517d36b3a3e67f174d5a3a\",\"clave\":\"0123456789abcdef\",\"cuando\":\"2026-11-14T11:29:27.062Z\"}\n{\"n\":2,\"tipo\":\"version\",\"huella\":\"9147d91b484576bc2c804ce8b8425cc91bf8d54fce10c514772b3a3d8d95c14b\",\"clave\":\"ed8f534e24318ccc\",\"etiqueta\":\"0.30.1 cloud\",\"cuando\":\"2026-11-14T11:29:27.268Z\"}\n",
+	"cabeza": {
+		"tamano": 3,
+		"raiz": "7d34c3fb5ad77e0f24909de38ac3d6ccbadfe01d6b889c77930661b2124c9371"
+	},
+	"version": "{\"version\":\"0.30.1\",\"publicada\":\"2026-11-14T11:29:26.435Z\",\"notas\":\"x\",\"servicios\":{\"consola\":\"x.azurecr.io/c@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}",
+	"prueba": {
+		"entrada": "{\"n\":2,\"tipo\":\"version\",\"huella\":\"9147d91b484576bc2c804ce8b8425cc91bf8d54fce10c514772b3a3d8d95c14b\",\"clave\":\"ed8f534e24318ccc\",\"etiqueta\":\"0.30.1 cloud\",\"cuando\":\"2026-11-14T11:29:27.268Z\"}",
+		"indice": 2,
+		"tamano": 3,
+		"ruta": ["f3750855c312925bf0800276542a4e0d8295157aea0fae210ef4c33fd8ccbe86"]
+	},
+	"versionVieja": "{\"version\":\"0.30.0\",\"publicada\":\"2026-11-14T11:29:26.420Z\",\"notas\":\"x\",\"servicios\":{\"consola\":\"x.azurecr.io/c@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}",
+	"pruebaVieja": {
+		"entrada": "{\"n\":0,\"tipo\":\"version\",\"huella\":\"b537fca521d0548fd10c198bfbb7c7792000682dabe66ef8d836b3b9b3468397\",\"clave\":\"ed8f534e24318ccc\",\"etiqueta\":\"0.30.0 cloud\",\"cuando\":\"2026-11-14T11:29:26.742Z\"}",
+		"indice": 0,
+		"tamano": 3,
+		"ruta": [
+			"25a7d0db93633d4ec1ddeff002077f57595418f078b191bfd9cdc46361acf407",
+			"478a7ed94c4d70de4bfaea74092ed2daf1a50608daa99cf793349721c8cad48b"
+		]
+	},
+	"marcas": "MCowBQYDK2VwAyEARXyZ72OUV+3xJakGvExlyI4PhbO+Xgr2HWn9il7qOco=",
+	"ahora": "2026-11-15T00:00:00Z",
+	"marca": {
+		"marca": "{\"tipo\":\"marca\",\"version\":1,\"emitida\":\"2026-11-14T00:00:00.000Z\",\"caduca\":\"2026-11-19T00:00:00.000Z\",\"plazoHoras\":168,\"ultimas\":{\"cloud\":{\"version\":\"0.30.1\",\"publicada\":\"2026-11-14T00:00:00.000Z\",\"prueba\":{\"entrada\":\"{\\\"n\\\":2,\\\"tipo\\\":\\\"version\\\",\\\"huella\\\":\\\"9147d91b484576bc2c804ce8b8425cc91bf8d54fce10c514772b3a3d8d95c14b\\\",\\\"clave\\\":\\\"ed8f534e24318ccc\\\",\\\"etiqueta\\\":\\\"0.30.1 cloud\\\",\\\"cuando\\\":\\\"2026-11-14T11:29:27.268Z\\\"}\",\"indice\":2,\"tamano\":3,\"ruta\":[\"f3750855c312925bf0800276542a4e0d8295157aea0fae210ef4c33fd8ccbe86\"]}}},\"registro\":{\"tamano\":3,\"raiz\":\"7d34c3fb5ad77e0f24909de38ac3d6ccbadfe01d6b889c77930661b2124c9371\"}}",
+		"firma": "313qTGeW9ooCu5rjx+51VKDIBz878AibNpy27PiyzQxhFyU9pjdXHwUECDOwUTRfpzubNDikQcu/tMt6DZpKBg=="
+	}
+}

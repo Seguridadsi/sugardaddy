@@ -164,7 +164,7 @@
 <ul>
 	{#each eventos as e (e.id)}
 		{@const m = modulos[e.trampa.modulo]}
-		<li class:abierto={abierto === e.id} class:con-alerta={!!e.alerta}>
+		<li class="sev-{e.severidad}" class:abierto={abierto === e.id} class:con-alerta={!!e.alerta}>
 			<button
 				type="button"
 				class="fila"
@@ -348,13 +348,30 @@
 		border-bottom: none;
 	}
 
+	/*
+	 * La severidad se lee en el borde: lo alto y lo crítico llevan su barra, y
+	 * lo crítico además tiñe la fila. Lo bajo no grita.
+	 */
+	ul > li.sev-alta,
+	ul > li.sev-critica {
+		box-shadow: inset 5px 0 0 var(--sev);
+	}
+
+	ul > li.sev-critica {
+		background: color-mix(in oklab, var(--sev) 9%, transparent);
+	}
+
+	.que b {
+		font-weight: 700 !important;
+	}
+
 	.fila {
 		all: unset;
 		box-sizing: border-box;
 		width: 100%;
 		cursor: pointer;
 		display: grid;
-		grid-template-columns: 74px 68px minmax(150px, 1.1fr) minmax(150px, 1fr) minmax(0, 1.6fr);
+		grid-template-columns: 74px 92px minmax(150px, 1.1fr) minmax(150px, 1fr) minmax(0, 1.6fr);
 		gap: 14px;
 		align-items: center;
 		padding: 11px 17px;
@@ -363,7 +380,7 @@
 
 	.fila:hover,
 	.abierto .fila {
-		background: var(--surface-2);
+		background: var(--accent-soft);
 	}
 
 	.fila:focus-visible {
@@ -481,7 +498,7 @@
 	.perfil-ip {
 		font-size: 12.5px;
 		font-weight: 600;
-		color: var(--accent);
+		color: var(--link);
 		text-decoration: none;
 	}
 
@@ -728,7 +745,7 @@
 
 	.crudo summary {
 		cursor: pointer;
-		color: var(--accent);
+		color: var(--link);
 		width: max-content;
 	}
 

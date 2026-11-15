@@ -276,3 +276,36 @@ func VerificarEnNodo(c Confianza, edicion string, f ReleaseFirmada) (Release, er
 }
 
 var errSinClave = errors.New("there is no trusted key to check this version")
+
+// MotivoClavesMarca: qué falla en una lista de públicas sin uso (PUBLICACION_MARCAS, o las
+// llaves de una raíz), "" si vale. Como motivoClavesMarca en TypeScript.
+func MotivoClavesMarca(texto string) string {
+	if strings.TrimSpace(texto) == "" {
+		return ""
+	}
+	partes := strings.Split(texto, ",")
+	if len(partes) > 8 {
+		return "more than 8 keys"
+	}
+	for _, p := range partes {
+		if _, err := ClaveVerificable(strings.TrimSpace(p)); err != nil {
+			return "a key is not an Ed25519 or ECDSA P-256 public key"
+		}
+	}
+	return ""
+}
+
+// LeerClavesMarca lee una lista así; lo que no se entiende se ignora.
+func LeerClavesMarca(texto string) []string {
+	var r []string
+	vistas := map[string]bool{}
+	for _, p := range strings.Split(texto, ",") {
+		p = strings.TrimSpace(p)
+		if _, err := ClaveVerificable(p); err != nil || vistas[p] || len(r) >= 8 {
+			continue
+		}
+		vistas[p] = true
+		r = append(r, p)
+	}
+	return r
+}

@@ -3,9 +3,11 @@
  * conexiones: se da de alta una vez con un código, y después late cada minuto
  * y recibe en la respuesta su estado deseado firmado.
  *
- * La clave privada del nodo se genera aquí y no sale nunca. La clave pública
- * del panel se fija en el alta: un estado firmado por cualquier otra clave se
- * rechaza, aunque llegue por la misma dirección.
+ * La clave privada del nodo se genera aquí y no sale nunca. Las claves públicas
+ * del panel se fijan en el alta: un estado firmado por cualquier otra clave se
+ * rechaza, aunque llegue por la misma dirección. Esa lista solo la cambia una
+ * versión firmada con la clave de publicación (clavesPanel), nunca el panel
+ * (docs/diseno/panel-endurecido.md).
  *
  * El cliente puede cortar el canal cuando quiera. Cortado, el nodo deja de
  * latir y de aceptar estados; sigue detectando y respondiendo en local.
@@ -15,16 +17,22 @@ import { and, eq, gte, isNull, sql } from 'drizzle-orm';
 import { env } from '$env/dynamic/private';
 import { confianza } from './claves';
 import {
+	aislamientoMasDebil,
 	compararVersiones,
-	direccionReleValida,
 	edicionDeRelease,
 	firmarPeticion,
 	generarClaves,
 	huella,
 	verificarEstado,
 	verificarListaTor,
+	verificarOrden,
 	verificarRelease,
+	clavePanelValida,
+	clavesPanelTras,
 	type EstadoDeseado,
+	type EstadoMarcaNodo,
+	type MarcaFirmada,
+	type Release,
 	type Latido,
 	type LicenciaFirmada,
 	type RecuperacionPanel,
@@ -51,6 +59,10 @@ import {
 	retirarListaGlobal
 } from './inteligencia';
 import { cerrarYa, paraLatido, recibirSolicitud } from './soporte';
+import { configActiva } from './auth/entra-propio';
+import { estadoB2B } from './auth/b2b';
+import { selloParaLatido } from './auditoria-cadena';
+import { salidaParaLatido } from './salida';
 import { guardarTor, huellaTor, quitarTor } from './tor';
 import {
 	guardarCatalogoPartner,
@@ -58,6 +70,7 @@ import {
 	partnerDelNodo,
 	quitarCatalogoPartner
 } from './catalogo-partner';
+import { validarDescarga } from './script-sensor';
 
 type Canal = {
 	panel: string;
@@ -65,12 +78,24 @@ type Canal = {
 	cliente: string;
 	clavePrivada: string;
 	clavePublica: string;
+	/* La que se fijó en el alta (la principal del panel). */
 	clavePublicaPanel: string;
+	/*
+	 * Las claves del panel en las que se confía, si el alta o una versión firmada han dado una
+	 * lista; sin ella, solo clavePublicaPanel. versionClavesPanel: la versión que la dio (una
+	 * versión más vieja no la cambia).
+	 */
+	clavesPanel?: string[];
+	versionClavesPanel?: string;
 	cortado: boolean;
 	ultimoContacto: string | null;
 	error: string | null;
 	estado: EstadoDeseado | null;
 };
+
+/* Las claves del panel con las que se comprueba lo que baja. */
+export const clavesDelPanel = (c: Pick<Canal, 'clavePublicaPanel' | 'clavesPanel'>) =>
+	c.clavesPanel?.length ? c.clavesPanel : [c.clavePublicaPanel];
 
 async function leer(): Promise<Canal | null> {
 	const [f] = await db.select().from(s.ajustes).where(eq(s.ajustes.clave, 'canal'));
@@ -101,6 +126,7 @@ export async function estadoCanal() {
 		cliente: c.cliente,
 		huellaNodo: huella(c.clavePublica),
 		huellaPanel: huella(c.clavePublicaPanel),
+		huellasPanel: clavesDelPanel(c).map(huella),
 		cortado: c.cortado,
 		ultimoContacto: c.ultimoContacto,
 		error: c.error,
@@ -150,6 +176,14 @@ export async function darDeAlta(quien: string, panel: string, codigo: string) {
 		return { ok: false, motivo: `Central rejected the enrollment: ${m ?? r.status}` };
 	}
 	const b = await r.json();
+	/* La lista entera, si el panel la da y es buena; si no, solo la principal, como antes. */
+	const lista =
+		Array.isArray(b.clavesPanel) &&
+		b.clavesPanel.length <= 8 &&
+		b.clavesPanel.every(clavePanelValida) &&
+		b.clavesPanel.includes(String(b.clavePublicaPanel))
+			? [...new Set(b.clavesPanel as string[])]
+			: undefined;
 	await guardar({
 		panel: base,
 		nodo,
@@ -157,6 +191,7 @@ export async function darDeAlta(quien: string, panel: string, codigo: string) {
 		clavePrivada: claves.privada,
 		clavePublica: claves.publica,
 		clavePublicaPanel: String(b.clavePublicaPanel),
+		...(lista && lista.length > 1 ? { clavesPanel: lista } : {}),
 		cortado: false,
 		ultimoContacto: null,
 		error: null,
@@ -199,6 +234,42 @@ export async function actualizacion(): Promise<Actualizacion> {
 	return (f?.valor as Actualizacion) ?? SIN_ACTUALIZACION;
 }
 
+/*
+ * Las claves del panel que trae una versión firmada con la clave de publicación (panel.ts del
+ * canal): solo si es para este panel y no es más vieja que la que dio la lista actual.
+ */
+export async function adoptarClavesPanel(r: Release) {
+	if (!r.clavesPanel) return;
+	const c = await leer();
+	if (!c) return;
+	if (c.versionClavesPanel && compararVersiones(r.version, c.versionClavesPanel) < 0) return;
+	const nuevas = clavesPanelTras(clavesDelPanel(c), r.clavesPanel);
+	if (!nuevas) return;
+	await guardar({ ...c, clavesPanel: nuevas, versionClavesPanel: r.version });
+	await auditar(`node ${c.nodo}`, 'Central keys renewed by a signed version', {
+		version: r.version,
+		antes: clavesDelPanel(c).map(huella),
+		ahora: nuevas.map(huella)
+	});
+}
+
+/*
+ * La versión que trae las claves nuevas la instala una consola anterior, que no las
+ * entiende, y el panel ya no la vuelve a mandar. En cada latido se miran las versiones
+ * firmadas que el nodo tiene guardadas (la última que le llegó y la de su sensor remoto).
+ */
+async function adoptarDeLoGuardado() {
+	const clave = confianza();
+	if (!clave) return;
+	const [f] = await db.select().from(s.ajustes).where(eq(s.ajustes.clave, 'release'));
+	const guardada = (f?.valor as { firmada?: ReleaseFirmada } | undefined)?.firmada;
+	for (const firmada of [(await actualizacion()).release, guardada]) {
+		if (!firmada) continue;
+		const v = verificarRelease(clave, firmada);
+		if (v.ok && edicionDeRelease(v.release) !== 'community') await adoptarClavesPanel(v.release);
+	}
+}
+
 async function guardarActualizacion(a: Actualizacion) {
 	await db
 		.insert(s.ajustes)
@@ -228,6 +299,8 @@ async function considerar(estado: EstadoDeseado, nodo: string) {
 				: edicionDeRelease(v.release) === 'community'
 					? 'it is a Community release (images on ghcr.io): a node managed by Central only installs Cloud releases'
 					: null;
+	/* Una versión auténtica de su edición puede traer las claves del panel, aunque no se instale. */
+	if (v.ok && edicionDeRelease(v.release) !== 'community') await adoptarClavesPanel(v.release);
 	if (rechazo) {
 		await auditar(`node ${nodo}`, 'version rejected', { motivo: rechazo });
 		return;
@@ -305,6 +378,62 @@ export async function considerarCommunity(): Promise<ResultadoCommunity> {
 		version
 	});
 	return { visto: 'pendiente', version };
+}
+
+/* ---------- marca de tiempo (docs/diseno/firmas-raiz.md) ---------- */
+
+/*
+ * La marca que reparte el panel se guarda tal cual para el actualizador, que es quien la
+ * comprueba (con sus claves) y la compara con la copia estática. Aquí solo se mira la forma:
+ * la consola no decide nada con ella.
+ */
+async function guardarMarcaDelPanel(m: MarcaFirmada | null) {
+	if (
+		m !== null &&
+		(typeof m !== 'object' ||
+			typeof m.marca !== 'string' ||
+			typeof m.firma !== 'string' ||
+			m.marca.length > 64 * 1024)
+	)
+		return;
+	await guardarAjuste('marca-panel', m);
+}
+
+export async function marcaDelPanel(): Promise<MarcaFirmada | null> {
+	const [f] = await db.select().from(s.ajustes).where(eq(s.ajustes.clave, 'marca-panel'));
+	return (f?.valor as MarcaFirmada | undefined) ?? null;
+}
+
+const ESTADOS_MARCA = ['al-dia', 'sin-marca', 'caducada', 'retenida'] as const;
+const textoCorto = (x: unknown, max: number) =>
+	typeof x === 'string' && x !== '' ? x.slice(0, max) : null;
+
+/* Lo que dice el actualizador, validado: es lo que va en el latido y en el aviso. */
+export function leerEstadoMarca(b: unknown): EstadoMarcaNodo | null {
+	const x = b as Record<string, unknown> | null;
+	if (!x || !(ESTADOS_MARCA as readonly unknown[]).includes(x.estado)) return null;
+	return {
+		estado: x.estado as EstadoMarcaNodo['estado'],
+		detalle: textoCorto(x.detalle, 500) ?? '',
+		ultima: textoCorto(x.ultima, 20),
+		caduca: textoCorto(x.caduca, 40),
+		origen: textoCorto(x.origen, 20),
+		registro: textoCorto(x.registro, 300)
+	};
+}
+
+export async function estadoMarca(): Promise<EstadoMarcaNodo | null> {
+	const [f] = await db.select().from(s.ajustes).where(eq(s.ajustes.clave, 'marca-estado'));
+	return (f?.valor as EstadoMarcaNodo | undefined) ?? null;
+}
+
+export async function guardarEstadoMarca(e: EstadoMarcaNodo) {
+	const previo = await estadoMarca();
+	await guardarAjuste('marca-estado', e);
+	if (previo?.estado !== e.estado && (e.estado === 'caducada' || e.estado === 'retenida'))
+		await auditar('updater', 'release timestamp warning', { estado: e.estado, detalle: e.detalle });
+	if (e.registro && previo?.registro !== e.registro)
+		await auditar('updater', 'transparency log warning', { detalle: e.registro });
 }
 
 /* ---------- configuración firmada del nodo (desde la 0.12) ---------- */
@@ -541,7 +670,7 @@ export async function resultadoActualizacion(
 	return true;
 }
 
-async function latido(): Promise<Latido> {
+async function latido(panel: string | null = null): Promise<Latido> {
 	const ahora = Date.now();
 	/* Los retirados no cuentan: el panel los daría por sensores caídos. */
 	const sensores = await db.select().from(s.sensores).where(isNull(s.sensores.retirado));
@@ -573,7 +702,35 @@ async function latido(): Promise<Latido> {
 			version: (await actualizacion()).version
 		},
 		soporte: soporteLatido,
+		...(await (async () => {
+			const c = await leer();
+			return c ? { clavesPanel: clavesDelPanel(c).map(huella) } : {};
+		})()),
+		acceso: {
+			modo: (await configActiva())?.modo ?? 'local',
+			b2b: await estadoB2B()
+		},
 		...(await vigilanciaParaLatido(soporteLatido.estado === 'abierto')),
+		/* El último sello de la auditoría: fuera del nodo, nadie lo puede rehacer. */
+		...(await selloParaLatido()),
+		...(await (async () => {
+			const m = await estadoMarca();
+			return m ? { marca: m } : {};
+		})()),
+		/* Con qué se aíslan las trampas: el más débil de los sensores vivos que lo dicen. */
+		...(() => {
+			const a = aislamientoMasDebil(
+				sensores
+					.filter((x) => x.ultimoLatido && ahora - x.ultimoLatido.getTime() < 5 * 60_000)
+					.map((x) => x.capacidades?.hechos?.['motor.aislamiento']?.valor)
+			);
+			return a ? { aislamiento: a } : {};
+		})(),
+		/* Desde la 0.30: si sale por un proxy y a qué destinos llega (salida.ts). */
+		...(() => {
+			const salida = salidaParaLatido(panel);
+			return salida ? { salida } : {};
+		})(),
 		...(await (async () => {
 			const c = await configuracion();
 			return c
@@ -583,7 +740,7 @@ async function latido(): Promise<Latido> {
 	};
 }
 
-async function enviar(c: Canal, ruta: string, cuerpo: string) {
+async function enviar(c: Canal, ruta: string, cuerpo: string, espera = 15_000) {
 	return fetch(`${c.panel}${ruta}`, {
 		method: 'POST',
 		headers: {
@@ -591,9 +748,17 @@ async function enviar(c: Canal, ruta: string, cuerpo: string) {
 			...firmarPeticion(c.clavePrivada, c.nodo, 'POST', ruta, cuerpo)
 		},
 		body: cuerpo,
-		signal: AbortSignal.timeout(15_000)
+		signal: AbortSignal.timeout(espera)
 	});
 }
+
+/*
+ * La credencial de descarga de un sensor la crea el panel en el registro de Azure al
+ * pedirla: un token nuevo, esperar a que Azure lo dé por listo (el panel espera hasta
+ * 60 s) y su contraseña. Con los 15 s de siempre, el primer alta de un sensor fallaba a
+ * menudo. El que instala está esperando con su curl abierto, que no corta.
+ */
+const ESPERA_CREDENCIAL_SENSOR = 120_000;
 
 /*
  * Lleva al panel el código para recuperar una contraseña, para que lo mande por
@@ -652,9 +817,9 @@ export async function latir() {
 		return;
 	}
 	try {
-		const r = await enviar(c, '/api/nodo/latido', JSON.stringify(await latido()));
+		const r = await enviar(c, '/api/nodo/latido', JSON.stringify(await latido(c.panel)));
 		if (!r.ok) throw new Error(`Central responded ${r.status}`);
-		const v = verificarEstado(c.clavePublicaPanel, c.cliente, await r.json());
+		const v = verificarEstado(clavesDelPanel(c), c.cliente, await r.json());
 		if (!v.ok) {
 			/* Esto no es un fallo de red: alguien que no es el panel está respondiendo. */
 			await auditar(`node ${c.nodo}`, 'desired state rejected', { motivo: v.motivo });
@@ -682,10 +847,11 @@ export async function latir() {
 		const apuntarFallo = (e: unknown) => {
 			falloRele ??= e;
 		};
-		await guardarDireccionRele(v.estado.rele, c.nodo).catch(apuntarFallo);
+		await guardarDireccionRele(v.estado.rele, c.nodo, v.estado.releFirmado).catch(apuntarFallo);
 		await publicarBalizasRele(c).catch(apuntarFallo);
 		if (v.estado.releBalizas) await drenarBalizasRele(c).catch(apuntarFallo);
 		await considerar(v.estado, c.nodo);
+		await adoptarDeLoGuardado().catch((e) => console.error('[canal] Central keys', e));
 		await recibirSolicitud(v.estado.soporte);
 		await guardarAutorizados(v.estado.modulos);
 		await guardarLicencia(v.estado.licencia);
@@ -694,7 +860,8 @@ export async function latir() {
 		if (v.estado.catalogoPartner !== undefined)
 			await sincronizarCatalogoPartner(c, v.estado.catalogoPartner);
 		await intercambiarInteligencia(c);
-		await guardarRecuperacionPanel(v.estado.recuperacion);
+		await guardarRecuperacionPanel(v.estado.recuperacion, v.estado.recuperacionFirmada, c.cliente);
+		if (v.estado.marca !== undefined) await guardarMarcaDelPanel(v.estado.marca);
 		if (falloVigilancia) throw falloVigilancia;
 		if (falloRele) throw falloRele;
 	} catch (e) {
@@ -735,24 +902,55 @@ async function avisarDelCorte(c: Canal) {
 /* ---------- balizas que vuelven por el relé público (docs/diseno/rele-balizas.md) ---------- */
 
 /*
- * La dirección del relé, tal como viene en el estado firmado. El ajuste «rele» solo
- * lo escribe esto: cambiarla es cambiar el ajuste del panel. Ausente (un panel
- * anterior), no se toca nada; null, este panel no tiene relé y se olvida la que
- * hubiera. Lo que no sea un nombre limpio no se guarda aunque venga firmado: acabaría
- * dentro de los documentos. Los cebos ya sembrados no cambian: llevan la suya.
+ * La dirección del relé. Desde los frenos del nodo (docs/diseno/frenos-del-nodo.md) la firma de
+ * la clave del panel no basta: solo se cambia con la orden `releFirmado`, firmada además con una
+ * clave de publicación (uso delegaciones o la de legado), que no vive en el panel. El `rele` sin
+ * firmar, que sigue llegando para los nodos de antes, ya no cambia nada aquí: se apunta una vez en
+ * la auditoría y se sigue con la que había. Una orden más vieja que la aplicada no vale (no se
+ * puede volver a una dirección retirada). null en la orden: no hay relé, se olvida. El ajuste
+ * «rele» solo lo escribe esto. Los cebos ya sembrados no cambian: llevan la suya.
  */
-export async function guardarDireccionRele(direccion: string | null | undefined, nodo: string) {
-	if (direccion === undefined) return;
-	if (direccion !== null && !direccionReleValida(direccion)) {
-		await auditar(`node ${nodo}`, 'relay address rejected', { direccion: String(direccion) });
+export async function guardarDireccionRele(
+	direccion: string | null | undefined,
+	nodo: string,
+	firmada?: unknown
+) {
+	const [f] = await db.select().from(s.ajustes).where(eq(s.ajustes.clave, 'rele'));
+	const antes = (f?.valor as string | undefined) ?? null;
+	if (firmada === undefined) {
+		if (direccion === undefined || direccion === antes) return;
+		/* Una vez por dirección pedida: no en cada latido. */
+		const [ya] = await db.select().from(s.ajustes).where(eq(s.ajustes.clave, 'rele-sin-firma'));
+		if ((ya?.valor as { direccion?: unknown } | undefined)?.direccion === direccion) return;
+		await guardarAjuste('rele-sin-firma', { direccion });
+		await auditar(`node ${nodo}`, 'relay address change ignored: not signed by SeguridadSI', {
+			antes,
+			pedida: String(direccion)
+		});
 		return;
 	}
-	const [f] = await db.select().from(s.ajustes).where(eq(s.ajustes.clave, 'rele'));
-	const antes = f?.valor ?? null;
-	if (antes === direccion) return;
-	if (direccion === null) await db.delete(s.ajustes).where(eq(s.ajustes.clave, 'rele'));
-	else await guardarAjuste('rele', direccion);
-	await auditar('Central', 'relay address changed', { antes, ahora: direccion });
+	const c = confianza();
+	const v = c
+		? verificarOrden(c, firmada, 'rele')
+		: ({ ok: false, motivo: 'there is no trusted publication key' } as const);
+	if (!v.ok) {
+		await auditar(`node ${nodo}`, 'relay address rejected', { motivo: v.motivo });
+		return;
+	}
+	const [o] = await db.select().from(s.ajustes).where(eq(s.ajustes.clave, 'rele-orden'));
+	const aplicada = (o?.valor as { emitida?: string } | undefined)?.emitida;
+	if (aplicada && Date.parse(v.orden.emitida) < Date.parse(aplicada)) {
+		await auditar(`node ${nodo}`, 'relay address rejected', {
+			motivo: 'older than the order in use'
+		});
+		return;
+	}
+	if (aplicada !== v.orden.emitida) await guardarAjuste('rele-orden', { emitida: v.orden.emitida });
+	const ahora = v.orden.direccion;
+	if (antes === ahora) return;
+	if (ahora === null) await db.delete(s.ajustes).where(eq(s.ajustes.clave, 'rele'));
+	else await guardarAjuste('rele', ahora);
+	await auditar('SeguridadSI', 'relay address changed', { antes, ahora });
 }
 
 /*
@@ -819,24 +1017,63 @@ async function intercambiarInteligencia(c: Canal) {
 	if (recibir) {
 		const r = await enviar(c, '/api/nodo/lista', '{}');
 		if (!r.ok) throw new Error(`Central did not deliver the global list: ${r.status}`);
-		await aplicarLista(c.clavePublicaPanel, await r.json(), c.nodo);
+		await aplicarLista(clavesDelPanel(c), await r.json(), c.nodo);
 	} else {
 		await retirarListaGlobal();
 	}
 }
 
 /*
- * Un código de recuperación que SeguridadSI ha mandado desde su panel al correo
- * de contacto del cliente: aquí solo llega su hash, en el estado firmado. Se
- * guarda una vez (el id es el del panel) para ese usuario local y se canjea en
- * /sign-in/recover como uno pedido desde la entrada (auth/recuperar.ts).
+ * Un código de recuperación que SeguridadSI ha mandado desde su panel al correo de contacto del
+ * cliente: aquí solo llega su hash. Se guarda una vez (el id es el del panel) para ese usuario
+ * local y se canjea en /sign-in/recover como uno pedido desde la entrada (auth/recuperar.ts).
+ *
+ * Desde los frenos del nodo (docs/diseno/frenos-del-nodo.md) solo vale la orden
+ * `recuperacionFirmada`, firmada además con una clave de publicación y para este cliente: con la
+ * clave del panel sola, un panel tomado podría cambiar la contraseña de administrador de todas
+ * las consolas que lo permiten. La `recuperacion` sin firmar, que sigue llegando para los nodos de
+ * antes, se ignora y se apunta una vez.
  */
-export async function guardarRecuperacionPanel(r: RecuperacionPanel | null | undefined) {
-	if (!r || typeof r.usuario !== 'string' || typeof r.codigoHash !== 'string') return;
+export async function guardarRecuperacionPanel(
+	plana: RecuperacionPanel | null | undefined,
+	firmada?: unknown,
+	cliente?: string
+) {
+	let r: RecuperacionPanel | null = null;
+	if (firmada !== undefined) {
+		const c = confianza();
+		const v = c
+			? verificarOrden(c, firmada, 'recuperacion')
+			: ({ ok: false, motivo: 'there is no trusted publication key' } as const);
+		if (!v.ok || v.orden.cliente !== cliente) {
+			await auditar('Central', 'recovery code from Central rejected', {
+				motivo: v.ok ? 'the order is for another customer' : v.motivo
+			});
+			return;
+		}
+		r = {
+			id: v.orden.id,
+			usuario: v.orden.usuario,
+			codigoHash: v.orden.codigoHash,
+			caduca: v.orden.caduca
+		};
+	} else if (plana && typeof plana.id === 'string') {
+		const [ya] = await db
+			.select({ valor: s.ajustes.valor })
+			.from(s.ajustes)
+			.where(eq(s.ajustes.clave, 'recuperacion-sin-firma'));
+		if ((ya?.valor as { id?: string } | undefined)?.id !== plana.id) {
+			await guardarAjuste('recuperacion-sin-firma', { id: plana.id });
+			await auditar('Central', 'recovery code from Central ignored: not signed by SeguridadSI', {
+				usuario: String(plana.usuario)
+			});
+		}
+		return;
+	}
+	if (!r) return;
 	/*
-	 * Solo si el cliente lo ha permitido en Ajustes (SUP-12): con la clave del panel se
-	 * firma un estado para cualquier cliente, así que un panel tomado podría cambiar la
-	 * contraseña de administrador de todas las consolas. Por defecto, no.
+	 * Solo si el cliente lo ha permitido en Ajustes (SUP-12). Por defecto, no: aunque venga
+	 * firmada por SeguridadSI, abrir la consola desde fuera lo decide el cliente.
 	 */
 	if (!(await recuperacionPanelActiva())) {
 		const [ya] = await db
@@ -969,8 +1206,6 @@ export async function reanudar(quien: string) {
 
 /* ---------- sensores en otras máquinas ---------- */
 
-type Descarga = { registro: string; usuario: string; token: string };
-
 async function guardarRelease(version: string, firmada: ReleaseFirmada) {
 	const valor = { version, firmada };
 	await db
@@ -990,9 +1225,15 @@ async function pedirAlPanel(sensor?: string) {
 	if (!c) throw new Error('The node is not enrolled in Central.');
 	if (c.cortado) throw new Error('The channel with Central is cut.');
 	const version = (await cabecera()).cliente.version;
-	const r = await enviar(c, '/api/nodo/sensor-remoto', JSON.stringify({ sensor, version }));
+	const r = await enviar(
+		c,
+		'/api/nodo/sensor-remoto',
+		JSON.stringify({ sensor, version }),
+		sensor ? ESPERA_CREDENCIAL_SENSOR : undefined
+	);
 	if (!r.ok) throw new Error(`Central responded ${r.status}: ${(await r.text()).slice(0, 200)}`);
-	const b = (await r.json()) as { descarga: Descarga | null; release: ReleaseFirmada };
+	/* descarga viene sin firma: credencialSensorRemoto la acota antes de darla (script-sensor.ts). */
+	const b = (await r.json()) as { descarga: unknown; release: ReleaseFirmada };
 	const clave = confianza();
 	const v = clave ? verificarRelease(clave, b.release) : null;
 	if (!v?.ok || v.release.version !== version)
@@ -1000,6 +1241,7 @@ async function pedirAlPanel(sensor?: string) {
 			'The version delivered by Central is not authentic or is not the node version.'
 		);
 	await guardarRelease(version, b.release);
+	await adoptarClavesPanel(v.release);
 	return { descarga: b.descarga, firmada: b.release, release: v.release };
 }
 
@@ -1050,7 +1292,11 @@ export async function releaseDelNodo() {
 export async function credencialSensorRemoto(sensor: string) {
 	const p = await pedirAlPanel(sensor);
 	if (!p.descarga) throw new Error('Central did not provide a download credential.');
-	return { descarga: p.descarga, firmada: p.firmada, release: p.release };
+	/*
+	 * Lo único de la respuesta que no viene firmado con la clave de publicación: va al
+	 * instalador que corre como root en otra máquina, así que se acota su forma (C03).
+	 */
+	return { descarga: validarDescarga(p.descarga), firmada: p.firmada, release: p.release };
 }
 
 /* ---------- logotipo del cliente ---------- */
@@ -1103,7 +1349,7 @@ async function sincronizarTor(c: Canal, huellaFirmada: string | null) {
 			.digest('hex') !== huellaFirmada
 	)
 		return;
-	const v = verificarListaTor(c.clavePublicaPanel, f);
+	const v = verificarListaTor(clavesDelPanel(c), f);
 	if (!v.ok) {
 		await auditar(`node ${c.nodo}`, 'Tor list rejected', { motivo: v.motivo });
 		return;
@@ -1130,3 +1376,6 @@ async function sincronizarCatalogoPartner(c: Canal, huellaFirmada: string | null
 	const motivo = await guardarCatalogoPartner(huellaFirmada, await r.text());
 	if (motivo) await auditar(`node ${c.nodo}`, 'Partner honeypot catalog rejected', { motivo });
 }
+
+/* Solo para las pruebas. */
+export const _adoptarDeLoGuardado = adoptarDeLoGuardado;

@@ -32,6 +32,10 @@ export type Acceso = {
 	quien: string | null;
 	/* Abierta desde la propia máquina con el fichero de emergencia. */
 	emergencia?: boolean;
+	/* Hasta cuándo dura esa apertura (24 h): luego vuelve sola a lo de antes. */
+	emergenciaHasta?: string;
+	/* Lo que había antes de la emergencia, para volver a ello. */
+	antesDeEmergencia?: EstadoAcceso;
 	/* Sube con cada cambio: un formulario viejo no pisa lo que cambió mientras tanto. */
 	version?: number;
 	/*
@@ -103,11 +107,41 @@ export function propuestaDelInstalador(): string | null {
 	return normalizarIp(env.CONSOLA_ACCESO_PROPUESTA);
 }
 
+/* Lo que dura abierta la consola con el fichero de emergencia de la máquina. */
+export const EMERGENCIA_MS = 24 * 3600_000;
+
+/*
+ * La consola nace cerrada (CONSOLA_NACE_CERRADA, que pone instalar.sh en los nodos
+ * nuevos): sin lista, solo entran la red de la máquina (SENSOR_LOCAL_RED, la que
+ * detecta el instalador) y la IP desde la que se instaló. Un nodo de antes no la
+ * tiene y sigue «pendiente», para no dejar fuera a nadie al actualizarse.
+ */
+function nacimientoCerrado(): EntradaAcceso[] {
+	if (env.CONSOLA_NACE_CERRADA !== '1') return [];
+	const r: EntradaAcceso[] = [];
+	const red = entradaValida(env.SENSOR_LOCAL_RED ?? '');
+	if (red) r.push({ red, nota: 'Node network' });
+	const ip = propuestaDelInstalador();
+	if (
+		ip &&
+		!contenidaEn(
+			ip,
+			r.map((e) => e.red)
+		)
+	)
+		r.push({ red: ip, nota: 'Installed from' });
+	return r;
+}
+
 let cache: { valor: Acceso; hasta: number } | null = null;
 
-/* Sin ajuste guardado: la lista del instalador si la hay; si no, pendiente de decidir. */
+/*
+ * Sin ajuste guardado: la lista del instalador si la hay; si no, la de nacer cerrada;
+ * si tampoco, pendiente de decidir.
+ */
 function inicial(): Acceso {
-	const entradas = delInstalador();
+	let entradas = delInstalador();
+	if (!entradas.length) entradas = nacimientoCerrado();
 	return {
 		estado: entradas.length ? 'restringida' : 'pendiente',
 		entradas,
@@ -160,10 +194,19 @@ async function cambiar(
 			.values({ clave: CLAVE, valor })
 			.onConflictDoUpdate({ target: s.ajustes.clave, set: { valor } });
 		await tx.insert(s.auditoria).values({ quien, accion, detalle });
-		return valor;
+		return { valor, cambioLista: !f || huellaLista(valor) !== huellaLista(antes) };
 	});
 	cache = null;
-	return r;
+	/*
+	 * Si la máquina de la consola está detrás de un grupo de seguridad de su nube, la
+	 * misma lista tiene que llegar a él (cortafuegos-ficha.ts; en Community no hace nada).
+	 * Sin esperar: el alta de un sensor no puede quedarse colgada de Azure.
+	 */
+	if (r?.cambioLista)
+		void import('./cortafuegos-ficha')
+			.then((m) => m.alCambiarAcceso())
+			.catch((e) => console.error('[acceso] cloud firewall', e));
+	return r?.valor ?? null;
 }
 
 /* Los sensores remotos cuya máquina no entra con esa lista (los que se sabe desde dónde llegan). */
@@ -273,24 +316,75 @@ export async function dejarAbierta(quien: string): Promise<void> {
 		...antes,
 		estado: 'abierta',
 		emergencia: undefined,
+		emergenciaHasta: undefined,
+		antesDeEmergencia: undefined,
 		cambiado: new Date().toISOString(),
 		quien
 	}));
 }
 
-/* El actualizador ha abierto el puerto con el fichero de emergencia de la máquina. */
-export async function abiertaPorEmergencia(): Promise<void> {
-	await cambiar('machine', 'console access opened from the machine', {}, (antes) =>
-		antes.estado === 'abierta' && antes.emergencia
+/*
+ * El actualizador ha abierto el puerto con el fichero de emergencia de la máquina.
+ * Queda abierta 24 horas desde la primera vez que lo dice y luego vuelve sola a lo
+ * de antes (cerrarEmergenciaCaducada). Las dos cosas quedan en la auditoría.
+ */
+export async function abiertaPorEmergencia(ahora = Date.now()): Promise<void> {
+	const hasta = new Date(ahora + EMERGENCIA_MS).toISOString();
+	await cambiar('machine', 'console access opened from the machine', { hasta }, (antes) =>
+		antes.estado === 'abierta' && antes.emergencia && !emergenciaCaducada(antes, ahora)
 			? null
 			: {
 					...antes,
 					estado: 'abierta',
 					emergencia: true,
-					cambiado: new Date().toISOString(),
+					emergenciaHasta: hasta,
+					antesDeEmergencia: antes.emergencia ? antes.antesDeEmergencia : antes.estado,
+					cambiado: new Date(ahora).toISOString(),
 					quien: 'machine'
 				}
 	);
+}
+
+/* Hasta cuándo dura la apertura de emergencia. Una de antes, sin plazo apuntado, 24 h desde que se abrió. */
+export function finEmergencia(a: Acceso): number | null {
+	if (a.estado !== 'abierta' || !a.emergencia) return null;
+	const t = a.emergenciaHasta
+		? new Date(a.emergenciaHasta).getTime()
+		: a.cambiado
+			? new Date(a.cambiado).getTime() + EMERGENCIA_MS
+			: NaN;
+	return Number.isFinite(t) ? t : null;
+}
+
+/* Si la apertura de emergencia ya pasó de su plazo. */
+export function emergenciaCaducada(a: Acceso, ahora = Date.now()): boolean {
+	const fin = finEmergencia(a);
+	return fin !== null && fin <= ahora;
+}
+
+/*
+ * Pasadas las 24 horas, la consola vuelve a lo que había antes de la emergencia: la
+ * lista si estaba limitada, abierta si se dejó abierta a propósito, o «pendiente». Lo llama cada vuelta del
+ * actualizador (paraElCortafuegos), así que el puerto se cierra en medio minuto.
+ */
+export async function cerrarEmergenciaCaducada(ahora = Date.now()): Promise<boolean> {
+	if (!emergenciaCaducada(await leerAcceso(), ahora)) return false;
+	const r = await cambiar('machine', 'console access: emergency opening expired', {}, (antes) => {
+		if (!emergenciaCaducada(antes, ahora)) return null;
+		let vuelta: EstadoAcceso =
+			antes.antesDeEmergencia ?? (antes.entradas.length ? 'restringida' : 'pendiente');
+		if (vuelta === 'restringida' && !antes.entradas.length) vuelta = 'pendiente';
+		return {
+			...antes,
+			estado: vuelta,
+			emergencia: undefined,
+			emergenciaHasta: undefined,
+			antesDeEmergencia: undefined,
+			cambiado: new Date(ahora).toISOString(),
+			quien: 'machine'
+		};
+	});
+	return !!r;
 }
 
 /*
@@ -400,6 +494,7 @@ export async function paraElCortafuegos(): Promise<{
 	redes: string[];
 	huella: string;
 }> {
+	await cerrarEmergenciaCaducada();
 	const a = await leerAcceso();
 	return {
 		estado: a.estado,

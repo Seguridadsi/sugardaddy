@@ -494,7 +494,7 @@
 	}
 
 	.nombre:hover {
-		color: var(--accent);
+		color: var(--link);
 	}
 
 	.quien small {

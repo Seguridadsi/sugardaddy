@@ -417,34 +417,21 @@ func config(o Opciones, sensor, licenciaRuta string, s plan.TrampaPlan, conDisco
 		host := cfg["HostConfig"].(map[string]any)
 		red = redPropiaDe(o)
 		host["NetworkMode"] = red
-		// NET_RAW SOLO si la trampa pide capturar, y siempre con el filtro
-		// BPF puesto ANTES: el enchufe crudo de la trampa solo ve el ARP y
-		// el IPv4 de los rangos que ha pedido. Sin capturar, sin NET_RAW
-		// (el envenenador va de enchufes UDP normales). NET_ADMIN jamás:
-		// ninguna trampa cambia rutas ni reglas del anfitrión
-		// (docs/diseno/red.md: por qué es seguro).
+		// La trampa que pide capturar NO lleva NET_RAW ni va como root
+		// (docs/diseno/aislamiento-trampas.md §3): el enchufe crudo lo abre su
+		// acompañante de captura (asegurarCaptura), que comparte su espacio de
+		// red, engancha y candada el BPF y le pasa las tramas por un enchufe
+		// Unix abstracto (de ese espacio de red, nadie más lo ve). Lo que la
+		// trampa manda de vuelta solo sale si es suyo (su MAC). Así una trampa
+		// tomada no puede leer ni inyectar en el segmento. NET_ADMIN jamás.
 		if capturar := rellenar(s.Manifiesto.Red.Capturar); capturar != "" {
 			bpf, err := redpkg.CompilarBPF(capturar)
 			if err != nil {
 				return nil, nil, fmt.Errorf("the decoy capture filter (%s) is not valid: %v", capturar, err)
 			}
-			entorno = append(entorno, "SD_RED_BPF="+bpf)
+			entorno = append(entorno, "SD_RED_BPF="+bpf, "SD_ENLACE="+EnlaceAcompanante)
 			// el append puede mudar el slice: el mapa se queda con el nuevo.
 			cfg["Env"] = entorno
-			host["CapAdd"] = []string{"NET_RAW"}
-			/*
-			 * Y como root: una capacidad concedida (NET_RAW) solo la puede
-			 * usar un proceso raíz — las imágenes de trampa van de fábrica
-			 * con usuario sin privilegios (p. ej. 65534), y para un usuario
-			 * así CapAdd no es efectivo, no hay capacidades ambientales en
-			 * Docker y el enchufe crudo daría EPERM. Este «root» no es el
-			 * de antes: con CapDrop ALL solo conserva NET_RAW — ni CHOWN,
-			 * ni SETUID, ni SYS_ADMIN, ni NET_ADMIN — y sigue con su
-			 * sistema de ficheros de solo lectura, sin privilegios nuevos
-			 * y con sus topes de memoria, CPU y procesos
-			 * (docs/diseno/red.md: por qué es seguro).
-			 */
-			cfg["User"] = "0:0"
 		}
 		// La IP propia elegida (sondeada en producción, fija en el banco):
 		// en la huella, para que la trampa se rehaga si cambia.
@@ -628,6 +615,7 @@ func Aplicar(ctx context.Context, d *docker.Cliente, o Opciones, p plan.Plan) ([
 		if err := borrar(ctx, d, c.ID); err != nil {
 			fallos = append(fallos, fmt.Errorf("retirar %s: %w", id, err))
 		}
+		_ = borrar(ctx, d, nombreCaptura(p.Sensor, id))
 	}
 	// Lo que escribió el atacante en ellas (sesiones, claves) se va con la
 	// trampa, también si su contenedor ya no estaba.
@@ -682,12 +670,16 @@ func Aplicar(ctx context.Context, d *docker.Cliente, o Opciones, p plan.Plan) ([
 		} else if !o.Discos.Listo(nec) {
 			return Estado{ID: s.ID, Donde: "error: its disk is not mounted", Codigo: discos.CodigoError}
 		}
-		id, err := d.Crear(ctx, "sd-"+p.Sensor+"-"+s.ID, cfg)
+		man, _ := json.Marshal(s.Manifiesto)
+		id, err := d.CrearTrampa(ctx, "sd-"+p.Sensor+"-"+s.ID, cfg, man)
 		if err == nil {
 			err = d.Arrancar(ctx, id)
 		}
 		if err != nil {
-			return Estado{ID: s.ID, Donde: "error: " + err.Error()}
+			return Estado{ID: s.ID, Donde: "error: " + err.Error(), Codigo: codigoMotor(err)}
+		}
+		if err := asegurarCaptura(ctx, d, o, p.Sensor, s.ID, id, cfg); err != nil {
+			return Estado{ID: s.ID, Donde: "error: capture companion: " + err.Error(), Codigo: codigoMotor(err)}
 		}
 		if o.Discos != nil {
 			o.Discos.Usar(s.ID, conDisco)
@@ -819,6 +811,9 @@ func Aplicar(ctx context.Context, d *docker.Cliente, o Opciones, p plan.Plan) ([
 				// las de IP propia comparten segmento por diseño.
 				porRed[redDe(o, s)]++
 			} else {
+				if err := asegurarCaptura(ctx, d, o, p.Sensor, s.ID, c.ID, cfg); err != nil {
+					estados[len(estados)-1].Donde += " · warning: capture companion: " + err.Error()
+				}
 				// La MAC de la trampa, para el vigilante ARP (hallazgo 1):
 				// se pide solo mientras no se sepa (tras un reinicio, la
 				// trampa reusa contenedor y no vuelve a crearse).
@@ -847,6 +842,7 @@ func Aplicar(ctx context.Context, d *docker.Cliente, o Opciones, p plan.Plan) ([
 		// El contenedor de antes se quita antes de montar su disco: lo que tenga
 		// en la carpeta de la máquina pasa al disco nuevo con nadie escribiendo.
 		if existe {
+			_ = borrar(ctx, d, nombreCaptura(p.Sensor, s.ID))
 			if err := borrar(ctx, d, c.ID); err != nil {
 				sigue("could not remove the previous container (" + err.Error() + ")")
 				continue
@@ -1055,6 +1051,99 @@ func parar(ctx context.Context, d *docker.Cliente, id string) error {
 	defer cancelar()
 	if err := d.Parar(ctx, id); err != nil && !docker.NoExiste(err) {
 		return err
+	}
+	return nil
+}
+
+// EnlaceAcompanante es el enchufe Unix abstracto (en el espacio de red de la
+// trampa) por el que el acompañante de captura le pasa las tramas.
+const EnlaceAcompanante = "@sugardaddy-enlace"
+
+// etiquetaCaptura marca el acompañante de captura de una trampa (sin
+// etiquetaSensor: Aplicar no lo confunde con una trampa).
+const etiquetaCaptura = "sugardaddy.captura"
+
+// nombreCaptura: con «_», que no cabe en el id de un sensor ni de una trampa.
+func nombreCaptura(sensor, id string) string { return "sd_captura_" + sensor + "_" + id }
+
+// asegurarCaptura deja en marcha el acompañante de captura de una trampa que
+// captura, unido a su espacio de red (docs/diseno/aislamiento-trampas.md §3): la
+// imagen del propio sensor con su orden «captura», NET_RAW y nada más. Si la
+// trampa se ha rehecho, el acompañante se rehace con ella (su red es la del
+// contenedor de entonces).
+func asegurarCaptura(ctx context.Context, d *docker.Cliente, o Opciones, sensor, id, contenedor string, cfg map[string]any) error {
+	bpf := ""
+	for _, e := range lista(cfg["Env"]) {
+		if v, ok := strings.CutPrefix(e, "SD_RED_BPF="); ok {
+			bpf = v
+		}
+	}
+	if bpf == "" {
+		return nil
+	}
+	if o.ImagenSonda == "" {
+		return errors.New("the sensor image is not known (SENSOR_IMAGEN), so the decoy cannot capture")
+	}
+	nombre := nombreCaptura(sensor, id)
+	if i, err := d.Inspeccionar(ctx, nombre); err == nil {
+		st, _ := i["State"].(map[string]any)
+		hc, _ := i["HostConfig"].(map[string]any)
+		if st["Running"] == true && hc["NetworkMode"] == "container:"+contenedor {
+			return nil
+		}
+	}
+	if err := borrar(ctx, d, nombre); err != nil {
+		return err
+	}
+	cid, err := d.Crear(ctx, nombre, map[string]any{
+		"Image":  o.ImagenSonda,
+		"Cmd":    []string{"captura", bpf},
+		"User":   "0:0",
+		"Labels": map[string]string{etiquetaCaptura: id},
+		"HostConfig": map[string]any{
+			"NetworkMode":    "container:" + contenedor,
+			"ReadonlyRootfs": true,
+			"CapDrop":        []string{"ALL"},
+			// Solo para el enchufe crudo. Un proceso root sin más capacidades: no
+			// cambia rutas, ni ficheros ajenos, ni sale de su contenedor.
+			"CapAdd":        []string{"NET_RAW"},
+			"SecurityOpt":   []string{"no-new-privileges"},
+			"Memory":        int64(32) << 20,
+			"PidsLimit":     16,
+			"RestartPolicy": map[string]string{"Name": "unless-stopped"},
+			"LogConfig":     docker.RegistrosAcotados(),
+		},
+	})
+	if err != nil {
+		return err
+	}
+	return d.Arrancar(ctx, cid)
+}
+
+// codigoMotor: el código estable de un rechazo de sd-motor («… [motor.rechazo]»), si lo es.
+func codigoMotor(err error) string {
+	var ea *docker.ErrAPI
+	if errors.As(err, &ea) && ea.Codigo == 403 && strings.HasPrefix(ea.Mensaje, "sd-motor:") {
+		if i := strings.LastIndex(ea.Mensaje, "["); i >= 0 && strings.HasSuffix(ea.Mensaje, "]") {
+			return ea.Mensaje[i+1 : len(ea.Mensaje)-1]
+		}
+		return "motor.rechazo"
+	}
+	return ""
+}
+
+func lista(v any) []string {
+	switch x := v.(type) {
+	case []string:
+		return x
+	case []any:
+		var r []string
+		for _, e := range x {
+			if s, ok := e.(string); ok {
+				r = append(r, s)
+			}
+		}
+		return r
 	}
 	return nil
 }

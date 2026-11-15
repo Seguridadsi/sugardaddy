@@ -4,6 +4,7 @@ import { exigir } from '$lib/server/auth/permisos';
 import { anadirALista, listasDe } from '$lib/server/consultas';
 import { normalizarDominio } from '$lib/server/dominios';
 import { migrados } from '$lib/server/origenes-comun';
+import { listaComunEnEspera } from '$lib/server/inteligencia';
 import { cambiarUsoTor, listaTor, usoTor } from '$lib/server/tor';
 
 /* Una IP, una red en CIDR o un dominio. Devuelve además el valor ya normalizado
@@ -53,7 +54,9 @@ export const load = async ({ url }) => {
 		tor: tor
 			? { ips: lista === 'tor' ? tor.ips : [], emitida: tor.emitida, fuente: tor.fuente }
 			: null,
-		usoTor: await usoTor()
+		usoTor: await usoTor(),
+		/* Lo de la lista común que espera por el tope diario (docs/diseno/frenos-del-nodo.md). */
+		espera: lista === 'negra' ? await listaComunEnEspera() : null
 	};
 };
 

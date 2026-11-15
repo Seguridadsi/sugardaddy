@@ -29,6 +29,7 @@ import (
 
 	"github.com/kinomakino/sugardaddy/sensor/internal/actualizador"
 	"github.com/kinomakino/sugardaddy/sensor/internal/adaptador"
+	"github.com/kinomakino/sugardaddy/sensor/internal/captura"
 	"github.com/kinomakino/sugardaddy/sensor/internal/catalogo"
 	"github.com/kinomakino/sugardaddy/sensor/internal/confianza"
 	"github.com/kinomakino/sugardaddy/sensor/internal/consola"
@@ -37,6 +38,7 @@ import (
 	"github.com/kinomakino/sugardaddy/sensor/internal/docker"
 	"github.com/kinomakino/sugardaddy/sensor/internal/estado"
 	"github.com/kinomakino/sugardaddy/sensor/internal/evento"
+	"github.com/kinomakino/sugardaddy/sensor/internal/intermediario"
 	"github.com/kinomakino/sugardaddy/sensor/internal/motor"
 	"github.com/kinomakino/sugardaddy/sensor/internal/plan"
 	"github.com/kinomakino/sugardaddy/sensor/internal/red"
@@ -77,6 +79,20 @@ func main() {
 		fmt.Println(version)
 		return
 	}
+	// La misma imagen firmada hace de sd-motor, de acompañante de captura y de
+	// servicio de discos del anfitrión (docs/diseno/aislamiento-trampas.md).
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "motor":
+			os.Exit(intermediario.Main(os.Args[2:]))
+		case "captura":
+			os.Exit(captura.Main(os.Args[2:]))
+		case "discos-anfitrion":
+			os.Exit(discos.MainServicio(os.Args[2:]))
+		case "copiar-binario":
+			os.Exit(copiarBinario(os.Args[2:]))
+		}
+	}
 	// La sonda del aislamiento entre trampas (ver despliegue): una mitad escucha
 	// y la otra llama; «sondear» sale con 0 si llega.
 	if len(os.Args) == 3 && os.Args[1] == "escuchar" {
@@ -105,6 +121,15 @@ func main() {
 	if len(os.Args) == 2 && os.Args[1] == "puertos-anfitrion" {
 		os.Exit(puertosAnfitrion())
 	}
+	// Healthcheck de sd-motor: contesta por su socket.
+	if len(os.Args) == 3 && os.Args[1] == "salud-motor" {
+		ctx, cancelar := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancelar()
+		if _, err := docker.Nuevo(os.Args[2]).Aislamiento(ctx); err != nil {
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
 	// Healthcheck de compose: la imagen no tiene shell ni curl.
 	if len(os.Args) == 3 && os.Args[1] == "salud" {
 		c := &http.Client{Timeout: 3 * time.Second}
@@ -118,7 +143,8 @@ func main() {
 	datos := flag.String("datos", "./datos-sensor", "sensor working folder")
 	escucha := flag.String("escucha", "0.0.0.0", "host IP where the decoys are published")
 	desplazar := flag.Int("desplazar", 0, "adds this to the exposed ports (development)")
-	socket := flag.String("docker", "/var/run/docker.sock", "Docker socket")
+	socket := flag.String("docker", "/var/run/docker.sock", "Docker socket (only without sd-motor)")
+	sdMotor := flag.String("motor", "", "sd-motor socket: the sensor talks to it instead of Docker (docs/diseno/aislamiento-trampas.md)")
 	ca := flag.String("ca", "", "root of the console CA, if the system does not trust it (sensor on another machine)")
 	salud := flag.String("salud", "", "address of the health endpoint for the updater, e.g. :9100 (empty: none)")
 	// El modo «IP propia» (docs/diseno/red.md): solo si quien instala el
@@ -156,6 +182,9 @@ func main() {
 		slog.Error("console CA", "err", err)
 		os.Exit(2)
 	}
+	if *sdMotor != "" {
+		*socket = *sdMotor
+	}
 	d := docker.Nuevo(*socket)
 	c := consola.NuevoCon(*urlConsola, token, h)
 	c.Version = version
@@ -188,6 +217,23 @@ func main() {
 		// Trampas de partner (docs/diseno/trampas-de-partner.md): solo si este nodo tiene
 		// partner. Su catálogo va junto a la versión firmada; la serie, en los datos.
 		partner: lectorPartner(*firmado, *datos),
+	}
+	// Con sd-motor, los discos los monta el servicio sd-discos del anfitrión, al que
+	// se llega por sd-motor: ni auxiliar privilegiado ni imagen del actualizador.
+	if *sdMotor != "" {
+		s.motorSeguro = true
+		// Lo ya leído de los registros de las trampas lo libera sd-motor: el sensor ya
+		// no es root y el registro es del usuario del honeypot.
+		perforar = func(ruta string, hasta int64) error {
+			c, cancelar := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancelar()
+			return d.Perforar(c, ruta, hasta)
+		}
+		s.opc.Discos.Lanzar = func(ctx context.Context, _ string, p discos.Pedido) (discos.Resultado, error) {
+			var r discos.Resultado
+			err := d.Discos(ctx, p, &r)
+			return r, err
+		}
 	}
 	// El registro del partner, para descargar sus trampas. Lo que se arranca lo fija el
 	// digest firmado, no el registro: una credencial tomada no permite cambiar la imagen.
@@ -252,8 +298,10 @@ func main() {
 }
 
 type sensor struct {
-	consola *consola.Cliente
-	toques  toques
+	// motorSeguro: habla con sd-motor, no con Docker.
+	motorSeguro bool
+	consola     *consola.Cliente
+	toques      toques
 	// Por dónde sale a internet, preguntado a quien dice el plan (ip_publica.go).
 	ipPublica ipPublica
 	docker    *docker.Cliente
@@ -275,6 +323,8 @@ type sensor struct {
 	ritmo ritmo
 	// Lo descartado con la cola de salida llena, aún sin resumir (ver cola.go).
 	descartes descartes
+	// La cabeza de la cola con la que la consola falla (ver atasco.go).
+	atasco atasco
 	// La última entrega a la consola salió bien: si la cola se llena, no es
 	// porque la consola no recoja (ver abrirCola).
 	consolaRecoge bool
@@ -291,6 +341,10 @@ type sensor struct {
 	// la caza en cuanto un reclamo llega mientras se aplica un plan).
 	vigiladas   map[string]bool
 	muVigiladas sync.Mutex
+	// reclamadas son los eventos de IP propia reclamada que deja la goroutina
+	// del vigilante para la siguiente lectura, que los encadena (ver reclamo.go).
+	reclamadas   []evento.Evento
+	muReclamadas sync.Mutex
 	// muPlan guarda s.plan entre el bucle que lo reescribe y la goroutine del
 	// vigilante, que lo lee por s.pararTrampa (hallazgo N2 de la re-revisión:
 	// carrera benigna de puntero, cerrada igual). Los demás lectores viven en
@@ -306,6 +360,7 @@ type sensor struct {
 	// intento: la última vez que se probó, salga o no.
 	sondeo struct {
 		clone3          *motor.Hecho
+		aislamiento     map[string]any
 		puerta          string
 		de              string
 		cuando, intento time.Time
@@ -490,6 +545,7 @@ func (s *sensor) describirMotor(ctx context.Context, id string, errAplicar error
 // imagen del sensor no hay sonda, y lo que no se mide no se informa. Una
 // sonda que falla se reintenta, pero no más de una vez cada cadaMotor.
 func (s *sensor) sondearMotor(ctx context.Context, id string) {
+	s.sondeo.aislamiento = s.medirAislamiento(ctx)
 	de := s.motor.Tipo + " " + s.motor.Version + " " + s.motor.Modo
 	if s.opc.ImagenSonda == "" || id == "" || (s.sondeo.de == de && time.Since(s.sondeo.cuando) < cadaSondeo) ||
 		time.Since(s.sondeo.intento) < cadaMotor {
@@ -516,6 +572,25 @@ func (s *sensor) sondearMotor(ctx context.Context, id string) {
 	}
 }
 
+// medirAislamiento: el hecho motor.aislamiento. Con sd-motor, lo que él aplica
+// (runsc, runc-perfiles o runc-seccomp). Sin él, «runc-docker»: el perfil por
+// defecto del motor y el sensor con el socket, que el panel avisa.
+func (s *sensor) medirAislamiento(ctx context.Context) map[string]any {
+	if !s.motorSeguro {
+		return map[string]any{"valor": "runc-docker", "motivo": "aislamiento.sin-motor"}
+	}
+	a, err := s.docker.Aislamiento(ctx)
+	if err != nil {
+		slog.Warn("sd-motor does not say how decoys are isolated", "err", err)
+		return s.sondeo.aislamiento
+	}
+	r := map[string]any{"valor": a["valor"]}
+	if m, _ := a["motivo"].(string); m != "" {
+		r["motivo"] = m
+	}
+	return r
+}
+
 // hechos que el sensor sabe de su máquina, con su motivo, solo los que ya
 // se saben: red.ipOrigenReal, motor.clone3, red.capa2 (docs/diseno/red.md
 // §2.1: si esta máquina puede poner trampas con IP propia en el segmento) y
@@ -533,6 +608,11 @@ func (s *sensor) hechos() map[string]any {
 	if s.sondeo.clone3 != nil {
 		h["motor.clone3"] = s.sondeo.clone3
 	}
+	// Con qué se aíslan las trampas (docs/diseno/aislamiento-trampas.md §4). Sin
+	// sd-motor, con lo que ponga el motor por defecto: se dice también.
+	if s.sondeo.aislamiento != nil {
+		h["motor.aislamiento"] = s.sondeo.aislamiento
+	}
 	if s.opc.Discos != nil {
 		if v, motivo, sabido := s.opc.Discos.Estado(); sabido {
 			h["disco.trampas"] = &motor.Hecho{Valor: v, Motivo: motivo}
@@ -546,6 +626,13 @@ func (s *sensor) hechos() map[string]any {
 	}
 	if ip := s.ipPublica.actual(); ip != "" {
 		h["red.ipPublica"] = map[string]any{"valor": ip}
+	}
+	// Si sale a internet por un proxy (docs/diseno/proxy-salida.md): se lo pone su
+	// instalador en el entorno. Solo si o no: la dirección puede llevar contraseña.
+	h["proxy.presente"] = map[string]any{"valor": proxyPresente(os.Getenv)}
+	// Líneas de la cola que la consola no sabía procesar y se apartaron (atasco.go).
+	if a := s.hechoApartadas(); a != nil {
+		h["entrega.apartadas"] = a
 	}
 	if s.opc.RedPropia != nil && s.opc.RedPropia.Puente == "" {
 		if c := red.Capa2(red.Opciones{Interfaz: s.opc.RedPropia.Interfaz, Rango: s.opc.RedPropia.Rango.String()}); c != nil {
@@ -613,6 +700,7 @@ func (s *sensor) montarVigilante(ctx context.Context) {
 					}
 				}
 				slog.Warn("another device claimed the own IP of a decoy", "trampa", id, "ip", r.IP, "mac", r.MAC)
+				s.apuntarReclamo(id, r.IP, r.MAC, time.Now())
 			}
 		}
 	}()
@@ -745,6 +833,10 @@ func (s *sensor) leer() {
 			// evento tiene que llegar antes a la consola: ver artefactos.go).
 			s.encolarArtefacto(e)
 		}
+	}
+	// Las IP propias que otro equipo reclamó desde la última vuelta.
+	for _, x := range s.tomarReclamos() {
+		encolar(x)
 	}
 	// Lo de su máquina que esperaba al plan siguiente y resulta ser de una prueba.
 	listos, retenidos, olvidados := s.repartirRetenidos()
@@ -880,6 +972,10 @@ func (s *sensor) entregar(ctx context.Context) {
 		slog.Warn("the console does not accept a delivery this large; splitting it", "lineas", s.lote)
 		return
 	}
+	if errors.Is(err, consola.ErrFalloConsola) {
+		s.atascada(lineas, err)
+		return
+	}
 	if err != nil {
 		slog.Warn("delivery failed; retrying", "err", err)
 		s.consolaRecoge = false
@@ -887,7 +983,7 @@ func (s *sensor) entregar(ctx context.Context) {
 		return
 	}
 	s.consolaRecoge = r.OK
-	s.lote = porEntrega
+	s.lote = s.loteTrasEntrega()
 	for _, l := range lineas[:r.Aceptadas] {
 		s.estado.Entregado += int64(len(l)) + 1
 	}
@@ -1334,4 +1430,9 @@ func marcaCatalogo(firmado string) string {
 		return ""
 	}
 	return filepath.Join(filepath.Dir(firmado), "exigir")
+}
+
+// proxyPresente dice si el sensor sale por un proxy: HTTPS_PROXY (o https_proxy) puesto.
+func proxyPresente(getenv func(string) string) bool {
+	return getenv("HTTPS_PROXY") != "" || getenv("https_proxy") != ""
 }

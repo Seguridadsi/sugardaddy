@@ -5,6 +5,15 @@
 # tras cada versión instalada; .env (secretos y ajustes) lo genera instalar.sh.
 name: sugardaddy
 
+# Proxy de salida y CA corporativa (docs/diseno/proxy-salida.md): los deja instalar.sh en
+# .env. Vacíos, se sale directo. La red del nodo y la consola están en NO_PROXY.
+x-proxy: &proxy
+  HTTP_PROXY: ${PROXY_SALIDA:-}
+  HTTPS_PROXY: ${PROXY_SALIDA:-}
+  NO_PROXY: ${PROXY_EXCEPCIONES:-}
+  # Go (sensor y actualizador) lee, además de su almacén, los certificados de esta carpeta.
+  SSL_CERT_DIR: ${PROXY_CA:+/proxy}
+
 x-endurecido: &endurecido
   read_only: true
   cap_drop: [ALL]
@@ -18,7 +27,9 @@ x-endurecido: &endurecido
 services:
   postgres:
     <<: *endurecido
-    image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+    # De dónde sale la imagen (TERCEROS en .env) cambia; qué imagen es, no: el digest es
+    # el mismo en Docker Hub y en el registro propio (herramientas/replicar-terceros.sh).
+    image: ${TERCEROS:-docker.io/library}/postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
     # Postgres necesita algunas capacidades para cambiar al usuario postgres al arrancar.
     cap_drop: []
     environment:
@@ -40,6 +51,10 @@ services:
     depends_on:
       postgres: { condition: service_healthy }
     environment:
+      <<: *proxy
+      # Node solo sale por el proxy si se le pide, y solo se fía de la CA corporativa así.
+      NODE_USE_ENV_PROXY: ${PROXY_SALIDA:+1}
+      NODE_EXTRA_CA_CERTS: ${PROXY_CA:+/proxy/ca.crt}
       DATABASE_URL: postgres://sugardaddy:${POSTGRES_PASSWORD}@postgres:5432/consola
       # Modo FIJO: ORIGIN es la URL del nodo. Modo «cualquier IP/nombre»: ORIGIN
       # vacío y el origen se saca de las cabeceras que pone Caddy (así vale por
@@ -93,6 +108,8 @@ services:
       REGISTRO_PARTNER_USUARIO: ${REGISTRO_PARTNER_USUARIO:-}
       REGISTRO_PARTNER_TOKEN: ${REGISTRO_PARTNER_TOKEN:-}
       PANEL_HTTP_PERMITIDO: ${PANEL_HTTP_PERMITIDO:-}
+      # El registro de las imágenes: la consola prueba que llega a él (salida.ts).
+      REGISTRO: ${REGISTRO:-}
       # Alta automática en el panel la primera vez (la deja el instalador).
       PANEL_URL: ${PANEL_URL:-}
       PANEL_ALTA_CODIGO: ${PANEL_ALTA_CODIGO:-}
@@ -104,6 +121,9 @@ services:
       # La raíz (pública) de la CA del nodo, que copia ahí el instalador o el
       # auxiliar: la carpeta de Caddy solo la lee root y nunca entra aquí.
       - ./ca-raiz.crt:/ca/ca-raiz.crt:ro
+      # La CA del proxy corporativo, si la hay (proxy/ca.crt). Una carpeta, que Docker crea
+      # vacía en un nodo que no la tiene.
+      - ./proxy:/proxy:ro
     tmpfs: [/tmp]
     # Sin puertos propios: se entra por https, a través de Caddy.
     # Puede salir a internet: es la que habla con el panel central y con las
@@ -128,7 +148,7 @@ services:
 
   https:
     <<: *endurecido
-    image: caddy:2-alpine@sha256:d8542f48d34a9cf4e4c11a478865229840e87e4c96ea3f439101f31a5d35f75f
+    image: ${TERCEROS:-docker.io/library}/caddy:2-alpine@sha256:d8542f48d34a9cf4e4c11a478865229840e87e4c96ea3f439101f31a5d35f75f
     depends_on: [consola]
     # Escuchar en el 443 necesita esta capacidad, y ninguna más.
     cap_add: [NET_BIND_SERVICE]
@@ -154,14 +174,75 @@ services:
     tmpfs: [/config]
     networks: [nodo]
 
+  # sd-motor (docs/diseno/aislamiento-trampas.md): el único que habla con el
+  # socket de Docker. El sensor le pide crear, arrancar, parar, borrar y ver sus
+  # trampas por un socket Unix, y sd-motor solo crea lo que sale de un manifiesto
+  # del catálogo firmado, nunca privileged, ni con la red, el PID o el IPC del
+  # anfitrión, ni dispositivos, ni binds fuera de la carpeta de cada trampa. Pone
+  # gVisor (runsc) si el motor lo tiene y, si no, su seccomp y su AppArmor. No
+  # tiene red: nadie le llega más que el sensor, por su socket. Es la imagen del
+  # sensor (firmada) con su orden «motor».
+  sd-motor:
+    <<: *endurecido
+    image: ${SENSOR_IMAGEN:?falta en versiones.env}
+    user: '0:0'
+    # Root sin más poder que el socket: CHOWN para dejar la carpeta del sensor a
+    # su usuario (los nodos de antes la tienen de root) y DAC_OVERRIDE para liberar
+    # lo ya leído de los registros de las trampas, que son del usuario de cada
+    # honeypot (el sensor se lo pide; solo registros de trampa).
+    cap_add: [CHOWN, DAC_OVERRIDE]
+    network_mode: none
+    command:
+      - motor
+      - -escucha=/run/sd-motor/motor.sock
+      - -datos=${DATOS:?falta en .env}/sensor
+      - -firmado=/firmado/version.json
+      - -estado=/estado
+      # El buzón del servicio de discos del anfitrión (sd-discos), si el instalador lo puso.
+      - -buzon-discos=/buzon-discos
+    environment:
+      SENSOR_IMAGEN: ${SENSOR_IMAGEN}
+      EDICION: ${EDICION:-}
+      PUBLICACION_CLAVES: ${PUBLICACION_CLAVES:-}
+      PUBLICACION_CLAVE_PUBLICA: ${PUBLICACION_CLAVE_PUBLICA:-}
+      PARTNER: ${PARTNER:-}
+      # El perfil AppArmor de las trampas, si el instalador lo cargó en la máquina.
+      TRAMPAS_APPARMOR: ${TRAMPAS_APPARMOR:-}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - motor:/run/sd-motor
+      - type: bind
+        source: ${DATOS}/sensor
+        target: ${DATOS}/sensor
+        bind:
+          create_host_path: true
+      - ${NODO_DIR}/firmado:/firmado:ro
+      - estado-motor:/estado
+      - type: bind
+        source: /var/lib/sugardaddy/discos
+        target: /buzon-discos
+        bind:
+          create_host_path: true
+    labels:
+      sugardaddy.servicio: sd-motor
+    healthcheck:
+      test: ['CMD', '/app', 'salud-motor', '/run/sd-motor/motor.sock']
+      interval: 5s
+      timeout: 4s
+      retries: 30
+
   sensor:
     <<: *endurecido
     image: ${SENSOR_IMAGEN:?falta en versiones.env}
-    depends_on: [consola]
-    # Para liberar lo ya leído de los registros de las trampas, que escribe el
-    # usuario de cada honeypot y no el del sensor; si no, el tope de disco de
-    # cada trampa no funciona. Con el socket de Docker ya equivale a root.
-    cap_add: [DAC_OVERRIDE]
+    # Sin root y sin el socket de Docker: lo que necesita del motor se lo pide a
+    # sd-motor. Los registros de las trampas los perfora gracias a la ACL que
+    # pone sd-motor en sus carpetas, no con DAC_OVERRIDE.
+    user: '65532:65532'
+    depends_on:
+      consola:
+        condition: service_started
+      sd-motor:
+        condition: service_healthy
     command:
       - -consola=http://consola:3000
       - -datos=${DATOS:?falta en .env}/sensor
@@ -170,17 +251,17 @@ services:
       - -salud=:9100
       # La versión firmada instalada: su catálogo es lo único que se arranca (SEN-3).
       - -firmado=/firmado/version.json
+      - -motor=/run/sd-motor/motor.sock
     environment:
+      <<: *proxy
       SUGARDADDY_TOKEN: ${SENSOR_LOCAL_TOKEN}
       # Con ellas comprueba la firma de esa versión, que tiene que ser de su edición.
       EDICION: ${EDICION:-}
       PUBLICACION_CLAVES: ${PUBLICACION_CLAVES:-}
       PUBLICACION_CLAVE_PUBLICA: ${PUBLICACION_CLAVE_PUBLICA:-}
-      # Con su propia imagen comprueba que las trampas no se ven entre sí.
+      # Con su propia imagen comprueba que las trampas no se ven entre sí y lanza el
+      # acompañante de captura de las trampas de enlace.
       SENSOR_IMAGEN: ${SENSOR_IMAGEN}
-      # Con la del actualizador lanza el auxiliar que monta el disco de tamaño
-      # fijo de cada trampa (docs/diseno/discos-trampa.md).
-      ACTUALIZADOR_IMAGEN: ${ACTUALIZADOR_IMAGEN}
       # Las imágenes de las trampas propias están en el registro privado (solo lectura).
       REGISTRO: ${REGISTRO:-ghcr.io}
       REGISTRO_USUARIO: ${REGISTRO_USUARIO:-}
@@ -192,11 +273,11 @@ services:
       REGISTRO_PARTNER_USUARIO: ${REGISTRO_PARTNER_USUARIO:-}
       REGISTRO_PARTNER_TOKEN: ${REGISTRO_PARTNER_TOKEN:-}
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+      - motor:/run/sd-motor
       # Misma ruta dentro y fuera: el sensor monta en las trampas carpetas
       # que el motor de Docker tiene que encontrar en el anfitrión. Con
-      # propagación (rslave) ve los discos de las trampas que su auxiliar monta
-      # después de que arranque (docs/diseno/discos-trampa.md). Solo si la
+      # propagación (rslave) ve los discos de las trampas que monta el servicio
+      # sd-discos del anfitrión (docs/diseno/discos-trampa.md). Solo si la
       # máquina la admite: lo prueban el instalador y el auxiliar de cada
       # versión, que dejan SENSOR_PROPAGACION en .env; si no, Docker no
       # arrancaría el sensor (un contenedor LXC con la raíz privada).
@@ -208,6 +289,7 @@ services:
           create_host_path: true
       # La deja el actualizador; una carpeta y no el fichero, que se reescribe con un rename.
       - ${NODO_DIR}/firmado:/firmado:ro
+      - ${NODO_DIR}/proxy:/proxy:ro
     networks: [nodo]
     labels:
       sugardaddy.servicio: sensor
@@ -229,6 +311,7 @@ services:
       - -versiones=/nodo/versiones.env
       - -salud=:9101
     environment:
+      <<: *proxy
       ACTUALIZADOR_TOKEN: ${ACTUALIZADOR_TOKEN}
       # La carpeta del nodo vista desde el anfitrión: la necesita el auxiliar
       # que aplica la configuración, que la monta en la misma ruta.
@@ -247,6 +330,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${NODO_DIR:?falta en .env}:/nodo
+      - ${NODO_DIR}/proxy:/proxy:ro
     networks: [nodo]
     labels:
       sugardaddy.servicio: actualizador
@@ -264,6 +348,10 @@ networks:
 
 volumes:
   datos-postgres: {}
+  # El socket de sd-motor, compartido con el sensor (y nadie más).
+  motor: {}
+  # La serie del catálogo de partner que ha aceptado sd-motor.
+  estado-motor: {}
   # Los certificados que emite Caddy y, en un nodo instalado antes de la CA
   # propia (docs/diseno/ca-nodo.md), la CA de Caddy, que se destruye al pasar
   # a la propia. Si se pierde esa CA, hay que volver a repartir su raíz.

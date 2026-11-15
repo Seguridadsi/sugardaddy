@@ -1,0 +1,15 @@
+{
+	"descripcion": "Sello de una señal del relé (rele/sello.go y paquetes/canal/src/sello-rele.ts). Claves fijas: SOLO para las pruebas.",
+	"privadaNodo": "CPbcQRvui9OpSIUlfu6LeZQPLs-i7bcAxPPhRJdNZ6o",
+	"publicaNodo": "ZIYIrsB0phLa5QxvkwUf6WUnBkMVWVB6CTWRZBetzys",
+	"token": "kZIYIrsB0phLa5QxvkwUf6WUnBkMVWVB6CTWRZBetzyv6t9UONHGvTg4SyJpsOB9b",
+	"ruta": "Hl2ouhzRZh9fkW28F7viVQ",
+	"efimera": "V5SaMrV49FlHWh4Y8ixPQjVh2eDqkYOa5PWwhec7lQc",
+	"linea": "{\"t\":\"2026-11-14T10:00:00Z\",\"ip\":\"203.0.113.7\",\"token\":\"kZIYIrsB0phLa5QxvkwUf6WUnBkMVWVB6CTWRZBetzyv6t9UONHGvTg4SyJpsOB9b\",\"ua\":\"Microsoft Office Word\",\"path\":\"/b/kZIYIrsB0phLa5QxvkwUf6WUnBkMVWVB6CTWRZBetzyv6t9UONHGvTg4SyJpsOB9b\"}",
+	"sellada": {
+		"v": 1,
+		"r": "Hl2ouhzRZh9fkW28F7viVQ",
+		"e": "odFlF_iPh3SKjnJPtjqIT9muhyzaMybmsTUHGCMmOy0",
+		"c": "m9L-vr7u33Z6WjjzbdyJeJliVHVJr_y9BrNKcdaVn-YLE9hAhgxWkPXzN8dAyr88QvbeRUPprcAgSSjw168ELoIcGox-blQUslgtPbzremnzOb3Xqvp5ZHa58hkKk9OhqHOQOnyeU3EsAgN1H6xa0jhV9OuzhmaQGlQta0uiTe3Q3LQhF62pngoGdJjeWrCwOheAOvMrhVinXl6Gc5WAxmma29t4x08lhhtUmtMXCKlkWVKYR3q9mvAPxycucmADWrVUSqWgwqxRN1BtdwNIQY0Wkdj-pxks09fC369z9UI0zKoeGEBOQyHHht2cuOlawZSJCLkw"
+	}
+}

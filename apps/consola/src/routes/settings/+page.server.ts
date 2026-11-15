@@ -10,9 +10,12 @@ import {
 	trampasDeFabrica
 } from '$lib/server/identidad';
 import { exigir } from '$lib/server/auth/permisos';
+import { COOKIE_SESION } from '$lib/server/auth/sesion';
 import { loginLocalHabilitado } from '$lib/server/auth/local';
 import { configuradoEnEntorno } from '$lib/server/auth/entra';
+import { equipoB2B, estadoB2B, retirarB2B } from '$lib/server/auth/b2b';
 import {
+	configActiva,
 	estadoEntraPropio,
 	guardarEntraPropio,
 	quitarEntraPropio
@@ -59,7 +62,15 @@ import {
 import { honeycosas } from '$lib/server/catalogo';
 import { MODULOS_REGISTRO } from '$lib/server/modulos-gratis';
 import { db, schema as s } from '$lib/server/db';
-import { aceptar, cerrarYa, rechazar, soporte } from '$lib/server/soporte';
+import {
+	aceptar,
+	cerrarYa,
+	horasValidas,
+	porCaducar,
+	rechazar,
+	renovar as renovarSoporte,
+	soporte
+} from '$lib/server/soporte';
 import {
 	estadoCodigoEmergencia,
 	llaves,
@@ -138,7 +149,14 @@ export const load = async ({ locals, url }) => {
 				.where(eq(s.sensores.id, r.sensor));
 			return { sensor: sen?.nombre ?? r.sensor, remoto: r.remoto, desde: r.desde };
 		})(),
-		soporte: await soporte(),
+		...(await (async () => {
+			const sop = await soporte();
+			return { soporte: sop, soportePorCaducar: porCaducar(sop) };
+		})()),
+		/* Cómo se entra hoy: el bloque de soporte cambia con ello. */
+		/* A quién dar rol en la aplicación propia: solo mientras se migra. */
+		equipoB2B: (await estadoB2B()) === 'activo' ? await equipoB2B() : [],
+		accesoModo: ((await configActiva())?.modo ?? 'local') as 'propio' | 'seguridadsi' | 'local',
 		comparticion: await comparticion(),
 		palabras: await palabras(),
 		minimoPalabra: MINIMO_PALABRA,
@@ -148,6 +166,7 @@ export const load = async ({ locals, url }) => {
 		entra: {
 			propio: await estadoEntraPropio(),
 			seguridadsi: configuradoEnEntorno(),
+			b2b: await estadoB2B(),
 			retorno: `${url.origin}/auth/callback`
 		},
 		llaves: (await llaves()).map((l) => ({
@@ -157,6 +176,10 @@ export const load = async ({ locals, url }) => {
 		}))
 	};
 };
+
+/* «30 days», «7 days», «8 hours». */
+const plazoEnTexto = (horas: number) =>
+	horas % 24 === 0 ? `${horas / 24} days` : `${horas} hours`;
 
 export const actions = {
 	buscarActualizaciones: async ({ request, locals }) => {
@@ -399,8 +422,21 @@ export const actions = {
 	},
 	entraQuitar: async ({ locals }) => {
 		const u = exigir(locals, 'ajustes');
-		await quitarEntraPropio(u.correo);
+		const r = await quitarEntraPropio(u.correo);
+		if (!r.ok) return fail(400, { entraError: r.error });
 		redirect(303, '/settings#entra');
+	},
+	/* Último paso de la migración: la consola deja de aceptar el Entra de SeguridadSI. */
+	retirarB2B: async ({ locals, cookies }) => {
+		const u = exigir(locals, 'ajustes');
+		const r = await retirarB2B(
+			u.correo,
+			cookies.get(COOKIE_SESION) ?? null,
+			await estadoEntraPropio()
+		);
+		return r.ok
+			? { mensaje: `Done: only your own Entra ID signs in now. ${await operador()} has been told.` }
+			: fail(400, { migrarError: r.error });
 	},
 	/* El código se enseña solo en esta respuesta: no se guarda en claro en ningún sitio. */
 	codigoEmergencia: async ({ locals }) => {
@@ -436,18 +472,19 @@ export const actions = {
 	soporteAceptar: async ({ locals, request }) => {
 		const u = exigir(locals, 'ajustes');
 		const f = await request.formData();
-		const pedido = f.get('horas');
-		const horas = pedido === 'continuo' ? null : pedido === '8' ? 8 : 2;
+		const horas = horasValidas(f.get('horas'));
 		const rol = f.get('rol') === 'operador' ? 'operador' : 'lector';
 		const rolNombre = rol === 'operador' ? 'operator' : 'viewer';
 		return (await aceptar(u.correo, horas, rol))
-			? {
-					mensaje:
-						horas === null
-							? `Support access opened as ${rolNombre}, until you close it.`
-							: `Support access opened for ${horas} hours as ${rolNombre}.`
-				}
+			? { mensaje: `Support access opened for ${plazoEnTexto(horas)} as ${rolNombre}.` }
 			: fail(400, { error: 'There is no pending request.' });
+	},
+	soporteRenovar: async ({ locals, request }) => {
+		const u = exigir(locals, 'ajustes');
+		const horas = horasValidas((await request.formData()).get('horas'));
+		return (await renovarSoporte(u.correo, horas))
+			? { mensaje: `Support access renewed for ${plazoEnTexto(horas)} from now.` }
+			: fail(400, { error: 'Support access was not open.' });
 	},
 	soporteRechazar: async ({ locals }) => {
 		const u = exigir(locals, 'ajustes');

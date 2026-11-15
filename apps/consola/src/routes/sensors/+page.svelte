@@ -135,7 +135,7 @@
 						</td>
 						<td class="red">
 							<DireccionesSensor ips={x.ips} ipPublica={x.ipPublica} />
-							{#if admin}
+							{#if admin && !x.retirado}
 								<details open={cambiando === x.id}>
 									<summary class:sin={!x.red && !x.vlan && !x.redNombre}
 										>{[x.redNombre, redYVlan(x.red, x.vlan)].filter(Boolean).join(' · ') ||
@@ -174,8 +174,9 @@
 										'not set'}</span
 								>
 							{/if}
+							<!-- Uno retirado ya no corre ni se conecta: sus ajustes se leen, no se cambian. -->
 							<div class="entorno">
-								{#if admin}
+								{#if admin && !x.retirado}
 									<form method="POST" action="?/entorno" use:enhance>
 										<input type="hidden" name="id" value={x.id} />
 										<select
@@ -198,7 +199,7 @@
 								{/if}
 							</div>
 							<div class="propio">
-								{#if admin}
+								{#if admin && !x.retirado}
 									<form method="POST" action="?/registrarPropio" use:enhance={sinVaciar}>
 										<input type="hidden" name="id" value={x.id} />
 										<label>
@@ -515,7 +516,7 @@
 	}
 
 	.token {
-		border-color: var(--accent);
+		border-color: var(--link);
 	}
 
 	.token h2,
@@ -739,7 +740,7 @@
 	}
 
 	.nombre:hover {
-		color: var(--accent);
+		color: var(--link);
 	}
 
 	.destinos {

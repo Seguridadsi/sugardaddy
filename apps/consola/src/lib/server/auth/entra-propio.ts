@@ -10,7 +10,8 @@
  * local y la entrada de emergencia siguen ahí de respaldo.
  *
  * Si está activo, manda sobre el Entra de SeguridadSI del .env: un nodo solo
- * tiene una URL de retorno y un emisor que comprobar.
+ * tiene una URL de retorno y un emisor que comprobar. Y con el B2B retirado
+ * (b2b.ts), el del .env no vale nunca, ni aunque el propio falle.
  */
 import { eq } from 'drizzle-orm';
 import { env } from '$env/dynamic/private';
@@ -18,11 +19,14 @@ import { canjear, type Config } from '@sugardaddy/entra';
 import { db, schema as s } from '../db';
 import { auditar } from '../consultas';
 import { cifrar, descifrar, estadoClave, final } from '../secretos';
+import { retiradaB2B } from './b2b';
+import { loginLocalHabilitado } from './local';
 import {
 	configEntorno,
 	configuradoEnEntorno,
 	identidadDesdePayload,
 	identidadPropia,
+	type PuertaInvitado,
 	type PuertaSoporte
 } from './entra';
 
@@ -166,10 +170,25 @@ export async function activarEntraPropio(quien: string, probadoCon: string) {
 	return true;
 }
 
-export async function quitarEntraPropio(quien: string) {
-	const [f] = await db.delete(s.ajustes).where(eq(s.ajustes.clave, AJUSTE)).returning();
-	if (f) await auditar(quien, 'Microsoft sign-in (own Entra) removed');
-	return !!f;
+/*
+ * Quitarlo no puede dejar la consola sin entrada: sin login local y sin el Entra
+ * de SeguridadSI (retirado o que nunca hubo), solo quedaría la llave de emergencia.
+ */
+export async function quitarEntraPropio(
+	quien: string
+): Promise<{ ok: true } | { ok: false; error: string }> {
+	const g = await leer();
+	if (!g) return { ok: true };
+	const b2b = configuradoEnEntorno() && !(await retiradaB2B());
+	if (g.activo && !loginLocalHabilitado() && !b2b)
+		return {
+			ok: false,
+			error:
+				'This is the only way to sign in to this console: removing it would leave only the emergency key. Change it instead.'
+		};
+	await db.delete(s.ajustes).where(eq(s.ajustes.clave, AJUSTE));
+	await auditar(quien, 'Microsoft sign-in (own Entra) removed');
+	return { ok: true };
 }
 
 /* Con qué Entra se entra ahora mismo, si con alguno. */
@@ -182,7 +201,7 @@ export async function configActiva(): Promise<Activa | null> {
 		const c = await configPropia();
 		if (c) return { modo: 'propio', config: c };
 	}
-	if (configuradoEnEntorno())
+	if (configuradoEnEntorno() && !(await retiradaB2B()))
 		return { modo: 'seguridadsi', config: configEntorno(), grupo: env.ENTRA_GRUPO_CLIENTE! };
 	return null;
 }
@@ -190,10 +209,10 @@ export async function configActiva(): Promise<Activa | null> {
 export async function canjearCodigo(
 	activa: Activa,
 	o: Parameters<typeof canjear>[1],
-	soporte: PuertaSoporte
+	puertas: { grupo: PuertaSoporte; invitado: PuertaInvitado }
 ) {
 	const p = await canjear(activa.config, o);
 	return activa.modo === 'propio'
-		? identidadPropia(p)
-		: identidadDesdePayload(p, activa.grupo, soporte);
+		? identidadPropia(p, puertas.invitado)
+		: identidadDesdePayload(p, activa.grupo, puertas.grupo);
 }

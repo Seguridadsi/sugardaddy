@@ -673,7 +673,7 @@
 
 	.activa .flecha {
 		opacity: 1;
-		color: var(--accent);
+		color: var(--link);
 	}
 
 	.flecha sup {
@@ -698,7 +698,7 @@
 
 	.pestanas a[aria-current='true'] {
 		background: var(--accent-soft);
-		color: var(--accent);
+		color: var(--link);
 	}
 
 	.grupo {
@@ -742,7 +742,7 @@
 	}
 
 	td {
-		padding: 11px 16px;
+		padding: 10px 9px;
 		border-bottom: 1px solid var(--line);
 		vertical-align: middle;
 	}
@@ -761,10 +761,21 @@
 		font-weight: 600;
 	}
 
+	/* Una celda de verdad (no flex): así la fila no se descuadra. */
 	.acciones {
-		display: flex;
-		gap: 8px;
-		justify-content: flex-end;
+		white-space: nowrap;
+		text-align: right;
+	}
+
+	.acciones > :global(*) {
+		display: inline-block;
+		margin: 0 0 0 5px;
+	}
+
+	/* Cuatro acciones por fila: botones compactos para que la tabla quepa. */
+	.acciones .boton {
+		padding: 4px 9px;
+		font-size: 12px;
 	}
 
 	.num {
@@ -790,7 +801,7 @@
 
 	.estado {
 		min-width: 16ch;
-		max-width: 32ch;
+		max-width: 26ch;
 	}
 
 	.vacio-fila {

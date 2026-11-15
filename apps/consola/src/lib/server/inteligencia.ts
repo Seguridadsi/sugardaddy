@@ -3,7 +3,8 @@
  * las reglas de @sugardaddy/canal (esIpPublica); aquí además se quita lo que
  * el cliente tiene en su lista blanca: eso no se comparte nunca.
  */
-import { and, eq, gt, inArray, isNotNull, isNull, ne, or, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, isNotNull, isNull, ne, or, sql } from 'drizzle-orm';
+import { env } from '$env/dynamic/private';
 import {
 	contenidaEn,
 	rango,
@@ -20,6 +21,8 @@ import { auditar } from './consultas';
 import { operador } from './operador';
 import { cubreDominio } from './dominios';
 import { migrados } from './origenes-comun';
+import { ipsDelDespliegue } from './ips-propias';
+import { diaDe, repartirListaComun, topeDia } from './lista-comun-frenos';
 
 type Marca = { hasta: string };
 
@@ -123,7 +126,9 @@ export async function indicadoresPendientes() {
 			tipo: f.tipo as IndicadorSubida['tipo'],
 			modulos: modulosValidos(f.modulos),
 			primeraVez: new Date(f.primeraVez).toISOString(),
-			eventos: f.eventos
+			eventos: f.eventos,
+			/* La consulta solo coge eventos con conexión establecida. */
+			conexion: 'tcp' as const
 		}));
 	return { indicadores, hasta };
 }
@@ -136,36 +141,119 @@ export async function marcarSubidos(hasta: string) {
 		.onConflictDoUpdate({ target: s.ajustes.clave, set: { valor } });
 }
 
-/* Sustituye la lista negra global por la recibida, si viene firmada por el panel fijado en el alta. */
-export async function aplicarLista(clavePublicaPanel: string, f: ListaFirmada, nodo: string) {
-	const v = verificarLista(clavePublicaPanel, f);
+/*
+ * Sustituye la lista negra global por la recibida, si viene firmada por el panel fijado en el
+ * alta, pero con los frenos del nodo (lista-comun-frenos.ts, docs/diseno/frenos-del-nodo.md):
+ * lo que no se puede compartir se descarta, lo que ya estaba se queda y de lo nuevo entran
+ * como mucho LISTA_COMUN_TOPE_DIA al día; el resto espera, visible en Lists.
+ */
+export async function aplicarLista(
+	clavesPanel: string | readonly string[],
+	f: ListaFirmada,
+	nodo: string,
+	ahora = new Date()
+) {
+	const v = verificarLista(clavesPanel, f);
 	if (!v.ok) {
 		await auditar(`node ${nodo}`, 'global list rejected', { motivo: v.motivo });
 		return false;
 	}
 	const quien = await operador();
-	await db.transaction(async (tx) => {
+	const intocables = await ipsDelDespliegue();
+	const reparto = await db.transaction(async (tx) => {
+		const admitidas = new Set(
+			(
+				await tx
+					.select({ valor: s.listas.valor })
+					.from(s.listas)
+					.where(and(eq(s.listas.ambito, 'global'), eq(s.listas.lista, 'negra')))
+			).map((x) => x.valor)
+		);
+		const esperaDesde = new Map(
+			(await tx.select().from(s.listaComunEspera)).map((x) => [x.valor, x.recibida])
+		);
+		const dia = diaDe(ahora);
+		const [c] = await tx.select().from(s.ajustes).where(eq(s.ajustes.clave, CUPO));
+		const previo = c?.valor as Cupo | undefined;
+		const usado = previo?.dia === dia && Number.isInteger(previo.n) ? previo.n : 0;
+		const r = repartirListaComun({
+			entrantes: Array.isArray(v.lista.indicadores) ? v.lista.indicadores : [],
+			admitidas,
+			esperaDesde,
+			cupo: Math.max(0, topeDia(env.LISTA_COMUN_TOPE_DIA) - usado),
+			intocables
+		});
 		await tx
 			.delete(s.listas)
 			.where(and(eq(s.listas.ambito, 'global'), eq(s.listas.lista, 'negra')));
-		if (v.lista.indicadores.length)
+		const dentro = [...r.mantener, ...r.entrar];
+		if (dentro.length)
 			await tx.insert(s.listas).values(
-				v.lista.indicadores.map((i) => ({
+				dentro.map((i) => ({
 					valor: i.valor,
-					clase: i.clase,
+					clase: 'ip' as const,
 					lista: 'negra' as const,
 					ambito: 'global' as const,
-					motivo: i.motivo,
+					motivo: String(i.motivo ?? '').slice(0, 200),
 					caduca: new Date(i.caduca),
 					quien
 				}))
 			);
+		/* Lo que esperaba y ya no viene en la lista sale de la espera: el panel lo quitó. */
+		await tx.delete(s.listaComunEspera);
+		if (r.esperar.length)
+			await tx.insert(s.listaComunEspera).values(
+				r.esperar.map((i) => ({
+					valor: i.valor,
+					motivo: String(i.motivo ?? '').slice(0, 200),
+					caduca: new Date(i.caduca),
+					recibida: esperaDesde.get(i.valor) ?? ahora
+				}))
+			);
+		if (r.entrar.length) {
+			const valor: Cupo = { dia, n: usado + r.entrar.length };
+			await tx
+				.insert(s.ajustes)
+				.values({ clave: CUPO, valor })
+				.onConflictDoUpdate({ target: s.ajustes.clave, set: { valor } });
+		}
+		return r;
 	});
+	if (reparto.entrar.length || reparto.esperar.length || reparto.rechazadas.length)
+		await auditar(`node ${nodo}`, 'global list applied with limits', {
+			entran: reparto.entrar.length,
+			esperan: reparto.esperar.length,
+			descartadas: reparto.rechazadas.length,
+			/* Unas pocas, para ver por qué sin llenar la auditoría. */
+			ejemplos: reparto.rechazadas.slice(0, 10)
+		});
 	return true;
+}
+
+/* Cuántas IPs nuevas de la lista común han entrado hoy en el EDL. */
+const CUPO = 'lista-comun-cupo';
+type Cupo = { dia: string; n: number };
+
+/* Lo que espera a entrar en el EDL por el tope diario, para Lists. */
+export async function listaComunEnEspera() {
+	const filas = await db
+		.select()
+		.from(s.listaComunEspera)
+		.orderBy(asc(s.listaComunEspera.recibida), asc(s.listaComunEspera.valor));
+	return {
+		tope: topeDia(env.LISTA_COMUN_TOPE_DIA),
+		entradas: filas.map((x) => ({
+			valor: x.valor,
+			motivo: x.motivo,
+			caduca: x.caduca.toISOString(),
+			recibida: x.recibida.toISOString()
+		}))
+	};
 }
 
 export async function retirarListaGlobal() {
 	await db.delete(s.listas).where(and(eq(s.listas.ambito, 'global'), eq(s.listas.lista, 'negra')));
+	await db.delete(s.listaComunEspera);
 }
 
 /*

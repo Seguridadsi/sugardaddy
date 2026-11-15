@@ -1,0 +1,20 @@
+{
+	"nota": "Marca de tiempo de prueba: firmada con una clave de marcas ECDSA P-256 (como el Key Vault), y otra con la de legado en firma y la de marcas en firmas. Claves de usar y tirar.",
+	"marcas": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEYozBleaGETe0XZlwlXbfrd/JUzJpJEtJCkrePLA+cAeWv9d+CltB6vSGaHJyAKDbb4lTlqjcDcoJlts4PJY2zg==",
+	"legado": "MCowBQYDK2VwAyEAPlR8xBrLQ/FLbZi72LWVMK0fCmQKpQLe5qymNlFX9D8=",
+	"ahora": "2026-11-15T00:00:00Z",
+	"conMarcas": {
+		"marca": "{\"tipo\":\"marca\",\"version\":1,\"emitida\":\"2026-11-14T00:00:00.000Z\",\"caduca\":\"2026-11-19T00:00:00.000Z\",\"plazoHoras\":168,\"ultimas\":{\"cloud\":{\"version\":\"0.30.0\",\"publicada\":\"2026-11-01T00:00:00.000Z\"},\"community\":{\"version\":\"0.29.5\",\"publicada\":\"2026-11-10T00:00:00.000Z\"}}}",
+		"firma": "RNo5Lhxrjdl5eo0UDlqluNI4U0NYHSMm/TGlwl5xwGq68QggtR9bgsd1gxV/3p2XCdozZCBOf876tKWOl/ttQQ=="
+	},
+	"conLegado": {
+		"marca": "{\"tipo\":\"marca\",\"version\":1,\"emitida\":\"2026-11-14T00:00:00.000Z\",\"caduca\":\"2026-11-19T00:00:00.000Z\",\"plazoHoras\":168,\"ultimas\":{\"cloud\":{\"version\":\"0.30.0\",\"publicada\":\"2026-11-01T00:00:00.000Z\"},\"community\":{\"version\":\"0.29.5\",\"publicada\":\"2026-11-10T00:00:00.000Z\"}}}",
+		"firma": "+YBccCatUZAoCLP6Cgk28GEC4LnoirlVtRzl8XJjMMkokNdKa6YPAE6zNFciy4K2asOdWs00bYu4sAOxGE7hAQ==",
+		"firmas": [
+			{
+				"clave": "efd4ca2912caf70d",
+				"firma": "Z5V21dCioW+Ev9pa1R2/czGllBY+FAvA0ratIagHc8UWwd5sytyCtNsF/t7TPOOcASgDR82bSlsI1+6rM6Oolg=="
+			}
+		]
+	}
+}

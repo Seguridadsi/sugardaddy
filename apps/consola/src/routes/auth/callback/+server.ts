@@ -2,7 +2,12 @@ import { redirect } from '@sveltejs/kit';
 import { canjear, volverSeguro } from '@sugardaddy/entra';
 import { env } from '$env/dynamic/private';
 import { puede } from '$lib/permisos';
-import { COOKIE_OIDC, identidadPropia, type PuertaSoporte } from '$lib/server/auth/entra';
+import {
+	COOKIE_OIDC,
+	identidadPropia,
+	type PuertaInvitado,
+	type PuertaSoporte
+} from '$lib/server/auth/entra';
 import {
 	activarEntraPropio,
 	canjearCodigo,
@@ -71,16 +76,27 @@ export const GET = async ({ url, cookies, request, locals }) => {
 	const activa = await configActiva();
 	if (!activa) redirect(303, '/sign-in');
 
-	/* La puerta de soporte solo existe mientras el cliente la tenga abierta. */
+	/*
+	 * La puerta de soporte solo existe mientras el cliente la tenga abierta. Con su
+	 * Entra, es la persona que la pidió, invitada en su tenant; con el de SeguridadSI
+	 * (B2B, antes de migrar), el grupo de soporte.
+	 */
 	const sop = await soporte();
-	const puerta: PuertaSoporte =
-		sop.estado === 'abierto' && sop.rol && env.ENTRA_GRUPO_SOPORTE
-			? { grupo: env.ENTRA_GRUPO_SOPORTE, rol: sop.rol }
+	const abierta = sop.estado === 'abierto' && sop.rol ? sop.rol : null;
+	const grupo: PuertaSoporte =
+		abierta && env.ENTRA_GRUPO_SOPORTE ? { grupo: env.ENTRA_GRUPO_SOPORTE, rol: abierta } : null;
+	const invitado: PuertaInvitado =
+		abierta && sop.solicitud
+			? { correo: sop.solicitud.por, tenant: sop.solicitud.tenant ?? null, rol: abierta }
 			: null;
 
 	let r;
 	try {
-		r = await canjearCodigo(activa, { codigo, redirectUri, verificador, nonce }, puerta);
+		r = await canjearCodigo(
+			activa,
+			{ codigo, redirectUri, verificador, nonce },
+			{ grupo, invitado }
+		);
 	} catch (e) {
 		console.error('[auth] exchange failed', e);
 		await auditar('anonymous', 'sign-in denied', { motivo: 'canje' });

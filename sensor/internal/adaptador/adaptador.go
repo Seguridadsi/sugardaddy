@@ -510,6 +510,40 @@ func Descartados(sensor string, s plan.TrampaPlan, d Descarte) evento.Evento {
 	}
 }
 
+// CodigoIPReclamada: otro equipo del segmento reclamó por ARP la IP propia de
+// una trampa y el sensor se la soltó (docs/diseno/red.md §3).
+const CodigoIPReclamada = "ip-propia.reclamada"
+
+// IPReclamada es el evento que deja el sensor cuando otro equipo reclama por ARP
+// la IP propia de una trampa: el sensor suelta la IP y para la trampa para no
+// pisar a un equipo de verdad, y sin este evento la trampa se apagaba sin que la
+// consola lo viera. Un ARP falso desde la LAN basta para silenciarla, así que va
+// como alta (auditoría del 2026-11-14).
+func IPReclamada(sensor string, s plan.TrampaPlan, ip, mac string, cuando time.Time) evento.Evento {
+	ip, mac = recortar(ip, 64), recortar(mac, 64)
+	linea, _ := json.Marshal(map[string]any{
+		"sugardaddy": "ip-reclamada", "trampa": s.ID, "ip": ip, "mac": mac,
+		"cuando": cuando.UTC().Format(time.RFC3339Nano),
+	})
+	return evento.Evento{
+		Version:   2,
+		ID:        idDe(sensor, s.ID, linea),
+		Cuando:    cuando.UTC().Format(time.RFC3339Nano),
+		Trampa:    evento.Trampa{ID: s.ID, Modulo: s.Manifiesto.ID, Tipo: s.Manifiesto.Tipo},
+		Sensor:    sensor,
+		Accion:    "otra",
+		Severidad: "alta",
+		Detalle: map[string]any{
+			"codigo": CodigoIPReclamada,
+			"aviso": "Another device on the network claimed this decoy's own IP address, so the sensor released it and " +
+				"stopped the decoy to avoid clashing with a real device. It will get another address from the range. " +
+				"If no device should have that address, someone may be silencing the decoy with forged ARP replies.",
+			"ip": ip, "mac": mac,
+		},
+		Crudo: recortar(string(linea), maxCrudo),
+	}
+}
+
 // Compatible012 dice si el adaptador de los sensores 0.12 entendería esta
 // línea igual: fecha RFC 3339 en texto, puerto numérico, rutas sin claves con
 // punto literal y sin las reglas por campo. El banco de pruebas lo usa para

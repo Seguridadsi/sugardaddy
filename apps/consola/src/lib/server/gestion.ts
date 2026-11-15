@@ -153,7 +153,8 @@ export async function cambiarRed(
 		const [f] = await tx
 			.update(s.sensores)
 			.set(v)
-			.where(eq(s.sensores.id, id))
+			/* Uno retirado no corre: su red se queda como estaba. */
+			.where(and(eq(s.sensores.id, id), isNull(s.sensores.retirado)))
 			.returning({ id: s.sensores.id });
 		if (!f) return false;
 		await tx
@@ -186,7 +187,8 @@ export async function cambiarEntorno(quien: string, id: string, entorno: Entorno
 		const [f] = await tx
 			.update(s.sensores)
 			.set({ entorno })
-			.where(eq(s.sensores.id, id))
+			/* Uno retirado no corre: sus ajustes se quedan como estaban. */
+			.where(and(eq(s.sensores.id, id), isNull(s.sensores.retirado)))
 			.returning({ id: s.sensores.id });
 		if (!f) return false;
 		await tx
@@ -205,7 +207,8 @@ export async function cambiarRegistrarPropio(quien: string, id: string, registra
 		const [f] = await tx
 			.update(s.sensores)
 			.set({ registrarPropio: registrar })
-			.where(eq(s.sensores.id, id))
+			/* Uno retirado no corre: sus ajustes se quedan como estaban. */
+			.where(and(eq(s.sensores.id, id), isNull(s.sensores.retirado)))
 			.returning({ id: s.sensores.id });
 		if (!f) return false;
 		await tx.insert(s.auditoria).values({
