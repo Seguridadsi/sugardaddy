@@ -1,0 +1,10 @@
+{
+	"marca": "{\"tipo\":\"marca\",\"version\":1,\"emitida\":\"2026-11-15T17:02:27.138Z\",\"caduca\":\"2026-11-20T17:02:27.138Z\",\"plazoHoras\":168,\"ultimas\":{\"cloud\":{\"version\":\"0.30.1\",\"publicada\":\"2026-11-15T17:02:24.187Z\",\"prueba\":{\"entrada\":\"{\\\"n\\\":0,\\\"tipo\\\":\\\"version\\\",\\\"huella\\\":\\\"a216b52ef9907faeb1761c596bad63eca83c224cca7f74f53a986b8968d0f132\\\",\\\"clave\\\":\\\"b2c569556db2104c\\\",\\\"etiqueta\\\":\\\"0.30.1 cloud\\\",\\\"cuando\\\":\\\"2026-11-15T17:02:27.136Z\\\"}\",\"indice\":0,\"tamano\":1,\"ruta\":[]}}},\"registro\":{\"tamano\":1,\"raiz\":\"5fb4b304eea12383be7b4c879970fd54a9c8ffaedac19c1af397939c2a1b3b2f\"}}",
+	"firma": "6G3zAzrifhbOfKSaIMoSYVuOQ2UfelvUsxJBUEaRAwIR/61iHlkKOEkl1Ffqz4R6tAptpUmCzZ5DoP7eT988AQ==",
+	"firmas": [
+		{
+			"clave": "332d7f0dc519fabe",
+			"firma": "IN1sKfNqV/C067tLMA+4799KqTTNO8UmQK0JA9k34vapUJ33/WatcvWOq6wST/g/+wV59R/YR+OCYsIAXBy9FA=="
+		}
+	]
+}
