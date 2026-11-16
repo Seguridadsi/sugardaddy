@@ -1,10 +1,10 @@
 {
-	"marca": "{\"tipo\":\"marca\",\"version\":1,\"emitida\":\"2026-11-16T11:22:40.967Z\",\"caduca\":\"2026-11-21T11:22:40.967Z\",\"plazoHoras\":168,\"ultimas\":{\"community\":{\"version\":\"0.31.1\",\"publicada\":\"2026-11-16T11:22:39.607Z\",\"prueba\":{\"entrada\":\"{\\\"n\\\":0,\\\"tipo\\\":\\\"version\\\",\\\"huella\\\":\\\"25154716c8c81eddd65ebcd7d2a81c8a3c59f632ee88884f49ed26a909388c8a\\\",\\\"clave\\\":\\\"b2c569556db2104c\\\",\\\"etiqueta\\\":\\\"0.31.1 community\\\",\\\"cuando\\\":\\\"2026-11-16T11:22:40.964Z\\\"}\",\"indice\":0,\"tamano\":1,\"ruta\":[]}}},\"registro\":{\"tamano\":1,\"raiz\":\"e6a2a0fdd36e2b24492199f488bac42b43aed1a78f68b08822666698cc781c0e\"}}",
-	"firma": "KHdCczLCM0rFTx7ho55DDfE9H6V59ebEsohABho0/lcAfAQ3F+pNvEFfPX0iB25naY7DcLUvEpjS57nDzDSlDg==",
+	"marca": "{\"tipo\":\"marca\",\"version\":1,\"emitida\":\"2026-11-16T12:51:27.756Z\",\"caduca\":\"2026-11-21T12:51:27.756Z\",\"plazoHoras\":168,\"ultimas\":{\"cloud\":{\"version\":\"0.31.1\",\"publicada\":\"2026-11-16T10:36:08.458Z\",\"prueba\":{\"entrada\":\"{\\\"n\\\":2,\\\"tipo\\\":\\\"version\\\",\\\"huella\\\":\\\"ad91db392a236cf7e027ab498eae676496c077b89195ab779aade22490c80c3b\\\",\\\"clave\\\":\\\"b2c569556db2104c\\\",\\\"etiqueta\\\":\\\"0.31.1 cloud\\\",\\\"cuando\\\":\\\"2026-11-16T10:36:10.786Z\\\"}\",\"indice\":2,\"tamano\":4,\"ruta\":[\"832206d5b221288cde63b9ec3b877c4a47eeb17942c2588ae331937e09323e53\",\"3c486a38cd75bf4da0c5f34aa34c70674da1f22d8347a6b8a54609cd41e66506\"]}},\"community\":{\"version\":\"0.31.1\",\"publicada\":\"2026-11-16T11:22:39.607Z\",\"prueba\":{\"entrada\":\"{\\\"n\\\":3,\\\"tipo\\\":\\\"version\\\",\\\"huella\\\":\\\"25154716c8c81eddd65ebcd7d2a81c8a3c59f632ee88884f49ed26a909388c8a\\\",\\\"clave\\\":\\\"b2c569556db2104c\\\",\\\"etiqueta\\\":\\\"0.31.1 community\\\",\\\"cuando\\\":\\\"2026-11-16T12:51:27.753Z\\\"}\",\"indice\":3,\"tamano\":4,\"ruta\":[\"35d6c791e97cf9ec2606d85ce48d6698d46fd03fd4af76c642be24c365437151\",\"3c486a38cd75bf4da0c5f34aa34c70674da1f22d8347a6b8a54609cd41e66506\"]}}},\"registro\":{\"tamano\":4,\"raiz\":\"497b50e97ab256612344fdd3867c51beea426f90099e30a196e00888a87b7e2c\"}}",
+	"firma": "wptUBkRV/9zWzFwRsLj6/3HN7HTZ4mzOal+pptYn+XkYOpad13MY4xTpvvx0+E/2cZiG9AJvwOSJtD/wAI8PCg==",
 	"firmas": [
 		{
 			"clave": "332d7f0dc519fabe",
-			"firma": "KXrX8Jxs2AoKDexkVJBIAhLzJLcygY+LX8Mqo2cT1NWM+IdqPVjcv1UUmcq/9vfuwssqxhdMTR1T1xUxG51+Jw=="
+			"firma": "xk7b1jCvrDZy675EWgPcQE4gVPqlNxDyVck7/xnj4EkSBdXov+hqFaGhraXq1wk0n2mDMfol6K//PC6/v/SUWw=="
 		}
 	]
 }
