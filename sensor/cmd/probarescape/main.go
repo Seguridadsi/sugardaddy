@@ -14,6 +14,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -44,8 +45,44 @@ func main() {
 	datos := flag.String("datos", "", "carpeta del sensor (la misma que -datos de sd-motor)")
 	rutaM := flag.String("manifiesto", "", "manifiesto de la trampa de escape (JSON)")
 	rutaInf := flag.String("informe", "", "dónde dejar el informe en JSON (vacío: no se deja)")
+	esperado := flag.String("esperado", "", "aislamiento que tiene que aplicar sd-motor (runsc, runc-perfiles, runc-seccomp); vacío: el que sea")
+	oyente := flag.String("oyente", "", "dirección en la que escuchar mientras dura la prueba (p. ej. 0.0.0.0:18080, con la red del anfitrión): así la prueba SEN-5 tiene algo a lo que llegar")
+	soloAislamiento := flag.Bool("solo-aislamiento", false, "solo preguntar a sd-motor con qué aísla las trampas y salir")
 	flag.Parse()
+	if *soloAislamiento {
+		ctx, cancelar := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancelar()
+		a, err := docker.Nuevo(*motor).Aislamiento(ctx)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "FALLA: sd-motor no contesta:", err)
+			os.Exit(1)
+		}
+		b, _ := json.Marshal(a)
+		fmt.Println(string(b))
+		return
+	}
+	if *oyente != "" {
+		ln, err := net.Listen("tcp", *oyente)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "FALLA: oyente:", err)
+			os.Exit(1)
+		}
+		defer ln.Close()
+		go func() {
+			for {
+				c, err := ln.Accept()
+				if err != nil {
+					return
+				}
+				c.Close()
+			}
+		}()
+	}
 	inf, err := probar(*motor, *datos, *rutaM)
+	if err == nil && *esperado != "" && inf.Aislamiento != *esperado {
+		inf.Bien = false
+		err = fmt.Errorf("sd-motor aísla con %q y se esperaba %q", inf.Aislamiento, *esperado)
+	}
 	if *rutaInf != "" && inf != nil {
 		b, _ := json.MarshalIndent(inf, "", "  ")
 		_ = os.WriteFile(*rutaInf, append(b, '\n'), 0o644)
@@ -107,8 +144,16 @@ func probar(motor, datos, rutaM string) (*informe, error) {
 		time.Sleep(time.Second)
 	}
 	var fallos []string
-	for _, i := range inf.Dentro {
+	for k, i := range inf.Dentro {
 		marca := "bloqueado"
+		if !i.Bloqueado && inf.Aislamiento == "runsc" && dentroDeGVisor[i.Intento] {
+			// Con gVisor estas llamadas las atiende su núcleo en espacio de usuario, sin
+			// llegar al de la máquina, y solo ven los procesos de la propia trampa.
+			marca = "en gVisor"
+			i.Bloqueado = true
+			i.Detalle += " (inside gVisor's user-space kernel: it does not reach the host kernel)"
+			inf.Dentro[k] = i
+		}
 		if !i.Bloqueado {
 			marca = "¡SALE BIEN!"
 			fallos = append(fallos, i.Intento+" ("+i.Detalle+")")
@@ -144,6 +189,15 @@ func probar(motor, datos, rutaM string) (*informe, error) {
 	return inf, nil
 }
 
+// dentroDeGVisor: lo que el seccomp de Sugardaddy quita en runc porque abre superficie del
+// núcleo de la máquina, y que gVisor resuelve en el suyo. Con runsc, sd-motor no pone ese
+// seccomp (gVisor no lo aplica sin --oci-seccomp): que salgan bien no es una fuga.
+var dentroDeGVisor = map[string]bool{
+	"ptrace attach to its own child": true,
+	"process_vm_readv":               true,
+	"keyctl":                         true,
+}
+
 func leer(ruta string) []intento {
 	f, err := os.Open(ruta)
 	if err != nil {
@@ -175,7 +229,7 @@ func peticiones(datos string, m plan.Manifiesto) []peticion {
 			"HostConfig": map[string]any{
 				"NetworkMode": "sugardaddy-trampas-aisladas", "ReadonlyRootfs": true,
 				"CapDrop": []string{"ALL"}, "SecurityOpt": []string{"no-new-privileges"},
-				"Memory": 64 << 20, "MemorySwap": 64 << 20, "PidsLimit": 256,
+				"Memory": 64 << 20, "MemorySwap": 64 << 20, "NanoCpus": 500_000_000, "PidsLimit": 256,
 				"Mounts": []map[string]any{{"Type": "bind", "Source": filepath.Join(datos, "registros", "prueba-escape"), "Target": "/log"}},
 			},
 		}

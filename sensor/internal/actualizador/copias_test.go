@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"syscall"
@@ -179,13 +180,20 @@ func TestLimpiarCopias(t *testing.T) {
 	otra := cifrarGo(t, con, "otra")
 	ajena := filepath.Join(dir, "copias", "sugardaddy-20261103-031500.tar.enc")
 	_ = os.WriteFile(ajena, otra, 0o600)
+	// Una de age: va a la clave pública del cliente, el nodo no la abre. Se dice y no se toca.
+	deAge := filepath.Join(dir, "copias", "sugardaddy-20261104-031500.tar.age")
+	_ = os.WriteFile(deAge, []byte("age-encryption.org/v1\n"), 0o600)
 
 	r, err := LimpiarCopias(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.Limpias != 1 || len(r.Ilegibles) != 1 || r.Ilegibles[0] != "sugardaddy-20261103-031500.tar.enc" {
+	if r.Limpias != 1 || len(r.Ilegibles) != 2 || !slices.Contains(r.Ilegibles, "sugardaddy-20261103-031500.tar.enc") ||
+		!slices.Contains(r.Ilegibles, "sugardaddy-20261104-031500.tar.age") {
 		t.Fatalf("%+v", r)
+	}
+	if b, _ := os.ReadFile(deAge); string(b) != "age-encryption.org/v1\n" {
+		t.Fatal("an age backup must not be touched")
 	}
 	nueva, _ := os.ReadFile(filepath.Join(dir, "copias", "sugardaddy-20261101-031500.tar.enc"))
 	claro, err := descifrarGo(t, nueva, "la-clave")

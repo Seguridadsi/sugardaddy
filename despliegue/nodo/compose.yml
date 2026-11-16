@@ -24,14 +24,29 @@ x-endurecido: &endurecido
     driver: json-file
     options: { max-size: 10m, max-file: '3' }
 
+# Límites (plan de fortificación §2.6): que nada se coma la máquina y deje sin
+# detección al resto. Cada servicio tiene tope de memoria y de procesos, y un peso
+# de CPU: consola, Postgres, sensor y sd-motor pesan 1024 y las trampas que crea
+# sd-motor, 256 (más su tope de CPU del manifiesto), así que con la CPU llena la
+# detección va por delante. Los topes por defecto valen para un nodo pequeño (no
+# reservan nada: solo cortan lo desbocado) y se cambian por máquina en .env sin
+# tocar este fichero: <SERVICIO>_MEMORIA (2g, 512m…), <SERVICIO>_PROCESOS y
+# <SERVICIO>_CPUS (tope duro en CPUs; 0, sin tope: un tope mayor que las CPUs de
+# la máquina no deja arrancar el contenedor, por eso no se pone por defecto).
 services:
   postgres:
     <<: *endurecido
     # De dónde sale la imagen (TERCEROS en .env) cambia; qué imagen es, no: el digest es
     # el mismo en Docker Hub y en el registro propio (herramientas/replicar-terceros.sh).
     image: ${TERCEROS:-docker.io/library}/postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
-    # Postgres necesita algunas capacidades para cambiar al usuario postgres al arrancar.
-    cap_drop: []
+    # Sin capacidades salvo las que pide el arranque de la imagen para dejar sus
+    # carpetas al usuario postgres y bajar a él (probado: con una menos no arranca,
+    # ni con el volumen nuevo ni con el de un nodo de antes).
+    cap_add: [CHOWN, SETUID, SETGID, FOWNER, DAC_READ_SEARCH]
+    mem_limit: ${POSTGRES_MEMORIA:-2g}
+    pids_limit: ${POSTGRES_PROCESOS:-512}
+    cpus: ${POSTGRES_CPUS:-0}
+    cpu_shares: 1024
     environment:
       POSTGRES_USER: sugardaddy
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?falta en .env}
@@ -48,6 +63,10 @@ services:
   consola:
     <<: *endurecido
     image: ${CONSOLA_IMAGEN:?falta en versiones.env}
+    mem_limit: ${CONSOLA_MEMORIA:-2g}
+    pids_limit: ${CONSOLA_PROCESOS:-512}
+    cpus: ${CONSOLA_CPUS:-0}
+    cpu_shares: 1024
     depends_on:
       postgres: { condition: service_healthy }
     environment:
@@ -152,6 +171,10 @@ services:
     depends_on: [consola]
     # Escuchar en el 443 necesita esta capacidad, y ninguna más.
     cap_add: [NET_BIND_SERVICE]
+    mem_limit: ${HTTPS_MEMORIA:-256m}
+    pids_limit: ${HTTPS_PROCESOS:-256}
+    cpus: ${HTTPS_CPUS:-0}
+    cpu_shares: 512
     environment:
       CONSOLA_DOMINIO: ${CONSOLA_DOMINIO:?falta en .env}
       TLS_MODO: ${TLS_MODO:-interno}
@@ -162,6 +185,11 @@ services:
       # La CA con la que firma (docs/diseno/ca-nodo.md): «nodo», la propia, en
       # ca-nodo/; vacío (nodo instalado antes que ella), la de Caddy, «local».
       CADDY_CA: ${CA_NODO:-local}
+      # El certificado de cliente de los sensores remotos (docs/diseno/mtls-sensores.md):
+      # la raíz de la CA de sensores en DER (base64), que pone el actualizador en .env.
+      # Vacía, Caddy no lo pide.
+      CADDY_SENSORES: ${CA_SENSORES:+-si}
+      CA_SENSORES: ${CA_SENSORES:-}
     ports:
       - '${CONSOLA_ESCUCHA:-0.0.0.0}:${CONSOLA_PUERTO:-443}:443'
     volumes:
@@ -192,6 +220,10 @@ services:
     # honeypot (el sensor se lo pide; solo registros de trampa).
     cap_add: [CHOWN, DAC_OVERRIDE]
     network_mode: none
+    mem_limit: ${MOTOR_MEMORIA:-256m}
+    pids_limit: ${MOTOR_PROCESOS:-256}
+    cpus: ${MOTOR_CPUS:-0}
+    cpu_shares: 1024
     command:
       - motor
       - -escucha=/run/sd-motor/motor.sock
@@ -238,6 +270,10 @@ services:
     # sd-motor. Los registros de las trampas los perfora gracias a la ACL que
     # pone sd-motor en sus carpetas, no con DAC_OVERRIDE.
     user: '65532:65532'
+    mem_limit: ${SENSOR_MEMORIA:-1g}
+    pids_limit: ${SENSOR_PROCESOS:-1024}
+    cpus: ${SENSOR_CPUS:-0}
+    cpu_shares: 1024
     depends_on:
       consola:
         condition: service_started
@@ -305,6 +341,10 @@ services:
     <<: *endurecido
     # En versiones.env: las versiones firmadas también cambian el actualizador.
     image: ${ACTUALIZADOR_IMAGEN:?falta en versiones.env}
+    mem_limit: ${ACTUALIZADOR_MEMORIA:-512m}
+    pids_limit: ${ACTUALIZADOR_PROCESOS:-512}
+    cpus: ${ACTUALIZADOR_CPUS:-0}
+    cpu_shares: 256
     depends_on: [consola]
     command:
       - -consola=http://consola:3000
@@ -331,6 +371,10 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${NODO_DIR:?falta en .env}:/nodo
       - ${NODO_DIR}/proxy:/proxy:ro
+      # El audit.log de la máquina, solo de lectura: el actualizador manda a la
+      # consola lo que marcan las reglas sd-* (docs/diseno/cortafuegos-anfitrion.md).
+      # Sin auditd la carpeta queda vacía y no se manda nada.
+      - /var/log/audit:/anfitrion/audit:ro
     networks: [nodo]
     labels:
       sugardaddy.servicio: actualizador

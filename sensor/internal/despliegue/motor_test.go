@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kinomakino/sugardaddy/sensor/internal/cortafuegos"
 	"github.com/kinomakino/sugardaddy/sensor/internal/docker"
 	"github.com/kinomakino/sugardaddy/sensor/internal/intermediario"
 	"github.com/kinomakino/sugardaddy/sensor/internal/plan"
@@ -17,6 +18,10 @@ import (
 // modo IP propia con captura. Si un cambio del despliegue añade un campo que
 // sd-motor no conoce, esta prueba lo dice antes que el banco.
 func TestSdMotorAceptaLoQueCreaElSensor(t *testing.T) {
+	if intermediario.RedTrampas != redTrampas || intermediario.PuenteTrampas != PuenteTrampas || intermediario.OpcionNombrePuente != docker.OpcionNombrePuente ||
+		!strings.HasPrefix(PuenteTrampas, cortafuegos.PrefijoPuenteTrampas) || !strings.HasPrefix(PuenteConSalida, cortafuegos.PrefijoPuenteTrampas) {
+		t.Fatal("la red de trampas, el nombre de su puente y la regla de SEN-5 tienen que decir lo mismo en sd-motor, el sensor y el cortafuegos")
+	}
 	var m plan.Manifiesto
 	if err := json.Unmarshal([]byte(`{
 		"id": "redis",

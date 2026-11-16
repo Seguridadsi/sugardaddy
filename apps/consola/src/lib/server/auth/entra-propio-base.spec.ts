@@ -108,12 +108,18 @@ describe.skipIf(!hayBase)('Entra propio del cliente', () => {
 		expect(JSON.stringify(f.valor)).not.toContain(SECRETO);
 
 		expect(await ep.configActiva()).toBeNull();
-		expect(await ep.configPropia()).toEqual({ tenant: TENANT, clientId: APP, secret: SECRETO });
+		const mfa = { exigirMfa: true, modoMfa: 'exigida', contextoAuth: null };
+		expect(await ep.configPropia()).toEqual({
+			tenant: TENANT,
+			clientId: APP,
+			secret: SECRETO,
+			...mfa
+		});
 
 		await ep.activarEntraPropio('admin@local', 'luis@kebaps.es');
 		expect(await ep.configActiva()).toEqual({
 			modo: 'propio',
-			config: { tenant: TENANT, clientId: APP, secret: SECRETO }
+			config: { tenant: TENANT, clientId: APP, secret: SECRETO, ...mfa }
 		});
 		expect(await ep.estadoEntraPropio()).toMatchObject({
 			activo: true,
@@ -171,7 +177,12 @@ describe.skipIf(!hayBase)('Entra propio del cliente', () => {
 		expect(activa).toMatchObject({ modo: 'propio' });
 
 		/* Con el propio, entra quien trae rol aunque no esté en ningún grupo. */
-		payload = { oid: 'luis', preferred_username: 'luis@kebaps.es', roles: ['lector'] };
+		payload = {
+			oid: 'luis',
+			preferred_username: 'luis@kebaps.es',
+			roles: ['lector'],
+			amr: ['pwd', 'mfa']
+		};
 		const r = await ep.canjearCodigo(
 			activa!,
 			{ codigo: 'c', redirectUri: 'https://x/auth/callback', verificador: 'v', nonce: 'n' },
@@ -182,6 +193,105 @@ describe.skipIf(!hayBase)('Entra propio del cliente', () => {
 
 		await ep.quitarEntraPropio('admin@local');
 		expect(await ep.configActiva()).toMatchObject({ modo: 'seguridadsi' });
+	});
+
+	it('MFA exigida de serie; apagarla pide confirmación y queda auditado', async () => {
+		const g = (d: Record<string, unknown>) =>
+			ep.guardarEntraPropio(
+				'admin@local',
+				{ tenant: TENANT, clientId: APP, secreto: SECRETO, ...d },
+				existe
+			);
+		expect(await g({ contextoAuth: 'x9' })).toMatchObject({ ok: false });
+		expect(await g({ exigirMfa: false })).toMatchObject({ ok: false });
+		expect(await ep.estadoEntraPropio()).toBeNull();
+
+		expect(await g({ contextoAuth: 'C1' })).toEqual({ ok: true });
+		await ep.activarEntraPropio('admin@local', 'luis@kebaps.es');
+		const activa = await ep.configActiva();
+		expect(activa).toMatchObject({
+			modo: 'propio',
+			config: { exigirMfa: true, contextoAuth: 'c1' }
+		});
+		const canje = (p: Record<string, unknown>) => {
+			payload = p;
+			return ep.canjearCodigo(
+				activa!,
+				{ codigo: 'c', redirectUri: 'https://x/auth/callback', verificador: 'v', nonce: 'n' },
+				{ grupo: null, invitado: null }
+			);
+		};
+		const luis = { oid: 'luis', preferred_username: 'luis@kebaps.es', roles: ['lector'] };
+		expect(await canje({ ...luis, amr: ['pwd'] })).toEqual({ rechazo: 'sin_mfa' });
+		expect(await canje({ ...luis, acrs: ['c2'] })).toEqual({ rechazo: 'sin_mfa' });
+		expect(await canje({ ...luis, acrs: ['c1'] })).toMatchObject({ roles: ['lector'] });
+
+		const antes = new Date();
+		expect(await g({ exigirMfa: false, confirmarSinMfa: true })).toEqual({ ok: true });
+		expect(await ep.estadoEntraPropio()).toMatchObject({ exigirMfa: false, activo: false });
+		const filas = await db
+			.select()
+			.from(s.auditoria)
+			.where(
+				eq(s.auditoria.accion, 'Microsoft sign-in (own Entra): two-factor from Entra not required')
+			);
+		expect(filas.some((f: { cuando: Date }) => f.cuando >= new Date(antes.getTime() - 1000))).toBe(
+			true
+		);
+	});
+
+	it('una configuración de antes (sin el campo) deja entrar sin MFA, lo apunta y se puede activar', async () => {
+		await ep.guardarEntraPropio(
+			'admin@local',
+			{ tenant: TENANT, clientId: APP, secreto: SECRETO },
+			existe
+		);
+		const [f] = await db.select().from(s.ajustes).where(eq(s.ajustes.clave, 'entra_propio'));
+		const { exigirMfa: _e, contextoAuth: _c, ...viejo } = f.valor as Record<string, unknown>;
+		await db
+			.update(s.ajustes)
+			.set({ valor: { ...viejo, activo: true } })
+			.where(eq(s.ajustes.clave, 'entra_propio'));
+		expect(await ep.estadoEntraPropio()).toMatchObject({ modoMfa: 'heredada', exigirMfa: false });
+		const activa = await ep.configActiva();
+		expect(activa).toMatchObject({ modo: 'propio', config: { modoMfa: 'heredada' } });
+
+		const antes = new Date(Date.now() - 1000);
+		const canje = (p: Record<string, unknown>) => {
+			payload = p;
+			return ep.canjearCodigo(
+				activa!,
+				{ codigo: 'c', redirectUri: 'https://x/auth/callback', verificador: 'v', nonce: 'n' },
+				{ grupo: null, invitado: null }
+			);
+		};
+		const luis = { oid: 'luis', preferred_username: 'luis@kebaps.es', roles: ['lector'] };
+		expect(await canje({ ...luis, amr: ['pwd'] })).toMatchObject({ correo: 'luis@kebaps.es' });
+		const sinMfa = async () =>
+			(await db.select().from(s.auditoria).where(eq(s.auditoria.accion, ep.ACCION_SIN_MFA))).filter(
+				(x: { cuando: Date; quien: string }) => x.cuando >= antes && x.quien === 'luis@kebaps.es'
+			).length;
+		expect(await sinMfa()).toBe(1);
+		/* Con MFA no se apunta nada. */
+		await canje({ ...luis, amr: ['pwd', 'mfa'] });
+		expect(await sinMfa()).toBe(1);
+
+		/* Activar la exigencia (tras la prueba con MFA, en auth/callback) la deja exigida. */
+		await ep.activarExigenciaMfa('admin@local', 'luis@kebaps.es', 'c1');
+		expect(await ep.estadoEntraPropio()).toMatchObject({
+			modoMfa: 'exigida',
+			activo: true,
+			contextoAuth: 'c1'
+		});
+		const ya = await ep.configActiva();
+		payload = { ...luis, amr: ['pwd'] };
+		expect(
+			await ep.canjearCodigo(
+				ya!,
+				{ codigo: 'c', redirectUri: 'https://x/auth/callback', verificador: 'v', nonce: 'n' },
+				{ grupo: null, invitado: null }
+			)
+		).toEqual({ rechazo: 'sin_mfa' });
 	});
 
 	describe('salir del B2B (b2b.ts)', () => {

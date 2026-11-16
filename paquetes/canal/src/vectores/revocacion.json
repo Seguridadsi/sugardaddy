@@ -1,0 +1,15 @@
+{
+	"clavePublicacion": "MCowBQYDK2VwAyEA9yTFnQfnmRcd+K4O9En6fauOaVZXYED37jt6lDmMfo4=",
+	"firmada": {
+		"licencia": "{\"tipo\":\"licencia\",\"version\":1,\"cliente\":\"vector\",\"nodo\":\"vector-nodo-1\",\"nodoClave\":\"MCowBQYDK2VwAyEAlD73YXgsa2p8jJI8KYy2iOiF2/TEm+VL8jckF+MXDqA=\",\"modulos\":[\"mysql\"],\"marca\":\"vector-7f3a\",\"emitida\":\"2026-11-01T10:00:00.000Z\",\"caduca\":\"2026-12-16T10:00:00.000Z\"}",
+		"firma": "iewDreGlrVGNIjkgeksl7wTbRDunzjRgGsRPEqvHaXpuko5J8p8v8Lp6J056FbyOG+IToVxS/gxrnwqRH43eAQ=="
+	},
+	"noLaRevoca": {
+		"revocacion": "{\"tipo\":\"revocacion\",\"version\":1,\"cliente\":\"vector\",\"licencia\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"hasta\":\"2026-11-20T10:00:00.000Z\",\"emitida\":\"2026-11-20T10:00:00.000Z\"}",
+		"firma": "8laqFwbQyuoqbuI4DPOEY3ZtheoM1ViyFroBp9EnHloRGrZl/oJKkOfBYsswefXB1Of+wk/flCIFHkygoGIgCg=="
+	},
+	"laRevoca": {
+		"revocacion": "{\"tipo\":\"revocacion\",\"version\":1,\"cliente\":\"vector\",\"nodo\":\"vector-nodo-1\",\"licencia\":\"764fff1896b46c1ba8c34d94b0e10d9c0b1674e6ede15997e586344f24c27ffa\",\"hasta\":\"2026-11-20T10:00:00.000Z\",\"emitida\":\"2026-11-20T10:00:00.000Z\"}",
+		"firma": "sLXo8E7WV75nFwpusFK+SDUsCgz+ufuwYh8LGKzjtyrb7FZZyL1Uux8bH+yjc5qGCVgoMPx7lQCfja5AlKd1DA=="
+	}
+}

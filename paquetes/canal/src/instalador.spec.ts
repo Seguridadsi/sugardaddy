@@ -11,8 +11,11 @@ import {
 	generarClaves,
 	huellaEtapa1,
 	huellasDe,
+	huellasSensorDe,
 	MARCA_HUELLAS,
+	MARCA_HUELLAS_SENSOR,
 	piezasInstalador,
+	piezasInstaladorSensor,
 	sellarEtapa1,
 	verificarRelease,
 	type Release
@@ -178,5 +181,73 @@ describe('la primera etapa', () => {
 		const f = sign(null, Buffer.from('x'), k.privateKey);
 		expect(firmaParaOpenssl(pub, f.toString('base64'))).toEqual(f);
 		expect(firmaParaOpenssl(ec, 'AAAA')).toBeNull();
+	});
+});
+
+describe('el instalador del sensor remoto', () => {
+	const conSensor = (cambios: (r: Release) => void = () => {}) =>
+		release((r) => {
+			r.sensorRemoto = { ficheros: { 'compose.yml': 'name: sugardaddy-sensor\n' } };
+			r.instaladorSensor = {
+				huellasSensor: '',
+				ficheros: { 'instalar.sh': '#!/usr/bin/env bash\n# sensor\n' }
+			};
+			r.instaladorSensor.huellasSensor = huellasSensorDe(piezasInstaladorSensor(r)!);
+			cambios(r);
+		});
+
+	it('se verifica, con sus huellas una sola vez y sin tocar las del nodo', () => {
+		const r = conSensor();
+		const f = firmarRelease(kino.privada, r);
+		expect(verificarRelease(kino.publica, f).ok).toBe(true);
+		expect(f.release.split(MARCA_HUELLAS_SENSOR)).toHaveLength(2);
+		/* La cadena del nodo no cambia: las etapas 1 de antes siguen instalando nodos. */
+		expect(r.instalador!.huellas).toBe(release().instalador!.huellas);
+		expect(f.release.split(MARCA_HUELLAS)).toHaveLength(2);
+	});
+
+	it('rechaza un guion o un compose que no casan con sus huellas', () => {
+		expect(
+			comprobar(
+				conSensor((r) => {
+					r.instaladorSensor!.ficheros['instalar.sh'] = '#!/bin/sh\nreboot\n';
+				})
+			)
+		).toMatchObject({
+			ok: false,
+			motivo: 'the sensor installer fingerprints do not match its files'
+		});
+		expect(
+			comprobar(
+				conSensor((r) => {
+					r.sensorRemoto!.ficheros['compose.yml'] = 'services: {}\n';
+				})
+			)
+		).toMatchObject({ ok: false });
+	});
+
+	it('sin la configuración del sensor o sin la etapa 1, no vale', () => {
+		expect(
+			comprobar(
+				conSensor((r) => {
+					delete r.sensorRemoto;
+				})
+			).ok
+		).toBe(false);
+		expect(
+			comprobar(
+				conSensor((r) => {
+					delete r.instalador;
+				})
+			).ok
+		).toBe(false);
+	});
+
+	/* El guion viaja firmado con la versión de Cloud: en el árbol de Community no está. */
+	const rutaGuion = resolve(process.cwd(), '../../despliegue/sensor-remoto/instalar.sh');
+	it.skipIf(!existsSync(rutaGuion))('el guion firmado es el de despliegue/sensor-remoto', () => {
+		const guion = readFileSync(rutaGuion, 'utf8');
+		expect(guion.startsWith('#!/usr/bin/env bash\n')).toBe(true);
+		expect(Buffer.byteLength(guion)).toBeLessThan(64 * 1024);
 	});
 });

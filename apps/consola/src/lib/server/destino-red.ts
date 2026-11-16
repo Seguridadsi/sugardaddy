@@ -384,6 +384,25 @@ const CERTIFICADO_NO_CONFIABLE = new Set([
 	'CERT_UNTRUSTED'
 ]);
 
+/* Las alertas TLS con las que un servidor rechaza el certificado de cliente que se le presenta. */
+const CERTIFICADO_CLIENTE_RECHAZADO = new Set([
+	'ERR_SSL_SSLV3_ALERT_BAD_CERTIFICATE',
+	'ERR_SSL_TLSV1_ALERT_UNKNOWN_CA',
+	'ERR_SSL_SSLV3_ALERT_CERTIFICATE_UNKNOWN',
+	'ERR_SSL_SSLV3_ALERT_UNSUPPORTED_CERTIFICATE',
+	'ERR_SSL_SSLV3_ALERT_CERTIFICATE_REVOKED',
+	'ERR_SSL_SSLV3_ALERT_CERTIFICATE_EXPIRED',
+	'ERR_SSL_TLSV1_ALERT_ACCESS_DENIED'
+]);
+
+/* El otro lado solo habla TLS 1.1 o anterior (la consola pide 1.2 o más). */
+const TLS_ANTIGUO = new Set([
+	'ERR_SSL_TLSV1_ALERT_PROTOCOL_VERSION',
+	'ERR_SSL_UNSUPPORTED_PROTOCOL',
+	'ERR_SSL_NO_PROTOCOLS_AVAILABLE',
+	'ERR_SSL_WRONG_SSL_VERSION'
+]);
+
 /* ¿Falló porque el certificado no es de una CA de confianza o es de otro nombre? */
 export const esCertificadoAjeno = (codigo?: string) =>
 	!!codigo && (CERTIFICADO_NO_CONFIABLE.has(codigo) || codigo === 'ERR_TLS_CERT_ALTNAME_INVALID');
@@ -429,6 +448,12 @@ export function explicarError(err: unknown, destino: string): string {
 	if (c === 'CERT_NOT_YET_VALID') return `the certificate of ${destino} is not valid yet`;
 	if (c === 'ERR_TLS_CERT_ALTNAME_INVALID')
 		return `the certificate of ${destino} was issued for a different name${e.reason ? ` (${e.reason})` : ''}`;
+	if (c === 'ERR_SSL_TLSV13_ALERT_CERTIFICATE_REQUIRED')
+		return `${destino} requires a client certificate (mutual TLS): add yours and its private key to this output`;
+	if (CERTIFICADO_CLIENTE_RECHAZADO.has(c))
+		return `${destino} rejects the client certificate: check that it is issued by a CA it trusts, has not expired and has not been revoked`;
+	if (TLS_ANTIGUO.has(c))
+		return `${destino} only offers TLS older than 1.2, which is not used: enable TLS 1.2 or 1.3 on it`;
 	if (c === 'EPROTO' || c.startsWith('ERR_SSL_') || c.startsWith('ERR_TLS_'))
 		return `cannot establish TLS with ${destino}: is that port TLS?`;
 	return `${destino}: ${String(e.message ?? err).slice(0, 200)}`;

@@ -7,11 +7,26 @@
  * payload verificado que devuelve `canjear`.
  */
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from 'jose';
+import { huboMfa } from './oidc';
 
 const AUTORIDAD = 'https://login.microsoftonline.com';
 export const ALCANCES = 'openid profile email';
 
-export type Config = { tenant: string; clientId: string; secret: string };
+/*
+ * `contextoAuth`: el id de un contexto de autenticación del acceso condicional
+ * del tenant (c1…c99). Si está, se pide en la ida (parámetro `claims`) y Entra
+ * solo devuelve el token tras cumplir la directiva de ese contexto, y lo dice
+ * en la claim `acrs` (ver huboMfaEntra).
+ */
+export type Config = {
+	tenant: string;
+	clientId: string;
+	secret: string;
+	contextoAuth?: string | null;
+};
+
+/* c1 … c99: los ids que admite Entra para un contexto de autenticación. */
+export const CONTEXTO_AUTH = /^c([1-9]|[1-9][0-9])$/;
 
 const aleatorio = (n: number) =>
 	Buffer.from(crypto.getRandomValues(new Uint8Array(n))).toString('base64url');
@@ -25,7 +40,18 @@ async function reto(verificador: string) {
 
 export async function urlDeAutorizacion(
 	c: Config,
-	o: { redirectUri: string; estado: string; nonce: string; verificador: string }
+	o: {
+		redirectUri: string;
+		estado: string;
+		nonce: string;
+		verificador: string;
+		/*
+		 * Para volver a pedir la contraseña y el segundo factor aunque haya sesión en
+		 * Microsoft (las aprobaciones del panel): `login` + `maxAge` 0. `claims` pide al
+		 * token un contexto de autenticación de Acceso condicional (`acrs`).
+		 */
+		reautenticar?: { claims?: string };
+	}
 ) {
 	const p = new URLSearchParams({
 		client_id: c.clientId,
@@ -38,8 +64,18 @@ export async function urlDeAutorizacion(
 		code_challenge: await reto(o.verificador),
 		code_challenge_method: 'S256',
 		/* Que Microsoft pregunte siempre con qué cuenta: si no, salir no sirve de nada. */
-		prompt: 'select_account'
+		prompt: o.reautenticar ? 'login' : 'select_account'
 	});
+	if (c.contextoAuth && CONTEXTO_AUTH.test(c.contextoAuth))
+		p.set(
+			'claims',
+			JSON.stringify({ id_token: { acrs: { essential: true, value: c.contextoAuth } } })
+		);
+	/* La reautenticación del control dual del panel: sus claims, si los trae, mandan. */
+	if (o.reautenticar) {
+		p.set('max_age', '0');
+		if (o.reautenticar.claims) p.set('claims', o.reautenticar.claims);
+	}
 	return `${AUTORIDAD}/${c.tenant}/oauth2/v2.0/authorize?${p}`;
 }
 
@@ -81,6 +117,19 @@ export async function canjear(
 	});
 	if (payload.nonce !== o.nonce) throw new Error('The token nonce does not match.');
 	return payload;
+}
+
+/*
+ * ¿Dice el token de Entra que hubo MFA? O `amr` lo dice (RFC 8176: «mfa», o dos
+ * tipos de factor; huboMfa de oidc.ts), o trae en `acrs` el contexto de
+ * autenticación pedido, cuya directiva de acceso condicional exige MFA. La
+ * claim `acrs` solo la pone Entra cuando se cumplió esa directiva.
+ */
+export function huboMfaEntra(p: JWTPayload, contextoAuth?: string | null): boolean {
+	if (huboMfa(p)) return true;
+	if (!contextoAuth) return false;
+	const acrs = Array.isArray(p.acrs) ? p.acrs : typeof p.acrs === 'string' ? [p.acrs] : [];
+	return acrs.includes(contextoAuth);
 }
 
 /* En un invitado, preferred_username es del tipo ana_empresa.com#EXT#@...: no sirve como correo. */

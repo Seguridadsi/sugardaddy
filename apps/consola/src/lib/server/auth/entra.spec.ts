@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { puede } from '$lib/permisos';
 import { identidadDesdePayload, identidadPropia } from './entra';
+import { urlDeAutorizacion } from '@sugardaddy/entra';
 
 const GRUPO = '11111111-1111-1111-1111-111111111111';
 const base = {
@@ -89,7 +90,13 @@ describe('qué puede hacer cada rol', () => {
 });
 
 describe('con el Entra propio del cliente', () => {
-	const suyo = { oid: 'xyz', preferred_username: 'Luis@Kebaps.es', name: 'Luis', roles: ['admin'] };
+	const suyo = {
+		oid: 'xyz',
+		preferred_username: 'Luis@Kebaps.es',
+		name: 'Luis',
+		roles: ['admin'],
+		amr: ['pwd', 'mfa']
+	};
 
 	it('no hace falta grupo: basta un rol de Sugardaddy', () => {
 		expect(identidadPropia(suyo)).toEqual({
@@ -112,6 +119,40 @@ describe('con el Entra propio del cliente', () => {
 		});
 		expect(identidadPropia({ ...suyo, oid: undefined })).toEqual({ rechazo: 'sin_oid' });
 	});
+
+	it('sin MFA en el token no entra, salvo que se haya apagado a propósito', () => {
+		const sinMfa = { ...suyo, amr: ['pwd'] };
+		expect(identidadPropia(sinMfa)).toEqual({ rechazo: 'sin_mfa' });
+		expect(identidadPropia({ ...suyo, amr: undefined })).toEqual({ rechazo: 'sin_mfa' });
+		expect(identidadPropia(sinMfa, null, { exigirMfa: false })).toMatchObject({
+			correo: 'luis@kebaps.es'
+		});
+		/* Dos factores de tipo distinto (RFC 8176) también valen. */
+		expect(identidadPropia({ ...suyo, amr: ['pwd', 'otp'] })).toMatchObject({ roles: ['admin'] });
+	});
+
+	it('con contexto de autenticación, vale su acrs (y solo el pedido)', () => {
+		const sinAmr = { ...suyo, amr: ['pwd'] };
+		const mfa = { exigirMfa: true, contextoAuth: 'c1' };
+		expect(identidadPropia({ ...sinAmr, acrs: ['c1'] }, null, mfa)).toMatchObject({
+			roles: ['admin']
+		});
+		expect(identidadPropia({ ...sinAmr, acrs: ['c2'] }, null, mfa)).toEqual({ rechazo: 'sin_mfa' });
+		expect(identidadPropia({ ...sinAmr, acrs: ['c1'] })).toEqual({ rechazo: 'sin_mfa' });
+	});
+
+	it('la ida pide el contexto de autenticación con el parámetro claims', async () => {
+		const c = { tenant: 't', clientId: 'a', secret: 's' };
+		const o = { redirectUri: 'https://x/auth/callback', estado: 'e', nonce: 'n', verificador: 'v' };
+		const sin = new URL(await urlDeAutorizacion(c, o));
+		expect(sin.searchParams.has('claims')).toBe(false);
+		const con = new URL(await urlDeAutorizacion({ ...c, contextoAuth: 'c7' }, o));
+		expect(JSON.parse(con.searchParams.get('claims')!)).toEqual({
+			id_token: { acrs: { essential: true, value: 'c7' } }
+		});
+		const raro = new URL(await urlDeAutorizacion({ ...c, contextoAuth: 'c7"}' }, o));
+		expect(raro.searchParams.has('claims')).toBe(false);
+	});
 });
 
 describe('el soporte de SeguridadSI, invitado en el tenant del cliente', () => {
@@ -123,7 +164,8 @@ describe('el soporte de SeguridadSI, invitado en el tenant del cliente', () => {
 		name: 'Kino',
 		roles: ['soporte'],
 		acct: 1,
-		idp: `https://sts.windows.net/${SSI}/`
+		idp: `https://sts.windows.net/${SSI}/`,
+		amr: ['mfa']
 	};
 
 	it('entra con el soporte abierto, siendo quien lo pidió, y con el rol que eligió el cliente', () => {

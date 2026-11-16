@@ -9,6 +9,7 @@
 	import { fechaCorta, fechaHora, fechaLarga, horaCorta } from '$lib/fechas-pantalla';
 	import { haceCuanto } from '$lib/formato';
 	import EntraPropio from '$lib/components/EntraPropio.svelte';
+	import OidcPropio from '$lib/components/OidcPropio.svelte';
 	import SoporteAcceso from '$lib/components/SoporteAcceso.svelte';
 	import MigrarEntra from '$lib/components/MigrarEntra.svelte';
 	import MenuAjustes from '$lib/components/MenuAjustes.svelte';
@@ -42,13 +43,19 @@
 	/* Los enlaces que llegan de otras páginas apuntan a un bloque (#central…). */
 	const GRUPO_DEL_ANCLA: Record<string, Grupo> = {
 		dominio: 'general',
+		'perfil-bancario': 'general',
+		soporte: 'recovery',
 		'free-registration': 'general',
-		actualizaciones: 'general',
+		actualizaciones: 'updates',
+		'politica-actualizacion': 'updates',
 		acceso: 'access',
 		certificado: 'access',
 		entra: 'access',
+		oidc: 'access',
+		'segundo-factor': 'access',
 		'recuperacion-panel': 'recovery',
-		central: 'central'
+		central: 'central',
+		latido: 'central'
 	};
 	let porAncla = $state<Grupo | null>(null);
 	$effect(() => {
@@ -63,7 +70,9 @@
 		const pedido = page.url.searchParams.get('tab');
 		if (esGrupo(pedido)) return pedido;
 		if (porAncla) return porAncla;
-		return page.url.searchParams.has('entra') ? 'access' : 'general';
+		return page.url.searchParams.has('entra') || page.url.searchParams.has('oidc')
+			? 'access'
+			: 'general';
 	});
 	const oculto = (g: Grupo) => grupo !== 'all' && grupo !== g;
 </script>
@@ -106,6 +115,56 @@
 		{/if}
 	</p>
 	<a class="boton" href="/settings/certificate">View the certificate root</a>
+</section>
+
+<section class="panel bloque" id="perfil-bancario" hidden={oculto('general')}>
+	<h2>Banking profile</h2>
+	<p class="ayuda">
+		The settings a bank's change management and access control ask for, applied at once. Each one
+		can still be changed on its own, and every change is recorded in the audit log.
+	</p>
+	<ul class="banca">
+		<li>
+			<span class="estado-banca {data.banca.politica ? 'bien' : 'mal'}"
+				>{data.banca.politica ? 'On' : 'Off'}</span
+			>
+			<b>Updates:</b> an administrator approves each version, no earlier than 72 hours after it is
+			published.
+			<a href="?tab=updates#politica-actualizacion">Update policy</a>
+		</li>
+		<li>
+			<span class="estado-banca {data.banca.soporte ? 'bien' : 'mal'}"
+				>{data.banca.soporte ? 'On' : 'Off'}</span
+			>
+			<b>{data.operador} support:</b> just-in-time, each request approved separately for 4 hours at
+			most, recorded and closed automatically.
+			<a href="?tab=recovery#soporte">Support access</a>
+		</li>
+		<li>
+			<span class="estado-banca {data.banca.separacion ? 'bien' : 'mal'}"
+				>{data.banca.separacion ? 'On' : 'Off'}</span
+			>
+			<b>Credentials:</b> administrators cannot reveal captured credentials, even with the credential
+			viewer role. Only people who hold that role without being administrators can.
+		</li>
+	</ul>
+	<div class="acciones">
+		{#if data.banca.completo}
+			<p class="bien">In place.</p>
+		{:else}
+			<form method="POST" action="?/perfilBanca" use:enhance>
+				<button class="boton principal">Apply the banking profile</button>
+			</form>
+		{/if}
+		<form method="POST" action="?/separacionCredenciales" use:enhance>
+			<input type="hidden" name="activa" value={data.banca.separacion ? 'no' : 'si'} />
+			<button class="boton"
+				>{data.banca.separacion
+					? 'Let administrators reveal credentials'
+					: 'Separate the credential role'}</button
+			>
+		</form>
+	</div>
 </section>
 
 <section class="panel bloque" id="dominio" hidden={oculto('general')}>
@@ -164,6 +223,8 @@
 			<p>
 				Registered with <strong>{reg.correo}</strong>. You have the registration honeypots and
 				automatic updates. The license is valid until {fechaLarga(reg.caduca)} and renews itself.
+				{#if reg.funcionaHasta && reg.funcionaHasta !== reg.caduca}If it cannot renew, decoys
+					already deployed keep running until {fechaLarga(reg.funcionaHasta)}.{/if}
 			</p>
 			{#if reg.fallo}<p class="aviso">Last renewal: {reg.fallo}</p>{/if}
 			<form method="POST" action="?/autoActualizar" use:enhance class="fila-registro">
@@ -182,7 +243,14 @@
 		{:else}
 			{#if reg.estado === 'caducada' && reg.caduca}
 				<p class="aviso">
-					Your registration expired on {fechaLarga(reg.caduca)} and the registration honeypots have stopped.
+					Your registration expired on {fechaLarga(reg.caduca)}.
+					{#if reg.funcionaHasta && Date.parse(reg.funcionaHasta) >= data.ahora}
+						Registration honeypots already deployed keep running until {fechaLarga(
+							reg.funcionaHasta
+						)}, but you cannot deploy new ones or change them.
+					{:else}
+						The registration honeypots have stopped.
+					{/if}
 					The rest of the node is not affected. It renews itself if the node has internet access; otherwise,
 					paste a new code.
 				</p>
@@ -235,11 +303,17 @@
 	</section>
 {/if}
 
-<section class="panel bloque" id="actualizaciones" hidden={oculto('general')}>
+<section class="panel bloque" id="actualizaciones" hidden={oculto('updates')}>
 	<h2>Version and updates</h2>
 	<p class="version-actual">
 		You are on version <b class="mono">{data.version}</b>
-		{#if data.actualizacion.estado === 'pendiente'}
+		{#if data.actualizacion.estado === 'pendiente' && data.espera.motivo === 'aprobacion'}
+			· <b class="mono aviso">{data.actualizacion.version}</b> is signed and verified, waiting for your
+			approval
+		{:else if data.actualizacion.estado === 'pendiente' && data.espera.motivo === 'retardo'}
+			· <b class="mono aviso">{data.actualizacion.version}</b> is signed and verified, waiting for
+			the minimum delay{#if data.espera.hasta}&nbsp;(until {fechaHora(data.espera.hasta)}){/if}
+		{:else if data.actualizacion.estado === 'pendiente'}
 			· <b class="mono aviso">{data.actualizacion.version}</b> is signed and verified, waiting for the
 			updater
 		{:else if data.actualizacion.estado === 'aplicando'}
@@ -255,10 +329,33 @@
 		{#if c?.estado?.despliegueEnPausa}· rollout paused{/if}
 	</p>
 
+	{#if data.actualizacion.estado === 'pendiente' && data.politica.modo === 'manual'}
+		<div class="aprobar-version">
+			<p>
+				Version <b class="mono">{data.actualizacion.version}</b>
+				{#if data.pendienteFirmada?.publicada}was published {fechaHora(
+						data.pendienteFirmada.publicada
+					)}{/if}{#if data.pendienteFirmada?.urgente}
+					and is <b class="aviso">marked as an urgent security fix</b>: it skips the minimum delay
+					once approved{/if}.
+			</p>
+			{#if data.aprobacion}
+				<p class="ayuda">
+					Approved by {data.aprobacion.quien} on {fechaHora(data.aprobacion.cuando)}.
+				</p>
+			{:else}
+				<form method="POST" action="?/aprobarActualizacion" use:enhance={sinVaciar}>
+					<input type="hidden" name="version" value={data.actualizacion.version} />
+					<button class="boton">Approve version {data.actualizacion.version}</button>
+				</form>
+			{/if}
+		</div>
+	{/if}
+
 	{#if data.gestionado}
 		<p class="ayuda">
-			This node is enrolled in the {data.operador} Central: new versions arrive signed by it and install
-			themselves.
+			This node is enrolled in the {data.operador} Central: new versions arrive signed by it and are installed
+			according to the update policy below.
 		</p>
 	{:else}
 		<form method="POST" action="?/comprobarVersion" use:enhance={sinVaciar} class="fila-registro">
@@ -293,6 +390,66 @@
 			<button class="boton" type="submit">Save</button>
 		</form>
 	{/if}
+</section>
+
+<section class="panel bloque" id="politica-actualizacion" hidden={oculto('updates')}>
+	<h2>Update policy</h2>
+	<p class="ayuda">
+		When a signed version that has reached this node is installed. The updater on this machine
+		enforces it, so neither this console nor the Central can install a version earlier than the
+		policy allows. Every change and every approval is recorded in the audit log.
+	</p>
+	<p>
+		Now: <b
+			>{data.politica.modo === 'manual'
+				? 'an administrator approves each version'
+				: 'versions install automatically'}</b
+		>{#if data.politica.retardoHoras > 0}, no earlier than <b>{data.politica.retardoHoras} hours</b>
+			after they are published{/if}.
+	</p>
+	<form method="POST" action="?/politicaActualizacion" use:enhance={sinVaciar} class="politica">
+		<fieldset>
+			<legend>Installation</legend>
+			<label class="opcion">
+				<input
+					type="radio"
+					name="modo"
+					value="automatica"
+					checked={data.politica.modo === 'automatica'}
+				/>
+				<span><b>Automatic</b>: install as soon as the version arrives.</span>
+			</label>
+			<label class="opcion">
+				<input type="radio" name="modo" value="manual" checked={data.politica.modo === 'manual'} />
+				<span
+					><b>Manual approval</b>: an administrator approves each version on this page before it is
+					installed.</span
+				>
+			</label>
+		</fieldset>
+		<div class="plazo">
+			<input
+				id="retardo"
+				name="retardo"
+				type="number"
+				inputmode="numeric"
+				min="0"
+				max="720"
+				value={data.politica.retardoHoras}
+			/>
+			<label for="retardo">hours of minimum delay after a version is published (0 for none)</label>
+		</div>
+		<p class="ayuda">
+			A version signed as an urgent security fix skips the delay, but still needs approval when
+			approval is manual.
+		</p>
+		<div class="acciones">
+			<button class="boton principal">Save</button>
+			<button class="boton" name="preset" value="banca"
+				>Use the banking profile (manual approval, 72 hours)</button
+			>
+		</div>
+	</form>
 </section>
 
 <form class="panel bloque" method="POST" action="?/palabras" use:enhance hidden={oculto('events')}>
@@ -416,8 +573,49 @@
 	</section>
 {/if}
 
+{#if data.segundoFactor}
+	<section class="panel bloque" id="segundo-factor" hidden={oculto('access')}>
+		<h2>Two-factor authentication</h2>
+		<p class="ayuda">
+			For local users: after the password, a passkey or a code from an authenticator app. Each user
+			also gets ten single-use recovery codes. The emergency sign-in does not ask for it.
+		</p>
+		{#if data.segundoFactor.exigir}
+			<p class="bien">Required.</p>
+		{:else}
+			<p class="mal">
+				Optional: users without it sign in with their password alone{#if data.segundoFactor.por}
+					(turned off by {data.segundoFactor.por}{#if data.segundoFactor.cuando}
+						on {fechaCorta(data.segundoFactor.cuando)}{/if}){/if}.
+			</p>
+		{/if}
+		{#if data.segundoFactor.sinFactor.length}
+			<p class="ayuda">
+				{data.segundoFactor.sinFactor.length === 1
+					? 'One user has'
+					: `${data.segundoFactor.sinFactor.length} users have`}
+				not set it up yet{#if data.segundoFactor.exigir}; they will on their next sign-in{/if}:
+				{data.segundoFactor.sinFactor.join(', ')}.
+			</p>
+		{/if}
+		<form method="POST" action="?/segundoFactor" use:enhance>
+			<input type="hidden" name="exigir" value={data.segundoFactor.exigir ? 'no' : 'si'} />
+			<button class="boton {data.segundoFactor.exigir ? 'peligro' : ''}"
+				>{data.segundoFactor.exigir ? 'Make it optional' : 'Require it'}</button
+			>
+		</form>
+	</section>
+{/if}
+
 <div hidden={oculto('access')}>
 	<EntraPropio {...data.entra} error={form?.entraError} valores={form?.entraValores} />
+	<OidcPropio
+		estado={data.oidc.estado}
+		roles={data.oidc.roles}
+		retorno={data.oidc.retorno}
+		error={form?.oidcError}
+		valores={form?.oidcValores}
+	/>
 	{#if data.entra.b2b === 'activo'}
 		<MigrarEntra propio={data.entra.propio} equipo={data.equipoB2B} error={form?.migrarError} />
 	{/if}
@@ -511,6 +709,8 @@
 		clientId={data.entra.propio?.activo ? data.entra.propio.clientId : null}
 		consola={data.entra.retorno.replace(/\/auth\/callback$/, '/')}
 		porCaducar={data.soportePorCaducar}
+		postura={data.soportePostura}
+		plazos={data.soportePlazos}
 	/>
 </div>
 
@@ -615,6 +815,23 @@
 			</dd>
 			<dt>This node's fingerprint</dt>
 			<dd class="mono">{c.huellaNodo}</dd>
+			{#if data.licenciaCloud}
+				{@const l = data.licenciaCloud}
+				<dt>Cloud license</dt>
+				<dd>
+					{#if !l.funciona}
+						<b class="mal">Expired on {fechaLarga(l.caduca)}</b>. Paid decoys stopped on {fechaLarga(
+							l.funcionaHasta
+						)}.
+					{:else if l.caducada}
+						<b class="aviso">Expired on {fechaLarga(l.caduca)}</b>: paid decoys cannot be deployed
+						or changed. Decoys keep running until {fechaLarga(l.funcionaHasta)}.
+					{:else}
+						Valid until {fechaLarga(l.caduca)} for deploying and changing paid decoys. Decoys keep running
+						until {fechaLarga(l.funcionaHasta)}.
+					{/if}
+				</dd>
+			{/if}
 			{#if c.estado}
 				<dt>Configuration</dt>
 				<dd>
@@ -667,6 +884,29 @@
 			closes support access and deletes your incidents from Central, if you were sharing them.
 		</p>
 	{/if}
+</section>
+
+<section class="panel bloque" id="latido" hidden={oculto('central')}>
+	<h2>What the heartbeat sends</h2>
+	<p class="ayuda">
+		The heartbeat never carries events, IP addresses, credentials or secrets. By default it also
+		sends counts (sensors, decoys, events in the last 24 hours) and diagnostics, so {data.operador}
+		can see a node or a decoy that has stopped without asking you.
+		{#if !c}This node must be enrolled in Central (above) for this to take effect.{/if}
+	</p>
+	<form method="POST" action="?/latidoMinimo" use:enhance={sinVaciar}>
+		<label class="interruptor">
+			<input type="checkbox" name="minimo" checked={data.latidoMinimo} />
+			<span>
+				<b>Minimal heartbeat</b>
+				<small
+					>Only what licensing and updates need: version, update status, sharing and support
+					choices. No counts, sign-in method, audit seal, isolation or network diagnostics.</small
+				>
+			</span>
+		</label>
+		<button class="boton">Save</button>
+	</form>
 </section>
 
 <section class="panel bloque" hidden={oculto('central')}>
@@ -791,6 +1031,27 @@
 		font-size: 14px;
 	}
 
+	.aprobar-version {
+		margin: 0.75rem 0;
+		padding: 0.75rem 1rem;
+		border-left: 3px solid var(--warn);
+	}
+	.politica fieldset {
+		border: 0;
+		padding: 0;
+		margin: 0 0 0.75rem;
+	}
+	.politica .opcion {
+		display: flex;
+		gap: 0.5rem;
+		align-items: baseline;
+		margin: 0.25rem 0;
+	}
+	.politica .acciones {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.5rem;
+	}
 	#actualizaciones h3 {
 		margin: 18px 0 4px;
 		font-size: 14px;
@@ -924,6 +1185,23 @@
 		gap: 10px;
 		flex-wrap: wrap;
 		margin-top: 18px;
+	}
+
+	.banca {
+		list-style: none;
+		margin: 12px 0 0;
+		padding: 0;
+		display: grid;
+		gap: 8px;
+		font-size: 13.5px;
+	}
+
+	.estado-banca {
+		display: inline-block;
+		min-width: 34px;
+		font-weight: 600;
+		font-size: 12px;
+		text-transform: uppercase;
 	}
 
 	textarea {

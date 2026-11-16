@@ -7,6 +7,12 @@
  *   sudo docker compose --env-file .env --env-file versiones.env exec consola node scripts/clave.mjs listar
  *   sudo docker compose --env-file .env --env-file versiones.env exec consola node scripts/clave.mjs reset <usuario>
  *   sudo docker compose --env-file .env --env-file versiones.env exec consola node scripts/clave.mjs crear-admin <usuario> [nombre] [correo]
+ *   sudo docker compose --env-file .env --env-file versiones.env exec consola node scripts/clave.mjs segundo-factor <usuario>
+ *
+ * reset NO quita el segundo factor (passkeys, apps de autenticación): quien
+ * tenga la contraseña nueva sigue necesitándolo. Si también se perdió, se quita
+ * aparte con segundo-factor, que lo deja en la auditoría (crítico en el SIEM)
+ * y cierra sus sesiones; el usuario da de alta uno nuevo al entrar.
  *
  * reset y crear-admin imprimen una contraseña de UN SOLO USO (aquí y solo aquí);
  * la consola obliga a cambiarla al entrar. No tocan los roles de nadie, así que
@@ -52,11 +58,12 @@ const USO =
 	'Usage:\n' +
 	'  node scripts/clave.mjs listar\n' +
 	'  node scripts/clave.mjs reset <username>\n' +
-	'  node scripts/clave.mjs crear-admin <username> [name] [email]';
+	'  node scripts/clave.mjs crear-admin <username> [name] [email]\n' +
+	'  node scripts/clave.mjs segundo-factor <username>';
 
 if (!process.env.DATABASE_URL) {
 	salir('DATABASE_URL is missing from the environment.');
-} else if (!['listar', 'reset', 'crear-admin'].includes(orden)) {
+} else if (!['listar', 'reset', 'crear-admin', 'segundo-factor'].includes(orden)) {
 	salir(USO);
 } else {
 	const sql = postgres(process.env.DATABASE_URL, { max: 1, onnotice: () => {} });
@@ -100,6 +107,28 @@ if (!process.env.DATABASE_URL) {
 						values ('node machine', 'local password reset from the machine', ${JSON.stringify({ usuario })}::text::jsonb)`;
 					imprimirClave(usuario, clave);
 				}
+			}
+		} else if (orden === 'segundo-factor') {
+			const usuario = norma(arg2);
+			const [u] = usuario
+				? await sql`select id from usuarios_locales where usuario = ${usuario}`
+				: [];
+			if (!u) {
+				salir(
+					`There is no local user "${usuario}". See which ones exist: node scripts/clave.mjs listar`
+				);
+			} else {
+				await sql.begin(async (tx) => {
+					await tx`delete from factores_usuario where usuario_id = ${u.id}`;
+					await tx`delete from codigos_recuperacion_mfa where usuario_id = ${u.id}`;
+					await tx`update sesiones set cerrada = now()
+						where oid = ${'local:' + u.id} and cerrada is null`;
+					await tx`insert into auditoria (quien, accion, detalle)
+						values ('node machine', 'two-factor reset from the machine', ${JSON.stringify({ usuario })}::text::jsonb)`;
+				});
+				console.log(
+					`\nTwo-factor authentication removed for "${usuario}". They set it up again on their next sign-in.\n`
+				);
 			}
 		} else if (orden === 'crear-admin') {
 			const usuario = norma(arg2);

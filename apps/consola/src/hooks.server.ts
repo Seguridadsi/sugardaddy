@@ -4,7 +4,7 @@ import { env } from '$env/dynamic/private';
 import { rutaNueva } from '$lib/rutas-antiguas';
 import { esPublica } from '$lib/rutas-publicas';
 import { configuradoEnEntorno } from '$lib/server/auth/entra';
-import { COOKIE_SESION, leer } from '$lib/server/auth/sesion';
+import { leer, traeSesion } from '$lib/server/auth/sesion';
 import { altaAutomatica, latir } from '$lib/server/canal';
 import { partnerAlDia } from '$lib/server/catalogo-partner';
 import { renovar } from '$lib/server/registro';
@@ -16,10 +16,16 @@ import { enviarWebhookPendientes } from '$lib/server/webhook';
 import {
 	cortafuegosConfirma,
 	cortafuegosReciente,
-	leerAcceso,
+	accesoParaFiltrar,
 	puedeEntrar
 } from '$lib/server/acceso';
 import { normalizarIp } from '$lib/server/pruebas';
+import { ponerCabeceras } from '$lib/server/cabeceras';
+import { vigilarSoporte } from '$lib/server/soporte';
+import { grabar } from '$lib/server/soporte-registro';
+import { desactivarInactivas } from '$lib/server/revision-accesos';
+import { separacionCredenciales } from '$lib/server/banca';
+import { separarCredenciales } from '$lib/permisos';
 
 /*
  * El latido hacia el panel central sale del servidor de la consola, no del
@@ -82,6 +88,20 @@ export const init: ServerInit = () => {
 	if (w.__webhook) clearInterval(w.__webhook);
 	w.__webhook = setInterval(enviarWebhook, 30_000);
 	w.__webhook.unref?.();
+	/* El acceso de soporte se cierra solo al caducar, aunque nadie tenga la consola abierta. */
+	const sop = () => void vigilarSoporte().catch((e) => console.error('[soporte]', e));
+	const so = globalThis as { __soporte?: ReturnType<typeof setInterval> };
+	if (so.__soporte) clearInterval(so.__soporte);
+	so.__soporte = setInterval(sop, 60_000);
+	so.__soporte.unref?.();
+	/* Revisión de accesos: cada hora, las cuentas que pasan del plazo sin entrar se desactivan. */
+	const inactivas = () =>
+		void desactivarInactivas().catch((e) => console.error('[revision-accesos]', e));
+	const ra = globalThis as { __revisionAccesos?: ReturnType<typeof setInterval> };
+	if (ra.__revisionAccesos) clearInterval(ra.__revisionAccesos);
+	ra.__revisionAccesos = setInterval(inactivas, 60 * 60_000);
+	ra.__revisionAccesos.unref?.();
+	setTimeout(inactivas, 2 * 60_000).unref?.();
 };
 
 export const handle: Handle = async ({ event, resolve }) => {
@@ -96,8 +116,9 @@ export const handle: Handle = async ({ event, resolve }) => {
 	 * dicho en docs/diseno/acceso-consola.md.
 	 */
 	if (event.request.headers.has('x-forwarded-for')) {
-		const acceso = await leerAcceso().catch(() => null);
-		if (acceso?.estado === 'restringida') {
+		/* Sin base, cerrada: lo último conocido o la red de la máquina (accesoParaFiltrar). */
+		const acceso = await accesoParaFiltrar();
+		if (acceso.estado === 'restringida') {
 			let ip: string | null = null;
 			try {
 				ip = normalizarIp(event.getClientAddress());
@@ -125,16 +146,18 @@ export const handle: Handle = async ({ event, resolve }) => {
 	 * emergencia sirve justo cuando Entra no está.
 	 */
 	/* Traía una sesión: si ya no vale, al volver a la entrada se le dice por qué está ahí. */
-	const traiaSesion = !!event.cookies.get(COOKIE_SESION);
+	const traiaSesion = traeSesion(event.cookies);
 	const s = await leer(event.cookies);
 	if (s)
 		event.locals.usuario = {
 			nombre: s.nombre,
 			correo: s.correo,
-			roles: s.roles,
+			/* Perfil bancario: quien administra no revela credenciales (lib/server/banca.ts). */
+			roles: (await separacionCredenciales()) ? separarCredenciales(s.roles) : s.roles,
 			oid: s.oid,
 			soporte: s.soporte,
-			emergencia: s.emergencia
+			emergencia: s.emergencia,
+			sesion: s.sesion
 		};
 	else if (!configuradoEnEntorno() && dev) {
 		/* Sin Entra y en desarrollo: un usuario con todos los roles, y la barra lo dice. */
@@ -158,12 +181,19 @@ export const handle: Handle = async ({ event, resolve }) => {
 	}
 
 	const r = await resolve(event);
-	r.headers.set('X-Frame-Options', 'DENY');
-	r.headers.set('X-Content-Type-Options', 'nosniff');
-	r.headers.set('Referrer-Policy', 'same-origin');
-	r.headers.set('X-Robots-Tag', 'noindex, nofollow');
-	r.headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
-	if (event.url.protocol === 'https:')
-		r.headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+	ponerCabeceras(r.headers);
+	/*
+	 * Lo que hace el soporte de SeguridadSI queda grabado (soporte-registro.ts). Si
+	 * la grabación falla, la petición ya se hizo: queda en el registro de errores.
+	 */
+	const u = event.locals.usuario;
+	if (u?.soporte)
+		await grabar({
+			quien: u.correo,
+			sesion: u.sesion ?? null,
+			metodo: event.request.method,
+			url: event.url,
+			estado: r.status
+		}).catch((e) => console.error('[soporte] recording', e));
 	return r;
 };

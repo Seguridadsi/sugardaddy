@@ -42,6 +42,30 @@ func TestCadaContenedorLlevaSuSensor(t *testing.T) {
 	}
 }
 
+// Toda trampa sale con tope de memoria (sin swap de más), de procesos y de CPU, y
+// con menos peso de CPU que los servicios del nodo; también si su manifiesto no
+// dice CPU (plan de fortificación §2.6).
+func TestTrampaSiempreConTopes(t *testing.T) {
+	for _, c := range []struct {
+		cpu  float64
+		nano int64
+	}{{0.25, 250_000_000}, {0, 500_000_000}} {
+		s := plan.TrampaPlan{ID: "redis-1", Manifiesto: plan.Manifiesto{
+			Contenedor:  &plan.Contenedor{Imagen: "x@sha256:1", Registros: "/log"},
+			Aislamiento: &plan.Aislamiento{CPU: c.cpu, MemoriaMb: 64},
+		}}
+		cfg, _, err := config(Opciones{Datos: "/d", Escucha: "127.0.0.1"}, "s", "", s, false, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		hc := cfg["HostConfig"].(map[string]any)
+		if hc["NanoCpus"] != c.nano || hc["Memory"] != int64(64<<20) || hc["MemorySwap"] != hc["Memory"] ||
+			hc["PidsLimit"] != 256 || hc["CpuShares"] != int64(256) {
+			t.Fatalf("cpu %v: topes %v %v %v %v %v", c.cpu, hc["NanoCpus"], hc["Memory"], hc["MemorySwap"], hc["PidsLimit"], hc["CpuShares"])
+		}
+	}
+}
+
 func TestLicenciaSeMontaDeSoloLectura(t *testing.T) {
 	s := plan.TrampaPlan{
 		ID: "mysql-1",

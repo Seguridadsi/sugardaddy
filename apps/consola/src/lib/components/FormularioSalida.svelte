@@ -27,6 +27,8 @@
 			obligatorio: boolean;
 			necesario?: boolean;
 			si?: { campo: string; valor: string };
+			multilinea?: boolean;
+			fichero?: string;
 		}[];
 	};
 	type Reglas = {
@@ -40,6 +42,7 @@
 		incidentes?: boolean;
 		resumenSemanal?: boolean;
 		auditoria?: boolean;
+		credenciales?: boolean;
 	};
 	type Valores = {
 		nombre: string;
@@ -129,6 +132,23 @@
 	const elegidas = $derived(new Set(valores.reglas.trampas ?? []));
 	const accionesElegidas = $derived(new Set(valores.reglas.acciones ?? []));
 	const guardado = (id: string) => guardados.find((g) => g.id === id);
+	/*
+	 * Cargar un secreto de un fichero (una clave en PEM): lo lee el navegador y
+	 * lo deja en su cuadro, que es lo único que se envía; el fichero no.
+	 */
+	let avisoFichero = $state<Record<string, string>>({});
+	async function cargarSecreto(id: string, e: Event & { currentTarget: HTMLInputElement }) {
+		const f = e.currentTarget.files?.[0];
+		e.currentTarget.value = '';
+		if (!f) return;
+		if (f.size > 64 * 1024) {
+			avisoFichero = { ...avisoFichero, [id]: 'That file is too large for a key.' };
+			return;
+		}
+		const cuadro = document.getElementById(`s-${id}`) as HTMLTextAreaElement | null;
+		if (cuadro) cuadro.value = await f.text();
+		avisoFichero = { ...avisoFichero, [id]: `Loaded from ${f.name}: it is sent when you save.` };
+	}
 	const ve = (p: 'canal' | 'envia' | 'cuando') => parte === 'todo' || parte === p;
 </script>
 
@@ -172,18 +192,41 @@
 						{x.titulo}
 						{#if !x.obligatorio && !x.necesario}<small>optional</small>{/if}
 					</label>
-					<input
-						id="s-{x.id}"
-						name="s.{x.id}"
-						type="password"
-						class="mono"
-						autocomplete="new-password"
-						spellcheck="false"
-						required={(x.obligatorio || x.necesario) && !g?.puesto}
-						placeholder={g?.puesto
-							? `Stored${g.final ? `, ends in …${g.final}` : ''}: type a new one to change it`
-							: ''}
-					/>
+					{#if x.multilinea}
+						{#if x.fichero}
+							<label class="subir">
+								Load from a file
+								<input type="file" accept={x.fichero} onchange={(e) => cargarSecreto(x.id, e)} />
+							</label>
+							{#if avisoFichero[x.id]}<p class="ayuda" role="status">{avisoFichero[x.id]}</p>{/if}
+						{/if}
+						<!-- Un secreto de varias líneas: se borra al guardar, como las contraseñas. -->
+						<textarea
+							id="s-{x.id}"
+							name="s.{x.id}"
+							rows="5"
+							class="mono"
+							data-secreto
+							autocomplete="off"
+							spellcheck="false"
+							required={(x.obligatorio || x.necesario) && !g?.puesto}
+							placeholder={g?.puesto
+								? 'Stored: paste or load a new one to replace it'
+								: '-----BEGIN PRIVATE KEY-----'}></textarea>
+					{:else}
+						<input
+							id="s-{x.id}"
+							name="s.{x.id}"
+							type="password"
+							class="mono"
+							autocomplete="new-password"
+							spellcheck="false"
+							required={(x.obligatorio || x.necesario) && !g?.puesto}
+							placeholder={g?.puesto
+								? `Stored${g.final ? `, ends in …${g.final}` : ''}: type a new one to change it`
+								: ''}
+						/>
+					{/if}
 					<p class="ayuda">
 						{x.descripcion} It is stored encrypted with this node's key and is never shown again.
 						{#if g?.puesto && g.cuando}
@@ -334,6 +377,21 @@
 				</div>
 			{/if}
 		</div>
+
+		<div class="grupo">
+			<span class="titulo">Captured credentials</span>
+			<label class="marca">
+				<input type="checkbox" name="credenciales" checked={valores.reglas.credenciales === true} />
+				Send them in full
+			</label>
+			<p class="nota">
+				Off (recommended): passwords, hashes and tokens that attackers type are sent masked (<code
+					>P*****d1</code
+				>), as the console shows them. On: they are decrypted for each message and leave in clear
+				text to this destination; only someone who can reveal captured credentials can turn it on,
+				and the change is recorded in the audit log.
+			</p>
+		</div>
 	</div>
 
 	<label class="interruptor">
@@ -440,6 +498,24 @@
 		margin: 5px 0 0;
 		font-size: 12px;
 		color: var(--ink-3);
+	}
+
+	textarea {
+		width: 100%;
+		resize: vertical;
+	}
+
+	.subir {
+		display: block;
+		margin: 0 0 6px;
+		font-weight: 400;
+		font-size: 13px;
+	}
+
+	.subir input {
+		display: block;
+		margin-top: 4px;
+		font-size: 12px;
 	}
 
 	.aviso {

@@ -19,6 +19,7 @@
 import { eq } from 'drizzle-orm';
 import {
 	decodificarCodigo,
+	funcionaHastaDe,
 	licenciaDeRegistro,
 	type Licencia,
 	type LicenciaFirmada
@@ -51,6 +52,8 @@ export type EstadoRegistro = {
 	estado: 'sin' | 'vigente' | 'caducada' | 'invalida';
 	correo: string | null;
 	caduca: string | null;
+	/* Hasta cuándo siguen funcionando las trampas de registro ya desplegadas (B-06). */
+	funcionaHasta: string | null;
 	renovada: string | null;
 	fallo: string | null;
 	/* La clave de publicación está: sin ella ningún código puede verificarse. */
@@ -88,15 +91,16 @@ export async function estadoRegistro(ahora = Date.now()): Promise<EstadoRegistro
 		verificable: !!clave
 	};
 	const lic = r ? await licenciaGuardada() : null;
-	if (!r || !lic) return { ...base, estado: 'sin', caduca: null };
-	if (!clave) return { ...base, estado: 'invalida', caduca: null };
+	if (!r || !lic) return { ...base, estado: 'sin', caduca: null, funcionaHasta: null };
+	if (!clave) return { ...base, estado: 'invalida', caduca: null, funcionaHasta: null };
 	const autentica = licenciaDeRegistro(clave, lic, 0);
-	if (!autentica.ok) return { ...base, estado: 'invalida', caduca: null };
+	if (!autentica.ok) return { ...base, estado: 'invalida', caduca: null, funcionaHasta: null };
 	const vigente = licenciaDeRegistro(clave, lic, ahora);
 	return {
 		...base,
 		estado: vigente.ok ? 'vigente' : 'caducada',
-		caduca: autentica.licencia.caduca
+		caduca: autentica.licencia.caduca,
+		funcionaHasta: funcionaHastaDe(autentica.licencia)
 	};
 }
 

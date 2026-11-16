@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -197,6 +198,10 @@ func (a *Acceso) guardarUltima(l listaConsola) {
 	}
 }
 
+// Tope de lo que el actualizador lee de una respuesta de la consola (auditoría
+// 2026-11-14, §5 h08).
+const topeRespuestaConsola = 4 << 20
+
 func (a *Acceso) pedirLista(ctx context.Context) (listaConsola, error) {
 	var l listaConsola
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, a.Consola+"/api/actualizador/acceso", nil)
@@ -212,7 +217,7 @@ func (a *Acceso) pedirLista(ctx context.Context) (listaConsola, error) {
 	if resp.StatusCode != http.StatusOK {
 		return l, fmt.Errorf("consola: %s", resp.Status)
 	}
-	return l, json.NewDecoder(resp.Body).Decode(&l)
+	return l, json.NewDecoder(io.LimitReader(resp.Body, topeRespuestaConsola)).Decode(&l)
 }
 
 func (a *Acceso) informar(ctx context.Context, r cortafuegos.Resultado, emergencia bool, lista string) error {
@@ -243,31 +248,7 @@ func (a *Acceso) lanzar(ctx context.Context, imagen string, p cortafuegos.Pedido
 	if err := a.Docker.AsegurarImagen(ctx, imagen); err != nil {
 		return fallo("updater image", err)
 	}
-	abierta := "0"
-	if p.Abierta {
-		abierta = "1"
-	}
-	id, err := a.Docker.Crear(ctx, NombreCortafuegos, map[string]any{
-		"Image": imagen,
-		"Cmd":   []string{"cortafuegos"},
-		"Env": []string{
-			"ACCESO_ABIERTA=" + abierta,
-			"ACCESO_REDES=" + strings.Join(p.Redes, ","),
-			"ACCESO_PUERTO=" + strconv.Itoa(p.Puerto),
-			"ACCESO_ESCUCHA=" + p.Escucha,
-		},
-		"Labels": map[string]string{"sugardaddy.auxiliar": "cortafuegos"},
-		"HostConfig": map[string]any{
-			"NetworkMode":    "host",
-			"CapDrop":        []string{"ALL"},
-			"CapAdd":         []string{"NET_ADMIN", "NET_RAW"},
-			"ReadonlyRootfs": true,
-			"SecurityOpt":    []string{"no-new-privileges"},
-			"Tmpfs":          map[string]string{"/run": "rw,nosuid,size=1m", "/tmp": "rw,nosuid,size=1m"},
-			"RestartPolicy":  map[string]string{"Name": "no"},
-			"LogConfig":      docker.RegistrosAcotados(),
-		},
-	})
+	id, err := a.Docker.Crear(ctx, NombreCortafuegos, ConfigCortafuegos(imagen, p))
 	if err != nil {
 		return fallo("firewall helper", err)
 	}
@@ -296,4 +277,34 @@ func LeerResultadoCortafuegos(salida string, codigo int) cortafuegos.Resultado {
 		}
 	}
 	return cortafuegos.Resultado{Estado: cortafuegos.ConError, Detalle: fmt.Sprintf("the firewall helper ended with code %d and said nothing", codigo)}
+}
+
+// ConfigCortafuegos es el auxiliar que pone la regla del acceso a la consola en
+// el cortafuegos de la máquina: red del anfitrión, NET_ADMIN y NET_RAW, nada más.
+func ConfigCortafuegos(imagen string, p cortafuegos.Pedido) map[string]any {
+	abierta := "0"
+	if p.Abierta {
+		abierta = "1"
+	}
+	return map[string]any{
+		"Image": imagen,
+		"Cmd":   []string{"cortafuegos"},
+		"Env": []string{
+			"ACCESO_ABIERTA=" + abierta,
+			"ACCESO_REDES=" + strings.Join(p.Redes, ","),
+			"ACCESO_PUERTO=" + strconv.Itoa(p.Puerto),
+			"ACCESO_ESCUCHA=" + p.Escucha,
+		},
+		"Labels": map[string]string{"sugardaddy.auxiliar": "cortafuegos"},
+		"HostConfig": map[string]any{
+			"NetworkMode":    "host",
+			"CapDrop":        []string{"ALL"},
+			"CapAdd":         []string{"NET_ADMIN", "NET_RAW"},
+			"ReadonlyRootfs": true,
+			"SecurityOpt":    []string{"no-new-privileges"},
+			"Tmpfs":          map[string]string{"/run": "rw,nosuid,size=1m", "/tmp": "rw,nosuid,size=1m"},
+			"RestartPolicy":  map[string]string{"Name": "no"},
+			"LogConfig":      docker.RegistrosAcotados(),
+		},
+	}
 }

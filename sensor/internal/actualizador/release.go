@@ -34,6 +34,14 @@ type Release struct {
 	Confianza *ConfianzaNueva     `json:"confianza,omitempty"`
 	Catalogo  map[string][]string `json:"catalogo,omitempty"`
 	Commit    string              `json:"commit,omitempty"`
+	// Urgente: un arreglo de seguridad que se salta el retardo mínimo de la política de
+	// cambios del cliente, pero no su aprobación (politica.go). Va firmado: el panel no
+	// puede marcar urgente una versión que no lo es.
+	Urgente bool `json:"urgente,omitempty"`
+	// Motor: el Docker que fija la versión (docs/diseno/cortafuegos-anfitrion.md, plan
+	// de fortificación §1.1). La consola avisa si la máquina va por detrás y el
+	// appliance sube a él con estos paquetes y sus sha256. Los nodos de antes lo ignoran.
+	Motor *MotorFijado `json:"motor,omitempty"`
 }
 
 // ConfianzaNueva es la lista de claves que una versión deja en el .env, y si retira la de legado.
@@ -234,7 +242,7 @@ func validarNovedades(r Release, uso string) error {
 	if r.Commit != "" && !commitRelease.MatchString(r.Commit) {
 		return errors.New("malformed commit")
 	}
-	return nil
+	return ValidarMotor(r.Motor)
 }
 
 // clavesExactas rechaza una clave de primer nivel que coincide con un campo conocido salvo en
@@ -244,7 +252,7 @@ func clavesExactas(texto string) error {
 	if err := json.Unmarshal([]byte(texto), &m); err != nil {
 		return errors.New("the version is not signed by SeguridadSI")
 	}
-	conocidas := []string{"version", "publicada", "notas", "servicios", "actualizador", "nodo", "sensorRemoto", "confianza", "catalogo", "commit"}
+	conocidas := []string{"version", "publicada", "notas", "servicios", "actualizador", "nodo", "sensorRemoto", "confianza", "catalogo", "commit", "urgente", "motor"}
 	for k := range m {
 		for _, c := range conocidas {
 			if k != c && strings.EqualFold(k, c) {

@@ -1,6 +1,7 @@
 <!--
 	Ajustes → acceso de soporte. El cliente acepta (rol y plazo, como mucho 30
-	días), renueva, rechaza o cierra. Con su propio Entra, además, le damos el
+	días; 4 horas sin renovar en la postura bancaria), renueva, rechaza o cierra.
+	Lo que hace el soporte dentro se ve en Audit logs → Support sessions. Con su propio Entra, además, le damos el
 	script para invitar en SU tenant a la persona que lo pidió y darle el rol
 	«soporte» en su aplicación (docs/diseno/identidad-clientes.md §2).
 -->
@@ -22,7 +23,9 @@
 		modo,
 		clientId,
 		consola,
-		porCaducar
+		porCaducar,
+		postura,
+		plazos
 	}: {
 		soporte: Soporte;
 		operador: string;
@@ -33,13 +36,15 @@
 		/* La dirección de esta consola: adonde lleva la invitación. */
 		consola: string;
 		porCaducar: boolean;
+		/* banca: justo a tiempo, 4 horas como mucho y sin renovar (soporte.ts). */
+		postura: 'estandar' | 'banca';
+		plazos: readonly number[];
 	} = $props();
 
-	const PLAZOS = [
-		{ horas: 720, texto: '30 days' },
-		{ horas: 168, texto: '7 days' },
-		{ horas: 8, texto: '8 hours' }
-	];
+	const textoPlazo = (h: number) =>
+		h % 24 === 0 ? `${h / 24} days` : h === 1 ? '1 hour' : `${h} hours`;
+	const PLAZOS = $derived(plazos.map((horas) => ({ horas, texto: textoPlazo(horas) })));
+	const banca = $derived(postura === 'banca');
 
 	/* Solo un correo con forma de correo entra en el script: viene firmado del panel, pero va a un shell. */
 	const CORREO = /^[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,253}$/;
@@ -147,20 +152,28 @@ echo "Done: $CORREO is invited and has the support role."`
 		<p class={porCaducar ? 'aviso' : 'ayuda'}>
 			Open as <b>{nombreRol(soporte.rol ? [soporte.rol] : [])}</b>
 			{#if soporte.hasta}until {fechaHora(soporte.hasta)}.{/if}
-			{#if porCaducar}It expires soon: renew it if they still need it.{/if}
-			Everything they do is recorded in the audit logs.
+			{#if porCaducar}It expires soon{banca ? '' : ': renew it if they still need it'}.{/if}
+			Every page they open and every action they take is recorded:
+			<a href="/logs?tab=support">Audit logs → Support sessions</a>.
 		</p>
-		<form class="soporte-decision" method="POST" action="?/soporteRenovar" use:enhance>
-			<div>
-				<label for="renovar">Renew for</label>
-				<select id="renovar" name="horas">
-					{#each PLAZOS as p, i (p.horas)}
-						<option value={p.horas} selected={i === 0}>{p.texto} from now</option>
-					{/each}
-				</select>
-			</div>
-			<button class="boton">Renew</button>
-		</form>
+		{#if banca}
+			<p class="ayuda">
+				Just-in-time access cannot be renewed. It closes when it expires or when they sign out; if
+				they need more time, {operador} sends a new request.
+			</p>
+		{:else}
+			<form class="soporte-decision" method="POST" action="?/soporteRenovar" use:enhance>
+				<div>
+					<label for="renovar">Renew for</label>
+					<select id="renovar" name="horas">
+						{#each PLAZOS as p, i (p.horas)}
+							<option value={p.horas} selected={i === 0}>{p.texto} from now</option>
+						{/each}
+					</select>
+				</div>
+				<button class="boton">Renew</button>
+			</form>
+		{/if}
 		<form method="POST" action="?/soporteCerrar" use:enhance>
 			<button class="boton peligro">Close now</button>
 		</form>
@@ -172,10 +185,28 @@ echo "Done: $CORREO is invited and has the support role."`
 		{/if}
 	{:else}
 		<p class="ayuda">
-			Closed. {operador} can only request access; whether to grant it, for how long (30 days at most,
-			renewable) and with which role is your decision.
+			Closed. {operador} can only request access; whether to grant it, for how long ({banca
+				? '4 hours at most, not renewable'
+				: '30 days at most, renewable'}) and with which role is your decision.
 		</p>
 	{/if}
+
+	<h3>Policy</h3>
+	{#if banca}
+		<p class="ayuda">
+			<b>Just-in-time (banking).</b> You approve each request separately, for 4 hours at most. It cannot
+			be renewed and it closes by itself when it expires or when support signs out.
+		</p>
+	{:else}
+		<p class="ayuda">
+			<b>Standard.</b> Up to 30 days, renewable. Just-in-time access limits each request to 4 hours, without
+			renewal, and closes it when support signs out.
+		</p>
+	{/if}
+	<form method="POST" action="?/posturaSoporte" use:enhance>
+		<input type="hidden" name="postura" value={banca ? 'estandar' : 'banca'} />
+		<button class="boton">{banca ? 'Use the standard policy' : 'Use just-in-time access'}</button>
+	</form>
 </section>
 
 <style>

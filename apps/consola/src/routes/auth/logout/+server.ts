@@ -3,16 +3,24 @@ import { urlDeCierre } from '@sugardaddy/entra';
 import { configActiva } from '$lib/server/auth/entra-propio';
 import { cerrar } from '$lib/server/auth/sesion';
 import { auditar } from '$lib/server/consultas';
+import { alSalirSoporte } from '$lib/server/soporte';
 
 /* Solo POST: que un enlace ajeno no pueda cerrarle la sesión a nadie. */
 export const POST = async ({ url, cookies, locals }) => {
 	if (locals.usuario) await auditar(locals.usuario.correo, 'sign-out');
 	const oid = await cerrar(cookies);
+	/* Soporte justo a tiempo: al salir la persona de soporte, el acceso se cierra con ella. */
+	if (locals.usuario?.soporte) await alSalirSoporte(locals.usuario.correo);
 	/*
 	 * Solo una sesión federada (de Entra) se cierra también en Microsoft, para que
 	 * el siguiente en este ordenador no entre de un clic. Las locales y las de
 	 * emergencia no pasan por Microsoft: mandarlas allí sería un desvío sin sentido.
 	 */
+	/*
+	 * Con OIDC no se redirige al proveedor: la CSP (form-action) solo deja seguir
+	 * hasta Microsoft. La entrada enseña el enlace para salir también allí.
+	 */
+	if (oid?.startsWith('oidc:')) redirect(303, '/sign-in?salida=oidc');
 	const federada = !!oid && !oid.startsWith('local:') && !oid.startsWith('emergencia:');
 	const activa = federada ? await configActiva() : null;
 	redirect(303, activa ? urlDeCierre(activa.config, `${url.origin}/auth/callback`) : '/sign-in');

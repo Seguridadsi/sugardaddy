@@ -107,11 +107,15 @@
 					'soporte',
 				(data.acceso.estado !== 'restringida' || data.acceso.cortafuegosMal) && 'acceso',
 				data.b2b === 'activo' && 'migrar',
+				data.entraSinMfa && 'entra-mfa',
 				data.pentest && 'pentest',
 				data.modoDesarrollo && 'desarrollo',
 				!data.identidad.decidido && esAdmin && 'dominio',
 				data.ca && 'ca',
 				data.marca && 'marca',
+				data.anfitrion && 'anfitrion',
+				data.versionPorAprobar && 'aprobar-version',
+				data.revisionVencida && 'revision-accesos',
 				data.actualizacion?.version && 'actualizacion',
 				data.community && !data.gestionado && !data.autoActualizar.decidido && esAdmin && 'oferta'
 			] as (string | false | null | undefined)[]
@@ -292,6 +296,27 @@
 							</p>
 						{/if}
 
+						{#if avisoActual === 'aprobar-version'}
+							<p class="actualizacion">
+								Version {data.versionPorAprobar} is signed and waiting for your approval before it is
+								installed.
+								<a href="/settings?tab=updates">Review</a>
+							</p>
+						{/if}
+						{#if avisoActual === 'anfitrion' && data.anfitrion}
+							<p class="actualizacion">
+								{#if data.anfitrion.docker}
+									Docker on the node machine is {data.anfitrion.docker.version}, older than {data
+										.anfitrion.docker.fijada}, the version this release was tested with.
+									{data.anfitrion.appliance
+										? 'The appliance updates it by itself; if this stays, check Settings → Host.'
+										: 'Update Docker on this machine (it is managed by you).'}
+								{:else}
+									The strict host firewall is not in place: {data.anfitrion.estricto}.
+								{/if}
+								<a href="/settings/host">Review</a>
+							</p>
+						{/if}
 						{#if avisoActual === 'pentest' && data.pentest}
 							<p class="pentest">
 								Pentest mode "{data.pentest.nombre}" until {diaHora(data.pentest.hasta)}: activity
@@ -312,7 +337,9 @@
 										data.soporte.rol ? [data.soporte.rol] : []
 									)}){#if data.soporte.hasta}
 										until {fechaHora(data.soporte.hasta)}{/if}.{#if data.soportePorCaducar}
-										It expires soon: renew it in Settings if they still need it.{/if}
+										It expires soon{data.soporteBanca
+											? ''
+											: ': renew it in Settings if they still need it'}.{/if}
 									<a href="/settings?tab=recovery#soporte">Manage</a>
 								{/if}
 							</p>
@@ -323,11 +350,27 @@
 							</p>
 						{/if}
 
+						{#if avisoActual === 'revision-accesos'}
+							<p class="soporte">
+								The quarterly access review is overdue: check who has access to this console and
+								confirm the list.
+								<a href="/settings/access-review">Review access</a>
+							</p>
+						{/if}
+
 						{#if avisoActual === 'migrar'}
 							<p class="soporte">
 								This console still signs in through the {data.operador} Entra ID. Move it to your own
 								Entra ID so only your organization decides who signs in.
 								<a href="/settings?tab=access#migrar">Move it</a>
+							</p>
+						{/if}
+
+						{#if avisoActual === 'entra-mfa'}
+							<p class="soporte">
+								Your Microsoft sign-in does not require MFA: configure Conditional Access, then turn
+								on enforcement.
+								<a href="/settings?tab=access#entra-mfa">Turn on enforcement</a>
 							</p>
 						{/if}
 

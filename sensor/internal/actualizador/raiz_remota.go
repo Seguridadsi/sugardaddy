@@ -18,6 +18,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -86,7 +87,7 @@ func (r *RaizRemota) Vuelta(ctx context.Context) error {
 	var p struct {
 		Raices *string `json:"raices"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&p); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, topeRespuestaConsola)).Decode(&p); err != nil {
 		return err
 	}
 	if p.Raices == nil || *p.Raices == "" || *p.Raices == string(actual) {

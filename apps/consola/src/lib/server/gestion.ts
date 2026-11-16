@@ -3,6 +3,7 @@
  * de la auditoría. Toda escritura deja su línea en auditoría, en la misma
  * transacción.
  */
+import { revocarCertificados } from './ca-sensores';
 import { porDireccion } from '$lib/red';
 import { createHash, randomBytes } from 'node:crypto';
 import { and, asc, desc, eq, ilike, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
@@ -11,6 +12,8 @@ import { avisosSensor, resumenMotor } from '$lib/capacidades';
 import type { Entorno } from '$lib/entorno';
 import { trasHecho, trasParar, trasQuitado, trasRetirar } from './colocacion';
 import { db, schema as s } from './db';
+import { clavesCredencial } from './credenciales';
+import { enmascararLinea } from './credenciales-protegidas';
 import { insertarDestino, type Tx } from './destinos';
 import { ipPublicaSensor } from './ip-publica-sensor';
 
@@ -355,6 +358,8 @@ export async function retirarSensor(quien: string, id: string) {
 				})
 				.where(eq(s.sensores.id, id));
 			await tx.delete(s.instaladoresSensor).where(eq(s.instaladoresSensor.sensor, id));
+			/* Y su certificado de cliente (docs/diseno/mtls-sensores.md). */
+			await revocarCertificados(tx, id);
 			await tx.insert(s.auditoria).values({ quien, accion: 'sensor deactivated', detalle: { id } });
 			return 'desactivado';
 		}
@@ -599,7 +604,8 @@ export async function ultimaCuarentena(limite = 30) {
 		id: f.id,
 		sensor: f.sensor,
 		motivo: f.motivo,
-		linea: f.linea.slice(0, 4000),
+		/* Lo guardado antes de enmascarar la cuarentena (B-09) se enmascara al leerlo. */
+		linea: enmascararLinea(f.linea, clavesCredencial()).slice(0, 4000),
 		recibido: f.recibido.toISOString()
 	}));
 }

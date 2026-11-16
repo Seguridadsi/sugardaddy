@@ -5,7 +5,9 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"log/slog"
 	"os"
@@ -68,4 +70,40 @@ func caAuxiliar() int {
 		return 1
 	}
 	return 0
+}
+
+// caSensoresAuxiliar: pone la raíz de la CA de sensores en .env y recrea https
+// (docs/diseno/mtls-sensores.md). Su última línea es el resultado en JSON.
+func caSensoresAuxiliar() int {
+	ctx, parar := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer parar()
+	ctx, cancelar := context.WithTimeout(ctx, actualizador.EsperaCambioCA)
+	defer cancelar()
+	c := &actualizador.CambioCA{
+		Dir:      os.Getenv("CA_DIR"),
+		Proyecto: os.Getenv("CA_PROYECTO"),
+		Docker:   docker.Nuevo("/var/run/docker.sock"),
+		Binario:  "/docker-compose",
+		Log:      func(m string, args ...any) { slog.Info(m, args...) },
+	}
+	nueva := os.Getenv("CA_SENSORES_NUEVA")
+	r := actualizador.ResultadoCA{Estado: actualizador.CAFallida, Detalle: "CA_SENSORES_NUEVA is not a CA certificate"}
+	if _, err := actualizador.RaizSensoresDER(derAPem(nueva)); err == nil {
+		r = c.AplicarSensores(ctx, nueva)
+	}
+	b, _ := json.Marshal(r)
+	fmt.Println(string(b))
+	if r.Estado != actualizador.CAAplicada {
+		return 1
+	}
+	return 0
+}
+
+// derAPem: lo que llega en base64 (DER), en PEM, para validarlo igual que lo que da la consola.
+func derAPem(b64 string) string {
+	der, err := base64.StdEncoding.DecodeString(b64)
+	if err != nil {
+		return ""
+	}
+	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}))
 }

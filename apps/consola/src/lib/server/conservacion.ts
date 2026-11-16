@@ -256,5 +256,7 @@ export async function purgar(ahora = new Date()) {
 		});
 	/* La propia purga deja su fila en la auditoría («audit log purged»). */
 	const auditoria = await borrarAuditoriaAntesDe(limiteAuditoria);
+	/* Lo grabado del soporte se queda lo mismo que la auditoría (soporte-registro.ts). */
+	await db.delete(s.soporteRegistro).where(lt(s.soporteRegistro.cuando, limiteAuditoria));
 	return { ...r, auditoria, listas };
 }

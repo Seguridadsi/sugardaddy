@@ -225,3 +225,95 @@ func TestRecargaLasRaicesAlCambiarElFichero(t *testing.T) {
 		t.Fatalf("a broken file must keep the previous roots: %v", err)
 	}
 }
+
+// certificadoCliente firma con la CA un certificado de cliente y lo deja, con su
+// clave, en un solo PEM (como lo deja el instalador del sensor remoto).
+func certificadoCliente(t *testing.T, ca *x509.Certificate, claveCA *ecdsa.PrivateKey, ruta, cn string) {
+	t.Helper()
+	clave, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	plantilla := &x509.Certificate{
+		SerialNumber: big.NewInt(time.Now().UnixNano()),
+		Subject:      pkix.Name{CommonName: cn},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, plantilla, ca, &clave.PublicKey, claveCA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	k, _ := x509.MarshalPKCS8PrivateKey(clave)
+	b := append(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: k})...)
+	tmp := ruta + ".nuevo"
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(tmp, ruta); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Con certificado propio: lo presenta cuando el servidor lo pide (verify_if_given,
+// como Caddy), sin él no presenta nada, y si cambia el fichero usa el nuevo.
+func TestClienteConCertificado(t *testing.T) {
+	raiz, ca, claveCA := caDePrueba(t)
+	pool := x509.NewCertPool()
+	pool.AddCert(ca)
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if len(r.TLS.PeerCertificates) == 0 {
+			w.Write([]byte("-"))
+			return
+		}
+		w.Write([]byte(r.TLS.PeerCertificates[0].Subject.CommonName))
+	}))
+	srv.TLS = &tls.Config{ClientAuth: tls.VerifyClientCertIfGiven, ClientCAs: pool}
+	srv.StartTLS()
+	defer srv.Close()
+	// La raíz del servidor de prueba, junto a la de la CA.
+	servidor := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw})
+	b, _ := os.ReadFile(raiz)
+	os.WriteFile(raiz, append(b, servidor...), 0o600)
+
+	cert := filepath.Join(t.TempDir(), "cliente.pem")
+	c, err := ClienteConCertificado(raiz, cert, 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pedir := func() string {
+		r, err := c.Get(srv.URL)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer r.Body.Close()
+		var buf [64]byte
+		n, _ := r.Body.Read(buf[:])
+		return string(buf[:n])
+	}
+	if got := pedir(); got != "-" {
+		t.Fatalf("sin fichero no debía presentar certificado: %q", got)
+	}
+	certificadoCliente(t, ca, claveCA, cert, "sensor-1")
+	time.Sleep(10 * time.Millisecond)
+	if got := pedir(); got != "sensor-1" {
+		t.Fatalf("con el fichero nuevo debía cerrar la conexión vieja y presentarlo: %q", got)
+	}
+	certificadoCliente(t, ca, claveCA, cert, "sensor-1-renovado")
+	// Otra fecha de modificación aunque el sistema de ficheros redondee.
+	futuro := time.Now().Add(2 * time.Second)
+	os.Chtimes(cert, futuro, futuro)
+	if got := pedir(); got != "sensor-1-renovado" {
+		t.Fatalf("tras renovar debía presentar el nuevo: %q", got)
+	}
+}
+
+// Sin raíz propia pero con certificado: las raíces del sistema y el certificado.
+func TestClienteSoloCertificado(t *testing.T) {
+	c, err := ClienteConCertificado("", filepath.Join(t.TempDir(), "no-existe.pem"), time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Transport == nil {
+		t.Fatal("con certificado propio hace falta un transporte propio")
+	}
+}

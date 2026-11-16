@@ -1,9 +1,19 @@
 <script lang="ts">
+	import { enhance } from '$app/forms';
 	import { resolve } from '$app/paths';
 	import { diaCorto } from '$lib/fechas-pantalla';
 	import { haceCuanto } from '$lib/formato';
 
-	let { data } = $props();
+	let { data, form } = $props();
+
+	/* Con una búsqueda, solo lo encontrado; sin ella, todas. */
+	const filas = $derived(form?.busqueda?.filas ?? data.filas);
+	const revelada = $derived(form?.revelada ?? null);
+	/* Que el formulario no se vacíe al revelar: la búsqueda sigue a la vista. */
+	const sinVaciar =
+		() =>
+		async ({ update }: { update: (o?: { reset?: boolean }) => Promise<void> }) =>
+			update({ reset: false });
 </script>
 
 <svelte:head>
@@ -12,19 +22,39 @@
 
 <div class="cabecera">
 	<h1>Captured passwords</h1>
-	<p class="cuenta"><b class="mono">{data.filas.length}</b> unique</p>
+	<p class="cuenta"><b class="mono">{filas.length}</b> unique</p>
 </div>
 
-<form class="panel filtros" method="GET">
-	<input
-		name="buscar"
-		class="mono"
-		placeholder="Search for a password"
-		value={data.buscar}
-		aria-label="Search for a password"
-	/>
-	<button class="boton principal">Search</button>
-</form>
+<p class="aviso">
+	Passwords are stored encrypted and shown masked. {#if data.revelar}You can reveal one or check
+		whether a password was tried; each time is recorded in the audit log.{:else}Revealing them needs
+		the Credential viewer role.{/if}
+</p>
+
+{#if data.revelar}
+	<form class="panel filtros" method="POST" action="?/buscar" use:enhance={sinVaciar}>
+		<input
+			name="buscar"
+			type="password"
+			class="mono"
+			autocomplete="off"
+			placeholder="Was this exact password tried?"
+			aria-label="Exact password to check"
+		/>
+		<button class="boton principal">Check</button>
+		{#if form?.busqueda}
+			<a class="boton" href={resolve('/passwords')}>Show all</a>
+		{/if}
+	</form>
+{/if}
+{#if form?.error}<p class="error" role="alert">{form.error}</p>{/if}
+{#if form?.busqueda}
+	<p class="resultado" role="status">
+		{form.busqueda.encontrada
+			? 'That exact password was tried on your honeypots.'
+			: 'That exact password has not been tried on your honeypots.'}
+	</p>
+{/if}
 
 {#if !data.palabras.length}
 	<p class="aviso">
@@ -34,8 +64,8 @@
 {/if}
 
 <section class="panel">
-	{#if data.filas.length === 0}
-		<p class="vacio">No passwords tried{data.buscar ? ' matching that search' : ''}.</p>
+	{#if filas.length === 0}
+		<p class="vacio">No passwords tried{form?.busqueda ? ' matching that check' : ''}.</p>
 	{:else}
 		<table>
 			<thead>
@@ -49,11 +79,21 @@
 				</tr>
 			</thead>
 			<tbody>
-				{#each data.filas as f (f.contrasena)}
+				{#each filas as f (f.huella)}
 					<tr class:con-alerta={!!f.alerta}>
 						<td>
-							<code class="mono valor">{f.contrasena}</code>
+							{#if revelada?.huella === f.huella}
+								<code class="mono valor revelada">{revelada.contrasena}</code>
+							{:else}
+								<code class="mono valor" title="Masked">{f.mascara}</code>
+							{/if}
 							{#if f.alerta}<span class="alerta" title={f.alerta}>alert</span>{/if}
+							{#if data.revelar && revelada?.huella !== f.huella}
+								<form method="POST" action="?/revelar" class="revelar" use:enhance={sinVaciar}>
+									<input type="hidden" name="huella" value={f.huella} />
+									<button class="enlace">Reveal</button>
+								</form>
+							{/if}
 						</td>
 						<td class="num mono">{f.veces}</td>
 						<td class="num mono">{f.ips}</td>
@@ -104,6 +144,36 @@
 		font-size: 13px;
 		color: var(--ink-2);
 		margin: 0 0 14px;
+	}
+
+	.error {
+		color: var(--crit);
+		margin: 0 0 14px;
+	}
+
+	.resultado {
+		margin: 0 0 14px;
+		font-weight: 600;
+	}
+
+	.revelar {
+		display: inline;
+		margin-left: 8px;
+	}
+
+	.enlace {
+		background: none;
+		border: 0;
+		padding: 0;
+		font: inherit;
+		font-size: 12px;
+		color: var(--ink-2);
+		text-decoration: underline;
+		cursor: pointer;
+	}
+
+	.revelada {
+		background: var(--paper-2, transparent);
 	}
 
 	.vacio {

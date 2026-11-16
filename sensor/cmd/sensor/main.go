@@ -146,6 +146,7 @@ func main() {
 	socket := flag.String("docker", "/var/run/docker.sock", "Docker socket (only without sd-motor)")
 	sdMotor := flag.String("motor", "", "sd-motor socket: the sensor talks to it instead of Docker (docs/diseno/aislamiento-trampas.md)")
 	ca := flag.String("ca", "", "root of the console CA, if the system does not trust it (sensor on another machine)")
+	certificado := flag.String("certificado", "", "client certificate and key (one PEM) presented to the console (sensor on another machine, docs/diseno/mtls-sensores.md)")
 	salud := flag.String("salud", "", "address of the health endpoint for the updater, e.g. :9100 (empty: none)")
 	// El modo «IP propia» (docs/diseno/red.md): solo si quien instala el
 	// sensor elige interfaz y rango. Sin ellos, las trampas con bloque red
@@ -177,7 +178,7 @@ func main() {
 	ctx, parar := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer parar()
 
-	h, err := confianza.Cliente(*ca, 30*time.Second)
+	h, err := confianza.ClienteConCertificado(*ca, *certificado, 30*time.Second)
 	if err != nil {
 		slog.Error("console CA", "err", err)
 		os.Exit(2)
@@ -216,7 +217,8 @@ func main() {
 		},
 		// Trampas de partner (docs/diseno/trampas-de-partner.md): solo si este nodo tiene
 		// partner. Su catálogo va junto a la versión firmada; la serie, en los datos.
-		partner: lectorPartner(*firmado, *datos),
+		partner:   lectorPartner(*firmado, *datos),
+		retiradas: carpetaRetiradas(*firmado),
 	}
 	// Con sd-motor, los discos los monta el servicio sd-discos del anfitrión, al que
 	// se llega por sd-motor: ni auxiliar privilegiado ni imagen del actualizador.
@@ -310,10 +312,12 @@ type sensor struct {
 	catalogo *catalogo.Lector
 	// partner lee el catálogo de trampas del partner de este nodo (nil: no tiene).
 	partner *catalogo.LectorPartner
-	estado  *estado.Estado
-	salida  string
-	plan    *plan.Plan
-	pausa   time.Time
+	// retiradas: la carpeta donde el actualizador deja las imágenes retiradas ("" sin ella).
+	retiradas string
+	estado    *estado.Estado
+	salida    string
+	plan      *plan.Plan
+	pausa     time.Time
 	// Último plan recibido de la consola, en Unix: lo que mira el punto de salud.
 	ultimoPlan atomic.Int64
 	// Tope de líneas por entrega; baja a la mitad si la consola dice que es
@@ -478,6 +482,7 @@ func (s *sensor) actualizarPlan(ctx context.Context) {
 		s.opc.Direcciones = unirDirecciones(s.opc.Direcciones, a.Direcciones)
 	}
 	s.opc.Catalogo = s.reglaDelCatalogo()
+	s.opc.Retirada = s.reglaDeRetiradas()
 	estados, err := despliegue.Aplicar(ctx, s.docker, s.opc, p)
 	if err != nil {
 		slog.Error("deployment", "err", err)
@@ -630,6 +635,10 @@ func (s *sensor) hechos() map[string]any {
 	// Si sale a internet por un proxy (docs/diseno/proxy-salida.md): se lo pone su
 	// instalador en el entorno. Solo si o no: la dirección puede llevar contraseña.
 	h["proxy.presente"] = map[string]any{"valor": proxyPresente(os.Getenv)}
+	// Lo que la máquina dice de sí misma (el disco cifrado del appliance; anfitrion.go).
+	for k, v := range hechosDelAnfitrion(s.opc.Datos) {
+		h[k] = v
+	}
 	// Líneas de la cola que la consola no sabía procesar y se apartaron (atasco.go).
 	if a := s.hechoApartadas(); a != nil {
 		h["entrega.apartadas"] = a
@@ -846,6 +855,12 @@ func (s *sensor) leer() {
 	posiciones := map[string]seguidor.Posicion{}
 	leyendo := map[string]bool{}
 	for _, sp := range s.plan.Trampas {
+		// El registro, siempre dentro de la carpeta de la trampa: una ruta con «..» o
+		// absoluta no se lee (auditoría 2026-11-14, §5 h07).
+		if !filepath.IsLocal(sp.Manifiesto.Eventos.Fuente.Ruta) {
+			slog.Warn("log path outside the decoy folder", "trampa", sp.ID)
+			continue
+		}
 		ruta := filepath.Join(despliegue.Registros(s.opc, sp.ID), sp.Manifiesto.Eventos.Fuente.Ruta)
 		antes := seguidor.Posicion{Inodo: s.estado.Inodos[sp.ID], Offset: s.estado.Leido[sp.ID], Huella: s.estado.Huellas[sp.ID], Modif: s.estado.Modifs[sp.ID]}
 		lineas, pos, aviso, err := seguidor.Seguir(ruta, antes)
@@ -1408,6 +1423,39 @@ func (s *sensor) reglaDelCatalogo() func(plan.TrampaPlan) string {
 		slog.Error("partner catalog", "err", errPartner)
 	}
 	return catalogo.Regla(c, p, errPartner, nil)
+}
+
+// reglaDeRetiradas: las imágenes que SeguridadSI ha retirado (manual 3 de respuesta a
+// incidentes), con las listas firmadas que deja el actualizador junto a la versión firmada. Se
+// comprueban aquí otra vez con las claves del nodo. Sin carpeta o sin listas, nada. Un fichero
+// ilegible se apunta y no para nada: la regla quita trampas en marcha, y no puede quitarlas todas
+// por un fichero roto (quien puede romperlo puede parar el sensor igual).
+func (s *sensor) reglaDeRetiradas() func(string) string {
+	if s.retiradas == "" {
+		return nil
+	}
+	conj, err := actualizador.RetiradasGuardadas(s.retiradas, actualizador.ConfianzaDelEntorno(os.Getenv), actualizador.EdicionDelNodo(os.Getenv))
+	if err != nil {
+		slog.Error("retired images: cannot read the list on this machine", "err", err)
+		return nil
+	}
+	if len(conj) == 0 {
+		return nil
+	}
+	return func(imagen string) string {
+		if conj.Retirada(imagen) {
+			return "its image (" + actualizador.DigestDeImagen(imagen) + ") has been retired by SeguridadSI"
+		}
+		return ""
+	}
+}
+
+// carpetaRetiradas: las listas de imágenes retiradas van junto a la versión firmada.
+func carpetaRetiradas(firmado string) string {
+	if firmado == "" {
+		return ""
+	}
+	return filepath.Dir(firmado)
 }
 
 // lectorPartner: nil si este nodo no tiene partner (PARTNER vacío) o no hay versión firmada.

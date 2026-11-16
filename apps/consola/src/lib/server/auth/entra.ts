@@ -17,6 +17,7 @@
  * ofrece a clientes nuevos; los que lo tienen migran desde Ajustes (b2b.ts).
  */
 import type { JWTPayload } from 'jose';
+import { huboMfaEntra } from '@sugardaddy/entra';
 import { env } from '$env/dynamic/private';
 import { correoDe, type Config } from '@sugardaddy/entra';
 import { ROLES, type Rol } from './permisos';
@@ -59,8 +60,17 @@ export type Rechazo = {
 		| 'sin_correo'
 		| 'sin_oid'
 		| 'soporte_cerrado'
-		| 'soporte_otro';
+		| 'soporte_otro'
+		| 'sin_mfa';
 };
+
+/*
+ * MFA en el Entra propio (auditoría 2026-11-14): de serie se exige que el token
+ * diga que la hubo (`amr`, o `acrs` con el contexto de autenticación pedido).
+ * Solo se apaga con una decisión explícita y auditada en Ajustes.
+ */
+export type ExigenciaMfa = { exigirMfa: boolean; contextoAuth?: string | null };
+const MFA_DE_SERIE: ExigenciaMfa = { exigirMfa: true };
 
 /* El rol de aplicación que el cliente asigna a la persona de soporte invitada en su tenant. */
 export const ROL_SOPORTE = 'soporte';
@@ -138,9 +148,16 @@ export function idpEsTenant(idp: unknown, tenant: string | null) {
  * Con el rol `soporte`, solo entra la persona de SeguridadSI que pidió el acceso,
  * como invitada (acct = 1), autenticada en el tenant de SeguridadSI (idp) y con
  * el soporte abierto; y entra con el rol que eligió el cliente, no con el del token.
+ *
+ * Y todos, también el soporte, con MFA en el token salvo que se haya apagado.
  */
-export function identidadPropia(p: JWTPayload, puerta: PuertaInvitado = null): Identidad | Rechazo {
+export function identidadPropia(
+	p: JWTPayload,
+	puerta: PuertaInvitado = null,
+	mfa: ExigenciaMfa = MFA_DE_SERIE
+): Identidad | Rechazo {
 	if (typeof p.oid !== 'string') return { rechazo: 'sin_oid' };
+	if (mfa.exigirMfa && !huboMfaEntra(p, mfa.contextoAuth)) return { rechazo: 'sin_mfa' };
 	const correo = correoDe(p);
 	const nombre = typeof p.name === 'string' ? p.name : (correo ?? '');
 	if (Array.isArray(p.roles) && p.roles.includes(ROL_SOPORTE)) {

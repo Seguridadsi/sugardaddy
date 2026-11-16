@@ -20,6 +20,49 @@
 #    límite de nombres, hasta que el administrador pasa a la propia desde la
 #    consola.
 # Los fragmentos que elige tienen que estar antes del bloque global.
+
+# TLS explícito, el mismo en todos los modos (plan de fortificación, 0.5): solo
+# TLS 1.2 y 1.3; en 1.2, solo suites ECDHE con AEAD (AES-GCM y ChaCha20), para
+# certificado ECDSA (la CA del nodo) y RSA (el que deje el cliente en certs/). Las
+# de TLS 1.3 son todas AEAD y Go no deja elegirlas. Curvas: la híbrida
+# poscuántica, X25519, P-256 y P-384.
+(tls-politica) {
+	protocols tls1.2 tls1.3
+	ciphers TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384 TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256 TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256 TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384 TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256 TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256
+	curves x25519mlkem768 x25519 secp256r1 secp384r1
+}
+
+# Certificado de cliente de los sensores remotos (docs/diseno/mtls-sensores.md). Lo
+# elige CA_SENSORES de .env, que pone el actualizador con la raíz de la CA de
+# sensores de la consola; compose pasa CADDY_SENSORES («-si» si la hay) y la raíz
+# en DER (base64). Sin ella, como antes: no se pide certificado.
+#  - verify_if_given: el navegador no tiene ninguno de esa CA y entra igual; un
+#    certificado presentado tiene que ser de esa raíz y para clientAuth, o el TLS
+#    se corta. Qué sensor es y si está revocado lo decide la consola.
+#  - A la consola le llegan la huella del certificado y si Caddy lo pide. Las
+#    mismas cabeceras que lleguen de fuera se quitan siempre: no se pueden fingir.
+(cliente-sensores) {
+}
+
+(cliente-sensores-si) {
+	client_auth {
+		mode verify_if_given
+		trust_pool inline {
+			trust_der {$CA_SENSORES}
+		}
+	}
+}
+
+(cabeceras-sensores) {
+	header_up -X-Sugardaddy-Certificado
+	header_up -X-Sugardaddy-Mtls
+}
+
+(cabeceras-sensores-si) {
+	header_up X-Sugardaddy-Certificado {http.request.tls.client.fingerprint}
+	header_up X-Sugardaddy-Mtls 1
+}
+
 (ca-local) {
 }
 
@@ -62,6 +105,8 @@
 	# instalar.sh o el actualizador, para instalarla en los equipos que entren
 	# a la consola.
 	tls {
+		import tls-politica
+		import cliente-sensores{$CADDY_SENSORES}
 		issuer internal {
 			ca {$CADDY_CA}
 		}
@@ -73,6 +118,8 @@
 	# en :443 un SNI nuevo rompería el TLS). Sin SNI (al entrar por IP), el de
 	# default_sni.
 	tls {
+		import tls-politica
+		import cliente-sensores{$CADDY_SENSORES}
 		issuer internal {
 			ca {$CADDY_CA}
 		}
@@ -82,12 +129,18 @@
 
 (tls-ficheros) {
 	# Certificado de la CA del cliente, dejado en certs/ por quien instala.
-	tls /certs/certificado.pem /certs/clave.pem
+	tls /certs/certificado.pem /certs/clave.pem {
+		import tls-politica
+		import cliente-sensores{$CADDY_SENSORES}
+	}
 }
 
 (tls-ficheros-a-demanda) {
 	# Con certificado propio no se emite nada: el mismo para cualquier host.
-	tls /certs/certificado.pem /certs/clave.pem
+	tls /certs/certificado.pem /certs/clave.pem {
+		import tls-politica
+		import cliente-sensores{$CADDY_SENSORES}
+	}
 }
 
 (consola) {
@@ -96,7 +149,9 @@
 		Strict-Transport-Security "max-age=31536000"
 		-Server
 	}
-	reverse_proxy consola:3000
+	reverse_proxy consola:3000 {
+		import cabeceras-sensores{$CADDY_SENSORES}
+	}
 }
 
 # Modo fijo (CADDY_MODO vacío).

@@ -86,6 +86,18 @@
 
 <Pestanas pestanas={PESTANAS} actual={pestana} etiqueta="Sensor sections" />
 
+{#if data.sinCertificado && pestana === 'sensors'}
+	<p class="aviso-mtls" role="status">
+		{data.sinCertificado === 1
+			? '1 remote sensor connects'
+			: `${data.sinCertificado} remote sensors connect`} with its token only, without a client certificate{data.politicaMtls ===
+		'require'
+			? ' and is refused'
+			: ''}.
+		<a href="/settings/sensor-certificates">Review sensor certificates</a>
+	</p>
+{/if}
+
 {#if avisos.length && pestana === 'sensors'}
 	<!-- Lo que el sensor cuenta de su máquina (desde la 0.13.1), con su código para soporte. -->
 	<section class="panel avisos" aria-label="Sensor warnings">
@@ -925,5 +937,14 @@
 			gap: 8px;
 			align-items: center;
 		}
+	}
+
+	.aviso-mtls {
+		max-width: 760px;
+		margin: 0 0 14px;
+		padding: 10px 14px;
+		border-left: 3px solid var(--warn);
+		background: var(--accent-soft);
+		font-size: 14px;
 	}
 </style>

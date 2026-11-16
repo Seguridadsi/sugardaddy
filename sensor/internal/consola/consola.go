@@ -18,6 +18,23 @@ import (
 	"github.com/kinomakino/sugardaddy/sensor/internal/relevo"
 )
 
+// Topes de lo que se lee de una respuesta de la consola (auditoría 2026-11-14,
+// §5 h08): una consola tomada o rota no puede llenar la memoria del sensor. El
+// plan lleva los manifiestos de todas sus trampas; lo demás es pequeño.
+const (
+	topePlan      = 64 << 20
+	topeRespuesta = 4 << 20
+)
+
+// leerConTope lee el cuerpo entero si no pasa del tope; si pasa, error.
+func leerConTope(r io.Reader, tope int64) ([]byte, error) {
+	b, err := io.ReadAll(io.LimitReader(r, tope+1))
+	if err == nil && int64(len(b)) > tope {
+		return nil, fmt.Errorf("the console answer is larger than %d bytes", tope)
+	}
+	return b, err
+}
+
 type Cliente struct {
 	Base  string
 	Token string
@@ -87,7 +104,7 @@ func (c *Cliente) Plan(ctx context.Context) (plan.Plan, error) {
 	case resp.StatusCode == http.StatusNotModified && etag != "":
 		// El mismo de antes: se lee de lo guardado.
 	case resp.StatusCode == http.StatusOK:
-		if cuerpo, err = io.ReadAll(resp.Body); err != nil {
+		if cuerpo, err = leerConTope(resp.Body, topePlan); err != nil {
 			return p, err
 		}
 		c.planMu.Lock()
@@ -171,7 +188,7 @@ func (c *Cliente) Entregar(ctx context.Context, lineas [][]byte) (Recepcion, err
 		}
 		return r, fmt.Errorf("events: %d %s", resp.StatusCode, b)
 	}
-	return r, json.NewDecoder(resp.Body).Decode(&r)
+	return r, json.NewDecoder(io.LimitReader(resp.Body, topeRespuesta)).Decode(&r)
 }
 
 // ErrArtefactoRechazado: la consola no quiere esta copia y NO hay que
@@ -223,7 +240,7 @@ func (c *Cliente) Relevo(ctx context.Context) (*relevo.Oferta, error) {
 		return nil, fmt.Errorf("handover: %d", resp.StatusCode)
 	}
 	var o *relevo.Oferta
-	return o, json.NewDecoder(resp.Body).Decode(&o)
+	return o, json.NewDecoder(io.LimitReader(resp.Body, topeRespuesta)).Decode(&o)
 }
 
 // InformarToque dice a la consola cómo ha ido un toque de prueba.

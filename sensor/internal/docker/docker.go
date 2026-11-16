@@ -414,6 +414,18 @@ func (c *Cliente) Esperar(ctx context.Context, id string) (int, error) {
 	return r.StatusCode, err
 }
 
+// Topes de los contenedores auxiliares de Sugardaddy (sondas y acompañante de
+// captura): memoria sin swap de más y CPU acotada, como las trampas. sd-motor
+// exige los dos en todo lo que crea.
+const (
+	MemoriaAcompanante int64 = 32 << 20
+	CPUAcompanante     int64 = 500_000_000
+	// PesoCPUTrampa: el peso de CPU de trampas y auxiliares. Los servicios del
+	// nodo pesan 1024 (despliegue/nodo/compose.yml): con la CPU llena, la
+	// detección va por delante de lo que el atacante tiene en la mano.
+	PesoCPUTrampa int64 = 256
+)
+
 // RegistrosAcotados es la configuración de registros de los contenedores que
 // crea Sugardaddy: con tope, porque por defecto Docker los deja crecer sin
 // fin en la máquina del cliente.
@@ -479,24 +491,37 @@ func (c *Cliente) BorrarRed(ctx context.Context, nombre string) error {
 // Si las opciones no aparecen (Podman las acepta y no las guarda), la red
 // vale pero no está garantizada (garantizada = false): el motor no confirma
 // ni el aislamiento entre trampas ni que no salgan a Internet.
-func (c *Cliente) AsegurarRed(ctx context.Context, nombre string, salida bool) (garantizada bool, err error) {
+func (c *Cliente) AsegurarRed(ctx context.Context, nombre, puente string, salida bool) (garantizada bool, err error) {
 	opciones := map[string]string{
 		"com.docker.network.bridge.enable_ip_masquerade": fmt.Sprint(salida),
 		"com.docker.network.bridge.enable_icc":           "false",
 	}
+	// El nombre fijo del puente (sd-trampas0…): por él la regla de INPUT de SEN-5
+	// (cortafuegos.AplicarTrampas) reconoce lo que entra desde las trampas.
+	if puente != "" {
+		opciones[OpcionNombrePuente] = puente
+	}
 	if r, err := c.InspeccionarRed(ctx, nombre); err == nil {
-		distinta, todas := false, true
+		distinta, todas, sinNombre := false, true, false
 		for k, v := range opciones {
 			actual, ok := r.Options[k]
+			if k == OpcionNombrePuente {
+				sinNombre = actual != v
+				continue
+			}
 			todas = todas && ok
 			if ok && actual != v {
 				distinta = true
 			}
 		}
-		if !distinta {
+		switch {
+		case !distinta && !sinNombre:
 			return todas, nil
-		}
-		if len(r.Containers) > 0 {
+		case !distinta && len(r.Containers) > 0:
+			// Una red de antes del nombre fijo, con trampas: se sigue usando (el
+			// auxiliar de la versión la rehace con las trampas paradas, RehacerRedesTrampas).
+			return todas, nil
+		case len(r.Containers) > 0:
 			return false, fmt.Errorf("network %s exists without isolating its containers and is in use", nombre)
 		}
 		if err := c.BorrarRed(ctx, nombre); err != nil {
@@ -525,6 +550,9 @@ func (c *Cliente) AsegurarRed(ctx context.Context, nombre string, salida bool) (
 	}
 	return true, nil
 }
+
+// OpcionNombrePuente es la opción de Docker que fija el nombre del puente en la máquina.
+const OpcionNombrePuente = "com.docker.network.bridge.name"
 
 // AsegurarRedPropia crea, si no existe, la red macvlan del modo «IP propia»
 // (docs/diseno/red.md): cada trampa va con su propia IP en el segmento del
@@ -638,6 +666,14 @@ func (c *Cliente) Volumenes(ctx context.Context, filtros map[string][]string) ([
 	return r.Volumes, err
 }
 
+// CrearVolumen crea un volumen con su driver y sus opciones (p. ej. el de tipo
+// cifs de las copias en una carpeta compartida, sensor/internal/copias/smb.go).
+func (c *Cliente) CrearVolumen(ctx context.Context, nombre, driver string, opciones, etiquetas map[string]string) error {
+	return c.llamar(ctx, http.MethodPost, "/volumes/create", map[string]any{
+		"Name": nombre, "Driver": driver, "DriverOpts": opciones, "Labels": etiquetas,
+	}, nil)
+}
+
 // BorrarVolumen quita un volumen; si ya no está, no es un error.
 func (c *Cliente) BorrarVolumen(ctx context.Context, nombre string) error {
 	if err := c.llamar(ctx, http.MethodDelete, "/volumes/"+url.PathEscape(nombre), nil, nil); err != nil && !NoExiste(err) {
@@ -652,6 +688,8 @@ type Contenedor struct {
 	State  string            `json:"State"`
 	Labels map[string]string `json:"Labels"`
 	Ports  []PuertoPublicado `json:"Ports"`
+	// Created: cuándo se creó, en segundos Unix (lo da la lista del motor).
+	Created int64 `json:"Created,omitempty"`
 }
 
 // PuertoPublicado es un puerto del contenedor publicado en el anfitrión
@@ -891,6 +929,27 @@ type Sonda struct {
 // Lo que puede tardar una sonda en total, desde que se crea hasta que sale.
 const esperaSonda = time.Minute
 
+// ConfigSonda es lo que crea EjecutarSonda: tan endurecida como una trampa.
+func ConfigSonda(s Sonda) map[string]any {
+	return map[string]any{
+		"Image":  s.Imagen,
+		"Cmd":    s.Orden,
+		"Labels": s.Etiquetas,
+		"HostConfig": map[string]any{
+			"NetworkMode":    s.Red,
+			"ReadonlyRootfs": true,
+			"CapDrop":        []string{"ALL"},
+			"SecurityOpt":    []string{"no-new-privileges"},
+			"Memory":         MemoriaAcompanante,
+			"MemorySwap":     MemoriaAcompanante,
+			"NanoCpus":       CPUAcompanante,
+			"CpuShares":      PesoCPUTrampa,
+			"PidsLimit":      16,
+			"LogConfig":      RegistrosAcotados(),
+		},
+	}
+}
+
 // EjecutarSonda crea la sonda tan endurecida como una trampa (con el mismo
 // perfil seccomp del motor, sin capacidades y sin poder escribir), espera a
 // que salga y devuelve su código de salida y lo que ha escrito. La borra
@@ -901,20 +960,7 @@ func (c *Cliente) EjecutarSonda(ctx context.Context, s Sonda) (codigo int, salid
 	if err := c.Borrar(ctx, s.Nombre); err != nil && !NoExiste(err) {
 		return 0, "", err
 	}
-	id, err := c.Crear(ctx, s.Nombre, map[string]any{
-		"Image":  s.Imagen,
-		"Cmd":    s.Orden,
-		"Labels": s.Etiquetas,
-		"HostConfig": map[string]any{
-			"NetworkMode":    s.Red,
-			"ReadonlyRootfs": true,
-			"CapDrop":        []string{"ALL"},
-			"SecurityOpt":    []string{"no-new-privileges"},
-			"Memory":         int64(32) << 20,
-			"PidsLimit":      16,
-			"LogConfig":      RegistrosAcotados(),
-		},
-	})
+	id, err := c.Crear(ctx, s.Nombre, ConfigSonda(s))
 	if id != "" {
 		defer func() { _ = c.Borrar(context.WithoutCancel(ctx), id) }()
 	}

@@ -17,17 +17,13 @@ export const POST = async ({ url, cookies, request }) => {
 		error(401, 'The key is not valid for this node');
 	}
 	const quien = `emergency · ${llave.nombre}`;
-	await abrir(
-		cookies,
-		{
-			oid: `emergencia:${llave.id}`,
-			correo: quien,
-			nombre: quien,
-			roles: ['admin'],
-			soporte: false
-		},
-		url.protocol === 'https:'
-	);
+	await abrir(cookies, {
+		oid: `emergencia:${llave.id}`,
+		correo: quien,
+		nombre: quien,
+		roles: ['admin'],
+		soporte: false
+	});
 	await auditar(quien, 'EMERGENCY SIGN-IN', { llave: llave.nombre });
 	return json({ ok: true });
 };

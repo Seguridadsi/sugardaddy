@@ -10,6 +10,13 @@
  * «hasta que lo cierre» (docs/diseno/identidad-clientes.md §3). Un soporte
  * abierto sin plazo de antes de este cambio pasa a 30 días la primera vez que
  * se lee.
+ *
+ * Postura bancaria (plan de fortificación §4.4, Ajustes → Recovery and support o
+ * el perfil bancario): justo a tiempo. Cada petición se aprueba por separado y
+ * dura como mucho 4 horas, sin renovar (hace falta otra petición); al salir la
+ * persona de soporte el acceso se cierra solo. En las dos posturas, todo lo que
+ * hace el soporte queda grabado (soporte-registro.ts) y el acceso se cierra solo
+ * al caducar (vigilarSoporte, cada minuto).
  */
 import { eq } from 'drizzle-orm';
 import type { SolicitudSoporte } from '@sugardaddy/canal';
@@ -18,6 +25,7 @@ import { auditar } from './consultas';
 import { operador } from './operador';
 
 export type RolSoporte = 'lector' | 'operador';
+export type PosturaSoporte = 'estandar' | 'banca';
 
 export type Soporte = {
 	estado: 'cerrado' | 'solicitado' | 'abierto' | 'rechazado';
@@ -33,6 +41,23 @@ export const MAXIMO_HORAS = 30 * 24;
 export const AVISO_MS = 3 * DIA;
 /* Los plazos que se ofrecen al aceptar o renovar, en horas. El primero es el de por defecto. */
 export const PLAZOS = [MAXIMO_HORAS, 7 * 24, 8] as const;
+
+/* Postura bancaria: como mucho 4 horas por petición, sin renovar, y el aviso media hora antes. */
+export const MAXIMO_HORAS_BANCA = 4;
+export const PLAZOS_BANCA = [MAXIMO_HORAS_BANCA, 2, 1] as const;
+export const AVISO_BANCA_MS = 30 * 60_000;
+
+export const plazosDe = (p: PosturaSoporte): readonly number[] =>
+	p === 'banca' ? PLAZOS_BANCA : PLAZOS;
+const avisoDe = (p: PosturaSoporte) => (p === 'banca' ? AVISO_BANCA_MS : AVISO_MS);
+
+const CLAVE_POSTURA = 'soporte-postura';
+type AjustePostura = { postura: PosturaSoporte; por: string; cuando: string };
+
+export async function posturaSoporte(): Promise<PosturaSoporte> {
+	const [f] = await db.select().from(s.ajustes).where(eq(s.ajustes.clave, CLAVE_POSTURA));
+	return (f?.valor as AjustePostura | undefined)?.postura === 'banca' ? 'banca' : 'estandar';
+}
 
 const CERRADO: Soporte = { estado: 'cerrado', solicitud: null, hasta: null, rol: null };
 
@@ -53,14 +78,15 @@ async function cerrarSesionesDeSoporte() {
 }
 
 /* Un plazo pedido, recortado a lo permitido. Lo que no es un número da el de por defecto. */
-export function horasValidas(h: unknown): number {
+export function horasValidas(h: unknown, postura: PosturaSoporte = 'estandar'): number {
+	const maximo = postura === 'banca' ? MAXIMO_HORAS_BANCA : MAXIMO_HORAS;
 	const n = typeof h === 'number' ? h : Number(h);
-	if (!Number.isFinite(n) || n <= 0) return PLAZOS[0];
-	return Math.min(Math.round(n), MAXIMO_HORAS);
+	if (!Number.isFinite(n) || n <= 0) return plazosDe(postura)[0];
+	return Math.min(Math.max(Math.round(n), 1), maximo);
 }
 
-const plazo = (horas: number, ahora = Date.now()) =>
-	new Date(ahora + horasValidas(horas) * 3600_000).toISOString();
+const plazo = (horas: number, postura: PosturaSoporte = 'estandar', ahora = Date.now()) =>
+	new Date(ahora + horasValidas(horas, postura) * 3600_000).toISOString();
 
 /* El estado actual, cerrando lo que ya ha caducado y poniendo plazo a lo que no lo tenía. */
 export async function soporte(): Promise<Soporte> {
@@ -87,8 +113,13 @@ export async function soporte(): Promise<Soporte> {
 export const abierto = async () => (await soporte()).estado === 'abierto';
 
 /* Abierto y a punto de caducar: lo que la consola avisa a los administradores. */
-export const porCaducar = (v: Soporte, ahora = Date.now()) =>
-	v.estado === 'abierto' && !!v.hasta && Date.parse(v.hasta) - ahora < AVISO_MS;
+export const porCaducar = (v: Soporte, ahora = Date.now(), postura: PosturaSoporte = 'estandar') =>
+	v.estado === 'abierto' && !!v.hasta && Date.parse(v.hasta) - ahora < avisoDe(postura);
+
+/* Cada minuto (hooks.server.ts): cierra lo caducado aunque nadie tenga la consola abierta. */
+export async function vigilarSoporte() {
+	await soporte();
+}
 
 /* Llamado tras cada latido con lo que trae el estado deseado (ya verificado). */
 export async function recibirSolicitud(sol: SolicitudSoporte | null) {
@@ -105,16 +136,22 @@ export async function recibirSolicitud(sol: SolicitudSoporte | null) {
 export async function aceptar(quien: string, horas: number, rol: RolSoporte = 'lector') {
 	const v = await soporte();
 	if (v.estado !== 'solicitado') return false;
-	const hasta = plazo(horas);
+	const postura = await posturaSoporte();
+	const hasta = plazo(horas, postura);
 	await guardar({ ...v, estado: 'abierto', hasta, rol });
-	await auditar(quien, 'support access opened', { hasta, rol, motivo: v.solicitud?.motivo });
+	await auditar(quien, 'support access opened', {
+		hasta,
+		rol,
+		postura,
+		motivo: v.solicitud?.motivo
+	});
 	return true;
 }
 
-/* Otro plazo desde ahora, con el mismo rol. */
+/* Otro plazo desde ahora, con el mismo rol. En la postura bancaria no se renueva: otra petición. */
 export async function renovar(quien: string, horas: number) {
 	const v = await soporte();
-	if (v.estado !== 'abierto') return null;
+	if (v.estado !== 'abierto' || (await posturaSoporte()) === 'banca') return null;
 	const hasta = plazo(horas);
 	await guardar({ ...v, hasta });
 	await auditar(quien, 'support access renewed', { hasta, rol: v.rol });
@@ -129,12 +166,42 @@ export async function rechazar(quien: string) {
 	return true;
 }
 
-export async function cerrarYa(quien: string) {
+export async function cerrarYa(quien: string, accion = 'support access closed by the customer') {
 	const v = await soporte();
 	if (v.estado !== 'abierto') return false;
 	await guardar({ ...v, estado: 'cerrado', hasta: null, rol: null });
 	await cerrarSesionesDeSoporte();
-	await auditar(quien, 'support access closed by the customer');
+	await auditar(quien, accion);
+	return true;
+}
+
+/* La persona de soporte sale: en la postura bancaria, el acceso se cierra con ella. */
+export async function alSalirSoporte(quien: string) {
+	if ((await posturaSoporte()) !== 'banca') return false;
+	return cerrarYa(quien, 'support access closed when support signed out');
+}
+
+/*
+ * Cambia la postura. Al pasar a la bancaria con un acceso abierto, su plazo se
+ * recorta a 4 horas desde ahora si le quedaba más.
+ */
+export async function fijarPosturaSoporte(quien: string, postura: PosturaSoporte) {
+	if ((await posturaSoporte()) === postura) return false;
+	const valor: AjustePostura = { postura, por: quien, cuando: new Date().toISOString() };
+	await db
+		.insert(s.ajustes)
+		.values({ clave: CLAVE_POSTURA, valor })
+		.onConflictDoUpdate({ target: s.ajustes.clave, set: { valor } });
+	await auditar(quien, 'support stance changed', { postura });
+	if (postura === 'banca') {
+		const v = await soporte();
+		const tope = Date.now() + MAXIMO_HORAS_BANCA * 3600_000;
+		if (v.estado === 'abierto' && v.hasta && Date.parse(v.hasta) > tope) {
+			const hasta = new Date(tope).toISOString();
+			await guardar({ ...v, hasta });
+			await auditar(quien, 'support access shortened to the banking limit', { hasta });
+		}
+	}
 	return true;
 }
 

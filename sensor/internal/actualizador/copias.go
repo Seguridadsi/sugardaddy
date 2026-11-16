@@ -3,7 +3,8 @@ package actualizador
 // Quitar la CA de Caddy de las copias de seguridad (docs/diseno/ca-nodo.md).
 //
 // copia.sh guarda la carpeta de datos de Caddy en cada copia, y con ella la
-// clave de la CA de antes. Al pasar a la CA propia, esa clave se destruye
+// clave de la CA de antes. Esto vale para las copias de antes de age
+// (sugardaddy-*.tar.enc); las de age no las puede abrir el nodo y se dicen. Al pasar a la CA propia, esa clave se destruye
 // también en las copias: cada una se descifra, se le quitan esos ficheros y
 // se vuelve a cifrar con la misma clave y el mismo formato que usa copia.sh
 // (`openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -pass file:clave-copias`).
@@ -262,6 +263,15 @@ func cerrojoCopias(dir string, espera time.Duration) (func(), error) {
 // se devuelve su nombre para que se diga en la consola.
 func LimpiarCopias(dir string) (ResultadoCopias, error) {
 	var r ResultadoCopias
+	// Las de age (.tar.age) van cifradas a la clave pública del cliente: el nodo
+	// no puede abrirlas para quitarles la CA vieja. Se dicen, para borrarlas a mano.
+	deAge, err := filepath.Glob(filepath.Join(dir, "copias", "sugardaddy-*.tar.age"))
+	if err != nil {
+		return r, err
+	}
+	for _, c := range deAge {
+		r.Ilegibles = append(r.Ilegibles, filepath.Base(c))
+	}
 	copias, err := filepath.Glob(filepath.Join(dir, "copias", "sugardaddy-*.tar.enc"))
 	if err != nil || len(copias) == 0 {
 		return r, err

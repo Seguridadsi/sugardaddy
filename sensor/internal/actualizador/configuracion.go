@@ -52,6 +52,10 @@ type Aplicacion struct {
 	// Para las pruebas: en producción, time.Now y un segundo.
 	Ahora func() time.Time
 	Pausa time.Duration // unidad de las esperas (cero: un segundo)
+
+	// Lo que no salió al poner el aislamiento de las trampas en la máquina: no
+	// para la versión, pero va en su resultado.
+	avisoAislamiento string
 }
 
 // Resultado es lo que se informa a la consola y queda en .aplicacion.json.
@@ -146,7 +150,7 @@ func (a *Aplicacion) Aplicar(ctx context.Context, f ReleaseFirmada) Resultado {
 		if a.Modo == ModoNodo {
 			a.exportarRaiz(ctx)
 		}
-		return a.resultado(r.Version, "aplicada", "")
+		return a.resultado(r.Version, "aplicada", a.avisoAislamiento)
 	}
 	detalle := fmt.Sprintf("%v\n%s", err, cola(salida, 20))
 	a.Log("the configuration did not come up healthy; reverting to the previous one", "err", err)
@@ -381,6 +385,13 @@ func (a *Aplicacion) escribirYLevantar(ctx context.Context, r Release, c *Config
 	// Con la imagen del sensor de la versión ya descargada: si la máquina deja que su
 	// carpeta reciba los montajes de los discos de las trampas (docs/diseno/discos-trampa.md).
 	a.asegurarPropagacion(ctx)
+	// Y el aislamiento de las trampas que instalar.sh pone a los nodos nuevos (perfil
+	// AppArmor y sd-discos): antes de levantar, para que sd-motor arranque con él.
+	a.avisoAislamiento = a.asegurarAislamiento(ctx)
+	// Las redes de trampas de antes del nombre fijo del puente (SEN-5), rehechas.
+	if aviso := a.rehacerRedesTrampas(ctx); aviso != "" {
+		a.avisoAislamiento = strings.TrimSpace(a.avisoAislamiento + "\n" + aviso)
+	}
 	if _, ok := c.Ficheros["Caddyfile"]; ok && a.Modo == ModoNodo {
 		// Antes de levantar nada: que Caddy, con su imagen de esta versión, lo acepte.
 		if out, err := a.compose(ctx, "run", "--rm", "--no-deps", "-T", "--pull", "never",

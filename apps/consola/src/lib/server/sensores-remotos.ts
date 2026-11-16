@@ -14,7 +14,7 @@ import { lineasDeClaves } from './claves';
 import { lineasDePartner } from './catalogo-partner';
 import { esCommunity } from './edicion';
 import { db, schema as s } from './db';
-import { credencialSensorRemoto } from './canal';
+import { credencialSensorRemoto, releaseDelNodo } from './canal';
 import type { Entorno } from '$lib/entorno';
 import { crearSensor, prepararToken, reactivarSensor } from './gestion';
 import { PROXY_SH } from './proxy-sh';
@@ -23,7 +23,8 @@ import { comprobarArquitectura } from './arquitectura-sh';
 import { detectarRed } from './red-sh';
 import { anadirSensorAlAcceso, entradaValida, leerAcceso } from './acceso';
 import { raicesParaSensores } from './ca-nodo';
-import { contenidaEn } from '@sugardaddy/canal';
+import { certificadoParaInstalador } from './ca-sensores';
+import { contenidaEn, piezasInstalador, piezasInstaladorSensor } from '@sugardaddy/canal';
 import { direccionConsola, direccionConsolaDe } from './direccion-consola';
 import {
 	ErrorCliente,
@@ -246,6 +247,26 @@ export async function lineaSensorRemoto(
 			? '--connect-timeout 10 --retry 8 --retry-delay 10 --retry-connrefused '
 			: '';
 	const curl = `curl -fsSL ${esperar}${resolverConsola(url, consolaIp)}`;
+	/*
+	 * Con la primera etapa de Cloud (docs/diseno/instalador-verificado.md, «Sensor remoto»):
+	 * se descarga, se comprueba su sha256 (el publicado en la documentación) y solo ella
+	 * corre como root. Comprueba la versión firmada y el guion del sensor con las claves que
+	 * lleva grabadas; la consola solo le da datos.
+	 */
+	const etapa1 = await etapa1DelNodo();
+	if (etapa1) {
+		const id = hash(codigo).slice(0, 12);
+		const guion = `"$HOME/.sugardaddy-install-${id}.sh"`;
+		const fichero = `"$HOME/.sugardaddy-ca-${id}.pem"`;
+		const u = new URL(url);
+		const fijar = consolaIp ? ` ${u.hostname}:${u.port || '443'}:${consolaIp}` : '';
+		const conCa = ca
+			? `echo ${Buffer.from(ca).toString('base64')} | base64 -d > ${fichero} && `
+			: '';
+		const curlCa = ca ? `--cacert ${fichero} ` : '';
+		const argCa = ca ? fichero : '-';
+		return `${SOLO_LINUX}${conCa}${curl}${curlCa}${url}/instalar-sensor/etapa1.sh -o ${guion} && echo "${etapa1.huella}  "${guion} | sha256sum -c --quiet && sudo bash ${guion} ${url}/instalar-sensor/${codigo} ${argCa}${fijar}; rm -f ${guion}${ca ? ` ${fichero}` : ''}`;
+	}
 	/* Sin <( ): la línea funciona en cualquier shell (bash, dash, zsh, fish). */
 	if (!ca) return `${SOLO_LINUX}${curl}${url}/instalar-sensor/${codigo} | sudo bash`;
 	/*
@@ -283,11 +304,40 @@ async function gastar(codigo: string) {
 
 const b64 = (t: string) => Buffer.from(t).toString('base64');
 
-export async function scriptSensorRemoto(codigo: string) {
+/*
+ * Lo que necesita el instalador de un sensor remoto, ya comprobado: los datos
+ * de esta máquina (sin código). El guion (GUION_SENSOR_REMOTO) es el mismo para
+ * todos los sensores y viaja firmado en la versión (instaladorSensor,
+ * docs/diseno/instalador-verificado.md): la consola solo entrega estos datos.
+ */
+export type DatosSensorRemoto = {
+	sensor: string;
+	url: string;
+	dominio: string;
+	/* La IP de la consola si esa máquina no resuelve su nombre (ipDeConsola); vacía si no. */
+	fija: string;
+	/* El .env: secretos y ajustes de ese sensor. */
+	entorno: string;
+	versiones: string;
+	compose: string;
+	ca: string | null;
+	certificado: string | null;
+	/* La versión firmada instalada, tal cual: {release, firma, firmas}. */
+	firmada: string;
+	exigir: boolean;
+	version: string;
+};
+
+/*
+ * Gasta el código y arma los datos (si algo falla, devuelve el código). null si
+ * el código no vale.
+ */
+async function datosSensorRemoto(codigo: string): Promise<DatosSensorRemoto | null> {
 	if (!/^[A-Za-z0-9_-]{32}$/.test(codigo)) return null;
 	const inst = await gastar(codigo);
 	if (!inst) return null;
 	let token: string | null,
+		certificado: string | null,
 		cred: Awaited<ReturnType<typeof credencialSensorRemoto>>,
 		descarga: Descarga;
 	try {
@@ -305,6 +355,12 @@ export async function scriptSensorRemoto(codigo: string) {
 		 */
 		token = await prepararToken('installer', inst.sensor);
 		if (!token) throw new Error('the sensor no longer exists');
+		/*
+		 * Su certificado de cliente (docs/diseno/mtls-sensores.md), con la clave hecha
+		 * aquí: va en estos datos de un solo uso, como el token. Sin CLAVE_SECRETOS, null:
+		 * el sensor entra solo con su token y la consola lo avisa.
+		 */
+		certificado = await certificadoParaInstalador(inst.sensor);
 	} catch (e) {
 		await db
 			.update(s.instaladoresSensor)
@@ -338,7 +394,6 @@ export async function scriptSensorRemoto(codigo: string) {
 		throw new ErrorCliente(
 			`Version ${r.version} of this node cannot pin the console address for a sensor. Update the node.`
 		);
-	const resolver = resolverConsola(url, fija);
 
 	/*
 	 * El .env se escribe acabado en salto de línea, y lo que el script le añade después
@@ -378,13 +433,51 @@ export async function scriptSensorRemoto(codigo: string) {
 	].join('\n');
 
 	await db.update(s.sensores).set({ version: r.version }).where(eq(s.sensores.id, inst.sensor));
+	return {
+		sensor: inst.sensor,
+		url,
+		dominio,
+		fija: fija ?? '',
+		entorno: entorno + '\n',
+		versiones,
+		compose,
+		ca,
+		certificado,
+		firmada: JSON.stringify(cred.firmada),
+		exigir: !!r.catalogo,
+		version: r.version
+	};
+}
 
-	return `#!/usr/bin/env bash
-# Installer for a Sugardaddy sensor (${inst.sensor}), generated by the console.
-set -Eeuo pipefail
+/*
+ * El guion del sensor remoto, sin ningún dato: lee los de la carpeta $SD_DATOS
+ * (sensor, url, dominio, fija, env, versiones.env, compose.yml, ca-consola.crt,
+ * cliente.pem, version.json y exigir) y los vuelve a comprobar. Es el mismo
+ * texto para todos: despliegue/sensor-remoto/instalar.sh lo lleva tal cual
+ * (instalar-sensor-sh.spec.ts lo comprueba) y viaja firmado en cada versión.
+ */
+export const GUION_SENSOR_REMOTO = `set -Eeuo pipefail
 PASO="prepare"
-trap 'echo "Sugardaddy: the step \"$PASO\" failed. Check the message above; if it does not fix itself, generate another line in Sensors in the console." >&2' ERR
+trap 'echo "Sugardaddy: the step \\"$PASO\\" failed. Check the message above; if it does not fix itself, generate another line in Sensors in the console." >&2' ERR
 [[ "$(id -u)" == 0 ]] || { echo "This must be run with sudo" >&2; exit 1; }
+[[ -d "\${SD_DATOS:-}" ]] || { echo "Sugardaddy: the installer needs the folder with this sensor's data" >&2; exit 1; }
+# Los datos que da la consola, comprobados uno a uno: ninguno se evalúa.
+sd_dato() { tr -d '\\n' < "$SD_DATOS/$1"; }
+SD_SENSOR="$(sd_dato sensor)"
+SD_URL="$(sd_dato url)"
+SD_DOMINIO="$(sd_dato dominio)"
+SD_FIJA="$(sd_dato fija 2>/dev/null || true)"
+[[ $SD_SENSOR =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]] || { echo "Sugardaddy: malformed sensor identifier" >&2; exit 1; }
+[[ $SD_URL =~ ^https://[][A-Za-z0-9._:-]+(/[A-Za-z0-9._~/-]*)?$ ]] || { echo "Sugardaddy: malformed console address" >&2; exit 1; }
+[[ $SD_DOMINIO =~ ^[A-Za-z0-9._-]+$|^\\[[0-9a-fA-F:.]+\\]$ ]] || { echo "Sugardaddy: malformed console name" >&2; exit 1; }
+[[ -z $SD_FIJA || $SD_FIJA =~ ^[0-9a-fA-F:.]+$ ]] || { echo "Sugardaddy: malformed console IP address" >&2; exit 1; }
+SD_RESOLVER=()
+if [[ -n $SD_FIJA ]]; then
+	SD_PUERTO=443
+	[[ $SD_URL =~ ^https://[^/]*[^]]:([0-9]{1,5})(/|$) ]] && SD_PUERTO="\${BASH_REMATCH[1]}"
+	SD_RESOLVER=(--resolve "$SD_DOMINIO:$SD_PUERTO:$SD_FIJA")
+fi
+echo "==> Installing Sugardaddy sensor $SD_SENSOR"
 ${comprobarArquitectura('this sensor', LINEA_GASTADA)}
 DIR=${CARPETA}
 ${PROXY_SH}
@@ -392,7 +485,7 @@ ${PROXY_SH}
 # CA de un proxy que inspecciona TLS). La consola nunca pasa por él.
 PASO="set up the outbound proxy"
 mkdir -p "$DIR"
-sd_proxy_preparar "$DIR" '${dominio}'${fija ? ` '${fija}'` : ''}
+sd_proxy_preparar "$DIR" "$SD_DOMINIO" \${SD_FIJA:+"$SD_FIJA"}
 sd_proxy_sistema "$DIR"
 PASO="install Docker"
 if ! command -v docker >/dev/null; then
@@ -412,27 +505,33 @@ if ! command -v docker >/dev/null; then
 fi
 sd_proxy_docker
 PASO="check the console"
-${
-	fija
-		? `# La consola en ${fija}, indicada al dar de alta el sensor: esta máquina no tiene que resolver ${dominio}.`
-		: `getent hosts '${dominio}' >/dev/null || { echo "Sugardaddy: this machine cannot resolve ${dominio}. In Sensors in the console, generate a new line and fill in 'Address of this console as seen from that machine' with the IP address this machine reaches the console at." >&2; exit 1; }`
-}
+# Con la IP de la consola indicada al dar de alta el sensor, esta máquina no tiene que resolver su nombre.
+if [[ -z $SD_FIJA ]]; then
+	getent hosts "$SD_DOMINIO" >/dev/null || { echo "Sugardaddy: this machine cannot resolve $SD_DOMINIO. In Sensors in the console, generate a new line and fill in 'Address of this console as seen from that machine' with the IP address this machine reaches the console at." >&2; exit 1; }
+fi
 PASO="prepare the folder"
 mkdir -p "$DIR/datos"
 chmod 700 "$DIR/datos"
-cd "$DIR"
 umask 077
-echo '${b64(entorno + '\n')}' | base64 -d > .env
+cp "$SD_DATOS/env" "$DIR/.env"
+umask 022
+cp "$SD_DATOS/versiones.env" "$DIR/versiones.env"
+cp "$SD_DATOS/compose.yml" "$DIR/compose.yml"
+if [[ -s "$SD_DATOS/ca-consola.crt" ]]; then cp "$SD_DATOS/ca-consola.crt" "$DIR/ca-consola.crt"; else : > "$DIR/ca-consola.crt"; fi
+# El certificado de cliente del sensor y su clave (mTLS con la consola). Lo leen el sensor
+# (usuario 65532) y el actualizador (root, grupo 0); nadie más en esta máquina.
+install -d -m 0711 "$DIR/tls"
+if [[ -s "$SD_DATOS/cliente.pem" ]]; then
+	install -m 0640 -o 65532 -g 0 "$SD_DATOS/cliente.pem" "$DIR/tls/cliente.pem.nuevo"
+	mv -f "$DIR/tls/cliente.pem.nuevo" "$DIR/tls/cliente.pem"
+fi
+# La versión firmada de la que se instala: su catálogo es lo único que este sensor arranca.
+mkdir -p "$DIR/firmado"
+cp "$SD_DATOS/version.json" "$DIR/firmado/version.json"
+if [[ -e "$SD_DATOS/exigir" ]]; then echo 1 > "$DIR/firmado/exigir"; fi
+cd "$DIR"
 sd_proxy_env .env
 sd_proxy_guion "$DIR"
-umask 022
-echo '${b64(versiones)}' | base64 -d > versiones.env
-echo '${b64(compose)}' | base64 -d > compose.yml
-${ca ? `echo '${b64(ca)}' | base64 -d > ca-consola.crt` : ': > ca-consola.crt'}
-# La versión firmada de la que se instala: su catálogo es lo único que este sensor arranca.
-mkdir -p firmado
-echo '${b64(JSON.stringify(cred.firmada))}' | base64 -d > firmado/version.json
-${r.catalogo ? 'echo 1 > firmado/exigir' : ': # sin catálogo en esta versión'}
 PASO="download the images"
 # Solo con credencial: un registro sin contraseña (el de desarrollo del panel, REGISTRO_DESARROLLO)
 # la da vacía, y docker login fallaba con «username is empty». Igual que instalar.sh del nodo.
@@ -466,9 +565,166 @@ fi
 PASO="report its network"
 ${detectarRed}
 if [[ -n "$RED_DETECTADA$VLAN_DETECTADA" ]]; then
-	printf 'Authorization: Bearer %s\n' "$(grep '^SUGARDADDY_TOKEN=' .env | cut -d= -f2-)" | curl -fsS ${resolver}${ca ? '--cacert ca-consola.crt ' : ''}-H @- -H 'Content-Type: application/json' -d "{\"red\":\"$RED_DETECTADA\",\"vlan\":\"$VLAN_DETECTADA\"}" '${url}/api/sensor/red' >/dev/null || echo "Sugardaddy: could not report its network to the console; enter it in Sensors."
+	SD_TLS=()
+	[[ -s ca-consola.crt ]] && SD_TLS+=(--cacert ca-consola.crt)
+	[[ -s tls/cliente.pem ]] && SD_TLS+=(--cert tls/cliente.pem)
+	printf 'Authorization: Bearer %s\\n' "$(grep '^SUGARDADDY_TOKEN=' .env | cut -d= -f2-)" | curl -fsS "\${SD_RESOLVER[@]}" "\${SD_TLS[@]}" -H @- -H 'Content-Type: application/json' -d "{\\"red\\":\\"$RED_DETECTADA\\",\\"vlan\\":\\"$VLAN_DETECTADA\\"}" "$SD_URL/api/sensor/red" >/dev/null || echo "Sugardaddy: could not report its network to the console; enter it in Sensors."
 fi
-echo "Sensor ${inst.sensor} is running. It shows as online in Sensors in the console within a minute."
+echo "Sensor $SD_SENSOR is running. It shows as online in Sensors in the console within a minute."
 echo "Open the ports of the honeypots you deploy on it in this machine's firewall."
 `;
+
+/* despliegue/sensor-remoto/instalar.sh: el guion tal cual, con la carpeta de datos como argumento. */
+export const INSTALAR_SENSOR_SH = `#!/usr/bin/env bash
+# Installer for a Sugardaddy sensor on another machine. The same file for every
+# sensor: it is signed with each release (instaladorSensor) and run by the
+# verified first stage, which passes the folder with this sensor's data.
+# Generated from apps/consola/src/lib/server/sensores-remotos.ts: do not edit by hand.
+SD_DATOS="\${1:-}"
+${GUION_SENSOR_REMOTO}`;
+
+/* Los ficheros de la carpeta de datos, con su contenido. */
+export function ficherosDatosSensor(d: DatosSensorRemoto): Record<string, string> {
+	return {
+		sensor: d.sensor,
+		url: d.url,
+		dominio: d.dominio,
+		fija: d.fija,
+		env: d.entorno,
+		'versiones.env': d.versiones,
+		'compose.yml': d.compose,
+		'ca-consola.crt': d.ca ?? '',
+		...(d.certificado ? { 'cliente.pem': d.certificado } : {}),
+		'version.json': d.firmada,
+		...(d.exigir ? { exigir: '1' } : {})
+	};
+}
+
+/*
+ * El guion de `curl … | sudo bash` (la línea de siempre y Community): los datos
+ * van en base64 a una carpeta temporal y detrás el mismo guion que el firmado.
+ */
+export async function scriptSensorRemoto(codigo: string) {
+	const d = await datosSensorRemoto(codigo);
+	if (!d) return null;
+	const ficheros = Object.entries(ficherosDatosSensor(d))
+		.map(([n, v]) => `echo '${b64(v)}' | base64 -d > "$SD_DATOS/${n}"`)
+		.join('\n');
+	return `#!/usr/bin/env bash
+# Installer for a Sugardaddy sensor (${d.sensor}), generated by the console.
+set -Eeuo pipefail
+[[ "$(id -u)" == 0 ]] || { echo "This must be run with sudo" >&2; exit 1; }
+SD_DATOS="$(mktemp -d)"
+trap 'rm -rf "$SD_DATOS"' EXIT
+chmod 700 "$SD_DATOS"
+umask 077
+${ficheros}
+umask 022
+${GUION_SENSOR_REMOTO}`;
+}
+
+/*
+ * Para la primera etapa verificada (etapa1.sh --sensor): los datos como
+ * registros «dato <nombre> <base64>», sin una línea de código. Gasta el código.
+ */
+export async function registrosDatosSensor(codigo: string): Promise<string | null> {
+	const d = await datosSensorRemoto(codigo);
+	if (!d) return null;
+	return Object.entries(ficherosDatosSensor(d))
+		.map(([n, v]) => `dato ${n} ${b64(v)}\n`)
+		.join('');
+}
+
+/* ---------- la línea verificada (docs/diseno/instalador-verificado.md, «Sensor remoto») ---------- */
+
+/*
+ * La primera etapa del instalador de Cloud de la versión del nodo, si esa versión
+ * trae también el guion firmado del sensor: con ella, la línea de un sensor remoto
+ * no ejecuta nada de la consola. null en Community (su versión no lleva primera
+ * etapa) o si no se puede saber: entonces, la línea de siempre.
+ */
+export async function etapa1DelNodo(): Promise<{ texto: string; huella: string } | null> {
+	if (esCommunity()) return null;
+	try {
+		const { release } = await releaseDelNodo();
+		const texto = release.instalador?.etapa1?.texto;
+		if (!texto || !piezasInstaladorSensor(release)) return null;
+		return { texto, huella: hash(texto) };
+	} catch {
+		return null;
+	}
+}
+
+const registro = (tipo: string, ...campos: string[]) => `${tipo} ${campos.join(' ')}\n`;
+export const errorEtapa1 = (mensaje: string, sigue = false) =>
+	`sugardaddy-error ${sigue ? 'sigue' : 'fin'} ${b64(mensaje)}\n`;
+
+/*
+ * Lo que pide la primera etapa antes de gastar nada (GET …/datos): la versión firmada
+ * del nodo tal cual, sus firmas y las piezas que comprueba contra ella. Sin datos del
+ * sensor ni secretos. null si el código no vale (sin gastarlo).
+ */
+export async function versionParaEtapa1(codigo: string): Promise<string | null> {
+	if (!/^[A-Za-z0-9_-]{32}$/.test(codigo)) return null;
+	const [f] = await db
+		.select({ sensor: s.instaladoresSensor.sensor })
+		.from(s.instaladoresSensor)
+		.where(
+			and(
+				eq(s.instaladoresSensor.codigoHash, hash(codigo)),
+				isNull(s.instaladoresSensor.usado),
+				gt(s.instaladoresSensor.caduca, new Date())
+			)
+		);
+	if (!f) return null;
+	const { firmada, release } = await releaseDelNodo();
+	const nodo = piezasInstalador(release);
+	const sensor = piezasInstaladorSensor(release);
+	if (!nodo || !sensor)
+		throw new ErrorCliente(
+			`Version ${release.version} of this node cannot install verified sensors. Update the node, or generate the line again.`
+		);
+	return [
+		'sugardaddy-version 1\n',
+		registro('release', b64(firmada.release)),
+		...(firmada.firma ? [registro('firma', firmada.firma)] : []),
+		...(firmada.firmas ?? []).map((x) => registro('firmas', x.clave, x.firma)),
+		registro('fichero', 'imagenes.env', b64(nodo['imagenes.env'])),
+		registro('fichero', 'entorno.txt', b64(nodo['entorno.txt'])),
+		registro('fichero', 'sensor-instalar.sh', b64(sensor['instalar.sh'])),
+		registro('fichero', 'sensor-compose.yml', b64(sensor['compose.yml']))
+	].join('');
+}
+
+/* Los nombres del .env que la primera etapa recibe como datos; el resto lo pone ella. */
+const DATOS_ETAPA1: Record<string, string> = {
+	SENSOR_ID: 'SENSOR',
+	SUGARDADDY_TOKEN: 'TOKEN',
+	REGISTRO: 'REGISTRO',
+	REGISTRO_USUARIO: 'REGISTRO_USUARIO',
+	REGISTRO_TOKEN: 'REGISTRO_TOKEN',
+	PARTNER: 'PARTNER',
+	REGISTRO_PARTNER: 'REGISTRO_PARTNER',
+	REGISTRO_PARTNER_USUARIO: 'REGISTRO_PARTNER_USUARIO',
+	REGISTRO_PARTNER_TOKEN: 'REGISTRO_PARTNER_TOKEN'
+};
+
+/*
+ * Los datos del sensor para la primera etapa (POST …/datos), como registros: los de
+ * una línea en «dato», la CA de la consola y el certificado de cliente en «archivo».
+ * Gasta el código. null si no vale.
+ */
+export async function datosParaEtapa1(codigo: string): Promise<string | null> {
+	const d = await datosSensorRemoto(codigo);
+	if (!d) return null;
+	const datos: string[] = ['sugardaddy-datos 1\n'];
+	for (const l of d.entorno.split('\n')) {
+		const i = l.indexOf('=');
+		const nombre = DATOS_ETAPA1[l.slice(0, i)];
+		if (i > 0 && nombre) datos.push(registro('dato', nombre, b64(l.slice(i + 1))));
+	}
+	datos.push(registro('dato', 'FIJA', b64(d.fija)));
+	if (d.ca) datos.push(registro('archivo', 'ca', b64(d.ca)));
+	if (d.certificado) datos.push(registro('archivo', 'cliente', b64(d.certificado)));
+	return datos.join('');
 }

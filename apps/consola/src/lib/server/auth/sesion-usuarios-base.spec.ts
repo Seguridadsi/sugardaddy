@@ -4,6 +4,7 @@
  * cambian o restablecen la contraseña. Contra una base de verdad (DATABASE_URL
  * de .env); si no hay, se salta.
  */
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Cookies } from '@sveltejs/kit';
@@ -23,26 +24,33 @@ vi.mock('$app/environment', () => ({ building: false, dev: true }));
 const { db, schema: s } = hayBase ? await import('../db') : ({} as never);
 const local = hayBase ? await import('./local') : ({} as never);
 const sesion = hayBase ? await import('./sesion') : ({} as never);
-const { like } = await import('drizzle-orm');
+const { eq, like, sql } = await import('drizzle-orm');
 
 const P = 'zz-sesiones';
 const clave = 'una contraseña larga de prueba';
 
-/* Unas cookies de mentira: lo justo para abrir y leer una sesión. */
-function galletas(): Cookies {
+type Opciones = Parameters<Cookies['set']>[2];
+/* Unas cookies de mentira: lo justo para abrir y leer una sesión (y ver con qué opciones). */
+function galletas(): Cookies & { opciones: Map<string, Opciones> } {
 	const m = new Map<string, string>();
+	const opciones = new Map<string, Opciones>();
 	return {
+		opciones,
 		get: (n: string) => m.get(n),
-		set: (n: string, v: string) => void m.set(n, v),
+		set: (n: string, v: string, o: Opciones) => {
+			m.set(n, v);
+			opciones.set(n, o);
+		},
 		delete: (n: string) => void m.delete(n)
-	} as unknown as Cookies;
+	} as unknown as Cookies & { opciones: Map<string, Opciones> };
 }
+const sha256 = (v: string) => createHash('sha256').update(v).digest('hex');
 
 async function entrar(usuario: string) {
 	const r = await local.verificar(usuario, clave);
 	if (!r.ok) throw new Error('no entra');
 	const c = galletas();
-	await sesion.abrir(c, r.identidad, true);
+	await sesion.abrir(c, r.identidad);
 	return { c, id: r.id };
 }
 
@@ -95,7 +103,7 @@ describe.skipIf(!hayBase)('las sesiones de los usuarios locales', () => {
 			una.id,
 			clave,
 			'nueva contraseña larga de prueba',
-			una.c.get(sesion.COOKIE_SESION)
+			sesion.sesionActual(una.c) ?? undefined
 		);
 		expect(r.ok).toBe(true);
 		expect(await sesion.leer(una.c)).not.toBeNull();
@@ -151,5 +159,71 @@ describe.skipIf(!hayBase)('las sesiones de los usuarios locales', () => {
 		const { c, id } = await entrar(`${P}-d`);
 		expect((await local.retirar('tester', id)).ok).toBe(true);
 		expect(await sesion.leer(c)).toBeNull();
+	});
+	/*
+	 * Plan de fortificación, 0.4: en la base va la huella (SHA-256) del id, no el
+	 * id; la cookie es __Host-, Secure siempre, HttpOnly y SameSite=Lax.
+	 */
+	it('en la base va la huella del id, no el id, y la cookie es __Host- y Secure', async () => {
+		const { c } = await entrar(`${P}-b`);
+		expect(sesion.COOKIE_SESION).toBe('__Host-sd_sesion');
+		const id = c.get(sesion.COOKIE_SESION)!;
+		expect(id).toMatch(/^[A-Za-z0-9_-]{43}$/);
+		expect(c.opciones.get(sesion.COOKIE_SESION)).toMatchObject({
+			path: '/',
+			httpOnly: true,
+			secure: true,
+			sameSite: 'lax'
+		});
+		expect(c.opciones.get(sesion.COOKIE_SESION)).not.toHaveProperty('domain');
+		expect(await db.select().from(s.sesiones).where(eq(s.sesiones.id, id))).toHaveLength(0);
+		const [fila] = await db
+			.select()
+			.from(s.sesiones)
+			.where(eq(s.sesiones.id, sha256(id)));
+		expect(fila?.correo).toBe(`${P}-b@ejemplo.com`);
+		expect((await sesion.leer(c))?.sesion).toBe(sha256(id));
+		/* Con la huella en la cookie no se entra: hace falta el id. */
+		const robada = galletas();
+		robada.set(sesion.COOKIE_SESION, sha256(id), { path: '/' });
+		expect(await sesion.leer(robada)).toBeNull();
+		/* Y al salir se cierra en la base. */
+		await sesion.cerrar(c);
+		const [cerrada] = await db
+			.select()
+			.from(s.sesiones)
+			.where(eq(s.sesiones.id, sha256(id)));
+		expect(cerrada?.cerrada).not.toBeNull();
+	});
+
+	it('la migración 0062 pasa a huella las sesiones de antes y la cookie vieja sigue valiendo', async () => {
+		/* Una sesión como las de antes: el id en claro en la tabla. */
+		const id = 'A'.repeat(20) + '_-' + 'b'.repeat(21);
+		expect(id).toHaveLength(43);
+		await db.insert(s.sesiones).values({
+			id,
+			oid: 'e2e:migracion',
+			correo: `${P}-migracion@ejemplo.com`,
+			nombre: 'm',
+			roles: ['lector']
+		});
+		const migracion = readFileSync('drizzle/0062_sesiones_huella.sql', 'utf8');
+		await db.execute(sql.raw(migracion));
+		/* Repetirla no cambia nada: una huella no tiene la forma de un id. */
+		await db.execute(sql.raw(migracion));
+		const filas = await db
+			.select({ id: s.sesiones.id })
+			.from(s.sesiones)
+			.where(eq(s.sesiones.correo, `${P}-migracion@ejemplo.com`));
+		expect(filas).toEqual([{ id: sha256(id) }]);
+		/* El navegador trae la cookie de antes: entra y pasa a la nueva. */
+		const c = galletas();
+		c.set('sd_sesion', id, { path: '/' });
+		const leida = await sesion.leer(c);
+		expect(leida?.correo).toBe(`${P}-migracion@ejemplo.com`);
+		expect(c.get('sd_sesion')).toBeUndefined();
+		expect(c.get(sesion.COOKIE_SESION)).toBe(id);
+		expect(c.opciones.get(sesion.COOKIE_SESION)).toMatchObject({ secure: true, httpOnly: true });
+		expect(await sesion.leer(c)).not.toBeNull();
 	});
 });

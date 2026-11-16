@@ -1,4 +1,5 @@
 import { fail } from '@sveltejs/kit';
+import { estadoSensoresMtls, leerPolitica } from '$lib/server/ca-sensores';
 import { SIN_IDENTIFICADOR, identificador } from '$lib/identificador';
 import { esEntorno } from '$lib/entorno';
 import { exigir } from '$lib/server/auth/permisos';
@@ -42,7 +43,12 @@ export const load = async ({ url }) => {
 		cuarentena: await ultimaCuarentena(),
 		/* La ficha de la máquina de cada sensor, y los destinos sin sensor (un servidor, un NAS, una cuenta de nube). */
 		fichas: Object.fromEntries(destinos.flatMap((d) => (d.sensor ? [[d.sensor.id, d.id]] : []))),
-		sinSensor: destinos.filter((d) => !d.sensor)
+		sinSensor: destinos.filter((d) => !d.sensor),
+		/* Sensores remotos que aún entran sin certificado de cliente (docs/diseno/mtls-sensores.md). */
+		sinCertificado: (await estadoSensoresMtls()).filter(
+			(f) => f.estado === 'sin-certificado' || f.estado === 'sin-usar' || f.estado === 'caducado'
+		).length,
+		politicaMtls: await leerPolitica()
 	};
 };
 

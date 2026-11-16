@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"net"
 	"net/http"
@@ -615,7 +616,7 @@ func (c *CANodo) pedir(ctx context.Context) (string, error) {
 	var p struct {
 		Cambiar string `json:"cambiar"`
 	}
-	return p.Cambiar, json.NewDecoder(resp.Body).Decode(&p)
+	return p.Cambiar, json.NewDecoder(io.LimitReader(resp.Body, topeRespuestaConsola)).Decode(&p)
 }
 
 func (c *CANodo) lanzar(ctx context.Context, huella string) ResultadoCA {

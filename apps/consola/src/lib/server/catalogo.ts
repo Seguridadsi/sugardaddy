@@ -264,6 +264,7 @@ export function porQueNo(m: { id: string; incluida: boolean; licencia: Cobertura
 		if (esDeRegistro(m.id)) return 'Free with your registration';
 		return esDePago(m.id) ? 'Included in Sugardaddy Cloud' : 'Not included in your subscription';
 	}
+	if (m.licencia === 'licencia.revocada') return 'Your Cloud license has been revoked';
 	if (m.licencia === 'licencia.caducada') return 'Your Cloud license has expired';
 	if (m.licencia === 'licencia.sin') return 'Not in your Cloud license';
 	return null;

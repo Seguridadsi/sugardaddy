@@ -31,7 +31,7 @@ describe.skipIf(!process.env.DATABASE_URL)('acceso a la consola', async () => {
 		await db.delete(s.ajustes).where(inArray(s.ajustes.clave, CLAVES));
 		await borrarAuditoriaDePrueba(db, inArray(s.auditoria.quien, [QUIEN, 'machine']));
 		await db.delete(s.sensores).where(like(s.sensores.id, `${PREFIJO}%`));
-		a._olvidarAcceso();
+		a._olvidarAcceso(true);
 		a._ponerPuertaDeEnlace(undefined);
 		delete process.env.CONSOLA_ACCESO;
 		delete process.env.CONSOLA_NACE_CERRADA;
@@ -360,5 +360,30 @@ describe.skipIf(!process.env.DATABASE_URL)('acceso a la consola', async () => {
 		expect(a.puedeEntrar('172.18.0.1', x, false)).toBe(false);
 		expect(a.puedeEntrar('172.18.0.1', x, true)).toBe(true);
 		expect(a.esLocal('172.18.0.1')).toBe(true);
+	});
+
+	it('si la base falla, la segunda barrera no se abre: lo último conocido o la red de la máquina', async () => {
+		const falla = async (): Promise<never> => {
+			throw new Error('sin base');
+		};
+		/* Nunca leída: cerrada, con lo que no depende de la base. */
+		process.env.SENSOR_LOCAL_RED = '10.70.0.0/24';
+		const sinNada = await a.accesoParaFiltrar(falla);
+		expect(sinNada.estado).toBe('restringida');
+		expect(a.puedeEntrar('10.70.0.5', sinNada, false)).toBe(true);
+		expect(a.puedeEntrar('203.0.113.9', sinNada, false)).toBe(false);
+		expect(a.puedeEntrar('127.0.0.1', sinNada, false)).toBe(true);
+		delete process.env.SENSOR_LOCAL_RED;
+		expect(a.puedeEntrar('10.70.0.5', await a.accesoParaFiltrar(falla), false)).toBe(false);
+
+		/* Leída bien una vez, vale esa (aquí, abierta a propósito) aunque luego falle. */
+		await a.dejarAbierta(QUIEN);
+		expect((await a.accesoParaFiltrar()).estado).toBe('abierta');
+		expect((await a.accesoParaFiltrar(falla)).estado).toBe('abierta');
+		await a.guardarAcceso(QUIEN, [{ red: '10.0.9.9' }], '10.0.9.9', false);
+		await a.accesoParaFiltrar();
+		const ultima = await a.accesoParaFiltrar(falla);
+		expect(a.puedeEntrar('10.0.9.9', ultima, false)).toBe(true);
+		expect(a.puedeEntrar('203.0.113.9', ultima, false)).toBe(false);
 	});
 });

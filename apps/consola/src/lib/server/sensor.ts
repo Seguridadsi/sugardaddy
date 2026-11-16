@@ -3,6 +3,7 @@
  * plan (estado deseado), informa de cómo ha quedado y entrega sus eventos. La
  * consola nunca abre una conexión hacia él.
  */
+import { comprobarCertificadoSensor } from './ca-sensores';
 import { createHash } from 'node:crypto';
 import { error } from '@sveltejs/kit';
 import { and, eq, gt, inArray, sql } from 'drizzle-orm';
@@ -26,13 +27,14 @@ import type {
 	MotorSensor
 } from '@sugardaddy/contrato';
 import { EN_ESPERA, enEspera } from '../espera';
-import { coberturaLicencia, licenciaGuardada } from './candado';
+import { coberturaLicencia, licenciaGuardada, revocacionesGuardadas } from './candado';
 import { esDePago } from './modulos-gratis';
 import { esDePartner } from './catalogo-partner';
 import { autorizados, honeycosas } from './catalogo';
 import { comprobarConEvento, trasDescarte, trasEstado, type FilaColocacion } from './colocacion';
 import { db, schema as s } from './db';
-import { preparar } from './credenciales';
+import { clavesCredencial, guardable, preparar } from './credenciales';
+import { enmascararLinea } from './credenciales-protegidas';
 import { anotarPrueba, pruebasAbiertas, pruebasDe } from './pruebas';
 import { aplicarTriajeAuto } from './triaje-auto';
 
@@ -88,6 +90,8 @@ export async function sensorDe(request: Request) {
 	/* ¿Es un token recién entregado que se estrena? Pasa a ser el suyo y el anterior deja de valer. */
 	sensor ??= await estrenarToken(hash);
 	if (!sensor) error(401, 'Unknown token');
+	/* Un sensor remoto, además, con su certificado de cliente (docs/diseno/mtls-sensores.md). */
+	await comprobarCertificadoSensor(sensor, request);
 	await db.update(s.sensores).set({ ultimoLatido: new Date() }).where(eq(s.sensores.id, sensor.id));
 	return sensor;
 }
@@ -184,6 +188,7 @@ export async function plan(sensor: string, registroPrivado: boolean, versionSens
 	/* El candado de licencia (candado.ts): una de pago sin licencia no entra en el plan. */
 	const cubre = await coberturaLicencia();
 	const lic = await licenciaGuardada();
+	const revocaciones = lic ? await revocacionesGuardadas() : [];
 	const filas = await db
 		.select()
 		.from(s.trampas)
@@ -222,7 +227,8 @@ export async function plan(sensor: string, registroPrivado: boolean, versionSens
 			descartar(f.id, 'agente.version', { minimo: via.sensorMinimo });
 			continue;
 		}
-		const cobertura = cubre(h.id);
+		/* Con la licencia caducada, sigue la que se puso cuando valía, hasta funcionaHasta (B-06). */
+		const cobertura = cubre(h.id, f.creado);
 		/*
 		 * Si SeguridadSI retira un módulo, sus trampas dejan de desplegarse. Una de
 		 * registro sin registrarse tampoco está autorizada, pero lo que le falta es
@@ -236,8 +242,9 @@ export async function plan(sensor: string, registroPrivado: boolean, versionSens
 		/*
 		 * Candado de licencia (capa 4): una trampa de PAGO solo entra en el plan si
 		 * la licencia está, es válida y la incluye. Sin licencia o con un módulo que
-		 * no incluye → licencia.sin; con licencia caducada → licencia.caducada. Si
-		 * no hay clave para cotejar, no se descarta aquí (la trampa lo hará sola).
+		 * no incluye → licencia.sin; con licencia caducada, solo si se puso cuando
+		 * valía y no ha pasado su funcionaHasta firmado (si no → licencia.caducada); revocada → licencia.revocada, y el sensor la
+		 * quita. Si no hay clave para cotejar, no se descarta aquí (la trampa lo hará sola).
 		 */
 		if (cobertura !== 'cubierta') {
 			descartar(f.id, cobertura);
@@ -278,13 +285,15 @@ export async function plan(sensor: string, registroPrivado: boolean, versionSens
 	 * monte en las trampas. Se manda solo si la hay (un nodo de edición gratis no
 	 * la tiene y el campo se omite). No es secreta: es un permiso firmado.
 	 * senuelos: lo mismo con el nombre que entienden los sensores anteriores a la 0.8.0.
+	 * Las revocaciones van dentro del mismo fichero, junto a la licencia: así cada trampa
+	 * de pago las ve al arrancar sin otro montaje (las anteriores las ignoran).
 	 */
 	return {
 		trampas,
 		senuelos: trampas,
 		descartados,
 		admite: (await capturaDeCopias()) ? [...ADMITE, 'artefactos'] : ADMITE,
-		...(lic ? { licencia: lic } : {})
+		...(lic ? { licencia: revocaciones.length ? { ...lic, revocaciones } : lic } : {})
 	};
 }
 
@@ -751,6 +760,8 @@ async function guardarEntrega(
 						const c = prueba ? { ...leida, alerta: null, severidad: evento.severidad } : leida;
 						/* En su propio punto de guardado: si falla (p. ej. un id repetido), solo cae esta línea. */
 						let recibido: Date | null = null;
+						/* Con sus credenciales cifradas y enmascaradas en la línea; el hash es el de como llegó. */
+						const g = guardable(linea, hash, c);
 						try {
 							recibido = await lt.transaction(async (sp) => {
 								const [x] = await sp
@@ -758,8 +769,11 @@ async function guardarEntrega(
 									.values({
 										id: evento.id,
 										sensor,
-										linea,
+										linea: g.linea,
 										hash,
+										credencial: g.credencial,
+										contrasenaHuella: g.contrasenaHuella,
+										contrasenaMascara: g.contrasenaMascara,
 										cuando: new Date(evento.cuando),
 										trampa: evento.trampa.id,
 										modulo: evento.trampa.modulo,
@@ -769,7 +783,6 @@ async function guardarEntrega(
 										ip: evento.origen.ip ?? null,
 										usuario: evento.origen.usuario ? sinNulos(evento.origen.usuario) : null,
 										conexionEstablecida: evento.conexionEstablecida,
-										contrasena: c.contrasena ? sinNulos(c.contrasena) : null,
 										alerta: c.alerta ? sinNulos(c.alerta) : null,
 										prueba
 									})
@@ -843,7 +856,8 @@ async function guardarEntrega(
 					sensor,
 					hash,
 					hashAnterior: e?.hashAnterior ?? null,
-					linea: sinNulos(linea.slice(0, LIMITE_LINEA)),
+					/* Tal cual llegó salvo las credenciales: enmascaradas, como en los eventos (B-09). */
+					linea: sinNulos(enmascararLinea(linea.slice(0, LIMITE_LINEA), clavesCredencial())),
 					motivo: sinNulos(motivo)
 				};
 				/*

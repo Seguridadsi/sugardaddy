@@ -10,16 +10,24 @@ import {
 	restablecer,
 	retirar
 } from '$lib/server/auth/local';
+import {
+	exigido,
+	restablecerSegundoFactor,
+	resumenPorUsuario
+} from '$lib/server/auth/segundo-factor';
 
 export const load = async ({ locals }) => {
 	exigir(locals, 'ajustes');
 	/* Si el nodo no admite login local, no hay nada que gestionar aquí. */
 	if (!loginLocalHabilitado()) redirect(303, '/settings');
+	const factores = await resumenPorUsuario();
 	return {
 		roles: ROLES,
 		minimo: MIN_CLAVE,
+		exigido: await exigido(),
 		usuarios: (await listar()).map((u) => ({
 			...u,
+			segundoFactor: factores.get(u.id) ?? { passkey: 0, totp: 0 },
 			creada: u.creada.toISOString(),
 			ultimoAcceso: u.ultimoAcceso?.toISOString() ?? null,
 			bloqueadoHasta: u.bloqueadoHasta?.toISOString() ?? null
@@ -59,6 +67,19 @@ export const actions = {
 		const f = await request.formData();
 		const r = await fijarRoles(u.correo, String(f.get('id') ?? ''), f.getAll('rol').map(String));
 		return r.ok ? { mensaje: 'Roles updated.' } : fail(400, { error: r.error });
+	},
+	/* Perdió el móvil o la passkey: fuera sus factores; da de alta uno nuevo al entrar. */
+	segundoFactor: async ({ request, locals }) => {
+		const u = exigir(locals, 'ajustes');
+		if (!loginLocalHabilitado()) return apagado();
+		const r = await restablecerSegundoFactor(
+			u.correo,
+			u.oid,
+			String((await request.formData()).get('id') ?? '')
+		);
+		return r.ok
+			? { mensaje: 'Two-factor authentication reset. The user sets it up again on next sign-in.' }
+			: fail(400, { error: r.error });
 	},
 	retirar: async ({ request, locals }) => {
 		const u = exigir(locals, 'ajustes');

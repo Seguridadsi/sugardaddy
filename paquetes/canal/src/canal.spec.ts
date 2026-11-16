@@ -125,6 +125,9 @@ describe('estado deseado', () => {
 			ok: false,
 			motivo: 'the state has expired'
 		});
+		/* Una fecha que no se lee no vale para siempre. */
+		const raro = firmarEstado(panel.privada, estado({ caduca: 'nunca' }));
+		expect(verificarEstado(panel.publica, 'aldanza', raro)).toMatchObject({ ok: false });
 	});
 });
 
@@ -208,6 +211,18 @@ describe('versiones firmadas', () => {
 		const f = firmarRelease(publicacion.privada, release);
 		const tocada = { ...f, release: f.release.replace(D, 'b'.repeat(64)) };
 		expect(verificarRelease(publicacion.publica, tocada)).toMatchObject({ ok: false });
+	});
+
+	it('«urgente» va firmado y tiene que ser booleano (como en Go)', () => {
+		const ok = verificarRelease(
+			publicacion.publica,
+			firmarRelease(publicacion.privada, { ...release, urgente: true })
+		);
+		expect(ok.ok && ok.release.urgente).toBe(true);
+		const mal = { ...release, urgente: 'si' } as unknown as typeof release;
+		expect(
+			verificarRelease(publicacion.publica, firmarRelease(publicacion.privada, mal))
+		).toMatchObject({ ok: false, motivo: 'malformed urgent flag' });
 	});
 
 	it('las versiones se comparan como números, no como texto', () => {

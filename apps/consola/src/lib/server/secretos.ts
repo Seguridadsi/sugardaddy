@@ -20,7 +20,7 @@
  * registros ni en la auditoría: como mucho sus 4 últimos caracteres (final)
  * y, en un error que lo repita, tapado (tapar).
  */
-import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
+import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes } from 'node:crypto';
 import { env } from '$env/dynamic/private';
 
 const VERSION = 'v1';
@@ -46,6 +46,18 @@ export function estadoClave(): EstadoClave {
 export function claveDelNodo(): Clave | null {
 	if (estadoClave() !== 'lista') return null;
 	const bytes = Buffer.from(env.CLAVE_SECRETOS!.trim(), 'hex');
+	return { bytes, id: idDe(bytes) };
+}
+
+/*
+ * Una clave para otro uso, sacada de la del nodo (HMAC-SHA256 con una etiqueta): las
+ * credenciales que capturan las trampas (credenciales-protegidas.ts) no se cifran con
+ * la misma clave que los secretos del cliente, y su huella va con otra más. Sin la del
+ * nodo, null.
+ */
+export function claveDerivada(etiqueta: string, base = claveDelNodo()): Clave | null {
+	if (!base) return null;
+	const bytes = createHmac('sha256', base.bytes).update(`sugardaddy/${etiqueta}`).digest();
 	return { bytes, id: idDe(bytes) };
 }
 

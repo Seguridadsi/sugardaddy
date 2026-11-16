@@ -17,7 +17,12 @@ documentacion/.docusaurus/
 apps/*/drizzle/meta/
 apps/consola/src/lib/mapa/espana.json
 .publicacion/
+# La escribe una prueba de Go (sensor/internal/despliegue/privilegios_test.go).
+docs/seguridad/privilegios-creados.json
 
 # Las fuentes de los esquemas (marca/README.md): de ellas sale la imagen tal cual, y
 # reformatearlas puede mover espacios del dibujo.
 marca/diagramas/fuente/
+
+# Evidencias de pruebas reales: se guardan tal cual salieron de la máquina.
+docs/seguridad/evidencias/

@@ -37,8 +37,8 @@ procedencia:
   licencia: MIT AND BSD-3-Clause
 
 contenedor:
-  imagen: ghcr.io/seguridadsi/sugardaddy-registro-smb:1.0.1-sd5@sha256:d9b8249787169ddee40a3bae9af368325023a5bb028b95140c2aac9735e5009f
-  imagenPublica: ghcr.io/seguridadsi/sugardaddy-registro-smb:1.0.1-sd5@sha256:d9b8249787169ddee40a3bae9af368325023a5bb028b95140c2aac9735e5009f
+  imagen: ghcr.io/seguridadsi/sugardaddy-registro-smb:1.0.1-sd6@sha256:815747520eafc33d2dc2ec18a7abc1529ffbd2103edb39c5476c09cff4776e7d
+  imagenPublica: ghcr.io/seguridadsi/sugardaddy-registro-smb:1.0.1-sd6@sha256:815747520eafc33d2dc2ec18a7abc1529ffbd2103edb39c5476c09cff4776e7d
   puertos:
     - { interno: 1445, expuesto: '${puertoSmb}', protocolo: tcp }
   entorno:

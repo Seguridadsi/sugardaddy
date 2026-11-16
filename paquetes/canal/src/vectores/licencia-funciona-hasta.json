@@ -1,0 +1,11 @@
+{
+	"clavePublicacion": "MCowBQYDK2VwAyEAvGvEm2js6lb4YchkIHuNfqbNCzD3Tt87/aZNNcHz3k4=",
+	"conFuncionaHasta": {
+		"licencia": "{\"tipo\":\"licencia\",\"version\":1,\"cliente\":\"vector\",\"nodo\":\"vector-nodo-1\",\"nodoClave\":\"MCowBQYDK2VwAyEAnKgiaqcey5x11E4/cKYF/498c6mQ5uaKE5etwLsuBqo=\",\"modulos\":[\"mysql\"],\"marca\":\"vector-5b1e\",\"emitida\":\"2026-11-01T10:00:00.000Z\",\"caduca\":\"2026-12-16T10:00:00.000Z\",\"funcionaHasta\":\"2027-06-16T10:00:00.000Z\"}",
+		"firma": "eH3ENA3Q4aCRUuhLcX6UQ/iQ6nTMfkDpCutaVBuc0GJklzlWVq42S43GYkzyGXfvjw3qeS75H6ERVXmYvvLPBg=="
+	},
+	"sinFuncionaHasta": {
+		"licencia": "{\"tipo\":\"licencia\",\"version\":1,\"cliente\":\"vector\",\"nodo\":\"vector-nodo-1\",\"nodoClave\":\"MCowBQYDK2VwAyEAnKgiaqcey5x11E4/cKYF/498c6mQ5uaKE5etwLsuBqo=\",\"modulos\":[\"mysql\"],\"marca\":\"vector-5b1e\",\"emitida\":\"2026-11-01T10:00:00.000Z\",\"caduca\":\"2026-12-16T10:00:00.000Z\"}",
+		"firma": "3oSDQ67Bnudh1FdOqhumernfcTSwVuwoCPj2PRBcP9NtzhAX48uCv6wMT2bQrlfXVwxokHeLNqa15DccG31FBQ=="
+	}
+}

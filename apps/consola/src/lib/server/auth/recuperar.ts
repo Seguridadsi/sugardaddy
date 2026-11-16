@@ -24,7 +24,13 @@ import { db, schema as s } from '../db';
 import { auditar } from '../consultas';
 import { mandarCodigoPorCanal, urlPanelValida } from '../canal';
 import { Freno, claveIp } from './freno';
-import { cambiarClave, correoValido, loginLocalHabilitado, MIN_CLAVE } from './local';
+import {
+	cambiarClave,
+	correoValido,
+	loginLocalHabilitado,
+	MIN_CLAVE,
+	revocarTokensApiDe
+} from './local';
 import type { Identidad } from './entra';
 
 export const MINUTOS_CODIGO = 15;
@@ -229,11 +235,17 @@ export async function canjearCodigo(
 		.set({ cerrada: new Date() })
 		.where(and(eq(rc.usuarioId, u.id), isNull(rc.cerrada)));
 
+	/* cambiarClave ya cierra todas sus sesiones. */
 	const r = await cambiarClave(u.id, nueva);
 	if (!r.ok) return r;
 	await auditar(r.identidad.correo, 'password reset with code', {
 		usuario: nombre,
 		origen: buena.origen
 	});
+	/*
+	 * Recuperar con código es el caso de restablecer(): la cuenta quizá estaba en
+	 * otras manos, así que también fuera sus tokens de API (auditoría 2026-11-14, §5).
+	 */
+	await revocarTokensApiDe(r.identidad.correo, u.id, 'password reset with code');
 	return { ok: true, id: u.id, identidad: r.identidad };
 }

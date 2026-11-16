@@ -508,3 +508,20 @@ describe('un solo Hecho en el contrato', () => {
 		}
 	});
 });
+
+describe('disco cifrado del appliance', () => {
+	/* docs/diseno/disco-cifrado.md: el script «disco» del appliance los pasa por el sensor. */
+	it('disco.cifrado y disco.tpm llegan del sensor con su motivo y su nombre', () => {
+		const h = hechosDeSensor({
+			hechos: {
+				'disco.cifrado': { valor: true },
+				'disco.tpm': { valor: false, motivo: 'tpm.ausente' }
+			}
+		} as Capacidades);
+		expect(h['disco.cifrado']).toMatchObject({ valor: true, fuente: 'sensor' });
+		expect(h['disco.tpm']).toMatchObject({ valor: false, motivo: 'tpm.ausente', fuente: 'sensor' });
+		expect(HECHOS['disco.cifrado'].tipo).toBe('booleano');
+		expect(nombreHecho('disco.cifrado')).toBe('Data disk encrypted (LUKS2)');
+		expect(nombreHecho('disco.tpm')).toBe('Data disk key sealed in the TPM');
+	});
+});

@@ -40,7 +40,8 @@ export const CABECERA_CSV_EVENTOS = [
 	'asn',
 	'tor',
 	'username',
-	'password',
+	/* Enmascarada (P*****d1): el CSV no saca credenciales (credenciales-protegidas.ts). */
+	'password_masked',
 	'connection_established',
 	'alert',
 	'test',

@@ -67,3 +67,20 @@ func TestEscribirVersiones(t *testing.T) {
 		t.Fatalf("falta el actualizador o la configuración:\n%s", b)
 	}
 }
+
+func TestVerificarUrgente(t *testing.T) {
+	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+	der, _ := x509.MarshalPKIXPublicKey(pub)
+	clave, _ := ClavePublica(base64.StdEncoding.EncodeToString(der))
+	img := `"servicios":{"consola":"ghcr.io/seguridadsi/consola@sha256:` + strings.Repeat("a", 64) + `"}`
+	r, err := Verificar(Confianza{Legado: clave}, firmar(t, priv, `{"version":"0.3.0","publicada":"2026-10-13T00:00:00Z","notas":"x",`+img+`,"urgente":true}`))
+	if err != nil || !r.Urgente {
+		t.Fatalf("urgente firmada: %v %+v", err, r.Urgente)
+	}
+	if _, err := Verificar(Confianza{Legado: clave}, firmar(t, priv, `{"version":"0.3.0","publicada":"2026-10-13T00:00:00Z","notas":"x",`+img+`,"Urgente":true}`)); err == nil {
+		t.Fatal("«Urgente» con mayúscula no debería pasar")
+	}
+	if _, err := Verificar(Confianza{Legado: clave}, firmar(t, priv, `{"version":"0.3.0","publicada":"2026-10-13T00:00:00Z","notas":"x",`+img+`,"urgente":"si"}`)); err == nil {
+		t.Fatal("urgente que no es booleano no debería pasar")
+	}
+}

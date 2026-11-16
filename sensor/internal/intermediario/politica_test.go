@@ -34,7 +34,7 @@ func configPrueba() map[string]any {
 			"ReadonlyRootfs": true,
 			"CapDrop": ["ALL"],
 			"SecurityOpt": ["no-new-privileges"],
-			"Memory": 67108864, "MemorySwap": 67108864, "NanoCpus": 500000000, "PidsLimit": 256,
+			"Memory": 67108864, "MemorySwap": 67108864, "NanoCpus": 500000000, "CpuShares": 256, "PidsLimit": 256,
 			"Mounts": [
 				{"Type": "bind", "Source": "/opt/sd/datos/sensor/registros/cache-1", "Target": "/log"},
 				{"Type": "bind", "Source": "/opt/sd/datos/sensor/config/cache-1/0", "Target": "/etc/redis.conf", "ReadOnly": true},
@@ -145,7 +145,12 @@ func TestTrampaRechazos(t *testing.T) {
 			hc(c)["Memory"] = float64(1 << 30)
 			hc(c)["MemorySwap"] = float64(1 << 30)
 		},
-		"sin tope de procesos": func(c map[string]any, _ *plan.Manifiesto) { delete(hc(c), "PidsLimit") },
+		"sin tope de procesos":        func(c map[string]any, _ *plan.Manifiesto) { delete(hc(c), "PidsLimit") },
+		"sin tope de CPU":             func(c map[string]any, _ *plan.Manifiesto) { delete(hc(c), "NanoCpus") },
+		"CPU a cero":                  func(c map[string]any, _ *plan.Manifiesto) { hc(c)["NanoCpus"] = float64(0) },
+		"sin tope de swap":            func(c map[string]any, _ *plan.Manifiesto) { delete(hc(c), "MemorySwap") },
+		"swap de más":                 func(c map[string]any, _ *plan.Manifiesto) { hc(c)["MemorySwap"] = float64(-1) },
+		"más peso de CPU que el nodo": func(c map[string]any, _ *plan.Manifiesto) { hc(c)["CpuShares"] = float64(4096) },
 		"salida a internet en el manifiesto": func(_ map[string]any, m *plan.Manifiesto) {
 			m.Aislamiento.Salida = true
 		},
@@ -214,7 +219,7 @@ func capturaPrueba() map[string]any {
 		"Image": "r/sensor@sha256:bbbb", "Cmd": ["captura", "AAAA"], "User": "0:0",
 		"Labels": {"sugardaddy.captura": "darknet"},
 		"HostConfig": {"NetworkMode": "container:sd-local-darknet", "ReadonlyRootfs": true, "CapDrop": ["ALL"],
-			"CapAdd": ["NET_RAW"], "SecurityOpt": ["no-new-privileges"], "Memory": 33554432, "PidsLimit": 16}
+			"CapAdd": ["NET_RAW"], "SecurityOpt": ["no-new-privileges"], "Memory": 33554432, "MemorySwap": 33554432, "NanoCpus": 500000000, "PidsLimit": 16}
 	}`), &m)
 	return m
 }
@@ -231,6 +236,7 @@ func TestCaptura(t *testing.T) {
 		"de otra trampa":    func(c map[string]any) { c["Labels"].(map[string]any)["sugardaddy.captura"] = "otra" },
 		"red del anfitrión": func(c map[string]any) { hc(c)["NetworkMode"] = "host" },
 		"con montajes":      func(c map[string]any) { hc(c)["Mounts"] = []any{} },
+		"sin tope de CPU":   func(c map[string]any) { delete(hc(c), "NanoCpus") },
 	}
 	for n, f := range casos {
 		c := capturaPrueba()
@@ -246,7 +252,7 @@ func TestSonda(t *testing.T) {
 		return map[string]any{
 			"Image": "r/sensor@sha256:bbbb", "Cmd": []any{orden}, "Labels": map[string]any{"sugardaddy.sonda": "local"},
 			"HostConfig": map[string]any{"NetworkMode": red, "ReadonlyRootfs": true, "CapDrop": []any{"ALL"},
-				"SecurityOpt": []any{"no-new-privileges"}, "Memory": float64(32 << 20), "PidsLimit": float64(16)},
+				"SecurityOpt": []any{"no-new-privileges"}, "Memory": float64(32 << 20), "MemorySwap": float64(32 << 20), "NanoCpus": float64(5e8), "PidsLimit": float64(16)},
 		}
 	}
 	for _, ok := range [][2]string{{"probar-clone3", "none"}, {"puertos-anfitrion", "host"}, {"sondear", "sugardaddy-trampas-aisladas"}} {
@@ -276,7 +282,8 @@ func TestSinEtiquetaNoSeCrea(t *testing.T) {
 
 func TestRedes(t *testing.T) {
 	bien := []map[string]any{
-		{"Name": "sugardaddy-trampas-aisladas", "Driver": "bridge", "Options": map[string]any{"com.docker.network.bridge.enable_icc": "false"}},
+		{"Name": "sugardaddy-trampas-aisladas", "Driver": "bridge", "Options": map[string]any{"com.docker.network.bridge.enable_icc": "false",
+			"com.docker.network.bridge.enable_ip_masquerade": "false", "com.docker.network.bridge.name": "sd-trampas0"}},
 		{"Name": "sugardaddy-trampas-ip-propia", "Driver": "macvlan", "Options": map[string]any{"parent": "eth0"}},
 	}
 	for _, r := range bien {
@@ -286,6 +293,16 @@ func TestRedes(t *testing.T) {
 	}
 	mal := []map[string]any{
 		{"Name": "sugardaddy-trampas-aisladas", "Driver": "bridge"},
+		// SEN-5: sin el nombre fijo del puente, o con otro, o con salida, o con más opciones.
+		{"Name": "sugardaddy-trampas-aisladas", "Driver": "bridge", "Options": map[string]any{"com.docker.network.bridge.enable_icc": "false",
+			"com.docker.network.bridge.enable_ip_masquerade": "false"}},
+		{"Name": "sugardaddy-trampas-aisladas", "Driver": "bridge", "Options": map[string]any{"com.docker.network.bridge.enable_icc": "false",
+			"com.docker.network.bridge.enable_ip_masquerade": "false", "com.docker.network.bridge.name": "docker0"}},
+		{"Name": "sugardaddy-trampas-aisladas", "Driver": "bridge", "Options": map[string]any{"com.docker.network.bridge.enable_icc": "false",
+			"com.docker.network.bridge.enable_ip_masquerade": "true", "com.docker.network.bridge.name": "sd-trampas0"}},
+		{"Name": "sugardaddy-trampas-aisladas", "Driver": "bridge", "Options": map[string]any{"com.docker.network.bridge.enable_icc": "false",
+			"com.docker.network.bridge.enable_ip_masquerade": "false", "com.docker.network.bridge.name": "sd-trampas0",
+			"com.docker.network.bridge.gateway_mode_ipv4": "nat-unprotected"}},
 		{"Name": "sugardaddy-trampas-salida-aisladas", "Driver": "bridge", "Options": map[string]any{"com.docker.network.bridge.enable_icc": "false"}},
 		{"Name": "cualquiera", "Driver": "bridge", "Options": map[string]any{"com.docker.network.bridge.enable_icc": "false"}},
 		{"Name": "sugardaddy-trampas-x", "Driver": "host"},

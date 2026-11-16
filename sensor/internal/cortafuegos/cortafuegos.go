@@ -282,7 +282,12 @@ func cadena(ctx context.Context, ej Ejecutor, f familia, redes []netip.Prefix) e
 // pedido, el primero. Pone el nuevo antes de quitar los viejos: nunca hay un
 // instante sin salto.
 func saltoUnico(ctx context.Context, ej Ejecutor, f familia, padre string, regla []string) error {
-	saltos, err := listarSaltos(ctx, ej, f, padre)
+	return saltoUnicoA(ctx, ej, f, padre, Cadena, regla)
+}
+
+// saltoUnicoA es saltoUnico para cualquier cadena propia.
+func saltoUnicoA(ctx context.Context, ej Ejecutor, f familia, padre, cadena string, regla []string) error {
+	saltos, err := listarSaltosA(ctx, ej, f, padre, cadena)
 	if err != nil {
 		return err
 	}
@@ -304,6 +309,10 @@ func saltoUnico(ctx context.Context, ej Ejecutor, f familia, padre string, regla
 
 // listarSaltos da los números de regla (desde 1) de la cadena padre que saltan a SD-CONSOLA.
 func listarSaltos(ctx context.Context, ej Ejecutor, f familia, padre string) ([]int, error) {
+	return listarSaltosA(ctx, ej, f, padre, Cadena)
+}
+
+func listarSaltosA(ctx context.Context, ej Ejecutor, f familia, padre, cadena string) ([]int, error) {
 	s, err := ej(ctx, "", f.tabla, "-w", "-t", "filter", "-S", padre)
 	if err != nil {
 		return nil, fmt.Errorf("%s -S %s: %w", f.tabla, padre, err)
@@ -315,7 +324,7 @@ func listarSaltos(ctx context.Context, ej Ejecutor, f familia, padre string) ([]
 			continue
 		}
 		n++
-		if strings.HasSuffix(strings.TrimSpace(l), "-j "+Cadena) {
+		if strings.HasSuffix(strings.TrimSpace(l), "-j "+cadena) {
 			r = append(r, n)
 		}
 	}

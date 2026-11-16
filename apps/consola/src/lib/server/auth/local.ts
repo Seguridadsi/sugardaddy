@@ -21,6 +21,7 @@ import { db, schema as s } from '../db';
 import { auditar } from '../consultas';
 import { ROLES, type Rol } from './permisos';
 import { configuradoEnEntorno, type Identidad } from './entra';
+import { apuntarLocal, olvidarLocal, rolesLocal } from '../revision-accesos';
 
 /* Parámetros de scrypt. 2^15 de coste; maxmem explícito porque 2^15 pasa del tope por defecto. */
 const N = 1 << 15;
@@ -252,14 +253,19 @@ export async function verificar(usuario: string, clave: string): Promise<Resulta
 export const COOKIE_CAMBIO = 'sd_cambio';
 
 const VIDA_RETO = 10 * 60_000;
-const retosCambio = new Map<string, { id: string; caduca: number }>();
+/* `factor`: el segundo factor con el que ya pasó (segundo-factor.ts), para apuntarlo en la sesión. */
+const retosCambio = new Map<string, { id: string; factor: string | null; caduca: number }>();
 
-export function abrirRetoCambio(idUsuario: string): string {
+export function abrirRetoCambio(idUsuario: string, factor: string | null = null): string {
 	for (const [k, v] of retosCambio) if (v.caduca < Date.now()) retosCambio.delete(k);
 	const reto = randomBytes(24).toString('base64url');
-	retosCambio.set(reto, { id: idUsuario, caduca: Date.now() + VIDA_RETO });
+	retosCambio.set(reto, { id: idUsuario, factor, caduca: Date.now() + VIDA_RETO });
 	return reto;
 }
+
+/* El segundo factor que ya pasó quien tiene este reto de cambio (null si ninguno). */
+export const factorRetoCambio = (reto: string | undefined) =>
+	(reto && retosCambio.get(reto)?.factor) || null;
 
 /* Lee el id del usuario sin gastar el reto (para pintar la página y reintentar). */
 export function retoCambio(reto: string | undefined): string | null {
@@ -319,6 +325,20 @@ async function claveConFreno(
 		.set({ intentosFallidos: 0, bloqueadoHasta: null })
 		.where(eq(s.usuariosLocales.id, id));
 	return 'bien';
+}
+
+/*
+ * El mismo freno para el segundo factor (segundo-factor.ts): cada código o
+ * passkey que se prueba gasta un intento del usuario y, bloqueado, ni se mira.
+ * Así seis cifras no se adivinan probando, tampoco reiniciando la entrada.
+ */
+export const intentoSegundoFactor = (id: string) => gastarIntento(id, Date.now());
+
+export async function sinFallos(id: string) {
+	await db
+		.update(s.usuariosLocales)
+		.set({ intentosFallidos: 0, bloqueadoHasta: null })
+		.where(eq(s.usuariosLocales.id, id));
 }
 
 export async function cambiarCorreo(
@@ -497,6 +517,12 @@ export async function crear(
 		return { ok: false, error: 'A user with that name already exists.' };
 	}
 	await auditar(quien, 'local user created', { usuario, roles });
+	await apuntarLocal({
+		id,
+		correo: datos.correo.trim(),
+		nombre: datos.nombre.trim() || usuario,
+		roles
+	});
 	return { ok: true, id };
 }
 
@@ -550,6 +576,7 @@ export async function fijarRoles(
 	});
 	if (r.ok) {
 		await auditar(quien, 'local user roles changed', { id, roles: limpios });
+		await rolesLocal(id, limpios);
 		/* Sin el rol que hacía falta para crearlos, sus tokens de API se revocan. */
 		if (!limpios.includes('admin'))
 			await revocarTokensApiDe(quien, id, 'creator is no longer an administrator');
@@ -610,6 +637,7 @@ export async function retirar(
 	});
 	if (r.ok) {
 		await auditar(quien, 'local user removed', { usuario: r.usuario });
+		await olvidarLocal(id);
 		await revocarTokensApiDe(quien, id, 'creator removed');
 	}
 	return r.ok ? { ok: true } : r;

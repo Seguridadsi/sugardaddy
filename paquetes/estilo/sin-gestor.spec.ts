@@ -34,8 +34,14 @@ const CON_GESTOR: Record<string, string[]> = {
 		'-',
 		'actual',
 		'nueva',
-		'repetir'
+		'repetir',
+		/* Segundo factor (B-10): la contraseña de quien lo pone o lo quita y el código de su app. */
+		'clave',
+		'codigo',
+		'clave'
 	],
+	/* El código del segundo factor al entrar (el de la app o uno de recuperación): one-time-code. */
+	'apps/consola/src/routes/sign-in/second-factor/+page.svelte': ['codigo', 'codigo'],
 	'apps/consola/src/routes/users/+page.svelte': ['usuario', 'correo', 'clave', 'clave'],
 	/* El correo de quien administra, para avisos y registro: lo rellena su navegador. */
 	'apps/consola/src/routes/settings/+page.svelte': ['correo'],

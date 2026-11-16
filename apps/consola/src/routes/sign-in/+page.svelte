@@ -54,8 +54,26 @@
 		</form>
 	{/if}
 
-	{#if data.configurado}
+	{#if data.salidaProveedor}
+		<p class="ayuda-salida">
+			You are still signed in to {data.salidaProveedor.nombre}.
+			<a href={data.salidaProveedor.url} rel="noreferrer">Sign out there too</a>
+		</p>
+	{/if}
+
+	{#if data.oidc}
 		{#if data.local}<p class="o">or</p>{/if}
+		<a
+			class="boton principal"
+			data-sveltekit-reload
+			href="/auth/oidc/login?volverA={encodeURIComponent(data.volverA)}"
+		>
+			Sign in with {data.oidc.nombre}
+		</a>
+	{/if}
+
+	{#if data.configurado}
+		{#if data.local || data.oidc}<p class="o">or</p>{/if}
 		<a
 			class="boton principal"
 			data-sveltekit-reload
@@ -63,7 +81,7 @@
 		>
 			Sign in with Microsoft
 		</a>
-	{:else if !data.local}
+	{:else if !data.local && !data.oidc}
 		<p class="error">No sign-in method is configured for this console.</p>
 	{/if}
 
@@ -160,6 +178,12 @@
 
 	.o {
 		margin: 16px 0;
+		font-size: 12.5px;
+		color: var(--ink-3);
+	}
+
+	.ayuda-salida {
+		margin: 0 0 18px;
 		font-size: 12.5px;
 		color: var(--ink-3);
 	}

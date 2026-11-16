@@ -16,6 +16,7 @@ export type CodigoMotivo =
 	| 'modulo.via-desaparecida'
 	| 'licencia.sin'
 	| 'licencia.caducada'
+	| 'licencia.revocada'
 	| 'registro.sin'
 	| 'registro.caducado'
 	| 'parametros.invalidos'
@@ -75,7 +76,11 @@ export const MOTIVOS: Readonly<Record<CodigoMotivo, { texto: string; remedio?: s
 		},
 		/* Trampas de pago cuyo candado (la licencia) no las deja arrancar (docs/diseno/licencias-de-pago.md). */
 		'licencia.sin': { texto: 'This Cloud honeypot is not included in your license.' },
-		'licencia.caducada': { texto: 'Your Cloud license has expired.' },
+		'licencia.caducada': {
+			texto: 'Your Cloud license has expired: new Cloud honeypots wait until it is renewed.'
+		},
+		/* La revocación es lo que para las de pago ya puestas (docs/diseno/licencias-de-pago.md). */
+		'licencia.revocada': { texto: 'SeguridadSI has revoked your Cloud license.' },
 		/* Las que Community activa con el registro gratuito (docs/diseno/registro-community.md). */
 		'registro.sin': {
 			texto: 'This honeypot is enabled for free with your registration, in Settings.'

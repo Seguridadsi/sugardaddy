@@ -8,7 +8,7 @@ import { canjearCodigoEmergencia } from '$lib/server/emergencia';
  * antes de seguir, porque el que se ha usado ya no vale.
  */
 export const actions = {
-	codigo: async ({ request, cookies, url, getClientAddress }) => {
+	codigo: async ({ request, cookies, getClientAddress }) => {
 		const codigo = String((await request.formData()).get('codigo') ?? '').slice(0, 80);
 		const r = await canjearCodigoEmergencia(codigo, getClientAddress());
 		if (!r.ok)
@@ -18,17 +18,13 @@ export const actions = {
 						? 'Too many attempts. Wait 15 minutes.'
 						: 'That code is not valid for this node.'
 			});
-		await abrir(
-			cookies,
-			{
-				oid: 'emergencia:codigo',
-				correo: 'emergency · code',
-				nombre: 'emergency · code',
-				roles: ['admin'],
-				soporte: false
-			},
-			url.protocol === 'https:'
-		);
+		await abrir(cookies, {
+			oid: 'emergencia:codigo',
+			correo: 'emergency · code',
+			nombre: 'emergency · code',
+			roles: ['admin'],
+			soporte: false
+		});
 		return { nuevo: r.nuevo };
 	}
 };

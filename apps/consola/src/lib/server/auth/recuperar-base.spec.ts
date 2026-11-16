@@ -105,6 +105,27 @@ describe.skipIf(!hayBase)('recuperar la contraseña con un código por correo', 
 	});
 
 	it('pide el código, va a su correo y al canjearlo cambia la contraseña', async () => {
+		/* Un token de API y una sesión suyos de antes: al recuperar, fuera los dos. */
+		const [token] = await db
+			.insert(s.tokensApi)
+			.values({
+				nombre: `${P}-token`,
+				hash: `${P}-hash-${Date.now()}`,
+				prefijo: 'sdapi_zz',
+				creadorOid: `local:${id}`,
+				creadorNombre: 'Ana',
+				creadorCorreo: 'ana@ejemplo.com'
+			})
+			.returning({ id: s.tokensApi.id });
+		const sesion = `${P}-sesion-${Date.now()}`;
+		await db.insert(s.sesiones).values({
+			id: sesion,
+			oid: `local:${id}`,
+			correo: 'ana@ejemplo.com',
+			nombre: 'Ana',
+			roles: ['admin'],
+			soporte: false
+		});
 		const codigo = await pedir(`  ${P.toUpperCase()}-ANA `);
 		expect(codigo).toMatch(/^\d{6}$/);
 		expect(mandados.at(-1)!.correo).toBe('ana@ejemplo.com');
@@ -118,6 +139,11 @@ describe.skipIf(!hayBase)('recuperar la contraseña con un código por correo', 
 		expect(r.ok).toBe(true);
 		expect((await local.verificar(`${P}-ana`, clave2)).ok).toBe(true);
 		expect((await local.verificar(`${P}-ana`, clave1)).ok).toBe(false);
+		const [t] = await db.select().from(s.tokensApi).where(eq(s.tokensApi.id, token.id));
+		expect(t.revocado).not.toBeNull();
+		const [ses] = await db.select().from(s.sesiones).where(eq(s.sesiones.id, sesion));
+		expect(ses.cerrada).not.toBeNull();
+		await db.delete(s.tokensApi).where(eq(s.tokensApi.id, token.id));
 
 		/* Gastado: no vale dos veces. */
 		expect((await rec.canjearCodigo(`${P}-ana`, codigo!, clave1)).ok).toBe(false);

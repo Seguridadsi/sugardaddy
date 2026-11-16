@@ -21,6 +21,8 @@
 		/* Extensiones de Sugardaddy: nombre de cada opción y texto de varias líneas. */
 		'x-opciones'?: Record<string, string>;
 		'x-multilinea'?: boolean;
+		/* Un texto de varias líneas que también se puede cargar de un fichero: los tipos, «.pem,.crt». */
+		'x-fichero'?: string;
 		/* Un HTML: además de pegarlo, se puede subir de un fichero o clonar de una dirección. */
 		'x-html'?: boolean;
 		maxLength?: number;
@@ -169,6 +171,25 @@
 			mal: false,
 			aviso: `${fichero.name} loaded (${kb(texto.length)})`
 		};
+	}
+	/*
+	 * x-fichero: un texto de varias líneas (un certificado en PEM) cargado de
+	 * un fichero, que lee el navegador: solo rellena el cuadro, que es lo que
+	 * se guarda.
+	 */
+	let avisoCarga = $state<Record<string, string>>({});
+	async function cargarTexto(k: string, e: Event & { currentTarget: HTMLInputElement }) {
+		const fichero = e.currentTarget.files?.[0];
+		e.currentTarget.value = '';
+		if (!fichero) return;
+		const max = (esquema.properties[k] as Campo | undefined)?.maxLength ?? 64 * 1024;
+		if (fichero.size > max) {
+			avisoCarga = { ...avisoCarga, [k]: `${fichero.name} is larger than ${kb(max)}` };
+			return;
+		}
+		const cuadro = document.getElementById(`${prefijo}-${k}`) as HTMLTextAreaElement | null;
+		if (cuadro) cuadro.value = await fichero.text();
+		avisoCarga = { ...avisoCarga, [k]: `${fichero.name} loaded: it is stored when you save` };
 	}
 	async function clonarHtml(k: string) {
 		const url = estadoClon(k).url.trim();
@@ -320,6 +341,13 @@
 				spellcheck="false"
 				bind:value={html[clave]}></textarea>
 		{:else if c['x-multilinea']}
+			{#if c['x-fichero']}
+				<label class="subir">
+					Load from a file
+					<input type="file" accept={c['x-fichero']} onchange={(e) => cargarTexto(clave, e)} />
+				</label>
+				{#if avisoCarga[clave]}<p class="ayuda" role="status">{avisoCarga[clave]}</p>{/if}
+			{/if}
 			<textarea
 				id="{prefijo}-{clave}"
 				name="{prefijo}.{clave}"

@@ -11,6 +11,8 @@ declare global {
 				oid?: string;
 				soporte?: boolean;
 				emergencia?: boolean;
+				/* La huella de la sesión (sesiones.id): agrupa lo grabado del soporte. */
+				sesion?: string;
 			} | null;
 			/* Sin Entra configurado y en `vite dev`: todo el mundo es admin. */
 			modoDesarrollo: boolean;

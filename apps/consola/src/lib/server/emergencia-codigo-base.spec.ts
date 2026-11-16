@@ -90,6 +90,27 @@ describe.skipIf(!hayBase)('código de emergencia', () => {
 		expect((await em.canjearCodigoEmergencia(nuevo, '10.0.0.3')).ok).toBe(true);
 	});
 
+	it('sustituirlo cierra las sesiones abiertas con el anterior, salvo la de quien lo hace', async () => {
+		const sesion = (id: string) =>
+			db.insert(s.sesiones).values({
+				id,
+				oid: 'emergencia:codigo',
+				correo: 'emergency',
+				nombre: 'Emergency',
+				roles: ['admin'],
+				soporte: false
+			});
+		const t = Date.now();
+		await sesion(`zz-em-otra-${t}`);
+		await sesion(`zz-em-mia-${t}`);
+		await em.nuevoCodigoEmergencia('ana@cliente.es', `zz-em-mia-${t}`);
+		const cerrada = async (id: string) =>
+			(await db.select().from(s.sesiones).where(eq(s.sesiones.id, id)))[0].cerrada;
+		expect(await cerrada(`zz-em-otra-${t}`)).not.toBeNull();
+		expect(await cerrada(`zz-em-mia-${t}`)).toBeNull();
+		await db.delete(s.sesiones).where(eq(s.sesiones.oid, 'emergencia:codigo'));
+	});
+
 	it('sin código en el nodo no entra nada', async () => {
 		const r = await em.canjearCodigoEmergencia(em.generarCodigoEmergencia(), '10.0.0.4');
 		expect(r).toEqual({ ok: false, motivo: 'invalido' });

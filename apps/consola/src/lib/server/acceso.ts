@@ -117,7 +117,11 @@ export const EMERGENCIA_MS = 24 * 3600_000;
  * tiene y sigue «pendiente», para no dejar fuera a nadie al actualizarse.
  */
 function nacimientoCerrado(): EntradaAcceso[] {
-	if (env.CONSOLA_NACE_CERRADA !== '1') return [];
+	return env.CONSOLA_NACE_CERRADA === '1' ? redYPropuesta() : [];
+}
+
+/* La red de la máquina y la IP desde la que se instaló, sin mirar la base. */
+function redYPropuesta(): EntradaAcceso[] {
 	const r: EntradaAcceso[] = [];
 	const red = entradaValida(env.SENSOR_LOCAL_RED ?? '');
 	if (red) r.push({ red, nota: 'Node network' });
@@ -151,18 +155,43 @@ function inicial(): Acceso {
 	};
 }
 
+/* Lo último que se leyó bien de la base, sin caducidad: para cuando la base falla. */
+let ultimoBueno: Acceso | null = null;
+
 export async function leerAcceso(): Promise<Acceso> {
 	if (cache && cache.hasta > Date.now()) return cache.valor;
 	const [f] = await db.select().from(s.ajustes).where(eq(s.ajustes.clave, CLAVE));
 	const valor = (f?.valor as Acceso | undefined) ?? inicial();
 	/* Lo mira cada petición (la segunda barrera): unos segundos en memoria. */
 	cache = { valor, hasta: Date.now() + 5_000 };
+	ultimoBueno = valor;
 	return valor;
 }
 
+/*
+ * Lo que aplica la segunda barrera (hooks.server.ts) en cada petición. Nunca
+ * falla abierta (auditoría 2026-11-14, §5 h01): si la base no contesta, vale lo
+ * último que se leyó bien (también una apertura de emergencia en curso); y si
+ * desde el arranque no se ha leído nunca, cerrada con lo que no depende de la
+ * base: la red de la máquina (SENSOR_LOCAL_RED), la lista y la IP del
+ * instalador. La propia máquina (127.0.0.1) entra siempre (puedeEntrar), y con
+ * la base de vuelta, el fichero de emergencia (abrir-consola) abre como siempre.
+ */
+export async function accesoParaFiltrar(leer: () => Promise<Acceso> = leerAcceso): Promise<Acceso> {
+	try {
+		return await leer();
+	} catch (e) {
+		console.error('[acceso] the allow list could not be read: applying the last known one', e);
+		if (ultimoBueno) return ultimoBueno;
+		const entradas = [...delInstalador(), ...redYPropuesta()];
+		return { estado: 'restringida', entradas, cambiado: null, quien: null, version: 0 };
+	}
+}
+
 /* Para las pruebas, y tras escribir: la próxima lectura va a la base. */
-export function _olvidarAcceso() {
+export function _olvidarAcceso(todo = false) {
 	cache = null;
+	if (todo) ultimoBueno = null;
 }
 
 class Cambiada extends Error {}

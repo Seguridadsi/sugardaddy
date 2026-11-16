@@ -1,0 +1,17 @@
+{
+	"clavePublicacion": "MCowBQYDK2VwAyEAdtvnx6Y+ng9bZMF5kYuoWUnKimwEDRgVKJ17+sbyL8k=",
+	"firmada": {
+		"retiradas": "{\"tipo\":\"retiradas\",\"version\":1,\"edicion\":\"cloud\",\"digests\":[\"sha256:1111111111111111111111111111111111111111111111111111111111111111\",\"sha256:abababababababababababababababababababababababababababababababab\"],\"emitida\":\"2026-11-15T10:00:00.000Z\"}",
+		"firma": "nNjhgsqgucXiMA1PDw5W9q/33BzPY/ThhfUI9xQVBK55t1eVD3R1H9+Dqy6fTK+MFdV9hKIPNBYtEchBuNpfBQ=="
+	},
+	"retiradas": {
+		"tipo": "retiradas",
+		"version": 1,
+		"edicion": "cloud",
+		"digests": [
+			"sha256:1111111111111111111111111111111111111111111111111111111111111111",
+			"sha256:abababababababababababababababababababababababababababababababab"
+		],
+		"emitida": "2026-11-15T10:00:00.000Z"
+	}
+}

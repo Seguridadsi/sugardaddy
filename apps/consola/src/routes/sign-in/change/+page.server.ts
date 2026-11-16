@@ -6,11 +6,12 @@ import {
 	cambiarCorreo,
 	cerrarRetoCambio,
 	correoValido,
+	factorRetoCambio,
 	MIN_CLAVE,
 	pendientesAlEntrar,
 	retoCambio
 } from '$lib/server/auth/local';
-import { abrir } from '$lib/server/auth/sesion';
+import { entrar, type Factor } from '$lib/server/auth/segundo-factor';
 import { auditar } from '$lib/server/consultas';
 
 /*
@@ -36,7 +37,7 @@ export const load = async ({ url, cookies, locals }) => {
 };
 
 export const actions = {
-	default: async ({ request, cookies, url }) => {
+	default: async ({ request, cookies }) => {
 		const reto = cookies.get(COOKIE_CAMBIO);
 		const id = retoCambio(reto);
 		const pendientes = id ? await pendientesAlEntrar(id) : null;
@@ -71,10 +72,11 @@ export const actions = {
 		}
 		if (!r?.ok) return fail(400, { error: 'There was nothing to change. Sign in again.', correo });
 
-		/* Hecho: se gasta el reto, se cierra la cookie y ya sí se entra. */
+		/* Hecho: se gasta el reto, se cierra la cookie y ya sí se entra (el segundo factor ya pasó antes). */
+		const factor = factorRetoCambio(reto) as Factor | null;
 		cerrarRetoCambio(reto);
 		cookies.delete(COOKIE_CAMBIO, { path: '/sign-in' });
-		await abrir(cookies, r.identidad, url.protocol === 'https:');
+		await entrar(cookies, r.identidad, factor);
 		redirect(303, volverA);
 	}
 };

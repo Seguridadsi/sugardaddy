@@ -10,7 +10,9 @@
 	"scripts": {
 		"test": "npm run test --workspaces --if-present",
 		"format": "prettier --write .",
-		"lint": "prettier --check ."
+		"lint": "prettier --check .",
+		"cbom": "node --no-warnings --experimental-strip-types herramientas/cbom.ts",
+		"privilegios": "node --no-warnings --experimental-strip-types herramientas/privilegios.ts"
 	},
 	"devDependencies": {
 		"prettier": "^3.8.3",

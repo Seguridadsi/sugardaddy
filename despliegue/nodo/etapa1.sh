@@ -25,6 +25,11 @@
 #
 # Unattended: pass the PIN in SUGARDADDY_PIN, after sudo.
 #
+# A Sugardaddy sensor on another machine is installed with this same file:
+#   sudo bash sugardaddy-install.sh https://<console>/instalar-sensor/<code> [console CA file|-] [name:port:IP]
+# It checks the release the console serves in the same way, runs only the signed
+# sensor installer and keeps the keys below; the console only sends data.
+#
 # Exit status: 0 installed; 75 nothing was used up and the same line is still
 # valid; 1 anything else.
 #
@@ -39,6 +44,9 @@ SD_LEGADO='MCowBQYDK2VwAyEA+mhA3YHVr2fHVfTPf9Xik4haX9NglBXS27t7rQx+bwA='
 SD_EDICION=cloud
 SD_SIGUE=75
 SD_PIEZAS='instalar.sh copia.sh restaurar.sh compose.yml Caddyfile imagenes.env entorno.txt'
+# The pieces of a remote sensor: the ones of the node it needs and its own, whose
+# fingerprints are in the field huellasSensor (sensor-<name> there is <name>).
+SD_PIEZAS_SENSOR='imagenes.env entorno.txt sensor-instalar.sh sensor-compose.yml'
 SD_B64='^[A-Za-z0-9+/]*={0,2}$'
 
 sd_di() { echo "Sugardaddy: $*" >&2; }
@@ -145,6 +153,12 @@ sd_leer() {
 				sd_decodifica "$b" "$SD_TMP/datos/$a" || return 1
 				sd_una_linea "$SD_TMP/datos/$a" || return 1
 				;;
+			archivo)
+				# Several lines, only for a remote sensor: its console CA and its client certificate.
+				case $a in
+					ca | cliente) sd_decodifica "$b" "$SD_TMP/datos/$a.pem" || return 1 ;;
+				esac
+				;;
 		esac
 	done < <(tail -n +2 "$1")
 }
@@ -206,10 +220,26 @@ sd_verificar_version() {
 	fi
 	marca="${marca#\"huellas\":\"v1;}"
 	marca=";${marca%\"};"
+	local sensor=""
+	if [[ $SD_PIEZAS == *sensor-* ]]; then
+		sensor="$(grep -o '"huellasSensor":"v1;[A-Za-z0-9.=;_-]*"' "$r")"
+		if [[ -z $sensor || "$(printf '%s\n' "$sensor" | wc -l)" -ne 1 ]]; then
+			sd_di "the signed release cannot install sensors on other machines (it is older than this installer). Update the node."
+			return 1
+		fi
+		sensor="${sensor#\"huellasSensor\":\"v1;}"
+		sensor=";${sensor%\"};"
+	fi
 	for n in $SD_PIEZAS; do
-		esperada="${marca#*";$n="}"
+		if [[ $n == sensor-* ]]; then
+			esperada="${sensor#*";${n#sensor-}="}"
+			[[ $sensor == *";${n#sensor-}="* ]] || esperada=""
+		else
+			esperada="${marca#*";$n="}"
+			[[ $marca == *";$n="* ]] || esperada=""
+		fi
 		esperada="${esperada%%;*}"
-		[[ $marca == *";$n="* && $esperada =~ ^[0-9a-f]{64}$ ]] || { sd_di "the signed release does not state the fingerprint of $n."; return 1; }
+		[[ $esperada =~ ^[0-9a-f]{64}$ ]] || { sd_di "the signed release does not state the fingerprint of $n."; return 1; }
 		[[ -f $SD_TMP/piezas/$n ]] || { sd_di "Central did not send $n."; return 1; }
 		real="$(sha256sum < "$SD_TMP/piezas/$n" | cut -c1-64)"
 		if [[ $real != "$esperada" ]]; then
@@ -241,7 +271,7 @@ sd_verificar_version() {
 # The folder instalar.sh runs from: only verified pieces, the keys of this file and
 # this customer's values, already checked one by one.
 sd_preparar() {
-	local d=$SD_TMP/nodo n linea firmas="" huella firma
+	local d=$SD_TMP/nodo n linea
 	mkdir -p "$d" || return 1
 	for n in instalar.sh copia.sh restaurar.sh compose.yml Caddyfile; do
 		cp "$SD_TMP/piezas/$n" "$d/$n" || return 1
@@ -266,21 +296,24 @@ sd_preparar() {
 			esac
 		done < "$SD_TMP/piezas/entorno.txt"
 	} > "$d/entorno-extra.env" || return 1
-	# The signed release, as the updater and the sensor expect it: they check it again
-	# with the keys above. Its text has no control characters (checked), so escaping
-	# backslashes and quotes gives back exactly what was signed.
+	sd_version_firmada > "$d/version-firmada.json"
+}
+
+# The signed release, as the updater and the sensor expect it: they check it again
+# with the keys above. Its text has no control characters (checked), so escaping
+# backslashes and quotes gives back exactly what was signed.
+sd_version_firmada() {
+	local firmas="" huella firma
 	if [[ -s $SD_TMP/firmas ]]; then
 		while read -r huella firma; do
 			firmas="$firmas${firmas:+,}{\"clave\":\"$huella\",\"firma\":\"$firma\"}"
 		done < "$SD_TMP/firmas"
 	fi
-	{
-		printf '{"release":"'
-		sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' "$SD_TMP/release" | tr -d '\n'
-		printf '","firma":"%s"' "$(cat "$SD_TMP/firma.b64" 2>/dev/null)"
-		[[ -z $firmas ]] || printf ',"firmas":[%s]' "$firmas"
-		printf '}'
-	} > "$d/version-firmada.json"
+	printf '{"release":"'
+	sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' "$SD_TMP/release" | tr -d '\n'
+	printf '","firma":"%s"' "$(cat "$SD_TMP/firma.b64" 2>/dev/null)"
+	[[ -z $firmas ]] || printf ',"firmas":[%s]' "$firmas"
+	printf '}'
 }
 
 sd_instalar() {
@@ -463,5 +496,155 @@ sd_instalar() {
 	return 0
 }
 
+# A Sugardaddy sensor on another machine (docs/diseno/instalador-verificado.md,
+# "Sensor remoto"). The same steps as a node, against its console: the signed release
+# and the signed sensor installer first (nothing used up), then this sensor's data,
+# which use up the line. The keys it keeps are the ones in this file.
+sd_instalar_sensor() {
+	local consola="$1" codigo="$2" ca="${3:-}" fijar="${4:-}" t primera v rc n linea fija
+	if [[ $consola != https://* ]]; then
+		sd_di "the console must use HTTPS: the address starts with https://."
+		return 1
+	fi
+	if [[ "$(id -u)" != 0 ]]; then
+		echo "Run it with sudo:  sudo bash sugardaddy-install.sh $consola/instalar-sensor/<code>" >&2
+		return 1
+	fi
+	for v in curl openssl base64 sha256sum od sed grep fold; do
+		command -v "$v" > /dev/null || { sd_di "$v is required. Install it and run the line again: it is still valid."; return $SD_SIGUE; }
+	done
+	if [[ -z $SD_CLAVES && -z $SD_LEGADO ]]; then
+		sd_di "this copy of the installer has no publication keys: it is not a published one."
+		return $SD_SIGUE
+	fi
+	SD_PIEZAS=$SD_PIEZAS_SENSOR
+	SD_TMP="$(mktemp -d)" || return $SD_SIGUE
+	trap 'rm -rf "$SD_TMP"' EXIT
+	chmod 700 "$SD_TMP"
+	mkdir -p "$SD_TMP/piezas" "$SD_TMP/datos"
+	t=$SD_TMP
+	# The console's own CA: in the file the line leaves next to this one, if any.
+	local cacert=()
+	[[ $ca != - && -s $ca ]] && cacert=(--cacert "$ca")
+	# The console at a fixed IP, if this machine does not resolve its name.
+	local resolver=()
+	[[ $fijar =~ ^[A-Za-z0-9.-]+:[0-9]{1,5}:[0-9a-fA-F:.]+$ ]] && resolver=(--resolve "$fijar")
+
+	# 1. The signed release and the sensor installer, as data. It uses nothing up.
+	if ! curl -fsS --connect-timeout 15 --max-time 300 --max-filesize 8388608 "${cacert[@]}" "${resolver[@]}" \
+		-o "$t/version" "$consola/instalar-sensor/$codigo/datos"; then
+		sd_di "could not reach the console at $consola. Try again in a few minutes: the line is still valid."
+		return $SD_SIGUE
+	fi
+	IFS=' ' read -r primera v rc < "$t/version" || true
+	case "$primera ${v:-}" in
+		"sugardaddy-version 1") ;;
+		sugardaddy-error\ *)
+			sd_di "$(printf '%s' "${rc:-}" | sd_texto)"
+			[[ $v == sigue ]] && return $SD_SIGUE
+			return 1
+			;;
+		*)
+			sd_di "what $consola returned is not a Sugardaddy console answer (a proxy in between, or a console older than this installer?). The line is still valid."
+			return $SD_SIGUE
+			;;
+	esac
+	sd_leer "$t/version" || { sd_di "what the console returned is malformed. The line is still valid."; return $SD_SIGUE; }
+	if ! sd_verificar_version; then
+		sd_di "Do not try other ways to install: tell your administrator, and SeguridadSI (contacto@seguridadsi.com), that the installer refused what the console served."
+		return 1
+	fi
+	echo "Sugardaddy $SD_VERSION: release and sensor installer signatures verified (publication key $SD_FIRMADA_CON)."
+
+	# 2. This sensor's data. This is what uses up the line.
+	if ! curl -fsS --connect-timeout 15 --max-time 300 --max-filesize 1048576 -X POST "${cacert[@]}" "${resolver[@]}" \
+		-o "$t/sensor" "$consola/instalar-sensor/$codigo/datos"; then
+		sd_di "could not download this sensor's data from the console. Try again in a few minutes; if it then says the line was already used, generate a new one."
+		return $SD_SIGUE
+	fi
+	primera="" v="" rc=""
+	IFS=' ' read -r primera v rc < "$t/sensor" || true
+	case "$primera ${v:-}" in
+		"sugardaddy-datos 1") ;;
+		sugardaddy-error\ *)
+			sd_di "$(printf '%s' "${rc:-}" | sd_texto)"
+			[[ $v == sigue ]] && return $SD_SIGUE
+			return 1
+			;;
+		*)
+			sd_di "what the console returned is not a Sugardaddy console answer."
+			return $SD_SIGUE
+			;;
+	esac
+	local usada="This line has already been used: generate a new one in Sensors in the console."
+	sd_leer "$t/sensor" || { sd_di "what the console returned is malformed. $usada"; return 1; }
+	# Every value, checked one by one. Paths, edition and keys are not the console's to say.
+	local d=$t/datos-sensor dominio sensor
+	mkdir -p "$d" || return 1
+	sensor="$(sd_dato SENSOR '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$' si)" || { sd_di "$usada"; return 1; }
+	dominio="${consola#https://}"
+	dominio="${dominio%%/*}"
+	dominio="${dominio%:*}"
+	fija="$(sd_dato FIJA '^[0-9a-fA-F:.]*$')" || { sd_di "$usada"; return 1; }
+	local token registro usuario clave extra=""
+	token="$(sd_dato TOKEN '^[A-Za-z0-9_-]{32,128}$' si)" || { sd_di "$usada"; return 1; }
+	registro="$(sd_dato REGISTRO '^[A-Za-z0-9.:-]{1,253}$' si)" || { sd_di "$usada"; return 1; }
+	usuario="$(sd_dato REGISTRO_USUARIO '^[!-~]*$')" || { sd_di "$usada"; return 1; }
+	clave="$(sd_dato REGISTRO_TOKEN '^[!-~]*$')" || { sd_di "$usada"; return 1; }
+	for n in PARTNER REGISTRO_PARTNER REGISTRO_PARTNER_USUARIO REGISTRO_PARTNER_TOKEN; do
+		[[ -f $t/datos/$n ]] || continue
+		linea="$(sd_dato "$n" '^[!-~]*$')" || { sd_di "$usada"; return 1; }
+		extra="$extra$n=$linea"$'\n'
+	done
+	{
+		echo "# Generated by the Sugardaddy installer. Contains secrets: it does not leave this machine."
+		echo "SENSOR_ID=$sensor"
+		echo "CONSOLA_URL=$consola"
+		echo "DATOS=/opt/sugardaddy-sensor/datos"
+		echo "CARPETA=/opt/sugardaddy-sensor"
+		echo "SUGARDADDY_TOKEN=$token"
+		[[ -z $fija ]] || echo "CONSOLA_FIJA=$dominio:$fija"
+		echo "PUBLICACION_CLAVES=$SD_CLAVES"
+		echo "PUBLICACION_CLAVE_PUBLICA=$SD_LEGADO"
+		echo "EDICION=$SD_EDICION"
+		echo "REGISTRO=$registro"
+		echo "REGISTRO_USUARIO=$usuario"
+		echo "REGISTRO_TOKEN=$clave"
+		printf '%s' "$extra"
+	} > "$d/env" || { sd_di "$usada"; return 1; }
+	printf '%s' "$sensor" > "$d/sensor"
+	printf '%s' "$consola" > "$d/url"
+	printf '%s' "$dominio" > "$d/dominio"
+	printf '%s' "$fija" > "$d/fija"
+	{
+		echo "# Written by the updater after installing a version. Do not edit by hand."
+		grep -E '^(SUGARDADDY_VERSION|SENSOR_IMAGEN|ACTUALIZADOR_IMAGEN)=' "$t/piezas/imagenes.env"
+		echo "SUGARDADDY_CONFIGURACION=$SD_VERSION"
+	} > "$d/versiones.env"
+	cp "$t/piezas/sensor-compose.yml" "$d/compose.yml"
+	sd_version_firmada > "$d/version.json"
+	# Its catalog limits what the sensor starts: if the signed release has one.
+	grep -q '"catalogo":{' "$t/release" && echo 1 > "$d/exigir"
+	for n in ca cliente; do
+		[[ -f $t/datos/$n.pem ]] || continue
+		if [[ "$(wc -c < "$t/datos/$n.pem")" -gt 65536 ]] || LC_ALL=C grep -q '[^A-Za-z0-9+/=: -]' <(tr -d '\n' < "$t/datos/$n.pem"); then
+			sd_di "the console sent a malformed certificate ($n). $usada"
+			return 1
+		fi
+	done
+	cp "$t/datos/ca.pem" "$d/ca-consola.crt" 2> /dev/null || : > "$d/ca-consola.crt"
+	[[ -f $t/datos/cliente.pem ]] && cp "$t/datos/cliente.pem" "$d/cliente.pem"
+
+	# 3. The verified sensor installer, with this sensor's data folder.
+	bash "$t/piezas/sensor-instalar.sh" "$d" < /dev/null
+	rc=$?
+	((rc == SD_SIGUE)) && rc=1
+	return "$rc"
+}
+
+if [[ ${1:-} =~ ^(https://[A-Za-z0-9.-]+(:[0-9]{1,5})?)/instalar-sensor/([A-Za-z0-9_-]{32})/?$ ]]; then
+	sd_instalar_sensor "${BASH_REMATCH[1]}" "${BASH_REMATCH[3]}" "${2:-}" "${3:-}"
+	exit $?
+fi
 sd_instalar "$@"
 exit $?

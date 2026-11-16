@@ -1,13 +1,7 @@
 import { fail, redirect } from '@sveltejs/kit';
-import {
-	COOKIE_CAMBIO,
-	abrirRetoCambio,
-	loginLocalHabilitado,
-	MIN_CLAVE,
-	pendientesAlEntrar
-} from '$lib/server/auth/local';
+import { loginLocalHabilitado, MIN_CLAVE } from '$lib/server/auth/local';
 import { canjearCodigo, MINUTOS_CODIGO, pedirCodigo } from '$lib/server/auth/recuperar';
-import { abrir } from '$lib/server/auth/sesion';
+import { despuesDeLaClave } from '$lib/server/auth/segundo-factor';
 
 /* La IP de quien pide: la que pone Caddy (ADDRESS_HEADER). null si no se sabe; comparten cupo. */
 function ipDe(getClientAddress: () => string): string | null {
@@ -40,7 +34,7 @@ export const actions = {
 		await pedirCodigo(usuario, ipDe(getClientAddress));
 		return { paso: 'codigo', usuario, enviado: true };
 	},
-	cambiar: async ({ request, cookies, url, getClientAddress }) => {
+	cambiar: async ({ request, cookies, getClientAddress }) => {
 		const f = await request.formData();
 		const usuario = String(f.get('usuario') ?? '').trim();
 		const codigo = String(f.get('codigo') ?? '');
@@ -51,18 +45,11 @@ export const actions = {
 		const r = await canjearCodigo(usuario, codigo, nueva, ipDe(getClientAddress));
 		if (!r.ok) return fail(400, { paso: 'codigo', usuario, error: r.error });
 
-		/* Si aún le falta el correo de recuperación, se le pide antes de entrar. */
-		if ((await pendientesAlEntrar(r.id))?.correo) {
-			cookies.set(COOKIE_CAMBIO, abrirRetoCambio(r.id), {
-				path: '/sign-in',
-				httpOnly: true,
-				sameSite: 'lax',
-				secure: url.protocol === 'https:',
-				maxAge: 600
-			});
-			redirect(303, '/sign-in/change');
-		}
-		await abrir(cookies, r.identidad, url.protocol === 'https:');
-		redirect(303, '/');
+		/*
+		 * Recuperar la contraseña no salta el segundo factor: quien tenga el correo
+		 * pero no el móvil (o la passkey) se queda aquí. Si aún le falta el correo
+		 * de recuperación, se le pide después (segundo-factor.ts).
+		 */
+		redirect(303, await despuesDeLaClave(cookies, r.id, r.identidad, '/'));
 	}
 };

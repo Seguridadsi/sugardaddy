@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -366,5 +367,46 @@ func TestBorrarQuitaLosVolumenesAnonimos(t *testing.T) {
 	}
 	if !strings.HasSuffix(pedido, "/containers/c1?force=1&v=1") {
 		t.Fatalf("borrado pedido: %q", pedido)
+	}
+}
+
+// SEN-5: la red de trampas lleva el puente con nombre fijo. Una de antes, vacía, se
+// rehace; con trampas dentro se sigue usando (la rehace el auxiliar de la versión).
+func TestRedDeTrampasConNombreDePuente(t *testing.T) {
+	for _, enUso := range []bool{false, true} {
+		var creada map[string]any
+		borrada := false
+		vieja := `{"Driver":"bridge","Options":{"com.docker.network.bridge.enable_icc":"false","com.docker.network.bridge.enable_ip_masquerade":"false"},"Containers":{}}`
+		if enUso {
+			vieja = strings.Replace(vieja, `"Containers":{}`, `"Containers":{"c1":{}}`, 1)
+		}
+		sock := servir(t, motorfalso.Envolver(motorfalso.Docker27, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch {
+			case strings.HasSuffix(r.URL.Path, "/networks/create"):
+				_ = json.NewDecoder(r.Body).Decode(&creada)
+				_, _ = w.Write([]byte(`{}`))
+			case r.Method == http.MethodDelete:
+				borrada = true
+				w.WriteHeader(http.StatusNoContent)
+			case creada != nil:
+				b, _ := json.Marshal(map[string]any{"Driver": "bridge", "Options": creada["Options"]})
+				_, _ = w.Write(b)
+			default:
+				_, _ = w.Write([]byte(vieja))
+			}
+		})))
+		g, err := Nuevo(sock).AsegurarRed(context.Background(), "sugardaddy-trampas-aisladas", "sd-trampas0", false)
+		if err != nil {
+			t.Fatalf("enUso=%v: %v", enUso, err)
+		}
+		if enUso {
+			if borrada || creada != nil || !g {
+				t.Fatalf("in use: kept as it is (borrada=%v creada=%v)", borrada, creada)
+			}
+			continue
+		}
+		if !borrada || creada["Options"].(map[string]any)[OpcionNombrePuente] != "sd-trampas0" || !g {
+			t.Fatalf("empty: recreated with the bridge name: %v", creada)
+		}
 	}
 }

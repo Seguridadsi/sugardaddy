@@ -47,6 +47,8 @@ const (
 	prefijoRedBanco = "sd-banco-"
 	// Tope de procesos de una trampa (el del despliegue).
 	maxProcesos = 256
+	// Peso de CPU máximo de lo que crea sd-motor: el de los servicios del nodo.
+	pesoCPUMaximo = 1024
 )
 
 // Códigos estables de los rechazos, para el estado de la trampa en la consola.
@@ -167,7 +169,7 @@ func (r Reglas) Validar(p Peticion) (Tipo, error) {
 var (
 	camposArriba = []string{"Image", "Env", "ExposedPorts", "Labels", "HostConfig", "NetworkingConfig", "User", "Cmd"}
 	camposHost   = []string{"NetworkMode", "PortBindings", "ReadonlyRootfs", "CapDrop", "CapAdd", "SecurityOpt",
-		"Memory", "MemorySwap", "NanoCpus", "PidsLimit", "Mounts", "RestartPolicy", "Tmpfs", "LogConfig"}
+		"Memory", "MemorySwap", "NanoCpus", "CpuShares", "PidsLimit", "Mounts", "RestartPolicy", "Tmpfs", "LogConfig"}
 )
 
 func comun(cfg map[string]any) error {
@@ -209,8 +211,24 @@ func comun(cfg map[string]any) error {
 	} else {
 		return rechazar("PidsLimit is required")
 	}
-	if m, ok := entero(h["Memory"]); !ok || m <= 0 {
+	m, ok := entero(h["Memory"])
+	if !ok || m <= 0 {
 		return rechazar("a memory limit is required")
+	}
+	// Sin swap de más: en un anfitrión con swap, el tope de memoria es el real.
+	if sw, ok := entero(h["MemorySwap"]); !ok || sw != m {
+		return rechazar("swap must equal the memory limit")
+	}
+	// Con tope de CPU siempre: lo que crea sd-motor no puede dejar sin CPU al
+	// sensor ni a la consola (plan de fortificación §2.6).
+	if c, ok := entero(h["NanoCpus"]); !ok || c <= 0 {
+		return rechazar("a CPU limit is required (NanoCpus)")
+	}
+	// Su peso de CPU, si lo dice, nunca por encima del de los servicios del nodo (1024).
+	if v, ok := h["CpuShares"]; ok {
+		if n, ok := entero(v); !ok || n < 2 || n > pesoCPUMaximo {
+			return rechazar("CpuShares must be between 2 and %d", pesoCPUMaximo)
+		}
 	}
 	if rp, ok := h["RestartPolicy"].(map[string]any); ok {
 		if n, _ := rp["Name"].(string); n != "unless-stopped" && n != "no" && n != "" {
@@ -279,11 +297,6 @@ func (r Reglas) trampa(p Peticion) error {
 	}
 	if mem, _ := entero(h["Memory"]); a.MemoriaMb > 0 && mem > int64(a.MemoriaMb)<<20 {
 		return rechazar("more memory than the manifest allows")
-	}
-	if sw, ok := entero(h["MemorySwap"]); ok {
-		if mem, _ := entero(h["Memory"]); sw != mem {
-			return rechazar("swap must equal the memory limit")
-		}
 	}
 	if cpu, ok := entero(h["NanoCpus"]); ok && a.CPU > 0 && cpu > int64(a.CPU*1e9) {
 		return rechazar("more CPU than the manifest allows")
@@ -638,6 +651,15 @@ func esRootExplicito(cfg map[string]any) bool {
 	return ok && esRoot(u)
 }
 
+// Lo que pide SEN-5 a la red de las trampas (los mismos valores que el paquete despliegue).
+const (
+	RedTrampas         = "sugardaddy-trampas-aisladas"
+	PuenteTrampas      = "sd-trampas0"
+	OpcionNombrePuente = "com.docker.network.bridge.name"
+)
+
+var puenteDeTrampa = regexp.MustCompile(`^sd-trampas[0-9]$`)
+
 // ValidarRed decide si se puede crear una red: solo las fijas de las trampas,
 // puente sin comunicación entre contenedores o macvlan, sin la de salida.
 func ValidarRed(cuerpo map[string]any) error {
@@ -658,6 +680,22 @@ func ValidarRed(cuerpo map[string]any) error {
 	case "", "bridge":
 		if opts["com.docker.network.bridge.enable_icc"] != "false" {
 			return rechazar("a decoy bridge does not let decoys see each other (enable_icc=false)")
+		}
+		if opts["com.docker.network.bridge.enable_ip_masquerade"] != "false" {
+			return rechazar("a decoy bridge has no way out to the internet (enable_ip_masquerade=false)")
+		}
+		for k := range opts {
+			if !slices.Contains([]string{"com.docker.network.bridge.enable_icc", "com.docker.network.bridge.enable_ip_masquerade", OpcionNombrePuente}, k) {
+				return rechazar("bridge option %q is not allowed", k)
+			}
+		}
+		// El nombre fijo del puente: por él la regla de INPUT de SEN-5 tira lo que va
+		// de las trampas a la máquina. Sin él, la trampa llegaría a sus servicios.
+		if nombre == RedTrampas && opts[OpcionNombrePuente] != PuenteTrampas {
+			return rechazar("the decoy bridge must be named %s (SEN-5)", PuenteTrampas)
+		}
+		if p := str(opts[OpcionNombrePuente]); p != "" && !puenteDeTrampa.MatchString(p) {
+			return rechazar("bridge name %q is not a decoy bridge", p)
 		}
 	case "macvlan":
 		for k := range opts {

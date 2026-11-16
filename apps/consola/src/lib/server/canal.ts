@@ -28,6 +28,7 @@ import {
 	verificarOrden,
 	verificarRelease,
 	clavePanelValida,
+	motivoOrdenPanelAqui,
 	clavesPanelTras,
 	type EstadoDeseado,
 	type EstadoMarcaNodo,
@@ -39,6 +40,7 @@ import {
 	type ReleaseFirmada
 } from '@sugardaddy/canal';
 import { recibirBalizasRele, type BalizaRele } from './balizas-rele';
+import { juntarRevocaciones, revocacionesGuardadas } from './candado';
 import { cuentaActivas } from './colocacion';
 import {
 	aplicarAtenciones,
@@ -51,7 +53,9 @@ import {
 	volverASubir
 } from './vigilancia';
 import { db, schema as s } from './db';
-import { auditar, autoActualizar, cabecera, comparticion } from './consultas';
+import { auditar, autoActualizar, cabecera, comparticion, latidoMinimo } from './consultas';
+import { anfitrionParaLatido } from './anfitrion';
+import { esperaActual } from './politica-actualizacion';
 import {
 	aplicarLista,
 	indicadoresPendientes,
@@ -127,6 +131,7 @@ export async function estadoCanal() {
 		huellaNodo: huella(c.clavePublica),
 		huellaPanel: huella(c.clavePublicaPanel),
 		huellasPanel: clavesDelPanel(c).map(huella),
+		ordenPanel: await ordenPanelAplicada(),
 		cortado: c.cortado,
 		ultimoContacto: c.ultimoContacto,
 		error: c.error,
@@ -670,10 +675,61 @@ export async function resultadoActualizacion(
 	return true;
 }
 
+/*
+ * Lo que va en todo latido, también en el mínimo: lo que el panel necesita para la licencia,
+ * las actualizaciones y los anillos, y lo que el cliente ha encendido a mano (compartir, el
+ * soporte, la vigilancia de sus incidentes).
+ */
+async function latidoComun(soporteLatido: Latido['soporte']) {
+	const cab = await cabecera();
+	return {
+		version: cab.cliente.version,
+		comparticion: await comparticion(),
+		actualizacion: await (async () => {
+			const a = await actualizacion();
+			/* Esperar por la política del cliente no frena los anillos (politica-actualizacion.ts). */
+			const e = await esperaActual(a);
+			return { estado: a.estado, version: a.version, ...(e.motivo ? { espera: e.motivo } : {}) };
+		})(),
+		soporte: soporteLatido,
+		...(await (async () => {
+			const c = await leer();
+			return c ? { clavesPanel: clavesDelPanel(c).map(huella) } : {};
+		})()),
+		/* Si llegó aquí por una orden firmada de dirección del panel: cuál (su fecha). */
+		...(await (async () => {
+			const o = await ordenPanelAplicada();
+			return o ? { ordenPanel: { emitida: o.emitida, origen: o.origen } } : {};
+		})()),
+		/* Solo si el cliente comparte sus incidentes o tiene abierto el soporte. */
+		...(await vigilanciaParaLatido(soporteLatido.estado === 'abierto')),
+		...(await (async () => {
+			const m = await estadoMarca();
+			return m ? { marca: m } : {};
+		})()),
+		...(await (async () => {
+			const c = await configuracion();
+			return c
+				? { configuracion: { version: c.version, estado: c.estado, detalle: c.detalle } }
+				: {};
+		})())
+	};
+}
+
 async function latido(panel: string | null = null): Promise<Latido> {
+	const soporteLatido = await paraLatido();
+	const comun = await latidoComun(soporteLatido);
+	/*
+	 * Latido mínimo (Ajustes → Central): ni siquiera se calculan las cifras ni lo demás. Lo
+	 * decide el nodo, no el panel: un panel cambiado no puede pedir más.
+	 */
+	if (await latidoMinimo()) return { ...comun, minimo: true };
 	const ahora = Date.now();
 	/* Los retirados no cuentan: el panel los daría por sensores caídos. */
 	const sensores = await db.select().from(s.sensores).where(isNull(s.sensores.retirado));
+	const vivos = sensores.filter(
+		(x) => x.ultimoLatido && ahora - x.ultimoLatido.getTime() < 5 * 60_000
+	);
 	/* Activas: las comprobadas que ve el cliente (§8.2), lo mismo que cuenta Inicio. */
 	const trampas = await cuentaActivas();
 	const [cifras] = await db
@@ -684,59 +740,29 @@ async function latido(panel: string | null = null): Promise<Latido> {
 		.from(s.eventos)
 		.where(and(gte(s.eventos.cuando, new Date(ahora - 86_400_000)), isNull(s.eventos.escaner)));
 	const cab = await cabecera();
-	const soporteLatido = await paraLatido();
+	/* Con qué se aíslan las trampas: el más débil de los sensores vivos que lo dicen. */
+	const aislamiento = aislamientoMasDebil(
+		vivos.map((x) => x.capacidades?.hechos?.['motor.aislamiento']?.valor)
+	);
+	/* Desde la 0.30: si sale por un proxy y a qué destinos llega (salida.ts). */
+	const salida = salidaParaLatido(panel);
 	return {
-		version: cab.cliente.version,
-		sensores: {
-			total: sensores.length,
-			vivos: sensores.filter((x) => x.ultimoLatido && ahora - x.ultimoLatido.getTime() < 5 * 60_000)
-				.length
-		},
+		...comun,
+		sensores: { total: sensores.length, vivos: vivos.length },
 		trampas: { total: trampas.total, activos: trampas.activas },
 		eventos24h: cifras.eventos,
 		criticos24h: cifras.criticos,
 		pendientes: cab.pendientes,
-		comparticion: await comparticion(),
-		actualizacion: {
-			estado: (await actualizacion()).estado,
-			version: (await actualizacion()).version
-		},
-		soporte: soporteLatido,
-		...(await (async () => {
-			const c = await leer();
-			return c ? { clavesPanel: clavesDelPanel(c).map(huella) } : {};
-		})()),
 		acceso: {
 			modo: (await configActiva())?.modo ?? 'local',
 			b2b: await estadoB2B()
 		},
-		...(await vigilanciaParaLatido(soporteLatido.estado === 'abierto')),
 		/* El último sello de la auditoría: fuera del nodo, nadie lo puede rehacer. */
 		...(await selloParaLatido()),
-		...(await (async () => {
-			const m = await estadoMarca();
-			return m ? { marca: m } : {};
-		})()),
-		/* Con qué se aíslan las trampas: el más débil de los sensores vivos que lo dicen. */
-		...(() => {
-			const a = aislamientoMasDebil(
-				sensores
-					.filter((x) => x.ultimoLatido && ahora - x.ultimoLatido.getTime() < 5 * 60_000)
-					.map((x) => x.capacidades?.hechos?.['motor.aislamiento']?.valor)
-			);
-			return a ? { aislamiento: a } : {};
-		})(),
-		/* Desde la 0.30: si sale por un proxy y a qué destinos llega (salida.ts). */
-		...(() => {
-			const salida = salidaParaLatido(panel);
-			return salida ? { salida } : {};
-		})(),
-		...(await (async () => {
-			const c = await configuracion();
-			return c
-				? { configuracion: { version: c.version, estado: c.estado, detalle: c.detalle } }
-				: {};
-		})())
+		...(aislamiento ? { aislamiento } : {}),
+		...(salida ? { salida } : {}),
+		/* Desde la 0.32: la máquina del nodo, resumida (anfitrion.ts). */
+		...(await anfitrionParaLatido())
 	};
 }
 
@@ -855,6 +881,7 @@ export async function latir() {
 		await recibirSolicitud(v.estado.soporte);
 		await guardarAutorizados(v.estado.modulos);
 		await guardarLicencia(v.estado.licencia);
+		await guardarRevocaciones(v.estado.revocaciones);
 		if (v.estado.logo !== undefined) await sincronizarLogo(c, v.estado.logo);
 		if (v.estado.tor !== undefined) await sincronizarTor(c, v.estado.tor);
 		if (v.estado.catalogoPartner !== undefined)
@@ -862,13 +889,132 @@ export async function latir() {
 		await intercambiarInteligencia(c);
 		await guardarRecuperacionPanel(v.estado.recuperacion, v.estado.recuperacionFirmada, c.cliente);
 		if (v.estado.marca !== undefined) await guardarMarcaDelPanel(v.estado.marca);
+		/* Lo último: puede cambiar la dirección del panel para el siguiente latido. */
+		if (v.estado.panelFirmado !== undefined)
+			await aplicarOrdenPanel(v.estado.panelFirmado, 'panel').catch(apuntarFallo);
 		if (falloVigilancia) throw falloVigilancia;
 		if (falloRele) throw falloRele;
 	} catch (e) {
 		/* Sobre lo último guardado: un fallo aquí no deshace el contacto, que sí ha habido. */
 		await guardar({ ...((await leer()) ?? c), error: (e as Error).message });
+		/* Sin panel desde hace rato: ¿lo ha movido SeguridadSI a otra dirección? */
+		await buscarOrdenPanel().catch((x) => console.error('[canal] Central address order', x));
 	}
 }
+
+/* ---------- la dirección del panel por orden firmada (pérdida de la región) ---------- */
+
+/*
+ * El nodo fija la dirección del panel en el alta. Si el panel se pierde con su región, uno
+ * levantado en otra no lo encuentra nadie. La orden `panel` (ordenes.ts del canal), firmada
+ * con una clave de publicación de uso delegaciones que no vive en el panel, mueve a otra
+ * dirección los nodos que estén en una de las de `antes`, dentro de su ventana. Llega por dos
+ * caminos: en el estado deseado (un traslado planificado) o, con el panel caído, en un fichero
+ * del repo público que el nodo mira solo si el panel no le contesta desde hace media hora. Una
+ * orden más vieja (o igual) que la aplicada no vale: no se puede volver a una dirección
+ * retirada. Un canal cortado no sigue ninguna (lo cortó el cliente).
+ * docs/administrador/panel/perder-la-region.md.
+ */
+const URL_ORDEN_PANEL =
+	env.PANEL_ORDEN_URL ??
+	'https://raw.githubusercontent.com/Seguridadsi/sugardaddy/main/transparencia/panel.json';
+const SIN_PANEL_MS = 30 * 60_000;
+const CADA_BUSQUEDA_MS = 30 * 60_000;
+let ultimaBusqueda = 0;
+
+type OrdenPanelAplicada = {
+	emitida: string;
+	direccion: string;
+	antes: string;
+	origen: 'panel' | 'estatica';
+	cuando: string;
+};
+
+export async function ordenPanelAplicada(): Promise<OrdenPanelAplicada | null> {
+	const [f] = await db.select().from(s.ajustes).where(eq(s.ajustes.clave, 'panel-orden'));
+	return (f?.valor as OrdenPanelAplicada | undefined) ?? null;
+}
+
+export async function aplicarOrdenPanel(
+	firmada: unknown,
+	origen: 'panel' | 'estatica',
+	ahora = Date.now()
+): Promise<'aplicada' | 'no-aplica' | 'rechazada'> {
+	const c = await leer();
+	if (!c || c.cortado) return 'no-aplica';
+	const clave = confianza();
+	const v = clave
+		? verificarOrden(clave, firmada, 'panel')
+		: ({ ok: false, motivo: 'there is no trusted publication key' } as const);
+	if (!v.ok) {
+		/* Una vez por texto: el fichero estático se mira cada media hora mientras no haya panel. */
+		const texto = createHash('sha256').update(JSON.stringify(firmada)).digest('hex');
+		const [ya] = await db.select().from(s.ajustes).where(eq(s.ajustes.clave, 'panel-orden-mala'));
+		if ((ya?.valor as { texto?: string } | undefined)?.texto !== texto) {
+			await guardarAjuste('panel-orden-mala', { texto });
+			await auditar(`node ${c.nodo}`, 'Central address order rejected', {
+				origen,
+				motivo: v.motivo
+			});
+		}
+		return 'rechazada';
+	}
+	/* Fuera de su ventana, para otro panel o ya aplicada: no es un fallo, no se apunta. */
+	if (motivoOrdenPanelAqui(v.orden, c.panel, ahora)) return 'no-aplica';
+	const previa = await ordenPanelAplicada();
+	if (previa && Date.parse(v.orden.emitida) <= Date.parse(previa.emitida)) return 'no-aplica';
+	const nuevas = v.orden.clavesPanel
+		? clavesPanelTras(clavesDelPanel(c), v.orden.clavesPanel)
+		: null;
+	await guardar({
+		...c,
+		panel: v.orden.direccion,
+		...(nuevas ? { clavesPanel: nuevas } : {}),
+		error: null
+	});
+	await guardarAjuste('panel-orden', {
+		emitida: v.orden.emitida,
+		direccion: v.orden.direccion,
+		antes: c.panel,
+		origen,
+		cuando: new Date(ahora).toISOString()
+	} satisfies OrdenPanelAplicada);
+	await auditar('SeguridadSI', 'Central address changed by a signed order', {
+		antes: c.panel,
+		ahora: v.orden.direccion,
+		origen,
+		emitida: v.orden.emitida,
+		...(nuevas ? { clavesPanel: nuevas.map(huella) } : {})
+	});
+	return 'aplicada';
+}
+
+/* Con el panel callado más de media hora, mira el fichero del repo público (como mucho cada media hora). */
+export async function buscarOrdenPanel(ahora = Date.now()) {
+	const c = await leer();
+	if (!c || c.cortado) return;
+	const contacto = c.ultimoContacto ? Date.parse(c.ultimoContacto) : 0;
+	if (ahora - contacto < SIN_PANEL_MS || ahora - ultimaBusqueda < CADA_BUSQUEDA_MS) return;
+	ultimaBusqueda = ahora;
+	let firmada: unknown;
+	try {
+		const r = await fetch(URL_ORDEN_PANEL, {
+			redirect: 'error',
+			signal: AbortSignal.timeout(10_000)
+		});
+		/* Sin fichero (404) no hay orden: lo normal. */
+		if (!r.ok) return;
+		const texto = await r.text();
+		if (texto.length > 16 * 1024) return;
+		firmada = JSON.parse(texto);
+	} catch {
+		return;
+	}
+	if ((await aplicarOrdenPanel(firmada, 'estatica', ahora)) === 'aplicada') await latir();
+}
+
+/* Para las pruebas: que la siguiente búsqueda no espere. */
+export const _olvidarBusquedaOrdenPanel = () => (ultimaBusqueda = 0);
 
 /*
  * Los incidentes, si el cliente los comparte (vigilancia.ts): lo que el panel no tiene. Si
@@ -1148,18 +1294,35 @@ async function guardarAutorizados(modulos: string[]) {
  * es secreta: es un permiso firmado); quien la comprueba de verdad es cada
  * trampa de pago al arrancar. La consola la pasa al sensor en el plan y, además,
  * la coteja en el plan como defensa en profundidad (ver candado.ts).
- * Nula o ausente: el nodo es de edición gratis y se borra la que quedara.
+ * Nula o ausente: no se toca la que hubiera. Que el panel deje de mandarla (un
+ * fallo suyo, una baja) no para lo desplegado: lo para una revocación firmada
+ * (docs/diseno/licencias-de-pago.md, DORA art. 30.3.f, B-06).
  */
 async function guardarLicencia(licencia: LicenciaFirmada | null | undefined) {
-	if (licencia === undefined) return;
-	if (licencia === null) {
-		await db.delete(s.ajustes).where(eq(s.ajustes.clave, 'licencia'));
-		return;
-	}
+	if (!licencia) return;
 	await db
 		.insert(s.ajustes)
 		.values({ clave: 'licencia', valor: licencia })
 		.onConflictDoUpdate({ target: s.ajustes.clave, set: { valor: licencia } });
+}
+
+/*
+ * Las revocaciones de licencias que entrega el panel. Solo entran las firmadas con la
+ * clave de licencias, y nunca se quita ninguna: el panel puede dejar de mandarlas, pero
+ * no deshacerlas. Una que alcance a la licencia del nodo saca del plan sus trampas de
+ * pago, y la trampa tampoco arranca con ella (va en el fichero de la licencia).
+ */
+async function guardarRevocaciones(llegan: unknown) {
+	if (!Array.isArray(llegan) || !llegan.length) return;
+	const { lista, nuevas } = juntarRevocaciones(await revocacionesGuardadas(), llegan);
+	if (!nuevas.length) return;
+	await db
+		.insert(s.ajustes)
+		.values({ clave: 'revocaciones', valor: lista })
+		.onConflictDoUpdate({ target: s.ajustes.clave, set: { valor: lista } });
+	await auditar('Central', 'license revoked', {
+		revocaciones: nuevas.map((r) => JSON.parse(r.revocacion))
+	});
 }
 
 /*

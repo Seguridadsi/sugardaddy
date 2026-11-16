@@ -11,7 +11,7 @@ export const POST = async ({ url, cookies }) => {
 		path: '/emergency',
 		httpOnly: true,
 		sameSite: 'strict',
-		secure: url.protocol === 'https:',
+		secure: true,
 		maxAge: 300
 	});
 	return json(r.opciones);

@@ -10,6 +10,7 @@ import {
 } from '$lib/server/auth/entra';
 import {
 	activarEntraPropio,
+	activarExigenciaMfa,
 	canjearCodigo,
 	configActiva,
 	configPropia
@@ -30,7 +31,8 @@ export const GET = async ({ url, cookies, request, locals }) => {
 		});
 		redirect(303, '/sign-in?error=caducado');
 	}
-	const { estado, nonce, verificador, volverA, probar } = JSON.parse(guardado);
+	const { estado, nonce, verificador, volverA, probar, activarMfa, contexto } =
+		JSON.parse(guardado);
 	/* Una prueba desde Ajustes vuelve a Ajustes, con el motivo si sale mal. */
 	function fuera(motivo: string): never {
 		redirect(303, probar ? `/settings?entra=${motivo}#entra` : `/sign-in?error=${motivo}`);
@@ -64,10 +66,18 @@ export const GET = async ({ url, cookies, request, locals }) => {
 			console.error('[auth] test exchange failed', e);
 			fuera('canje');
 		}
-		const r = identidadPropia(p);
+		/*
+		 * La prueba también exige la MFA configurada: así se ve antes de activarlo si
+		 * llega. Para activar la exigencia de una heredada, la exige con el contexto pedido.
+		 */
+		const mfa = activarMfa ? { exigirMfa: true, contextoAuth: contexto ?? null } : config;
+		const r = identidadPropia(p, null, mfa);
 		if ('rechazo' in r) fuera(r.rechazo);
 		else if (!r.roles.includes('admin')) fuera('sin-admin');
-		else {
+		else if (activarMfa) {
+			await activarExigenciaMfa(locals.usuario.correo, r.correo, contexto ?? null);
+			redirect(303, '/settings?entra=mfa-activada#entra');
+		} else {
 			await activarEntraPropio(locals.usuario.correo, r.correo);
 			redirect(303, '/settings?entra=activado#entra');
 		}
@@ -107,7 +117,8 @@ export const GET = async ({ url, cookies, request, locals }) => {
 		redirect(303, `/sign-in?error=${r.rechazo}`);
 	}
 
-	await abrir(cookies, r, url.protocol === 'https:');
+	/* Con el Entra propio y la MFA comprobada en el token, la sesión lo apunta. */
+	await abrir(cookies, r, activa.modo === 'propio' && activa.config.exigirMfa ? 'idp' : null);
 	await auditar(r.correo, r.soporte ? `support sign-in by ${await operador()}` : 'sign-in', {
 		roles: r.roles
 	});

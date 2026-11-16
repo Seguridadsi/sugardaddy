@@ -13,11 +13,14 @@
 		triaje?: Triaje;
 		/* Con la vista agrupada: cuántos eventos iguales representa esta fila (>1). */
 		repeticiones?: number;
+		/* Trae credenciales cifradas (en el detalle van enmascaradas). */
+		credencial?: boolean;
 	};
 	import { enhance } from '$app/forms';
 	import { horaCorta, horaLarga } from '$lib/fechas-pantalla';
 	import { haceCuanto, nombreAccion, textoGeo, type Geo } from '$lib/formato';
 	import { AVISO_IP_MOTOR } from '$lib/capacidades';
+	import RevelarCredencial from '$lib/components/RevelarCredencial.svelte';
 	import { ETIQUETA_AGENTE, QUE_ES_AGENTE, agenteIaDe } from '$lib/agente-ia';
 	import { NOMBRE_CLASE, quienEs } from '$lib/quien-es';
 
@@ -251,6 +254,9 @@
 							>
 						{/if}
 					</div>
+					{#if e.credencial}
+						<RevelarCredencial evento={e.id} />
+					{/if}
 					{#if conTriaje}
 						<form method="POST" action="?/triaje" class="triaje-control" use:enhance>
 							<input type="hidden" name="evento" value={e.id} />

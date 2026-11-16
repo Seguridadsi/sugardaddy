@@ -1,0 +1,63 @@
+#!/bin/bash
+#
+# Sube Docker CE a la versión que fija la versión firmada del nodo
+# (docs/diseno/cortafuegos-anfitrion.md, plan de fortificación §1.1). Solo en el
+# appliance: lo lanza el auxiliar «anfitrion» del actualizador con systemd-run,
+# fuera de Docker, porque actualizar Docker reinicia sus contenedores.
+#
+#   actualizar-docker <paquete>=<versión apt>=<sha256> [...]
+#
+# Baja cada paquete del repositorio de Docker que ya tiene la máquina (apt
+# comprueba su firma), comprueba su sha256 con el de la versión firmada y solo
+# entonces los instala todos a la vez. Los deja retenidos (apt-mark hold) para que
+# unattended-upgrades no los mueva por su cuenta. Lo que pasa queda en
+# /var/log/sugardaddy/docker.log y el resultado en
+# /var/lib/sugardaddy/docker-actualizacion.json, que lee el auxiliar en su próxima
+# vuelta.
+set -euo pipefail
+umask 077
+ESTADO=/var/lib/sugardaddy/docker-actualizacion.json
+CACHE=/var/cache/sugardaddy/docker
+mkdir -p /var/lib/sugardaddy /var/log/sugardaddy "$CACHE"
+exec >> /var/log/sugardaddy/docker.log 2>&1
+echo "== $(date '+%F %T') actualizar-docker $*"
+
+estado() {
+	printf '{"estado":"%s","detalle":"%s","cuando":"%s"}\n' "$1" "${2//\"/}" "$(date -u +%FT%TZ)" > "$ESTADO.tmp"
+	mv -f "$ESTADO.tmp" "$ESTADO"
+}
+fallo() {
+	echo "ERROR: $1"
+	estado fallo "$1"
+	exit 1
+}
+
+(($# > 0)) || fallo "no packages"
+nombres=()
+debs=()
+rm -f "$CACHE"/*.deb
+APT=(apt-get -q -o DPkg::Lock::Timeout=600 -o Acquire::Retries=3)
+export DEBIAN_FRONTEND=noninteractive
+"${APT[@]}" update || fallo "cannot reach the package repositories"
+for arg in "$@"; do
+	IFS='=' read -r nombre version suma resto <<< "$arg"
+	[[ -z ${resto:-} ]] || fallo "malformed argument"
+	[[ $nombre =~ ^(docker-ce|docker-ce-cli|containerd\.io|docker-compose-plugin|docker-buildx-plugin)$ ]] || fallo "package not allowed: $nombre"
+	[[ $version =~ ^[0-9][0-9A-Za-z.:~+-]{0,63}$ ]] || fallo "malformed version for $nombre"
+	[[ $suma =~ ^[0-9a-f]{64}$ ]] || fallo "malformed sha256 for $nombre"
+	(cd "$CACHE" && "${APT[@]}" download "$nombre=$version") || fallo "cannot download $nombre $version"
+	deb="$(find "$CACHE" -maxdepth 1 -name "${nombre}_*.deb" | head -1)"
+	[[ -n $deb ]] || fallo "$nombre was not downloaded"
+	echo "$suma  $deb" | sha256sum -c - || fallo "$nombre $version does not match the sha256 of the signed version"
+	nombres+=("$nombre")
+	debs+=("$deb")
+done
+estado instalando "installing ${nombres[*]}"
+"${APT[@]}" install -y --no-install-recommends --allow-change-held-packages "${debs[@]}" \
+	|| fallo "apt could not install the packages"
+apt-mark hold "${nombres[@]}" > /dev/null || echo "WARNING: could not hold the Docker packages"
+systemctl is-active --quiet docker.service || systemctl restart docker.service || fallo "Docker does not start after the update"
+rm -f "$CACHE"/*.deb
+version="$(docker version --format '{{.Server.Version}}' 2> /dev/null || true)"
+estado actualizada "Docker $version"
+echo "== $(date '+%F %T') Docker $version"

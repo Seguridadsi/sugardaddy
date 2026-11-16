@@ -13,10 +13,21 @@
 //	actualizador [flags]        el servicio de siempre
 //	actualizador aplicar        el auxiliar (lo lanza el propio actualizador)
 //	actualizador cortafuegos    el auxiliar del acceso a la consola por IP (docs/diseno/acceso-consola.md)
+//	actualizador cortafuegos-trampas
+//	                            el auxiliar que impide a las trampas llegar a la máquina por su pasarela (SEN-5)
+//	actualizador cortafuegos-anfitrion
+//	                            el auxiliar del cortafuegos estricto de la máquina, nftables (docs/diseno/cortafuegos-anfitrion.md)
+//	actualizador anfitrion      el auxiliar que mira la máquina (SSH, Docker), pone las reglas de auditd y,
+//	                            en el appliance, sube Docker a la versión firmada (docs/diseno/cortafuegos-anfitrion.md)
 //	actualizador disco          el auxiliar de los discos de las trampas, que lanza el sensor (docs/diseno/discos-trampa.md)
 //	actualizador ca             el auxiliar que pasa el nodo a su CA propia (docs/diseno/ca-nodo.md)
+//	actualizador aislar-anfitrion
+//	                            pone en la máquina el perfil AppArmor de las trampas y sd-discos
+//	                            (lo lanza el auxiliar de cada versión; docs/diseno/aislamiento-trampas.md)
 //	actualizador ca-generar <carpeta> <dirección> [nodo]
 //	                            crea la CA propia si falta o no cubre la dirección (lo llama instalar.sh)
+//	actualizador copias-smb <op> [copia]
+//	                            el auxiliar de las copias en una carpeta compartida SMB (docs/diseno/copias-fuera.md)
 //	actualizador salud <url>    comprobación de salud para el healthcheck de compose
 package main
 
@@ -44,6 +55,7 @@ import (
 	"github.com/kinomakino/sugardaddy/sensor/internal/actualizador"
 	"github.com/kinomakino/sugardaddy/sensor/internal/catalogo"
 	"github.com/kinomakino/sugardaddy/sensor/internal/confianza"
+	"github.com/kinomakino/sugardaddy/sensor/internal/copias"
 	"github.com/kinomakino/sugardaddy/sensor/internal/cortafuegos"
 	"github.com/kinomakino/sugardaddy/sensor/internal/discos"
 	"github.com/kinomakino/sugardaddy/sensor/internal/docker"
@@ -58,12 +70,24 @@ func main() {
 			os.Exit(aplicar())
 		case "cortafuegos":
 			os.Exit(cortafuegosAuxiliar())
+		case "cortafuegos-trampas":
+			os.Exit(cortafuegosTrampas())
+		case "cortafuegos-anfitrion":
+			os.Exit(cortafuegosAnfitrion())
+		case "anfitrion":
+			os.Exit(anfitrionAuxiliar())
 		case "disco":
 			os.Exit(discoAuxiliar())
 		case "ca":
 			os.Exit(caAuxiliar())
+		case "ca-sensores":
+			os.Exit(caSensoresAuxiliar())
+		case "aislar-anfitrion":
+			os.Exit(aislarAnfitrion())
 		case "ca-generar":
 			os.Exit(caGenerar(os.Args[2:]))
+		case "copias-smb":
+			os.Exit(copias.Auxiliar(context.Background(), os.Args[2:], os.Getenv("COPIAS_CARPETA"), copias.RaicesAuxiliar, os.Stdout))
 		case "salud":
 			os.Exit(comprobarSalud(os.Args[2:]))
 		}
@@ -76,6 +100,7 @@ func main() {
 	modo := flag.String("modo", "nodo", "node (next to the console) or sensor (a sensor on another machine: only the sensor and updater change)")
 	ca := flag.String("ca", "", "root of the console CA, if the system does not trust it")
 	salud := flag.String("salud", "", "address of the health endpoint for the healthcheck, e.g. :9101 (empty: none)")
+	certificado := flag.String("certificado", "", "client certificate and key (one PEM) of the sensor on another machine, which it presents and renews (docs/diseno/mtls-sensores.md)")
 	proyecto := flag.String("proyecto", "", "compose project (default: sugardaddy or sugardaddy-sensor, depending on the mode)")
 	flag.Parse()
 
@@ -124,7 +149,7 @@ func main() {
 	if *modo == "sensor" {
 		a.Solo = map[string]bool{"sensor": true, "actualizador": true}
 	}
-	http, err := confianza.Cliente(*ca, 15*time.Second)
+	http, err := confianza.ClienteConCertificado(*ca, *certificado, 15*time.Second)
 	if err != nil {
 		slog.Error("console CA", "err", err)
 		os.Exit(2)
@@ -144,6 +169,33 @@ func main() {
 			Anfitrion: cfg.anfitrion, Proyecto: cfg.proyecto, Red: cfg.red,
 			Log: func(m string, args ...any) { slog.Info(m, args...) }}
 	}
+	// Solo en el nodo: que Caddy pida certificado de cliente a los sensores remotos
+	// con la raíz de la CA de sensores de la consola (docs/diseno/mtls-sensores.md).
+	var caSensores *actualizador.CASensores
+	if *modo != "sensor" && cfg.local != "" {
+		caSensores = &actualizador.CASensores{Docker: d, Consola: *consola, Token: token, HTTP: http, Local: cfg.local,
+			Anfitrion: cfg.anfitrion, Proyecto: cfg.proyecto,
+			Log: func(m string, args ...any) { slog.Info(m, args...) }}
+	}
+	// Solo en el nodo: las copias de copia.sh, al almacén del cliente (docs/diseno/copias-fuera.md).
+	// En su propia goroutine: una subida larga no frena las actualizaciones.
+	if *modo != "sensor" && cfg.local != "" {
+		fuera := &actualizador.CopiasFuera{Docker: d, Consola: *consola, Token: token, HTTP: http,
+			Local: cfg.local, Anfitrion: cfg.anfitrion,
+			Log: func(m string, args ...any) { slog.Info(m, args...) }}
+		go func() {
+			for {
+				if err := fuera.Vuelta(ctx); err != nil {
+					slog.Warn("off-machine backups", "err", err)
+				}
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(time.Minute):
+				}
+			}
+		}()
+	}
 	// Solo en el nodo: comparar la máquina con su versión firmada y contarlo (integridad.desviacion).
 	var integridad *actualizador.Integridad
 	if *modo != "sensor" && cfg.local != "" {
@@ -151,12 +203,42 @@ func main() {
 			Edicion: actualizador.EdicionDelNodo(os.Getenv), Consola: *consola, Token: token, HTTP: http,
 			Log: func(m string, args ...any) { slog.Warn(m, args...) }}
 	}
+	// En el nodo y en un sensor remoto: que las trampas no lleguen a la máquina por la
+	// pasarela de su puente (SEN-5).
+	var pasarela *actualizador.PasarelaTrampas
+	if cfg.local != "" {
+		pasarela = &actualizador.PasarelaTrampas{Docker: d, Local: cfg.local,
+			Log: func(m string, args ...any) { slog.Info(m, args...) }}
+	}
+	// Solo en el nodo: el cortafuegos estricto de la máquina, lo que se mira de ella
+	// (SSH, auditd, Docker) y sus eventos de auditd (docs/diseno/cortafuegos-anfitrion.md).
+	var estricto *actualizador.EstrictoNodo
+	var maquina *actualizador.MaquinaNodo
+	var auditd *actualizador.AuditdNodo
+	if *modo != "sensor" && cfg.local != "" {
+		estricto = &actualizador.EstrictoNodo{Docker: d, Consola: *consola, Token: token, HTTP: http,
+			Local: cfg.local, Anfitrion: cfg.anfitrion,
+			Log: func(m string, args ...any) { slog.Info(m, args...) }}
+		maquina = &actualizador.MaquinaNodo{Docker: d, Consola: *consola, Token: token, HTTP: http,
+			Local: cfg.local, Anfitrion: cfg.anfitrion, Confianza: clave, Edicion: actualizador.EdicionDelNodo(os.Getenv),
+			Log: func(m string, args ...any) { slog.Warn(m, args...) }}
+		auditd = &actualizador.AuditdNodo{Consola: *consola, Token: token, HTTP: http, Local: cfg.local,
+			Logf: func(m string, args ...any) { slog.Warn(m, args...) }}
+	}
 	// En un sensor remoto: las raíces en las que confía para hablar con la consola.
 	var raices *actualizador.RaizRemota
 	if *modo == "sensor" && *ca != "" && cfg.local != "" {
 		raices = &actualizador.RaizRemota{Consola: *consola, Token: token, HTTP: http,
 			Fichero: filepath.Join(cfg.local, "ca-consola.crt"),
 			Log:     func(m string, args ...any) { slog.Info(m, args...) }}
+	}
+
+	// En un sensor remoto: su certificado de cliente, renovado antes de caducar
+	// (docs/diseno/mtls-sensores.md). Solo con un compose que lo monta.
+	var certificadoSensor *actualizador.CertificadoSensor
+	if *modo == "sensor" && *certificado != "" {
+		certificadoSensor = &actualizador.CertificadoSensor{Consola: *consola, Token: token, HTTP: http,
+			Fichero: *certificado, Log: func(m string, args ...any) { slog.Info(m, args...) }}
 	}
 
 	// Trampas de partner (docs/diseno/trampas-de-partner.md): solo si esta máquina tiene
@@ -225,6 +307,14 @@ func main() {
 				if e.Estado == "caducada" || e.Estado == "retenida" {
 					slog.Warn("timestamp", "estado", e.Estado, "detalle", e.Detalle)
 				}
+				// Las imágenes retiradas por SeguridadSI (manual 3 de respuesta a incidentes), de la
+				// misma copia estática: el panel no las controla.
+				conf, _ := vigia.Claves()
+				if cambio, err := actualizador.TraerRetiradas(ctx, vigia.Fuera, vigia.Estatica, cfg.local, conf, vigia.Edicion); err != nil {
+					slog.Warn("retired images", "err", err)
+				} else if cambio {
+					slog.Warn("SeguridadSI has retired images: the node will not start them")
+				}
 			}
 			r, err := vuelta(ctx, http, *consola, rutas, token, clave, a, *versiones, cfg)
 			if r != nil {
@@ -243,6 +333,31 @@ func main() {
 					slog.Warn("node CA", "err", err)
 				}
 			}
+			if caSensores != nil {
+				if err := caSensores.Vuelta(ctx); err != nil {
+					slog.Warn("remote sensor CA", "err", err)
+				}
+			}
+			if pasarela != nil {
+				if err := pasarela.Vuelta(ctx); err != nil {
+					slog.Warn("decoy bridge firewall", "err", err)
+				}
+			}
+			if estricto != nil {
+				if err := estricto.Vuelta(ctx); err != nil {
+					slog.Warn("strict host firewall", "err", err)
+				}
+			}
+			if maquina != nil {
+				if err := maquina.Vuelta(ctx); err != nil {
+					slog.Warn("host facts", "err", err)
+				}
+			}
+			if auditd != nil {
+				if err := auditd.Vuelta(ctx); err != nil {
+					slog.Warn("host audit", "err", err)
+				}
+			}
 			if integridad != nil {
 				if err := integridad.Vuelta(ctx); err != nil {
 					slog.Warn("node integrity", "err", err)
@@ -251,6 +366,11 @@ func main() {
 			if raices != nil {
 				if err := raices.Vuelta(ctx); err != nil {
 					slog.Warn("console CA roots", "err", err)
+				}
+			}
+			if certificadoSensor != nil {
+				if err := certificadoSensor.Vuelta(ctx); err != nil {
+					slog.Warn("client certificate", "err", err)
 				}
 			}
 		}
@@ -292,8 +412,13 @@ func vuelta(ctx context.Context, c *http.Client, base string, ru rutas, token st
 	var p *struct {
 		Version string                      `json:"version"`
 		Release actualizador.ReleaseFirmada `json:"release"`
+		// La política que eligió el cliente en su consola y su aprobación de esta versión
+		// (docs/diseno/politica-cambios.md). Las consolas anteriores no lo mandan.
+		Politica   *actualizador.Politica   `json:"politica"`
+		Aprobacion *actualizador.Aprobacion `json:"aprobacion"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&p); err != nil || p == nil {
+	// Con tope, como traerFirmadaInstalada (auditoría 2026-11-14, §5 h08).
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(&p); err != nil || p == nil {
 		return nil, err
 	}
 
@@ -309,6 +434,27 @@ func vuelta(ctx context.Context, c *http.Client, base string, ru rutas, token st
 			d := fmt.Sprintf("version %s is older than the installed %s: not applied", r.Version, inst)
 			return final(ctx, c, base, ru, token, r.Version, "fallida", d), errors.New(d)
 		}
+	}
+	// Una versión que lleve una imagen retirada por SeguridadSI (registro comprometido) no se
+	// instala, aunque venga firmada.
+	if cfg.local != "" {
+		retiradas, err := actualizador.RetiradasGuardadas(cfg.local, clave, actualizador.EdicionDelNodo(os.Getenv))
+		if err != nil {
+			return nil, fmt.Errorf("cannot read the retired image list on this machine: %w", err)
+		}
+		if img := retiradas.EnRelease(r); img != "" {
+			d := fmt.Sprintf("version %s uses an image retired by SeguridadSI (%s): not applied", r.Version, img)
+			return final(ctx, c, base, ru, token, r.Version, "fallida", d), errors.New(d)
+		}
+	}
+	// La política de cambios del cliente: la decide este actualizador, no la consola ni el
+	// panel. Esperar no es fallar: no se informa nada y se vuelve a mirar en la vuelta siguiente.
+	politica := cfg.politicaLocal()
+	if p.Politica != nil {
+		politica = actualizador.MasEstricta(politica, *p.Politica)
+	}
+	if e := actualizador.ComprobarPolitica(r, politica, p.Aprobacion, cfg.modo != actualizador.ModoSensorRemoto, time.Now()); e.Motivo != "" {
+		return nil, errors.New(e.String())
 	}
 	// El registro de transparencia (docs/diseno/firmas-raiz.md §4): una versión que no está en
 	// él no se instala. No se da por fallida (la consola no la volvería a ofrecer): se espera,
@@ -390,6 +536,20 @@ type configDeAuxiliar struct {
 	docker              *docker.Cliente
 	informe             actualizador.Informe
 	vigia               *actualizador.Vigia // la marca y el registro de transparencia (solo en el nodo)
+}
+
+// politicaLocal es el suelo de la política de cambios: el .env de la carpeta del nodo (se lee
+// en cada vuelta) y, si no hay carpeta, el entorno del proceso.
+func (c configDeAuxiliar) politicaLocal() actualizador.Politica {
+	if c.local == "" {
+		return actualizador.PoliticaDelEntorno(os.Getenv)
+	}
+	env, err := actualizador.LeerEnv(filepath.Join(c.local, ".env"))
+	if err != nil {
+		return actualizador.PoliticaDelEntorno(os.Getenv)
+	}
+	return actualizador.MasEstricta(actualizador.PoliticaDelEntorno(func(k string) string { return env[k] }),
+		actualizador.PoliticaDelEntorno(os.Getenv))
 }
 
 // puede: la versión trae configuración para este modo y este actualizador sabe dónde está la carpeta.
@@ -486,7 +646,11 @@ func aplicar() int {
 			ca = filepath.Join(dir, "ca-consola.crt")
 		}
 	}
-	if inf.HTTP, err = confianza.Cliente(ca, 15*time.Second); err == nil {
+	cert := ""
+	if modo == actualizador.ModoSensorRemoto {
+		cert = filepath.Join(dir, actualizador.FicheroCertificadoSensor)
+	}
+	if inf.HTTP, err = confianza.ClienteConCertificado(ca, cert, 15*time.Second); err == nil {
 		// Mientras compose recrea la consola, no contesta: unos minutos de reintentos.
 		if err = inf.Informar(ctx, res, 18, 10*time.Second); err == nil {
 			res.Informado = true
@@ -527,6 +691,52 @@ func cortafuegosAuxiliar() int {
 	return 1
 }
 
+// cortafuegosTrampas pone la regla de SEN-5 en el cortafuegos de la máquina y
+// escribe el resultado en una línea JSON.
+func cortafuegosTrampas() int {
+	ctx, cancelar := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancelar()
+	r := cortafuegos.AplicarTrampas(ctx, cortafuegos.Exec)
+	b, _ := json.Marshal(r)
+	fmt.Println(string(b))
+	if r.Estado != cortafuegos.Aplicada {
+		return 1
+	}
+	return 0
+}
+
+// cortafuegosAnfitrion es el auxiliar del cortafuegos estricto: aplica la tabla
+// nftables (o la quita) y escribe el resultado en una línea JSON. Al aplicar, espera
+// a que el actualizador confirme la huella en /confirmar/confirmado; si no llega en
+// ESTRICTO_PLAZO segundos, vuelve a la tabla de antes.
+func cortafuegosAnfitrion() int {
+	ctx, cancelar := context.WithTimeout(context.Background(), 11*time.Minute)
+	defer cancelar()
+	var r cortafuegos.ResultadoEstricto
+	if os.Getenv("ESTRICTO_QUITAR") == "1" {
+		r = cortafuegos.QuitarEstricto(ctx, cortafuegos.Exec)
+	} else if e, err := cortafuegos.LeerEstricto(os.Getenv("ESTRICTO")); err != nil {
+		r = cortafuegos.ResultadoEstricto{Estado: cortafuegos.ConError, Detalle: err.Error()}
+	} else {
+		plazo, _ := strconv.Atoi(os.Getenv("ESTRICTO_PLAZO"))
+		if plazo < 30 || plazo > 600 {
+			plazo = 90
+		}
+		confirmado := func(h string) bool {
+			b, err := os.ReadFile("/confirmar/confirmado")
+			return err == nil && strings.TrimSpace(string(b)) == h
+		}
+		r = cortafuegos.AplicarEstricto(ctx, e, cortafuegos.Exec, confirmado, time.Duration(plazo)*time.Second)
+	}
+	b, _ := json.Marshal(r)
+	fmt.Println(string(b))
+	switch r.Estado {
+	case cortafuegos.EstrictoAplicado, cortafuegos.EstrictoQuitado:
+		return 0
+	}
+	return 1
+}
+
 // discoAuxiliar es el auxiliar de los discos de las trampas: lo lanza el sensor con
 // su pedido en DISCO_PEDIDO y escribe el resultado en una línea JSON marcada. Sale
 // con 0 siempre que la escribe: lo que haya pasado va en ella.
@@ -546,6 +756,30 @@ func discoAuxiliar() int {
 	}
 	salida, _ := json.Marshal(discos.LineaResultado{V: discos.VersionResultado, Resultado: r})
 	fmt.Println(string(salida))
+	return 0
+}
+
+// aislarAnfitrion entra en la raíz de la máquina (la de su PID 1: el contenedor
+// corre privilegiado y con el PID de la máquina) y pone allí el perfil AppArmor de
+// las trampas y sd-discos, como instalar.sh. Escribe el resultado en una línea JSON
+// y sale con 0 siempre que la escribe.
+func aislarAnfitrion() int {
+	datos := os.Getenv("AISLAR_DATOS")
+	var r actualizador.ResultadoAnfitrion
+	switch {
+	case !actualizador.RutaDatosValida(datos):
+		r = actualizador.ResultadoAnfitrion{AppArmor: actualizador.PiezaFallo, Discos: actualizador.PiezaFallo,
+			Detalle: []string{"invalid AISLAR_DATOS"}}
+	default:
+		if err := entrarEnLaMaquina(); err != nil {
+			r = actualizador.ResultadoAnfitrion{AppArmor: actualizador.PiezaFallo, Discos: actualizador.PiezaFallo,
+				Detalle: []string{"cannot enter the machine root: " + err.Error()}}
+			break
+		}
+		r = actualizador.Anfitrion{Raiz: "/", Ejecutar: ejecutarEnLaMaquina, Hay: hayEnLaMaquina}.Preparar(datos)
+	}
+	b, _ := json.Marshal(map[string]any{"aislamiento": r})
+	fmt.Println(string(b))
 	return 0
 }
 

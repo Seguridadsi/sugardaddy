@@ -126,6 +126,58 @@ export function motivoInstalador(r: Release, textoFirmado: string): string | nul
 	return null;
 }
 
+/* ---------- el instalador del sensor remoto ---------- */
+
+/*
+ * Un sensor en otra máquina se instala con la misma etapa 1, en su modo de sensor
+ * (docs/diseno/instalador-verificado.md, «Sensor remoto»). Su guion (instalar.sh de
+ * despliegue/sensor-remoto) y su compose van con sus huellas en un campo aparte, que
+ * los nodos y paneles anteriores ignoran: `instalador` no puede llevar un fichero más
+ * sin que lo rechacen. La etapa 1 busca la cadena por su marca, como la del nodo; las
+ * imágenes salen de imagenes.env, que ya va en las huellas del nodo.
+ */
+export type InstaladorSensorDeVersion = {
+	huellasSensor: string;
+	ficheros: { 'instalar.sh': string };
+};
+export const PIEZAS_INSTALADOR_SENSOR = ['instalar.sh', 'compose.yml'] as const;
+export const MARCA_HUELLAS_SENSOR = '"huellasSensor":"v1;';
+
+export function piezasInstaladorSensor(
+	r: Release
+): Record<(typeof PIEZAS_INSTALADOR_SENSOR)[number], string> | null {
+	const guion = r.instaladorSensor?.ficheros?.['instalar.sh'];
+	const compose = r.sensorRemoto?.ficheros?.['compose.yml'];
+	if (typeof guion !== 'string' || typeof compose !== 'string') return null;
+	return { 'instalar.sh': guion, 'compose.yml': compose };
+}
+
+export const huellasSensorDe = (
+	piezas: Record<(typeof PIEZAS_INSTALADOR_SENSOR)[number], string>
+) => 'v1;' + PIEZAS_INSTALADOR_SENSOR.map((n) => `${n}=${sha256(piezas[n])}`).join(';');
+
+/* Qué falla en el instalador del sensor de una versión, o null. */
+export function motivoInstaladorSensor(r: Release, textoFirmado: string): string | null {
+	const i = r.instaladorSensor as InstaladorSensorDeVersion | undefined;
+	if (i === undefined) return null;
+	if (!i || typeof i !== 'object' || typeof i.huellasSensor !== 'string' || !i.ficheros)
+		return 'malformed sensor installer';
+	if (Object.keys(i.ficheros).join() !== 'instalar.sh')
+		return 'the sensor installer brings one script';
+	const t = i.ficheros['instalar.sh'];
+	if (typeof t !== 'string' || !t.startsWith('#!') || Buffer.byteLength(t) > MAX_GUION)
+		return 'sensor installer: instalar.sh is not a script or exceeds 64 KB';
+	if (!r.instalador) return 'a sensor installer needs the first stage of the node installer';
+	const piezas = piezasInstaladorSensor(r);
+	if (!piezas)
+		return 'a version with a sensor installer must include the remote sensor configuration';
+	if (i.huellasSensor !== huellasSensorDe(piezas))
+		return 'the sensor installer fingerprints do not match its files';
+	if (textoFirmado.split(MARCA_HUELLAS_SENSOR).length !== 2)
+		return 'the sensor installer fingerprints must appear exactly once in the signed text';
+	return null;
+}
+
 /* ---------- las claves grabadas en la etapa 1 ---------- */
 
 const LINEA_CLAVES = /^SD_CLAVES='([^'\n]*)'$/m;

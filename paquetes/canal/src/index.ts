@@ -25,9 +25,15 @@ import {
 	type KeyObject
 } from 'node:crypto';
 import type { LicenciaFirmada } from './licencia.ts';
+import type { RevocacionFirmada } from './revocacion.ts';
 import type { MarcaFirmada } from './marca.ts';
 import type { OrdenFirmada } from './ordenes.ts';
-import { motivoInstalador, type InstaladorDeVersion } from './instalador.ts';
+import {
+	motivoInstalador,
+	motivoInstaladorSensor,
+	type InstaladorDeVersion,
+	type InstaladorSensorDeVersion
+} from './instalador.ts';
 import {
 	aConfianza,
 	firmadoPor,
@@ -161,6 +167,13 @@ export type EstadoDeseado = {
 	 */
 	licencia?: LicenciaFirmada | null;
 	/*
+	 * Las revocaciones de las licencias de este cliente, firmadas fuera del panel con la
+	 * clave de licencias (revocacion.ts). Es lo único que para una trampa de pago ya
+	 * desplegada: una licencia caducada solo impide desplegar o cambiar. El nodo guarda
+	 * todas las que ve y no olvida ninguna. Opcional: los nodos anteriores lo ignoran.
+	 */
+	revocaciones?: RevocacionFirmada[];
+	/*
 	 * sha256 del logotipo del cliente, o nulo. El nodo lo pide aparte cuando
 	 * cambia y comprueba que coincide: así viaja firmado sin engordar cada latido.
 	 * Opcional porque los paneles anteriores a la 0.11 no lo mandan.
@@ -227,6 +240,12 @@ export type EstadoDeseado = {
 	 */
 	releFirmado?: OrdenFirmada;
 	recuperacionFirmada?: OrdenFirmada;
+	/*
+	 * Una orden firmada con una clave de publicación que mueve al nodo a otra dirección del
+	 * panel (ordenes.ts, `panel`): un traslado planificado. Con el panel caído, la misma orden
+	 * está en el repo público. Opcional: los nodos anteriores la ignoran.
+	 */
+	panelFirmado?: OrdenFirmada;
 	emitido: string;
 	caduca: string;
 };
@@ -328,7 +347,10 @@ export function verificarEstado(
 	const e = JSON.parse(f.estado) as EstadoDeseado;
 	if (e.version !== 1) return { ok: false, motivo: 'unknown state version' };
 	if (e.cliente !== cliente) return { ok: false, motivo: 'the state is for another customer' };
-	if (Date.parse(e.caduca) < ahora) return { ok: false, motivo: 'the state has expired' };
+	/* Una fecha que no se lee (NaN) no puede valer para siempre (auditoría 2026-11-14, §5 h07). */
+	const caduca = Date.parse(e.caduca);
+	if (!Number.isFinite(caduca) || caduca < ahora)
+		return { ok: false, motivo: 'the state has expired' };
 	return { ok: true, estado: e };
 }
 
@@ -374,11 +396,28 @@ export type Release = {
 	 */
 	instalador?: InstaladorDeVersion;
 	/*
+	 * El Docker que fija la versión (docs/diseno/cortafuegos-anfitrion.md): la consola avisa
+	 * si la máquina va por detrás y el appliance sube a él con estos paquetes y sus sha256.
+	 * Los nodos anteriores lo ignoran.
+	 */
+	motor?: MotorFijado;
+	/*
+	 * El guion del sensor remoto y sus huellas, para la etapa 1 en su modo de sensor
+	 * (instalador.ts). Los nodos y paneles anteriores lo ignoran.
+	 */
+	instaladorSensor?: InstaladorSensorDeVersion;
+	/*
 	 * Las claves del panel en las que confiarán los nodos de ese panel (panel.ts): así rota
 	 * la clave del estado deseado sin reinstalar, firmado con la de publicación, que no vive
 	 * en Azure. Los nodos y los paneles anteriores lo ignoran.
 	 */
 	clavesPanel?: ClavesPanel;
+	/*
+	 * Un arreglo de seguridad: se salta el retardo mínimo de la política de cambios del cliente,
+	 * pero no su aprobación (docs/diseno/politica-cambios.md). Va firmado, así que el panel no
+	 * puede marcar urgente una versión que no lo es. Los nodos anteriores lo ignoran.
+	 */
+	urgente?: boolean;
 };
 
 /*
@@ -499,6 +538,8 @@ function motivoNovedades(r: Release, uso: ReturnType<typeof edicionDeRelease>): 
 		)
 			return 'retiring the legacy key would leave licenses or delegations without a key';
 	}
+	/* Como en Go (bool): un «urgente» que no es booleano no se acepta. */
+	if (r.urgente !== undefined && typeof r.urgente !== 'boolean') return 'malformed urgent flag';
 	if (r.catalogo !== undefined) {
 		const c = r.catalogo as unknown;
 		if (!c || typeof c !== 'object' || Array.isArray(c)) return 'malformed decoy catalog';
@@ -564,7 +605,10 @@ export function verificarRelease(
 		if (!r.actualizador)
 			return { ok: false, motivo: 'a version with configuration must include the updater' };
 	}
-	const m = motivoNovedades(r, uso) ?? motivoInstalador(r, f.release);
+	const m =
+		motivoNovedades(r, uso) ??
+		motivoInstalador(r, f.release) ??
+		motivoInstaladorSensor(r, f.release);
 	if (m) return { ok: false, motivo: m };
 	return { ok: true, release: r, firmadaCon };
 }
@@ -577,16 +621,32 @@ export function verificarRelease(
  */
 export type Latido = {
 	version: string;
-	sensores: { total: number; vivos: number };
-	trampas: { total: number; activos: number };
-	eventos24h: number;
-	criticos24h: number;
-	pendientes: number;
+	/*
+	 * Latido mínimo (Ajustes → Central de la consola, docs/seguridad/flujo-de-datos.md): el
+	 * cliente elige mandar solo lo que hace falta para la licencia y las actualizaciones. Sin
+	 * cifras (sensores, trampas, eventos, pendientes), ni cómo se entra en la consola, ni el
+	 * sello de la auditoría, ni el aislamiento, ni la salida a internet: el nodo no las
+	 * calcula. El panel lo enseña como «minimal» y no cuenta lo que no sabe.
+	 */
+	minimo?: true;
+	/* Las cifras: en un latido mínimo no van (el panel las trata como desconocidas). */
+	sensores?: { total: number; vivos: number };
+	trampas?: { total: number; activos: number };
+	eventos24h?: number;
+	criticos24h?: number;
+	pendientes?: number;
 	comparticion: { compartir: boolean; recibir: boolean };
 	/* Cómo va la actualización: lo que el panel necesita para avanzar los anillos. */
 	actualizacion: {
 		estado: 'al-dia' | 'pendiente' | 'aplicando' | 'fallida';
 		version: string | null;
+		/*
+		 * Una pendiente que espera por la política de cambios del cliente: su aprobación o el
+		 * retardo mínimo (docs/diseno/politica-cambios.md). Es decisión suya: no dice nada de la
+		 * versión y el panel no la cuenta para los anillos. Opcional: los nodos anteriores no lo
+		 * mandan y los paneles anteriores lo ignoran.
+		 */
+		espera?: 'aprobacion' | 'retardo';
 	};
 	/* Qué ha decidido el cliente sobre el acceso de soporte, y a qué petición responde. */
 	soporte: {
@@ -620,6 +680,11 @@ export type Latido = {
 	 * puede dejar de firmar con la de antes (docs/diseno/panel-endurecido.md). Opcional.
 	 */
 	clavesPanel?: string[];
+	/*
+	 * La orden de dirección del panel que siguió el nodo, si alguna (su fecha y si llegó por el
+	 * panel o por el repo público). Para contar en el panel nuevo quién ha llegado. Opcional.
+	 */
+	ordenPanel?: { emitida: string; origen: 'panel' | 'estatica' };
 	/*
 	 * Desde la 0.30: cómo se entra en la consola (`local`, `propio` = Entra del cliente,
 	 * `seguridadsi` = invitados B2B en el tenant de SeguridadSI) y en qué punto está su
@@ -656,6 +721,35 @@ export type Latido = {
 		destinos: { destino: string; ok: boolean; detalle: string | null }[];
 		cuando: string;
 	};
+	/*
+	 * Desde la 0.32 (docs/diseno/cortafuegos-anfitrion.md): la máquina del nodo, resumida.
+	 * Sin usuarios ni huellas de claves: solo cuántos, el estado del cortafuegos estricto,
+	 * de auditd y la versión de Docker frente a la que fija la versión firmada.
+	 */
+	anfitrion?: LatidoAnfitrion;
+};
+
+export const ESTADOS_ESTRICTO_LATIDO = [
+	'apagado',
+	'aplicada',
+	'quitada',
+	'revertida',
+	'conflicto',
+	'sin-nft',
+	'suspendida',
+	'error'
+] as const;
+
+export type LatidoAnfitrion = {
+	estricto: (typeof ESTADOS_ESTRICTO_LATIDO)[number];
+	auditd: string;
+	ssh: { activo: boolean; usuarios: number; claves: number };
+	docker: { version: string | null; fijada: string | null; desfasada: boolean };
+};
+
+export type MotorFijado = {
+	docker: string;
+	paquetes?: { nombre: string; version: string; sha256: string }[];
 };
 
 export type EstadoMarcaNodo = {
@@ -683,6 +777,8 @@ export type { KeyObject };
 
 export * from './indicadores.ts';
 export * from './licencia.ts';
+export * from './revocacion.ts';
+export * from './retiradas.ts';
 export * from './catalogo-partner.ts';
 export * from './planes.ts';
 export * from './registro.ts';
@@ -690,6 +786,7 @@ export * from './confianza.ts';
 export * from './raiz.ts';
 export * from './marca.ts';
 export * from './transparencia.ts';
+export * from './sello-auditoria.ts';
 export * from './instalador.ts';
 export * from './panel.ts';
 export * from './rangos-nubes.ts';

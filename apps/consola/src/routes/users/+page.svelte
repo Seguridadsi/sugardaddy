@@ -2,8 +2,25 @@
 	import { enhance } from '$app/forms';
 	import { sinVaciar } from '$lib/guardar';
 	import { haceCuanto } from '$lib/formato';
+	import { page } from '$app/state';
+	import Pestanas from '$lib/components/Pestanas.svelte';
+	import { pestanaDe } from '$lib/pestanas';
 
 	let { data, form } = $props();
+
+	const PESTANAS = [
+		{ id: 'users', texto: 'Users' },
+		{ id: 'new', texto: 'Add user' }
+	] as const;
+	const pestana = $derived(pestanaDe(page.url, PESTANAS));
+
+	/* Cómo entra cada uno en el segundo paso, en pocas palabras. */
+	function segundoPaso(f: { passkey: number; totp: number }) {
+		const partes = [];
+		if (f.passkey) partes.push(f.passkey === 1 ? 'passkey' : `${f.passkey} passkeys`);
+		if (f.totp) partes.push(f.totp === 1 ? 'authenticator app' : `${f.totp} authenticator apps`);
+		return partes.join(' + ');
+	}
 
 	const bloqueado = (hasta: string | null) => !!hasta && Date.parse(hasta) > Date.now();
 </script>
@@ -23,112 +40,158 @@
 	read); if someone forgets theirs, reset it here and they will change it on sign-in.
 </p>
 
+<Pestanas pestanas={PESTANAS} actual={pestana} etiqueta="Users sections" />
+
 {#if form?.mensaje}<p class="mensaje" role="status">{form.mensaje}</p>{/if}
 {#if form?.error}<p class="error" role="alert">{form.error}</p>{/if}
 
-<form class="panel bloque" method="POST" action="?/crear" use:enhance>
-	<h2>Add user</h2>
-	<div class="rejilla">
-		<label>
-			<span>Username</span>
-			<input name="usuario" autocapitalize="off" spellcheck="false" required data-con-gestor />
-		</label>
-		<label>
-			<span>Name</span>
-			<input name="nombre" />
-		</label>
-		<label>
-			<span>Email</span>
-			<input name="correo" type="email" required data-con-gestor />
-		</label>
-		<label>
-			<span>Initial password (min. {data.minimo})</span>
-			<input
-				name="clave"
-				type="text"
-				autocomplete="off"
-				minlength={data.minimo}
-				required
-				data-con-gestor
-			/>
-		</label>
-	</div>
-	<fieldset class="roles">
-		<legend>Roles</legend>
-		{#each data.roles as rol (rol)}
-			<label class="rol"><input type="checkbox" name="rol" value={rol} />{rol}</label>
-		{/each}
-	</fieldset>
-	<button class="boton principal">Create</button>
-</form>
+{#if pestana === 'new'}
+	<form class="panel bloque" method="POST" action="?/crear" use:enhance>
+		<h2>Add user</h2>
+		<div class="rejilla">
+			<label>
+				<span>Username</span>
+				<input name="usuario" autocapitalize="off" spellcheck="false" required data-con-gestor />
+			</label>
+			<label>
+				<span>Name</span>
+				<input name="nombre" />
+			</label>
+			<label>
+				<span>Email</span>
+				<input name="correo" type="email" required data-con-gestor />
+			</label>
+			<label>
+				<span>Initial password (min. {data.minimo})</span>
+				<input
+					name="clave"
+					type="text"
+					autocomplete="off"
+					minlength={data.minimo}
+					required
+					data-con-gestor
+				/>
+			</label>
+		</div>
+		<fieldset class="roles">
+			<legend>Roles</legend>
+			{#each data.roles as rol (rol)}
+				<label class="rol"><input type="checkbox" name="rol" value={rol} />{rol}</label>
+			{/each}
+		</fieldset>
+		<button class="boton principal">Create</button>
+		<p class="ayuda">
+			{#if data.exigido}
+				They will set up two-factor authentication (a passkey or an authenticator app) the first
+				time they sign in.
+			{:else}
+				Two-factor authentication is optional on this console (Settings → Access).
+			{/if}
+		</p>
+	</form>
+{:else}
+	{#if data.usuarios.length === 0}
+		<p class="ayuda">There are no local users yet.</p>
+	{/if}
 
-{#if data.usuarios.length === 0}
-	<p class="ayuda">There are no local users yet.</p>
+	{#each data.usuarios as u (u.id)}
+		<section class="panel bloque usuario">
+			<div class="quien">
+				<b class="mono">{u.usuario}</b>
+				<span
+					>{u.nombre}{#if u.correo}
+						· {u.correo}{/if}</span
+				>
+				<span class="etiquetas">
+					{#each u.roles as r (r)}<span class="chip">{r}</span>{/each}
+					{#if u.debeCambiar}<span class="chip aviso">must change password on sign-in</span>{/if}
+					{#if bloqueado(u.bloqueadoHasta)}<span class="chip malo"
+							>locked after failed attempts</span
+						>{/if}
+					{#if segundoPaso(u.segundoFactor)}
+						<span class="chip">two-factor: {segundoPaso(u.segundoFactor)}</span>
+					{:else}
+						<span class="chip aviso"
+							>{data.exigido
+								? 'will set up two-factor on next sign-in'
+								: 'no two-factor authentication'}</span
+						>
+					{/if}
+				</span>
+				<span class="ayuda">
+					{#if u.ultimoAcceso}Last sign-in {haceCuanto(u.ultimoAcceso)}{:else}Never signed in{/if}
+				</span>
+			</div>
+
+			<div class="acciones">
+				<form method="POST" action="?/roles" use:enhance={sinVaciar}>
+					<input type="hidden" name="id" value={u.id} />
+					<fieldset class="roles">
+						<legend>Roles</legend>
+						{#each data.roles as rol (rol)}
+							<label class="rol">
+								<input
+									type="checkbox"
+									name="rol"
+									value={rol}
+									checked={u.roles.includes(rol)}
+								/>{rol}
+							</label>
+						{/each}
+					</fieldset>
+					<button class="boton">Save roles</button>
+				</form>
+
+				<form method="POST" action="?/restablecer" use:enhance>
+					<input type="hidden" name="id" value={u.id} />
+					<label class="linea">
+						<span>New password (min. {data.minimo})</span>
+						<input
+							name="clave"
+							type="text"
+							autocomplete="off"
+							minlength={data.minimo}
+							required
+							data-con-gestor
+						/>
+					</label>
+					<button class="boton">Reset</button>
+				</form>
+
+				{#if segundoPaso(u.segundoFactor)}
+					<form
+						method="POST"
+						action="?/segundoFactor"
+						use:enhance
+						onsubmit={(e) => {
+							if (
+								!confirm(
+									`Reset two-factor authentication for ${u.usuario}? Their passkeys, authenticator apps and recovery codes stop working and they are signed out.`
+								)
+							)
+								e.preventDefault();
+						}}
+					>
+						<input type="hidden" name="id" value={u.id} />
+						<button class="boton">Reset two-factor</button>
+					</form>
+				{/if}
+
+				<form
+					method="POST"
+					action="?/retirar"
+					use:enhance
+					onsubmit={(e) => {
+						if (!confirm(`Remove user ${u.usuario}?`)) e.preventDefault();
+					}}
+				>
+					<input type="hidden" name="id" value={u.id} />
+					<button class="boton peligro">Remove</button>
+				</form>
+			</div>
+		</section>
+	{/each}
 {/if}
-
-{#each data.usuarios as u (u.id)}
-	<section class="panel bloque usuario">
-		<div class="quien">
-			<b class="mono">{u.usuario}</b>
-			<span
-				>{u.nombre}{#if u.correo}
-					· {u.correo}{/if}</span
-			>
-			<span class="etiquetas">
-				{#each u.roles as r (r)}<span class="chip">{r}</span>{/each}
-				{#if u.debeCambiar}<span class="chip aviso">must change password on sign-in</span>{/if}
-				{#if bloqueado(u.bloqueadoHasta)}<span class="chip malo">locked after failed attempts</span
-					>{/if}
-			</span>
-			<span class="ayuda">
-				{#if u.ultimoAcceso}Last sign-in {haceCuanto(u.ultimoAcceso)}{:else}Never signed in{/if}
-			</span>
-		</div>
-
-		<div class="acciones">
-			<form method="POST" action="?/roles" use:enhance={sinVaciar}>
-				<input type="hidden" name="id" value={u.id} />
-				<fieldset class="roles">
-					<legend>Roles</legend>
-					{#each data.roles as rol (rol)}
-						<label class="rol">
-							<input type="checkbox" name="rol" value={rol} checked={u.roles.includes(rol)} />{rol}
-						</label>
-					{/each}
-				</fieldset>
-				<button class="boton">Save roles</button>
-			</form>
-
-			<form method="POST" action="?/restablecer" use:enhance>
-				<input type="hidden" name="id" value={u.id} />
-				<label class="linea">
-					<span>New password (min. {data.minimo})</span>
-					<input
-						name="clave"
-						type="text"
-						autocomplete="off"
-						minlength={data.minimo}
-						required
-						data-con-gestor
-					/>
-				</label>
-				<button class="boton">Reset</button>
-			</form>
-
-			<form
-				method="POST"
-				action="?/retirar"
-				use:enhance
-				onsubmit={(e) => {
-					if (!confirm(`Remove user ${u.usuario}?`)) e.preventDefault();
-				}}
-			>
-				<input type="hidden" name="id" value={u.id} />
-				<button class="boton peligro">Remove</button>
-			</form>
-		</div>
-	</section>
-{/each}
 
 <style>
 	.cabecera {

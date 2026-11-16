@@ -78,8 +78,18 @@ func Lanzar(ctx context.Context, d *docker.Cliente, p Pedido) (string, error) {
 	if err := d.AsegurarImagen(ctx, p.Imagen); err != nil {
 		return "", err
 	}
+	id, err := d.Crear(ctx, nombre, ConfigAuxiliar(p))
+	if err != nil {
+		return "", err
+	}
+	return id, d.Arrancar(ctx, id)
+}
+
+// ConfigAuxiliar es el contenedor que aplica una versión: el actualizador de la
+// versión con el socket de Docker y la carpeta del nodo, sin capacidades.
+func ConfigAuxiliar(p Pedido) map[string]any {
 	version, _ := json.Marshal(p.Firmada)
-	id, err := d.Crear(ctx, nombre, map[string]any{
+	return map[string]any{
 		"Image": p.Imagen,
 		"Cmd":   []string{"aplicar"},
 		"Env": []string{
@@ -105,11 +115,7 @@ func Lanzar(ctx context.Context, d *docker.Cliente, p Pedido) (string, error) {
 			"RestartPolicy": map[string]string{"Name": "no"},
 			"LogConfig":     docker.RegistrosAcotados(),
 		},
-	})
-	if err != nil {
-		return "", err
 	}
-	return id, d.Arrancar(ctx, id)
 }
 
 // Informe es a quién y cómo informa el auxiliar del resultado.

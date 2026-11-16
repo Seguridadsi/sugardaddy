@@ -35,6 +35,7 @@ import {
 	type Confianza,
 	type Firma
 } from './confianza.ts';
+import type { RevocacionFirmada } from './revocacion.ts';
 
 /* Las claves nuevas que firman además en `firmas` (docs/diseno/claves-y-catalogo.md). */
 type Extra = readonly { privada: string; publica: string }[];
@@ -53,7 +54,17 @@ export type Licencia = {
 	/* Marcador por cliente (marca de agua): delata de quién salió una copia. */
 	marca: string;
 	emitida: string;
+	/*
+	 * Hasta cuándo se pueden desplegar o cambiar trampas de pago con ella. Pasada, las
+	 * desplegadas siguen funcionando hasta funcionaHasta.
+	 */
 	caduca: string;
+	/*
+	 * Hasta cuándo funcionan las trampas de pago ya desplegadas (DORA art. 30.3.f, B-06). Va
+	 * firmado, así que nadie lo alarga desde la máquina; nunca antes de caduca. Sin él (las
+	 * licencias de antes y las de registro), caduca vale para las dos cosas.
+	 */
+	funcionaHasta?: string;
 };
 
 /* Autoriza a la clave de un MSP a firmar licencias de esos módulos hasta esa fecha. */
@@ -78,6 +89,12 @@ export type LicenciaFirmada = {
 	firma: string;
 	firmas?: Firma[];
 	delegacion?: DelegacionFirmada;
+	/*
+	 * Las revocaciones que la consola pasa junto a la licencia en el fichero que se monta en
+	 * cada trampa (revocacion.ts). Cada una va firmada aparte; no forman parte de lo firmado
+	 * de la licencia. Las trampas anteriores lo ignoran.
+	 */
+	revocaciones?: RevocacionFirmada[];
 };
 
 const ID = /^[a-z0-9][a-z0-9-]{0,62}$/;
@@ -202,8 +219,37 @@ export function motivoLicencia(x: unknown): string | null {
 		return 'malformed brand';
 	if (!fechaValida(l.emitida)) return 'malformed issue date';
 	if (!fechaValida(l.caduca)) return 'malformed expiry date';
+	if (
+		l.funcionaHasta !== undefined &&
+		(!fechaValida(l.funcionaHasta) || Date.parse(l.funcionaHasta) < Date.parse(l.caduca))
+	)
+		return 'malformed run-until date';
 	return null;
 }
+
+/* Lo que se da de serie entre caduca y funcionaHasta (herramientas/emitir-licencia.ts). */
+export const FUNCIONA_HASTA_MESES = 6;
+
+/* caduca + FUNCIONA_HASTA_MESES meses, a la misma hora. */
+export function funcionaHastaDeSerie(caduca: Date): Date {
+	const d = new Date(caduca.getTime());
+	d.setUTCMonth(d.getUTCMonth() + FUNCIONA_HASTA_MESES);
+	return d;
+}
+
+/*
+ * Hasta cuándo funcionan las trampas de pago ya desplegadas con esta licencia:
+ * funcionaHasta, o caduca si no lo lleva.
+ */
+export const funcionaHastaDe = (l: Licencia): string => l.funcionaHasta ?? l.caduca;
+
+/*
+ * Si una licencia AUTÉNTICA (verificada sin reloj) deja funcionar ahora las trampas de pago
+ * ya desplegadas: lo mismo que comprueba cada trampa al arrancar
+ * (modulos/comun/licencia, VerificarArranque), menos la revocación.
+ */
+export const licenciaFunciona = (l: Licencia, ahora: number = Date.now()): boolean =>
+	Date.parse(funcionaHastaDe(l)) >= ahora;
 
 /*
  * Verifica firma, forma y que no esté caducada. No comprueba el módulo ni el

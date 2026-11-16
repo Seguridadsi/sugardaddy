@@ -10,8 +10,11 @@ import {
 	trampasDeFabrica
 } from '$lib/server/identidad';
 import { exigir } from '$lib/server/auth/permisos';
-import { COOKIE_SESION } from '$lib/server/auth/sesion';
-import { loginLocalHabilitado } from '$lib/server/auth/local';
+import { sesionActual } from '$lib/server/auth/sesion';
+import { listar as usuariosLocales, loginLocalHabilitado } from '$lib/server/auth/local';
+import { estadoExigencia, fijarExigido, resumenPorUsuario } from '$lib/server/auth/segundo-factor';
+import { estadoOidc, guardarOidc, quitarOidc } from '$lib/server/auth/oidc-propio';
+import { ROLES } from '$lib/server/auth/permisos';
 import { configuradoEnEntorno } from '$lib/server/auth/entra';
 import { equipoB2B, estadoB2B, retirarB2B } from '$lib/server/auth/b2b';
 import {
@@ -45,6 +48,8 @@ import {
 	guardarAutoActualizar,
 	guardarBuscarActualizaciones,
 	guardarComparticion,
+	guardarLatidoMinimo,
+	latidoMinimo,
 	falloWebhook,
 	guardarWebhook,
 	secretoWebhook,
@@ -65,12 +70,16 @@ import { db, schema as s } from '$lib/server/db';
 import {
 	aceptar,
 	cerrarYa,
+	fijarPosturaSoporte,
 	horasValidas,
+	plazosDe,
 	porCaducar,
+	posturaSoporte,
 	rechazar,
 	renovar as renovarSoporte,
 	soporte
 } from '$lib/server/soporte';
+import { aplicarPerfilBanca, estadoBanca, fijarSeparacion } from '$lib/server/banca';
 import {
 	estadoCodigoEmergencia,
 	llaves,
@@ -87,6 +96,15 @@ import {
 	validarDias
 } from '$lib/server/conservacion';
 import { estadoEspacio, estimacion } from '$lib/server/espacio';
+import { fechasLicencia } from '$lib/server/candado';
+import {
+	aprobacionActualizacion,
+	aprobarActualizacion,
+	esperaActual,
+	guardarPoliticaActualizacion,
+	politicaActualizacion
+} from '$lib/server/politica-actualizacion';
+import { datosDeRelease, politicaDelFormulario } from '$lib/politica-actualizacion';
 
 const DIA_MS = 86_400_000;
 
@@ -102,6 +120,8 @@ export const load = async ({ locals, url }) => {
 		gestionado: await gestionado(),
 		buscarActualizaciones: await buscarActualizaciones(),
 		autoActualizar: await autoActualizar(),
+		/* Las fechas de la licencia Cloud (B-06): desplegar hasta caduca, funcionar hasta funcionaHasta. */
+		licenciaCloud: await fechasLicencia(),
 		registro: (await puedeRegistrarse())
 			? {
 					...(await estadoRegistro()),
@@ -135,6 +155,17 @@ export const load = async ({ locals, url }) => {
 		canal: await estadoCanal(),
 		version: (await cabecera()).cliente.version,
 		actualizacion: { estado: a.estado, version: a.version, detalle: a.detalle },
+		/* La política de cambios y por qué espera la pendiente (docs/diseno/politica-cambios.md). */
+		politica: await politicaActualizacion(),
+		espera: await esperaActual(a),
+		aprobacion: await (async () => {
+			const ap = await aprobacionActualizacion();
+			return ap && ap.version === a.version ? ap : null;
+		})(),
+		pendienteFirmada: (() => {
+			const d = datosDeRelease(a.release?.release);
+			return d && d.version === a.version ? { publicada: d.publicada, urgente: d.urgente } : null;
+		})(),
 		/* La versión más nueva vista en el repo público (nodos sin panel que la buscan). */
 		disponible: (await actualizacionDisponible()).version,
 		/* Cuándo miró por última vez y qué vio (nodos sin panel). */
@@ -151,18 +182,42 @@ export const load = async ({ locals, url }) => {
 		})(),
 		...(await (async () => {
 			const sop = await soporte();
-			return { soporte: sop, soportePorCaducar: porCaducar(sop) };
+			const postura = await posturaSoporte();
+			return {
+				soporte: sop,
+				soportePorCaducar: porCaducar(sop, Date.now(), postura),
+				soportePostura: postura,
+				soportePlazos: plazosDe(postura)
+			};
 		})()),
+		/* El perfil bancario: la política de actualización, el soporte y las credenciales (banca.ts). */
+		banca: await estadoBanca(),
 		/* Cómo se entra hoy: el bloque de soporte cambia con ello. */
 		/* A quién dar rol en la aplicación propia: solo mientras se migra. */
 		equipoB2B: (await estadoB2B()) === 'activo' ? await equipoB2B() : [],
 		accesoModo: ((await configActiva())?.modo ?? 'local') as 'propio' | 'seguridadsi' | 'local',
 		comparticion: await comparticion(),
+		latidoMinimo: await latidoMinimo(),
 		palabras: await palabras(),
 		minimoPalabra: MINIMO_PALABRA,
 		conservacion: { ...cons, minimo: DIAS_MINIMO, maximo: DIAS_MAXIMO },
 		codigoEmergencia: await estadoCodigoEmergencia(),
 		recuperacionPanel: await recuperacionPanelActiva(),
+		/* Segundo factor de los usuarios locales: si se exige y cuántos aún no lo tienen. */
+		segundoFactor: await (async () => {
+			if (!loginLocalHabilitado()) return null;
+			const con = await resumenPorUsuario();
+			const todos = await usuariosLocales();
+			return {
+				...(await estadoExigencia()),
+				sinFactor: todos.filter((u) => !con.has(u.id)).map((u) => u.usuario)
+			};
+		})(),
+		oidc: {
+			estado: await estadoOidc(),
+			roles: ROLES,
+			retorno: `${url.origin}/auth/oidc/callback`
+		},
 		entra: {
 			propio: await estadoEntraPropio(),
 			seguridadsi: configuradoEnEntorno(),
@@ -179,7 +234,7 @@ export const load = async ({ locals, url }) => {
 
 /* «30 days», «7 days», «8 hours». */
 const plazoEnTexto = (horas: number) =>
-	horas % 24 === 0 ? `${horas / 24} days` : `${horas} hours`;
+	horas % 24 === 0 ? `${horas / 24} days` : horas === 1 ? '1 hour' : `${horas} hours`;
 
 export const actions = {
 	buscarActualizaciones: async ({ request, locals }) => {
@@ -271,6 +326,33 @@ export const actions = {
 				r.version && r.version !== actual
 					? `Version ${r.version} is published.`
 					: 'This node is on the latest published version.'
+		};
+	},
+	politicaActualizacion: async ({ request, locals }) => {
+		const u = exigir(locals, 'ajustes');
+		const f = await request.formData();
+		const p =
+			f.get('preset') === 'banca'
+				? { modo: 'manual' as const, retardoHoras: 72 }
+				: politicaDelFormulario(f.get('modo'), f.get('retardo'));
+		if (!p)
+			return fail(400, {
+				error: 'Choose automatic or manual approval and a delay between 0 and 720 hours.'
+			});
+		const cambiada = await guardarPoliticaActualizacion(u.correo, p);
+		return { mensaje: cambiada ? 'Update policy saved.' : 'The update policy has not changed.' };
+	},
+	aprobarActualizacion: async ({ request, locals }) => {
+		const u = exigir(locals, 'ajustes');
+		const version = String((await request.formData()).get('version') ?? '');
+		const r = await aprobarActualizacion(u.correo, version, await actualizacion());
+		if (r === 'no-pendiente')
+			return fail(409, { error: 'That version is no longer the one waiting to be installed.' });
+		return {
+			mensaje:
+				r === 'ya-aprobada'
+					? `Version ${version} was already approved.`
+					: `Version ${version} approved. The updater installs it when the update policy allows.`
 		};
 	},
 	autoActualizar: async ({ request, locals }) => {
@@ -403,6 +485,50 @@ export const actions = {
 		await cortar(u.correo);
 		return { mensaje: 'Channel cut. Central no longer receives anything from this node.' };
 	},
+	/* Exigir (o no) el segundo factor a los usuarios locales. */
+	segundoFactor: async ({ locals, request }) => {
+		const u = exigir(locals, 'ajustes');
+		const exigirlo = String((await request.formData()).get('exigir') ?? '') === 'si';
+		await fijarExigido(u.correo, exigirlo);
+		return {
+			mensaje: exigirlo
+				? 'Two-factor authentication is now required. Users without it set it up on their next sign-in.'
+				: 'Two-factor authentication is now optional. Users who already have it keep using it.'
+		};
+	},
+	/*
+	 * Guarda el OIDC propio, pendiente. No se va directo al proveedor: la CSP
+	 * (form-action) no deja que un formulario acabe en otro dominio. La prueba es
+	 * un enlace (Ajustes → «Test»).
+	 */
+	oidcGuardar: async ({ locals, request }) => {
+		const u = exigir(locals, 'ajustes');
+		const f = await request.formData();
+		const datos = {
+			emisor: String(f.get('emisor') ?? ''),
+			clientId: String(f.get('clientId') ?? ''),
+			secreto: String(f.get('secreto') ?? ''),
+			nombre: String(f.get('nombre') ?? ''),
+			alcances: String(f.get('alcances') ?? ''),
+			claim: String(f.get('claim') ?? ''),
+			roles: Object.fromEntries(ROLES.map((r) => [r, String(f.get(`rol-${r}`) ?? '')])),
+			exigirMfa: f.get('exigirMfa') === 'si',
+			acr: String(f.get('acr') ?? '')
+		};
+		const r = await guardarOidc(u.correo, datos);
+		if (!r.ok) {
+			const { secreto, ...valores } = datos;
+			void secreto;
+			return fail(400, { oidcError: r.error, oidcValores: valores });
+		}
+		redirect(303, '/settings?tab=access&oidc=guardado#oidc');
+	},
+	oidcQuitar: async ({ locals }) => {
+		const u = exigir(locals, 'ajustes');
+		const r = await quitarOidc(u.correo);
+		if (!r.ok) return fail(400, { oidcError: r.error });
+		redirect(303, '/settings?tab=access#oidc');
+	},
 	/* Guarda el Entra propio, pendiente, y se va a probarlo con Microsoft. */
 	entraGuardar: async ({ locals, request }) => {
 		const u = exigir(locals, 'ajustes');
@@ -410,38 +536,42 @@ export const actions = {
 		const datos = {
 			tenant: String(f.get('tenant') ?? ''),
 			clientId: String(f.get('clientId') ?? ''),
-			secreto: String(f.get('secreto') ?? '')
+			secreto: String(f.get('secreto') ?? ''),
+			exigirMfa: f.get('exigirMfa') === 'si',
+			confirmarSinMfa: f.get('confirmarSinMfa') === 'si',
+			contextoAuth: String(f.get('contextoAuth') ?? '')
 		};
 		const r = await guardarEntraPropio(u.correo, datos);
 		if (!r.ok)
 			return fail(400, {
 				entraError: r.error,
-				entraValores: { tenant: datos.tenant, clientId: datos.clientId }
+				entraValores: {
+					tenant: datos.tenant,
+					clientId: datos.clientId,
+					exigirMfa: datos.exigirMfa,
+					contextoAuth: datos.contextoAuth
+				}
 			});
 		redirect(303, '/auth/login?probar=1');
 	},
-	entraQuitar: async ({ locals }) => {
+	entraQuitar: async ({ locals, cookies }) => {
 		const u = exigir(locals, 'ajustes');
-		const r = await quitarEntraPropio(u.correo);
+		const r = await quitarEntraPropio(u.correo, sesionActual(cookies));
 		if (!r.ok) return fail(400, { entraError: r.error });
 		redirect(303, '/settings#entra');
 	},
 	/* Último paso de la migración: la consola deja de aceptar el Entra de SeguridadSI. */
 	retirarB2B: async ({ locals, cookies }) => {
 		const u = exigir(locals, 'ajustes');
-		const r = await retirarB2B(
-			u.correo,
-			cookies.get(COOKIE_SESION) ?? null,
-			await estadoEntraPropio()
-		);
+		const r = await retirarB2B(u.correo, sesionActual(cookies), await estadoEntraPropio());
 		return r.ok
 			? { mensaje: `Done: only your own Entra ID signs in now. ${await operador()} has been told.` }
 			: fail(400, { migrarError: r.error });
 	},
 	/* El código se enseña solo en esta respuesta: no se guarda en claro en ningún sitio. */
-	codigoEmergencia: async ({ locals }) => {
+	codigoEmergencia: async ({ locals, cookies }) => {
 		const u = exigir(locals, 'ajustes');
-		return { codigoEmergencia: await nuevoCodigoEmergencia(u.correo) };
+		return { codigoEmergencia: await nuevoCodigoEmergencia(u.correo, sesionActual(cookies)) };
 	},
 	/* SUP-12: que SeguridadSI pueda mandar un código de recuperación desde su panel. */
 	recuperacionPanel: async ({ request, locals }) => {
@@ -464,15 +594,59 @@ export const actions = {
 		});
 		return { mensaje: 'Sharing settings saved.' };
 	},
-	retirarLlave: async ({ locals, request }) => {
+	/* Latido mínimo: solo lo de la licencia y las actualizaciones (canal.ts). */
+	latidoMinimo: async ({ request, locals }) => {
 		const u = exigir(locals, 'ajustes');
-		const ok = await retirarLlave(u.correo, String((await request.formData()).get('id')));
+		const activo = (await request.formData()).get('minimo') === 'on';
+		await guardarLatidoMinimo(u.correo, activo);
+		return {
+			mensaje: activo
+				? 'Minimal heartbeat on: Central only gets what licensing and updates need.'
+				: 'Minimal heartbeat off: Central gets the full heartbeat again.'
+		};
+	},
+	retirarLlave: async ({ locals, request, cookies }) => {
+		const u = exigir(locals, 'ajustes');
+		const ok = await retirarLlave(
+			u.correo,
+			String((await request.formData()).get('id')),
+			sesionActual(cookies)
+		);
 		return ok ? { mensaje: 'Key removed.' } : fail(404, { error: 'That key does not exist.' });
+	},
+	perfilBanca: async ({ locals }) => {
+		const u = exigir(locals, 'ajustes');
+		const cambios = await aplicarPerfilBanca(u.correo);
+		return {
+			mensaje: cambios.length
+				? `Banking profile applied: ${cambios.join(', ')}.`
+				: 'The banking profile was already in place.'
+		};
+	},
+	separacionCredenciales: async ({ locals, request }) => {
+		const u = exigir(locals, 'ajustes');
+		const activa = (await request.formData()).get('activa') === 'si';
+		await fijarSeparacion(u.correo, activa);
+		return {
+			mensaje: activa
+				? 'Administrators can no longer reveal captured credentials.'
+				: 'Administrators who also have the credential viewer role can reveal credentials again.'
+		};
+	},
+	posturaSoporte: async ({ locals, request }) => {
+		const u = exigir(locals, 'ajustes');
+		const banca = (await request.formData()).get('postura') === 'banca';
+		await fijarPosturaSoporte(u.correo, banca ? 'banca' : 'estandar');
+		return {
+			mensaje: banca
+				? 'Support access is now just-in-time: each request approved separately, 4 hours at most.'
+				: 'Support access is back to the standard policy: up to 30 days, renewable.'
+		};
 	},
 	soporteAceptar: async ({ locals, request }) => {
 		const u = exigir(locals, 'ajustes');
 		const f = await request.formData();
-		const horas = horasValidas(f.get('horas'));
+		const horas = horasValidas(f.get('horas'), await posturaSoporte());
 		const rol = f.get('rol') === 'operador' ? 'operador' : 'lector';
 		const rolNombre = rol === 'operador' ? 'operator' : 'viewer';
 		return (await aceptar(u.correo, horas, rol))
@@ -481,6 +655,10 @@ export const actions = {
 	},
 	soporteRenovar: async ({ locals, request }) => {
 		const u = exigir(locals, 'ajustes');
+		if ((await posturaSoporte()) === 'banca')
+			return fail(400, {
+				error: `Just-in-time support access cannot be renewed: ${await operador()} has to request it again.`
+			});
 		const horas = horasValidas((await request.formData()).get('horas'));
 		return (await renovarSoporte(u.correo, horas))
 			? { mensaje: `Support access renewed for ${plazoEnTexto(horas)} from now.` }

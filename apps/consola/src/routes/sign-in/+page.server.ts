@@ -1,14 +1,12 @@
 import { Freno, claveIp } from '$lib/server/auth/freno';
 import { fail, redirect } from '@sveltejs/kit';
 import { volverSeguro } from '@sugardaddy/entra';
+import { descubrir } from '@sugardaddy/entra/oidc';
 import { configActiva } from '$lib/server/auth/entra-propio';
-import {
-	COOKIE_CAMBIO,
-	abrirRetoCambio,
-	loginLocalHabilitado,
-	verificar
-} from '$lib/server/auth/local';
-import { INACTIVIDAD_MS, MAXIMO_MS, abrir } from '$lib/server/auth/sesion';
+import { oidcActivo } from '$lib/server/auth/oidc-propio';
+import { loginLocalHabilitado, verificar } from '$lib/server/auth/local';
+import { despuesDeLaClave } from '$lib/server/auth/segundo-factor';
+import { INACTIVIDAD_MS, MAXIMO_MS } from '$lib/server/auth/sesion';
 import { auditar } from '$lib/server/consultas';
 
 const MENSAJES: Record<string, string> = {
@@ -23,16 +21,44 @@ const MENSAJES: Record<string, string> = {
 		'Your account is in too many groups to check access. Contact your support provider.',
 	sin_correo: 'Your account has no email address.',
 	sin_oid: 'The Microsoft token does not identify your account.',
+	sin_mfa:
+		'This console requires multi-factor authentication, and Microsoft did not report it for this sign-in. Ask your administrator to require MFA for the Sugardaddy application with Conditional Access (an authentication context set in Settings).',
+	desactivada:
+		'Your account is disabled because it was not used for a long time, or an administrator disabled it. Ask an administrator of this console to enable it in Settings → Access review.',
 	soporte_cerrado:
 		'Support access to this console is not open. The customer opens it from Settings when you request it.',
 	soporte_otro:
-		'This support account cannot sign in: it must be the person who requested access, invited from their own organization.'
+		'This support account cannot sign in: it must be the person who requested access, invited from their own organization.',
+	idp: 'Your identity provider cannot be reached right now. Try again, or use another way to sign in.',
+	idp_rechazado: 'Your identity provider did not allow the sign-in.',
+	idp_canje: 'Your identity could not be verified with your identity provider. Try again.',
+	idp_sin_oid: 'Your identity provider did not identify your account.',
+	idp_sin_mfa:
+		'This console requires multi-factor authentication, and your identity provider did not report it for this sign-in. Ask your administrator to require MFA for the Sugardaddy application in your identity provider.'
 };
+
+/* Tras salir de una sesión de OIDC: el enlace para salir también del proveedor (si publica uno). */
+async function salidaDelProveedor() {
+	const c = await oidcActivo();
+	if (!c) return null;
+	try {
+		const d = await descubrir(c.config.emisor);
+		if (!d.end_session_endpoint) return null;
+		const u = new URL(d.end_session_endpoint);
+		u.searchParams.set('client_id', c.config.clientId);
+		return { url: u.toString(), nombre: c.guardado.nombre };
+	} catch {
+		return null;
+	}
+}
 
 export const load = async ({ url, locals }) => {
 	if (locals.usuario) redirect(303, '/');
+	const oidc = await oidcActivo();
 	return {
 		configurado: !!(await configActiva()),
+		oidc: oidc ? { nombre: oidc.guardado.nombre } : null,
+		salidaProveedor: url.searchParams.get('salida') === 'oidc' ? await salidaDelProveedor() : null,
 		local: loginLocalHabilitado(),
 		volverA: url.searchParams.get('volverA') ?? '/',
 		error: MENSAJES[url.searchParams.get('error') ?? ''] ?? null,
@@ -57,7 +83,7 @@ function ipDe(getClientAddress: () => string): string | null {
 
 export const actions = {
 	/* Entrada con usuario y contraseña del nodo (login local). */
-	local: async ({ request, cookies, url, locals, getClientAddress }) => {
+	local: async ({ request, cookies, locals, getClientAddress }) => {
 		if (locals.usuario) redirect(303, '/');
 		if (!loginLocalHabilitado())
 			return fail(403, {
@@ -89,21 +115,11 @@ export const actions = {
 			return fail(401, { error: 'Incorrect username or password.', usuario });
 		}
 
-		/* Contraseña de un solo uso o sin correo de recuperación: no se abre sesión
-		 * hasta que lo arregle en /sign-in/change. */
-		if (r.debeCambiar || r.pideCorreo) {
-			cookies.set(COOKIE_CAMBIO, abrirRetoCambio(r.id), {
-				path: '/sign-in',
-				httpOnly: true,
-				sameSite: 'lax',
-				secure: url.protocol === 'https:',
-				maxAge: 600
-			});
-			redirect(303, `/sign-in/change?volverA=${encodeURIComponent(volverA)}`);
-		}
-
-		await abrir(cookies, r.identidad, url.protocol === 'https:');
-		await auditar(r.identidad.correo, 'local sign-in', { roles: r.identidad.roles });
-		redirect(303, volverA);
+		/*
+		 * La sesión no se abre todavía: antes, el segundo factor (o su alta, si se
+		 * exige y no tiene ninguno) y lo que le falte (contraseña de un solo uso,
+		 * correo de recuperación) en /sign-in/change. Ver segundo-factor.ts.
+		 */
+		redirect(303, await despuesDeLaClave(cookies, r.id, r.identidad, volverA));
 	}
 };

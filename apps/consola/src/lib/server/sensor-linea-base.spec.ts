@@ -118,7 +118,10 @@ describe.skipIf(!hayBase)(
 				.from(s.cuarentena)
 				.where(eq(s.cuarentena.hash, hashEvento(veneno)));
 			expect(c.motivo).toMatch(/^could not be processed: /);
-			expect(c.linea).toBe(veneno);
+			/* Tal cual llegó: el `token` de una baliza es nuestro y no se tapa (B-09). */
+			const guardada = JSON.parse(c.linea);
+			expect(guardada).toEqual(JSON.parse(veneno));
+			expect(guardada.detalle.token).toBe(VENENO);
 			/* La cadena sigue: el sensor avanza y no ve ninguna ruptura. */
 			const [f] = await db.select().from(s.sensores).where(eq(s.sensores.id, SENSOR));
 			expect(f.ultimoHash).toBe(hashEvento(despues));

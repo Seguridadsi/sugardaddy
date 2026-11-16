@@ -439,9 +439,18 @@ done
 sd_proxy_env "$DIR/.env"
 sd_proxy_guion "$DIR"
 grep -q '^CLAVE_SECRETOS=.' "$DIR/.env" || echo "CLAVE_SECRETOS=$(openssl rand -hex 32)" >> "$DIR/.env"
-if [[ ! -f "$DIR/clave-copias" ]]; then
-	(umask 077 && openssl rand -base64 48 > "$DIR/clave-copias")
-	echo "Backup key in $DIR/clave-copias: also store it outside this machine."
+# Las copias van cifradas con age a una clave pública (copia.sh). Quien instala
+# puede dar la suya (SUGARDADDY_COPIAS_CLAVE=age1…, varias separadas por comas):
+# así el nodo cifra sus copias sin poder leerlas. Si no, copia.sh crea un par
+# más abajo. La clave-copias de antes (copias .tar.enc) se queda si ya estaba.
+if [[ -n "${SUGARDADDY_COPIAS_CLAVE:-}" ]]; then
+	PASO="set the backup key"
+	claves="$(printf '%s' "$SUGARDADDY_COPIAS_CLAVE" | tr ', ' '\n\n' | sed '/^$/d')"
+	while IFS= read -r c; do
+		[[ "$c" =~ ^age1[02-9ac-hj-np-z]{58}$ ]] || { echo "Sugardaddy: SUGARDADDY_COPIAS_CLAVE must be age public keys (age1…), separated by commas. \"$c\" is not one." >&2; exit 1; }
+	done <<< "$claves"
+	printf '%s\n' "$claves" > "$DIR/clave-copias.pub"
+	chmod 644 "$DIR/clave-copias.pub"
 fi
 
 cd "$DIR"
@@ -638,6 +647,67 @@ echo "Node running. Console at $URL"
 echo "Until you choose who can open it, the console only answers this machine's network${RED_DETECTADA:+ ($RED_DETECTADA)} and the address you installed from."
 echo "If you ever lock yourself out, run this on this machine: sudo touch $DIR/abrir-consola (it opens the console to everyone for 24 hours)"
 
+# Copias de seguridad cada noche, encendidas por defecto (plan de fortificación
+# §8.2): con systemd, un temporizador; sin él, cron. SUGARDADDY_COPIAS=0 las
+# apaga (y quita lo que hubiera). Nada de esto para la instalación: si falla, se
+# avisa y el nodo sigue.
+PASO="schedule the backups"
+CLAVE_COPIAS_NUEVA=""
+if [[ "${SUGARDADDY_COPIAS:-1}" == 0 || "${SUGARDADDY_COPIAS:-1}" == no ]]; then
+	if [[ -d /run/systemd/system ]] && command -v systemctl >/dev/null; then
+		systemctl disable --now sugardaddy-copias.timer >/dev/null 2>&1 || true
+		rm -f /etc/systemd/system/sugardaddy-copias.timer /etc/systemd/system/sugardaddy-copias.service
+		systemctl daemon-reload || true
+	fi
+	rm -f /etc/cron.d/sugardaddy-copias
+	echo "Nightly backups are OFF (SUGARDADDY_COPIAS=$SUGARDADDY_COPIAS): run $DIR/copia.sh yourself."
+else
+	[[ -s clave-copias.pub ]] || CLAVE_COPIAS_NUEVA=1
+	if ! ./copia.sh --preparar >/dev/null; then
+		CLAVE_COPIAS_NUEVA=""
+		echo "WARNING: could not prepare the backup key; the nightly backup will try again."
+	fi
+	if [[ -d /run/systemd/system ]] && command -v systemctl >/dev/null; then
+		cat > /etc/systemd/system/sugardaddy-copias.service <<UNIDAD
+# Copia de seguridad del nodo de Sugardaddy (copia.sh). La programa instalar.sh.
+[Unit]
+Description=Sugardaddy node backup
+Wants=docker.service
+After=docker.service
+[Service]
+Type=oneshot
+ExecStart="$DIR/copia.sh"
+Nice=10
+IOSchedulingClass=idle
+UNIDAD
+		cat > /etc/systemd/system/sugardaddy-copias.timer <<UNIDAD
+[Unit]
+Description=Sugardaddy node backup, every night
+[Timer]
+OnCalendar=*-*-* 03:15:00
+# Si la máquina estaba apagada a esa hora, en cuanto arranca.
+Persistent=true
+RandomizedDelaySec=30min
+[Install]
+WantedBy=timers.target
+UNIDAD
+		systemctl daemon-reload
+		if systemctl enable --now sugardaddy-copias.timer >/dev/null 2>&1; then
+			rm -f /etc/cron.d/sugardaddy-copias
+			echo "Nightly backups ON: $DIR/copias (systemctl list-timers sugardaddy-copias)"
+		else
+			echo "WARNING: could not schedule the nightly backups; run $DIR/copia.sh from your scheduler."
+		fi
+	elif [[ -d /etc/cron.d ]]; then
+		printf '# Copia de seguridad del nodo de Sugardaddy. La programa instalar.sh.\nSHELL=/bin/bash\n15 3 * * * root "%s/copia.sh" >> "%s/copias/copia.log" 2>&1\n' "$DIR" "$DIR" > /etc/cron.d/sugardaddy-copias
+		chmod 644 /etc/cron.d/sugardaddy-copias
+		mkdir -p copias
+		echo "Nightly backups ON: $DIR/copias (/etc/cron.d/sugardaddy-copias)"
+	else
+		echo "WARNING: this machine has neither systemd nor cron: run $DIR/copia.sh every night from your scheduler."
+	fi
+fi
+
 # Lo que el cliente tiene que guardar, junto y una sola vez: la contraseña del
 # primer administrador (si el nodo la acaba de crear, sale en el registro de la
 # consola) y el código de emergencia (solo se crea si el nodo aún no tiene uno:
@@ -646,7 +716,7 @@ PASO="create the emergency code"
 CLAVE_ADMIN="$(docker compose --env-file .env --env-file versiones.env logs --no-log-prefix consola 2>/dev/null \
 	| sed -n -E 's/^  (Contraseña|Password):  //p' | tail -1 || true)"
 CODIGO_EMERGENCIA="$(docker compose --env-file .env --env-file versiones.env exec -T consola node scripts/codigo-emergencia.mjs --si-no-hay)"
-if [[ -n "$CLAVE_ADMIN" || -n "$CODIGO_EMERGENCIA" ]]; then
+if [[ -n "$CLAVE_ADMIN" || -n "$CODIGO_EMERGENCIA" || -n "$CLAVE_COPIAS_NUEVA" ]]; then
 	barra="$(printf '=%.0s' {1..64})"
 	echo
 	echo "$barra"
@@ -662,6 +732,13 @@ if [[ -n "$CLAVE_ADMIN" || -n "$CODIGO_EMERGENCIA" ]]; then
 		echo "  To sign in as administrator if you lose the password and"
 		echo "  email does not arrive: $URL/emergencia"
 		echo "  It works once; when you use it, the console gives you a new one."
+	fi
+	if [[ -n "$CLAVE_COPIAS_NUEVA" ]]; then
+		[[ -n "$CLAVE_ADMIN" || -n "$CODIGO_EMERGENCIA" ]] && echo
+		echo "  Backup key:            $DIR/clave-copias.age"
+		echo "  Copy this file off the machine: without it the backups cannot be"
+		echo "  restored. Once copied, you can delete it here so this machine"
+		echo "  cannot read its own backups (it only needs clave-copias.pub)."
 	fi
 	echo "$barra"
 fi

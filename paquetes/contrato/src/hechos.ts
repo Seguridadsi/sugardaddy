@@ -72,6 +72,14 @@ export const HECHOS: Record<string, { tipo: TipoHecho; fuentes: FuenteHecho[] }>
 	 */
 	'disco.trampas': { tipo: 'booleano', fuentes: ['sensor'] },
 	/*
+	 * El disco de datos del appliance (docs/diseno/disco-cifrado.md): si está
+	 * cifrado con LUKS2 y si su clave está sellada al TPM 2.0. Lo mide el script
+	 * «disco» del appliance y lo pasa por el sensor; en false, el motivo
+	 * (tpm.ausente, disco.pequeno…). Un nodo instalado a mano no lo informa.
+	 */
+	'disco.cifrado': { tipo: 'booleano', fuentes: ['sensor'] },
+	'disco.tpm': { tipo: 'booleano', fuentes: ['sensor'] },
+	/*
 	 * La sección red (docs/diseno/red.md): si la máquina puede dar a una
 	 * trampa su propia IP en el segmento del cliente (macvlan sobre interfaz
 	 * física por cable o VLAN). Wi-Fi y nube lo informan en false, con su
@@ -158,6 +166,8 @@ export const NOMBRE_HECHO: Readonly<Record<string, string>> = Object.freeze({
 	'motor.aislamiento': 'Honeypot isolation',
 	'red.ipOrigenReal': 'Honeypots see the real IP',
 	'disco.trampas': 'Each honeypot has its own fixed-size disk',
+	'disco.cifrado': 'Data disk encrypted (LUKS2)',
+	'disco.tpm': 'Data disk key sealed in the TPM',
 	'red.capa2': 'Can give a honeypot its own IP',
 	'puertos.ocupados': 'Ports already in use',
 	'puertos.reservados': 'Reserved ports',

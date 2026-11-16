@@ -13,7 +13,7 @@ const fuente = readFileSync(join(import.meta.dirname, 'sensores-remotos.ts'), 'u
 
 describe('instalador del sensor remoto: el .env', () => {
 	it('se escribe acabado en salto de línea', () => {
-		expect(fuente).toContain("echo '${b64(entorno + '\\n')}' | base64 -d > .env");
+		expect(fuente).toContain("entorno: entorno + '\\n',");
 	});
 
 	/*

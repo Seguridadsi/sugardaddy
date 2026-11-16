@@ -37,8 +37,8 @@ procedencia:
   licencia: MIT AND BSD-3-Clause
 
 contenedor:
-  imagen: ghcr.io/seguridadsi/sugardaddy-registro-rdp:1.0.1-sd5@sha256:48f47e5e172cc3f1918d799542d4ac9e3efc89bef5eb4cf796bb188211825935
-  imagenPublica: ghcr.io/seguridadsi/sugardaddy-registro-rdp:1.0.1-sd5@sha256:48f47e5e172cc3f1918d799542d4ac9e3efc89bef5eb4cf796bb188211825935
+  imagen: ghcr.io/seguridadsi/sugardaddy-registro-rdp:1.0.1-sd6@sha256:7480f286110d3c5baba191d9521bbcf9a242f561b0c5a876aa528aa4cb1e35d5
+  imagenPublica: ghcr.io/seguridadsi/sugardaddy-registro-rdp:1.0.1-sd6@sha256:7480f286110d3c5baba191d9521bbcf9a242f561b0c5a876aa528aa4cb1e35d5
   puertos:
     - { interno: 3389, expuesto: '${puertoRdp}', protocolo: tcp }
   entorno:

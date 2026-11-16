@@ -19,6 +19,9 @@
 		guardado: string;
 		activadoPor?: string;
 		activado?: string;
+		exigirMfa: boolean;
+		modoMfa: 'exigida' | 'apagada' | 'heredada';
+		contextoAuth: string | null;
 	} | null;
 
 	let {
@@ -35,7 +38,7 @@
 		b2b: 'no' | 'activo' | 'retirado';
 		retorno: string;
 		error?: string;
-		valores?: { tenant: string; clientId: string };
+		valores?: { tenant: string; clientId: string; exigirMfa?: boolean; contextoAuth?: string };
 	} = $props();
 
 	const RESULTADO: Record<string, string> = {
@@ -51,11 +54,22 @@
 		'sin-admin':
 			'You signed in, but without the "admin" role. To enable it, the test must be done by someone with "admin".',
 		sin_correo: 'Your Microsoft account has no email address.',
-		sin_oid: 'The Microsoft token does not identify the account.'
+		sin_oid: 'The Microsoft token does not identify the account.',
+		'mfa-activada':
+			'MFA enforcement is on: from now on, Microsoft sign-ins without MFA are refused.',
+		contexto: 'The authentication context ID is c1 to c99.',
+		sin_mfa:
+			'You signed in, but the token does not show multi-factor authentication. Create an authentication context in Entra ID (Conditional Access > Authentication contexts, e.g. c1), a Conditional Access policy for it that requires MFA, and enter its ID below.'
 	};
+	let exigirMfa = $state(true);
+	$effect.pre(() => {
+		exigirMfa = valores?.exigirMfa ?? propio?.modoMfa !== 'apagada';
+	});
 	const resultado = $derived(page.url.searchParams.get('entra'));
 
 	const NOMBRES: Record<string, string> = {
+		credenciales:
+			'Credential viewer: reveals captured credentials (audited); add it to another role',
 		lector: 'Viewer: sees everything, changes nothing',
 		operador: 'Operator: deploys and stops honeypots',
 		aprobador: 'Approver: approves blocks',
@@ -126,7 +140,10 @@ echo "Client:    $APP"; echo "Secret:    $SECRETO"`);
 	</p>
 
 	{#if resultado && RESULTADO[resultado]}
-		<p class={resultado === 'activado' ? 'bien' : 'mal'} role="status">
+		<p
+			class={resultado === 'activado' || resultado === 'mfa-activada' ? 'bien' : 'mal'}
+			role="status"
+		>
 			{RESULTADO[resultado]}
 		</p>
 	{/if}
@@ -137,7 +154,43 @@ echo "Client:    $APP"; echo "Secret:    $SECRETO"`);
 			<code>{propio.clientId}</code>{#if propio.final}, secret ending in <code>{propio.final}</code
 				>{/if}. Tested by {propio.activadoPor} on
 			{fechaCorta(propio.activado ?? propio.guardado)}.
+			{#if propio.exigirMfa}
+				MFA required{#if propio.contextoAuth}
+					(authentication context <code>{propio.contextoAuth}</code>){/if}.
+			{/if}
 		</p>
+		{#if propio.modoMfa === 'heredada'}
+			<div class="aviso" id="entra-mfa">
+				<p>
+					<b>Your Microsoft sign-in does not require MFA.</b> This connection was set up before MFA was
+					enforced: sign-ins without MFA still get in, and each one is recorded in the audit log. In Entra
+					ID, create an authentication context (Conditional Access → Authentication contexts, e.g. c1)
+					and a Conditional Access policy that targets it and requires MFA. Then turn on enforcement:
+					you sign in once with Microsoft, and it is saved only if the token shows MFA.
+				</p>
+				<form method="GET" action="/auth/login" data-sveltekit-reload>
+					<input type="hidden" name="probar" value="1" />
+					<input type="hidden" name="activarMfa" value="1" />
+					<label class="campo">
+						<span>Authentication context ID (recommended)</span>
+						<input
+							name="contexto"
+							value={propio.contextoAuth ?? ''}
+							placeholder="c1"
+							autocomplete="off"
+							spellcheck="false"
+							pattern="[cC][1-9][0-9]?"
+						/>
+					</label>
+					<button class="boton principal">Turn on enforcement</button>
+				</form>
+			</div>
+		{:else if !propio.exigirMfa}
+			<p class="aviso">
+				<b>MFA from Microsoft is not required.</b> Anyone with a password and a role in the application
+				signs in.
+			</p>
+		{/if}
 		{#if !propio.legible}
 			<p class="mal">The saved secret cannot be read on this node: enter it again below.</p>
 		{/if}
@@ -216,6 +269,33 @@ echo "Client:    $APP"; echo "Secret:    $SECRETO"`);
 					required={!propio}
 				/>
 			</label>
+			<label class="campo">
+				<span>Conditional Access authentication context ID (recommended)</span>
+				<input
+					name="contextoAuth"
+					value={valores?.contextoAuth ?? propio?.contextoAuth ?? ''}
+					placeholder="c1"
+					autocomplete="off"
+					spellcheck="false"
+					pattern="[cC][1-9][0-9]?"
+				/>
+			</label>
+			<p class="ayuda">
+				In Entra ID, create an authentication context (Conditional Access → Authentication
+				contexts), and a Conditional Access policy that targets it and requires MFA. The console
+				asks Microsoft for it at every sign-in and only accepts tokens that show it was met.
+			</p>
+			<label class="marca">
+				<input type="checkbox" name="exigirMfa" value="si" bind:checked={exigirMfa} />
+				Require MFA from Microsoft (the token must show it)
+			</label>
+			{#if !exigirMfa}
+				<label class="marca aviso">
+					<input type="checkbox" name="confirmarSinMfa" value="si" required />
+					I confirm that this console will accept Microsoft sign-ins without MFA. This is recorded in
+					the audit log.
+				</label>
+			{/if}
 			<button class="boton principal">Save and test</button>
 		</form>
 	</details>
@@ -298,6 +378,14 @@ echo "Client:    $APP"; echo "Secret:    $SECRETO"`);
 
 	.campo {
 		margin: 14px 0 0;
+	}
+
+	.marca {
+		display: flex;
+		gap: 8px;
+		align-items: baseline;
+		margin-top: 12px;
+		font-size: 14px;
 	}
 
 	form .boton {

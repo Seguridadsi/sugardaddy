@@ -1,8 +1,13 @@
+import { avisoAnfitrion } from '$lib/server/anfitrion';
 import { actualizacionDisponible, autoActualizar, cabecera } from '$lib/server/consultas';
 import { gestionado } from '$lib/server/actualizaciones';
+import { actualizacion as actualizacionPendiente } from '$lib/server/canal';
+import { esperaActual } from '$lib/server/politica-actualizacion';
 import { hayGeo } from '$lib/server/geo';
-import { porCaducar, soporte } from '$lib/server/soporte';
+import { porCaducar, posturaSoporte, soporte } from '$lib/server/soporte';
+import { estadoRevision } from '$lib/server/revision-accesos';
 import { estadoB2B } from '$lib/server/auth/b2b';
+import { estadoEntraPropio } from '$lib/server/auth/entra-propio';
 import { estadoMarca, logo } from '$lib/server/canal';
 import { pentestActivo } from '$lib/server/pentest-activo';
 import { identidad } from '$lib/server/identidad';
@@ -79,10 +84,29 @@ export const load = async ({ locals, url, cookies }) =>
 				modoDesarrollo: locals.modoDesarrollo,
 				...(await (async () => {
 					const sop = await soporte();
-					return { soporte: sop, soportePorCaducar: porCaducar(sop) };
+					const postura = await posturaSoporte();
+					return {
+						soporte: sop,
+						soportePorCaducar: porCaducar(sop, Date.now(), postura),
+						soporteBanca: postura === 'banca'
+					};
 				})()),
+				/* La revisión trimestral de accesos, vencida: solo la ve quien la hace (revision-accesos.ts). */
+				revisionVencida:
+					puede(locals.usuario.roles, 'ajustes') &&
+					(await estadoRevision().then(
+						(e) => e.vencida,
+						() => false
+					)),
 				/* Aún entra por el Entra de SeguridadSI: se avisa a quien puede migrarlo (b2b.ts). */
 				b2b: puede(locals.usuario.roles, 'ajustes') ? await estadoB2B() : 'no',
+				/* Entra propio de antes de exigir MFA: se avisa hasta activarla (entra-propio.ts). */
+				entraSinMfa:
+					puede(locals.usuario.roles, 'ajustes') &&
+					(await estadoEntraPropio().then(
+						(e) => !!e?.activo && e.modoMfa === 'heredada',
+						() => false
+					)),
 				operador: await operador(),
 				logo: (await logo())?.huella.slice(0, 12) ?? null,
 				geo: hayGeo(),
@@ -90,6 +114,17 @@ export const load = async ({ locals, url, cookies }) =>
 				autoActualizar: await autoActualizar(),
 				gestionado: await gestionado(),
 				community: esCommunity(),
+				/* Docker por detrás de la versión firmada y el cortafuegos estricto que no queda (anfitrion.ts). */
+				anfitrion: puede(locals.usuario.roles, 'ajustes')
+					? await avisoAnfitrion().catch(() => null)
+					: null,
+				/* Una versión que espera su aprobación (política de cambios manual): solo la ve quien aprueba. */
+				versionPorAprobar: puede(locals.usuario.roles, 'ajustes')
+					? await (async () => {
+							const a = await actualizacionPendiente();
+							return (await esperaActual(a)).motivo === 'aprobacion' ? a.version : null;
+						})()
+					: null,
 				pentest: await pentestActivo(),
 				/* Solo esto: la semilla no sale del servidor. */
 				identidad: { decidido: (await identidad()).decidido },
@@ -111,7 +146,10 @@ export const load = async ({ locals, url, cookies }) =>
 				modoDesarrollo: false,
 				soporte: null,
 				soportePorCaducar: false,
+				soporteBanca: false,
+				revisionVencida: false,
 				b2b: 'no' as const,
+				entraSinMfa: false,
 				operador: OPERADOR_POR_DEFECTO,
 				logo: null,
 				geo: false,
@@ -119,6 +157,8 @@ export const load = async ({ locals, url, cookies }) =>
 				autoActualizar: { decidido: true, activo: false, correo: null, consentimiento: null },
 				gestionado: true,
 				community: false,
+				anfitrion: null,
+				versionPorAprobar: null,
 				pentest: null,
 				identidad: { decidido: true },
 				dominioSugerido: '',

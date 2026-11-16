@@ -61,6 +61,8 @@ export type EventoConsola = Evento & {
 	/* Lo pidió un escáner conocido: el id de su proveedor ($lib/escaner.ts). */
 	escaner?: string | null;
 	triaje?: Triaje | null;
+	/* Trae credenciales cifradas (en la línea van enmascaradas): se pueden revelar con permiso. */
+	credencial?: boolean;
 };
 const conAlerta = (f: {
 	linea: string;
@@ -68,6 +70,7 @@ const conAlerta = (f: {
 	alerta: string | null;
 	prueba: boolean;
 	escaner?: string | null;
+	credencial?: boolean;
 	triajeEstado?: EstadoTriaje | null;
 	triajeNota?: string | null;
 }): EventoConsola => ({
@@ -76,6 +79,7 @@ const conAlerta = (f: {
 	alerta: f.alerta,
 	prueba: f.prueba,
 	escaner: f.escaner ?? null,
+	credencial: f.credencial ?? false,
 	triaje: f.triajeEstado ? { estado: f.triajeEstado, nota: f.triajeNota ?? null } : null
 });
 /*
@@ -89,7 +93,9 @@ const COLUMNAS = {
 	severidad: s.eventos.severidad,
 	alerta: s.eventos.alerta,
 	prueba: s.eventos.prueba,
-	escaner: s.eventos.escaner
+	escaner: s.eventos.escaner,
+	/* Solo si trae credenciales que revelar: el sobre no sale de la base. */
+	credencial: sql<boolean>`(${s.eventos.credencial} is not null and ${s.eventos.credencial} <> '')`
 };
 /* Las columnas de triaje, solo para las consultas que unen la tabla `triaje`. */
 const COLUMNAS_TRIAJE = { triajeEstado: s.triaje.estado, triajeNota: s.triaje.nota };
@@ -145,7 +151,8 @@ const sinComodines = (t: string) => t.replace(/[%_\\]/g, '\\$&');
 /*
  * El buscador libre de Events. Una IP o un prefijo CIDR busca por el ORIGEN del
  * evento (buscar-ip.ts), con su índice; cualquier otro texto, dentro de la línea
- * firmada (JSON): comando, usuario, URL, contraseña, crudo.
+ * firmada (JSON): comando, usuario, URL, crudo. Las credenciales no: en la línea
+ * van enmascaradas (una contraseña se busca por su huella en Captured passwords).
  */
 function condicionBusqueda(q: string | undefined) {
 	if (!q) return undefined;
@@ -583,7 +590,8 @@ export async function eventosPlanos(
 			accion: s.eventos.accion,
 			ip: s.eventos.ip,
 			usuario: s.eventos.usuario,
-			contrasena: s.eventos.contrasena,
+			/* Enmascarada: el CSV no saca credenciales (credenciales-protegidas.ts). */
+			contrasena: s.eventos.contrasenaMascara,
 			conexionEstablecida: s.eventos.conexionEstablecida,
 			alerta: s.eventos.alerta,
 			prueba: s.eventos.prueba,
@@ -946,6 +954,25 @@ export async function guardarComparticion(quien: string, valor: Comparticion) {
 }
 
 /*
+ * Latido mínimo (docs/seguridad/flujo-de-datos.md): con él, el latido al panel solo lleva lo
+ * que hace falta para la licencia y las actualizaciones (canal.ts, latido). Apagado de serie:
+ * las cifras sirven a SeguridadSI para ver un nodo caído o una trampa parada sin entrar.
+ */
+export const latidoMinimo = () => ajuste<boolean>('latido-minimo', false);
+
+export async function guardarLatidoMinimo(quien: string, activo: boolean) {
+	await db.transaction(async (tx) => {
+		await tx
+			.insert(s.ajustes)
+			.values({ clave: 'latido-minimo', valor: activo })
+			.onConflictDoUpdate({ target: s.ajustes.clave, set: { valor: activo } });
+		await tx
+			.insert(s.auditoria)
+			.values({ quien, accion: 'minimal heartbeat', detalle: { activo } });
+	});
+}
+
+/*
  * Aviso de versión nueva (solo nodos sin gestión; lo mueve lib/server/actualizaciones).
  * El interruptor lo ve la persona en Ajustes; por defecto, activado.
  */
@@ -1144,7 +1171,7 @@ export async function eventosParaWebhook(pos: WebhookPos, limite = 200) {
 export async function visita(id: string) {
 	const [fila] = await db.select().from(s.eventos).where(eq(s.eventos.id, id));
 	if (!fila) return null;
-	const e = conAlerta(fila);
+	const e = conAlerta({ ...fila, credencial: !!fila.credencial });
 	const h = honeycosas().find((x) => x.id === e.trampa.modulo);
 	const [t] = await db
 		.select({ via: s.trampas.via })

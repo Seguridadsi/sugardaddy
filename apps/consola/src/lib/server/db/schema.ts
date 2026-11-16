@@ -208,6 +208,32 @@ export const instaladoresSensor = pgTable('instaladores_sensor', {
 	creado: creado()
 });
 
+/*
+ * Certificados de cliente de los sensores remotos (docs/diseno/mtls-sensores.md).
+ * Los firma la CA de sensores de la consola; aquí solo queda lo público: la
+ * huella (sha256 del DER, en minúsculas, como la da Caddy), la serie y la
+ * vigencia. estado: actual (el que tiene que presentar), anterior (el de antes
+ * de una renovación, hasta que llega con el nuevo) o revocado.
+ */
+export const certificadosSensor = pgTable(
+	'certificados_sensor',
+	{
+		huella: text('huella').primaryKey(),
+		sensor: text('sensor')
+			.notNull()
+			.references(() => sensores.id, { onDelete: 'cascade' }),
+		serie: text('serie').notNull(),
+		estado: text('estado').notNull(),
+		desde: timestamp('desde', { withTimezone: true }).notNull(),
+		hasta: timestamp('hasta', { withTimezone: true }).notNull(),
+		/* La primera vez que llegó con él: desde entonces, sin él no entra. */
+		visto: timestamp('visto', { withTimezone: true }),
+		revocado: timestamp('revocado', { withTimezone: true }),
+		creado: creado()
+	},
+	(t) => [index('certificados_sensor_sensor').on(t.sensor, t.estado)]
+);
+
 export const COLOCACIONES = [
 	'por-colocar',
 	'colocada',
@@ -315,8 +341,23 @@ export const eventos = pgTable(
 		ip: text('ip'),
 		usuario: text('usuario'),
 		conexionEstablecida: boolean('conexion_establecida').notNull(),
-		/* La contraseña que probó el atacante, si la trampa tiene login (la dice su manifiesto). */
+		/*
+		 * ANTES de la 0063: la contraseña que probó el atacante, en claro. Ya no se
+		 * escribe: la 0063 la cifra (credenciales-protegidas.ts) y la deja en null. Se
+		 * queda la columna para volver atrás sin perder nada; se quitará más adelante.
+		 */
 		contrasena: text('contrasena'),
+		/*
+		 * Las credenciales del evento (la contraseña y los campos de credencial de su
+		 * detalle, que en la línea van enmascarados), en un sobre AES-256-GCM con una
+		 * clave derivada de CLAVE_SECRETOS y ligado a su hash. Solo se abre con el
+		 * permiso ver-credenciales, y queda en la auditoría.
+		 */
+		credencial: text('credencial'),
+		/* HMAC de la contraseña con otra clave derivada: agrupa y busca sin descifrar. */
+		contrasenaHuella: text('contrasena_huella'),
+		/* La contraseña enmascarada (P*****d1), lo que se enseña sin permiso. */
+		contrasenaMascara: text('contrasena_mascara'),
 		/*
 		 * Por qué este evento es una alerta (p. ej., la contraseña lleva el nombre
 		 * de la empresa). Con alerta, severidad sube a crítica; la línea firmada
@@ -350,7 +391,9 @@ export const eventos = pgTable(
 		uniqueIndex('eventos_hash').on(t.hash),
 		index('eventos_cuando').on(t.cuando),
 		index('eventos_trampa').on(t.trampa),
-		index('eventos_contrasena').on(t.contrasena),
+		index('eventos_contrasena_huella')
+			.on(t.contrasenaHuella)
+			.where(sql`${t.contrasenaHuella} is not null`),
 		index('eventos_ip').on(t.ip),
 		/* El perfil de una IP (perfilDeIp) pide sus eventos por fecha: (ip, cuando) hace el ORDER BY … LIMIT sin ordenar todo el rango. */
 		index('eventos_ip_cuando').on(t.ip, t.cuando),
@@ -803,6 +846,11 @@ export type ReglasSalida = {
 	 * lee una persona (quiereAuditoria, reglas.ts).
 	 */
 	auditoria?: boolean;
+	/*
+	 * Las credenciales que capturan las trampas, completas (descifradas al enviar).
+	 * Sin poner, no: salen enmascaradas, como en la consola (credenciales-protegidas.ts).
+	 */
+	credenciales?: boolean;
 };
 
 /* Cada mensaje en cuanto se puede, o todos juntos cada N minutos. */
@@ -836,7 +884,8 @@ export type AvisoGuardado = {
 	texto: string;
 	/* respuesta: el id es la ejecución (o la aprobación) y el nombre, el de su regla. */
 	sobre?: {
-		tipo: 'sensor' | 'trampa' | 'salida' | 'respuesta' | 'incidente' | 'pentest';
+		/* nodo: algo del propio nodo (sus copias de seguridad, id «copias»). */
+		tipo: 'sensor' | 'trampa' | 'salida' | 'respuesta' | 'incidente' | 'pentest' | 'nodo';
 		id: string;
 		nombre: string;
 	};
@@ -1169,7 +1218,13 @@ export const sesiones = pgTable('sesiones', {
 	ultimaActividad: timestamp('ultima_actividad', { withTimezone: true }).notNull().defaultNow(),
 	cerrada: timestamp('cerrada', { withTimezone: true }),
 	/* Técnico de SeguridadSI entrando con el acceso de soporte que abrió el cliente. */
-	soporte: boolean('soporte').notNull().default(false)
+	soporte: boolean('soporte').notNull().default(false),
+	/*
+	 * Con qué segundo factor se abrió (migración 0064): `passkey`, `totp`,
+	 * `recuperacion` o `idp` (el proveedor de identidad dijo que hubo MFA). Nula:
+	 * sin segundo factor comprobado por la consola (Entra, emergencia o soporte).
+	 */
+	factor: text('factor')
 });
 
 /*
@@ -1212,6 +1267,120 @@ export const usuariosLocales = pgTable('usuarios_locales', {
 	ultimoAcceso: timestamp('ultimo_acceso', { withTimezone: true }),
 	creadaPor: text('creada_por').notNull()
 });
+
+/*
+ * Revisión de accesos (migración 0065, plan de fortificación §4.6): cada persona
+ * que ha entrado en la consola, con su última entrada, venga de un usuario local
+ * (`local:<id>`), del Entra propio o del de SeguridadSI, o de un OIDC. Ni el
+ * soporte de SeguridadSI (su acceso es por petición, con plazo) ni la entrada
+ * de emergencia están aquí. Una cuenta desactivada no puede abrir sesión: no se
+ * borra, se reactiva desde la revisión. `reactivada` cuenta como entrada para el
+ * plazo de inactividad: si no, volvería a caer a la hora siguiente.
+ */
+export const usuariosAcceso = pgTable('usuarios_acceso', {
+	oid: text('oid').primaryKey(),
+	correo: text('correo').notNull(),
+	nombre: text('nombre').notNull(),
+	roles: jsonb('roles').$type<string[]>().notNull().default([]),
+	visto: timestamp('visto', { withTimezone: true }).notNull().defaultNow(),
+	ultimaEntrada: timestamp('ultima_entrada', { withTimezone: true }),
+	desactivada: timestamp('desactivada', { withTimezone: true }),
+	desactivadaPor: text('desactivada_por'),
+	/* `inactividad` (la consola, sola) o `manual`. */
+	motivo: text('motivo'),
+	reactivada: timestamp('reactivada', { withTimezone: true })
+});
+
+/* Cada revisión trimestral confirmada: quién, cuándo y la lista que vio (migración 0065). */
+export const revisionesAcceso = pgTable('revisiones_acceso', {
+	id: bigserial('id', { mode: 'number' }).primaryKey(),
+	cuando: timestamp('cuando', { withTimezone: true }).notNull().defaultNow(),
+	quien: text('quien').notNull(),
+	usuarios: jsonb('usuarios').$type<UsuarioRevisado[]>().notNull(),
+	nota: text('nota')
+});
+
+export type UsuarioRevisado = {
+	oid: string;
+	correo: string;
+	roles: string[];
+	ultimaEntrada: string | null;
+	activa: boolean;
+};
+
+/*
+ * Lo que hace el soporte de SeguridadSI dentro de la consola (migración 0065):
+ * cada petición de una sesión de soporte, con quién, qué ruta y qué respondió.
+ * El cliente lo ve en Audit logs → Support sessions y sale a su SIEM
+ * (auditoria.soporte-peticion). Las acciones (lo que no es una lectura) además
+ * van a la auditoría encadenada como «support action».
+ */
+export const soporteRegistro = pgTable(
+	'soporte_registro',
+	{
+		id: bigserial('id', { mode: 'number' }).primaryKey(),
+		cuando: timestamp('cuando', { withTimezone: true }).notNull().defaultNow(),
+		/* La huella de la sesión (sesiones.id): agrupa lo de una misma entrada. */
+		sesion: text('sesion'),
+		quien: text('quien').notNull(),
+		metodo: text('metodo').notNull(),
+		ruta: text('ruta').notNull(),
+		accion: text('accion'),
+		estado: integer('estado').notNull()
+	},
+	(t) => [index('soporte_registro_cuando').on(t.cuando)]
+);
+
+/*
+ * Segundo factor de los usuarios locales (migración 0064, plan de fortificación
+ * §4.1): passkeys (WebAuthn) y apps de autenticación (TOTP, RFC 6238).
+ *
+ * - passkey: `id` es el id de la credencial; se guarda su clave pública y el
+ *   contador, como en las llaves de emergencia.
+ * - totp: `id` es un uuid; `secreto` va cifrado con la clave del nodo
+ *   (secretos.ts, contexto «totp»), nunca en claro. `ultimoPaso` es el último
+ *   intervalo de 30 s aceptado: el mismo código no vale dos veces.
+ *
+ * Al retirar el usuario se van con él (on delete cascade).
+ */
+export const factoresUsuario = pgTable(
+	'factores_usuario',
+	{
+		id: text('id').primaryKey(),
+		usuarioId: text('usuario_id')
+			.notNull()
+			.references(() => usuariosLocales.id, { onDelete: 'cascade' }),
+		tipo: text('tipo').$type<'passkey' | 'totp'>().notNull(),
+		nombre: text('nombre').notNull(),
+		clavePublica: text('clave_publica'),
+		contador: integer('contador').notNull().default(0),
+		transportes: jsonb('transportes').$type<string[]>(),
+		secreto: text('secreto'),
+		ultimoPaso: integer('ultimo_paso').notNull().default(0),
+		creada: creado(),
+		ultimoUso: timestamp('ultimo_uso', { withTimezone: true })
+	},
+	(t) => [
+		index('factores_usuario_usuario').on(t.usuarioId),
+		check('factores_usuario_tipo', sql`${t.tipo} in ('passkey', 'totp')`)
+	]
+);
+
+/*
+ * Códigos de recuperación del segundo factor: diez por usuario, cada uno vale
+ * una vez. Solo su SHA-256: se enseñan una sola vez al crearlos.
+ */
+export const codigosRecuperacionMfa = pgTable(
+	'codigos_recuperacion_mfa',
+	{
+		usuarioId: text('usuario_id')
+			.notNull()
+			.references(() => usuariosLocales.id, { onDelete: 'cascade' }),
+		hash: text('hash').notNull(),
+		creada: creado()
+	},
+	(t) => [primaryKey({ columns: [t.usuarioId, t.hash] })]
+);
 
 /*
  * Lo que cada persona elige para sí, entre por donde entre: se cuelga del oid de

@@ -17,7 +17,7 @@ import {
 	type AuthenticationResponseJSON,
 	type RegistrationResponseJSON
 } from '@simplewebauthn/server';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, isNull, ne, sql } from 'drizzle-orm';
 import { db, schema as s } from './db';
 import { auditar } from './consultas';
 
@@ -112,6 +112,12 @@ export async function registrar(
 ) {
 	const r = tomarReto(retoId);
 	if (!r) return { ok: false as const, motivo: 'The challenge has expired. Start again.' };
+	/*
+	 * Solo un reto de alta (lleva quién y el nombre): los de entrada comparten
+	 * almacén y no exigen sesión (auditoría 2026-11-14, §5 h01).
+	 */
+	if (!r.quien || !r.nombre)
+		return { ok: false as const, motivo: 'The challenge has expired. Start again.' };
 	const conCodigo = !!r.alta;
 	const v = await verifyRegistrationResponse({
 		response: respuesta,
@@ -140,9 +146,29 @@ export async function registrar(
 	return { ok: true as const };
 }
 
-export async function retirarLlave(quien: string, id: string) {
+/*
+ * Cierra las sesiones abiertas con una entrada de emergencia que ya no vale
+ * (la llave retirada o el código sustituido), salvo la de quien lo hace.
+ */
+async function cerrarSesionesEmergencia(oid: string, salvo: string | null) {
+	await db
+		.update(s.sesiones)
+		.set({ cerrada: new Date() })
+		.where(
+			and(
+				eq(s.sesiones.oid, oid),
+				isNull(s.sesiones.cerrada),
+				...(salvo ? [ne(s.sesiones.id, salvo)] : [])
+			)
+		);
+}
+
+export async function retirarLlave(quien: string, id: string, salvo: string | null = null) {
 	const [f] = await db.delete(s.llavesEmergencia).where(eq(s.llavesEmergencia.id, id)).returning();
-	if (f) await auditar(quien, 'emergency key removed', { nombre: f.nombre });
+	if (f) {
+		await cerrarSesionesEmergencia(`emergencia:${f.id}`, salvo);
+		await auditar(quien, 'emergency key removed', { nombre: f.nombre });
+	}
 	return !!f;
 }
 
@@ -223,7 +249,7 @@ export async function estadoCodigoEmergencia() {
 }
 
 /* Crea (o sustituye) el código y lo devuelve en claro: es la única vez que se ve. */
-export async function nuevoCodigoEmergencia(quien: string) {
+export async function nuevoCodigoEmergencia(quien: string, salvo: string | null = null) {
 	const codigo = generarCodigoEmergencia();
 	const valor = {
 		hash: hashCodigoEmergencia(codigo),
@@ -234,6 +260,8 @@ export async function nuevoCodigoEmergencia(quien: string) {
 		.insert(s.ajustes)
 		.values({ clave: AJUSTE_CODIGO, valor })
 		.onConflictDoUpdate({ target: s.ajustes.clave, set: { valor } });
+	/* Las sesiones abiertas con el código anterior se cierran con él. */
+	await cerrarSesionesEmergencia('emergencia:codigo', salvo);
 	await auditar(quien, 'emergency code generated');
 	return codigo;
 }

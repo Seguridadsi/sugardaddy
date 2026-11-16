@@ -31,6 +31,7 @@ export const DESCARTES_PLAN: readonly string[] = [
 	'agente.version',
 	'licencia.sin',
 	'licencia.caducada',
+	'licencia.revocada',
 	'registro.sin',
 	'registro.caducado',
 	'carga.imagen-sin-publicar',

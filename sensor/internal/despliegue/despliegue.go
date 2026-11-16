@@ -54,6 +54,13 @@ var redesAntiguas = []string{"sugardaddy-trampas", "sugardaddy-trampas-salida"}
 // Redes son las redes en las que el sensor pone sus trampas.
 func Redes() []string { return []string{redTrampas, redConSalida} }
 
+// Los nombres fijos de los puentes de esas redes en la máquina (SEN-5): la regla de
+// INPUT del cortafuegos (cortafuegos.PrefijoPuenteTrampas + «+») los reconoce.
+const (
+	PuenteTrampas   = "sd-trampas0"
+	PuenteConSalida = "sd-trampas1"
+)
+
 type Opciones struct {
 	// Datos es la carpeta del sensor; los registros de cada trampa van en Datos/registros/<id>.
 	Datos string
@@ -87,6 +94,10 @@ type Opciones struct {
 	// de la versión firmada instalada ("" si se puede; SEN-3). nil: sin catálogo, como
 	// siempre. Una que ya está en marcha sigue como estaba, con el aviso.
 	Catalogo func(plan.TrampaPlan) (motivo string)
+	// Retirada dice por qué no se puede arrancar ni dejar en marcha una trampa con esta imagen
+	// ("" si se puede): la ha retirado SeguridadSI con una lista firmada (registro de imágenes
+	// comprometido; herramientas/retirar-imagen.ts). nil: sin lista, como siempre.
+	Retirada func(imagen string) (motivo string)
 	// sinEscribir: config solo calcula, sin escribir los ficheros de la trampa en el
 	// anfitrión (para decir dónde está una trampa que el catálogo rechaza).
 	sinEscribir bool
@@ -108,6 +119,8 @@ const (
 	CodigoID       = "plan.id"
 	// CodigoEscucha: la trampa pide publicarse en una dirección que esta máquina no tiene.
 	CodigoEscucha = "plan.escucha"
+	// CodigoRetirada: su imagen la ha retirado SeguridadSI.
+	CodigoRetirada = "imagen.retirada"
 )
 
 // errorConCodigo es un rechazo de config con su código estable para la consola.
@@ -248,7 +261,7 @@ func config(o Opciones, sensor, licenciaRuta string, s plan.TrampaPlan, conDisco
 				}
 				return ipsAnfitrion(o)
 			}
-			return fmt.Sprint(s.Parametros[nombre])
+			return textoDeParametro(s.Parametros[nombre])
 		})
 	}
 
@@ -261,7 +274,7 @@ func config(o Opciones, sensor, licenciaRuta string, s plan.TrampaPlan, conDisco
 			// {segun: parámetro, valores: {opción: valor}}: el valor de la opción elegida.
 			segun, _ := v["segun"].(string)
 			valores, _ := v["valores"].(map[string]any)
-			if x, ok := valores[fmt.Sprint(s.Parametros[segun])].(string); ok {
+			if x, ok := valores[textoDeParametro(s.Parametros[segun])].(string); ok {
 				entorno = append(entorno, k+"="+x)
 			}
 		}
@@ -405,7 +418,8 @@ func config(o Opciones, sensor, licenciaRuta string, s plan.TrampaPlan, conDisco
 			"Memory":         int64(a.MemoriaMb) << 20,
 			// Sin swap de más: en un anfitrión con swap, el tope de memoria es el real.
 			"MemorySwap":    int64(a.MemoriaMb) << 20,
-			"NanoCpus":      int64(a.CPU * 1e9),
+			"NanoCpus":      nanoCPUTrampa(a.CPU),
+			"CpuShares":     docker.PesoCPUTrampa,
 			"PidsLimit":     256,
 			"Mounts":        montajes,
 			"RestartPolicy": map[string]string{"Name": "unless-stopped"},
@@ -444,6 +458,18 @@ func config(o Opciones, sensor, licenciaRuta string, s plan.TrampaPlan, conDisco
 		donde = []string{"IP propia " + ipPropia}
 	}
 	return cfg, donde, nil
+}
+
+// cpuTrampaPorDefecto: la CPU de una trampa cuyo manifiesto no la dice. Sin
+// tope, una trampa tomada podría comerse la CPU del sensor y de la consola.
+const cpuTrampaPorDefecto = 0.5
+
+// nanoCPUTrampa: el tope de CPU de una trampa, nunca «sin tope» (0).
+func nanoCPUTrampa(cpu float64) int64 {
+	if cpu <= 0 {
+		cpu = cpuTrampaPorDefecto
+	}
+	return int64(cpu * 1e9)
 }
 
 // objetivosFijos: dónde monta config algo en la trampa, además de los VOLUME de su imagen.
@@ -538,6 +564,37 @@ func huella(cfg map[string]any) string {
 	return hex.EncodeToString(h[:8])
 }
 
+// reloj: la hora con la que se mira la caducidad de la licencia (las pruebas la fijan).
+var reloj = time.Now
+
+// licenciaCaducada lee, sin verificarla (el sensor es abierto: la comprueba la trampa), la
+// caducidad de la licencia que manda la consola. Solo sirve para no rehacer una trampa de
+// pago nueva o cambiada: con la licencia caducada, lo desplegado sigue como está (la trampa
+// arranca hasta la fecha firmada funcionaHasta, que comprueba ella) y no se despliega ni se
+// cambia ninguna de pago. Si no se entiende, no está caducada.
+func licenciaCaducada(sobre json.RawMessage, ahora time.Time) bool {
+	var f struct {
+		Licencia string `json:"licencia"`
+	}
+	if len(sobre) == 0 || json.Unmarshal(sobre, &f) != nil {
+		return false
+	}
+	var l struct {
+		Caduca string `json:"caduca"`
+	}
+	if json.Unmarshal([]byte(f.Licencia), &l) != nil {
+		return false
+	}
+	caduca, err := time.Parse(time.RFC3339, l.Caduca)
+	return err == nil && caduca.Before(ahora)
+}
+
+// dePago: la consola dice que es de pago (una anterior no lo dice, y entonces no se frena
+// nada por la licencia).
+func dePago(s plan.TrampaPlan, licenciaRuta string) bool {
+	return licenciaRuta != "" && s.Licencia != nil && *s.Licencia
+}
+
 // Aplicar reconcilia y devuelve dónde ha quedado cada trampa. Nada de lo
 // que falle (una red, una imagen) quita una trampa que ya funciona ni impide
 // retirar las que salen del plan. Un fallo general del motor (no responde,
@@ -604,6 +661,7 @@ func Aplicar(ctx context.Context, d *docker.Cliente, o Opciones, p plan.Plan) ([
 		_ = os.Remove(licenciaRuta)
 		licenciaRuta = ""
 	}
+	caducada := licenciaRuta != "" && licenciaCaducada(p.Licencia, reloj())
 
 	// Primero lo que sale del plan: retirar no depende de redes ni de
 	// imágenes, y lo que no se pueda retirar se reintenta en la vuelta
@@ -637,10 +695,10 @@ func Aplicar(ctx context.Context, d *docker.Cliente, o Opciones, p plan.Plan) ([
 	// ejemplo), las trampas que ya están en marcha siguen como están. Si el
 	// motor no confirma sus opciones (Podman), cada trampa lo dice.
 	errRed, garantizada := map[string]error{}, map[string]bool{}
-	garantizada[redTrampas], errRed[redTrampas] = d.AsegurarRed(ctx, redTrampas, false)
+	garantizada[redTrampas], errRed[redTrampas] = d.AsegurarRed(ctx, redTrampas, PuenteTrampas, false)
 	for _, s := range p.Trampas {
 		if redDe(o, s) == redConSalida {
-			garantizada[redConSalida], errRed[redConSalida] = d.AsegurarRed(ctx, redConSalida, true)
+			garantizada[redConSalida], errRed[redConSalida] = d.AsegurarRed(ctx, redConSalida, PuenteConSalida, true)
 			break
 		}
 	}
@@ -719,6 +777,20 @@ func Aplicar(ctx context.Context, d *docker.Cliente, o Opciones, p plan.Plan) ([
 			}
 			estados = append(estados, Estado{ID: s.ID, Donde: prefijoParada + aviso})
 			continue
+		}
+		// Una imagen retirada por SeguridadSI no se arranca, y la que ya está en marcha se quita:
+		// puede ser lo que subió un tercero al registro.
+		if o.Retirada != nil && s.Manifiesto.Contenedor != nil {
+			if motivo := o.Retirada(s.Manifiesto.Contenedor.Imagen); motivo != "" {
+				if existe {
+					if err := borrar(ctx, d, c.ID); err != nil {
+						fallos = append(fallos, fmt.Errorf("retirar %s: %w", s.ID, err))
+					}
+					_ = borrar(ctx, d, nombreCaptura(p.Sensor, s.ID))
+				}
+				estados = append(estados, Estado{ID: s.ID, Donde: "error: " + motivo, Codigo: CodigoRetirada})
+				continue
+			}
 		}
 		// Ninguna trampa sale a internet (SEN-3): ninguna lo usa, y con NAT de salida una
 		// consola tomada tendría un contenedor con salida en cada VLAN con sensor.
@@ -827,6 +899,12 @@ func Aplicar(ctx context.Context, d *docker.Cliente, o Opciones, p plan.Plan) ([
 			} else {
 				estados = append(estados, Estado{ID: s.ID, Donde: "error: " + aviso})
 			}
+		}
+		// Con la licencia caducada, una trampa de pago desplegada sigue (y se rehace igual si
+		// se cae), pero no se despliega ni se cambia ninguna: no podría arrancar.
+		if caducada && dePago(s, licenciaRuta) && !(existe && c.Labels[etiquetaHuella] == h) {
+			sigue("the Cloud license has expired: paid decoys cannot be deployed or changed until it is renewed")
+			continue
 		}
 		if e := errRed[redDe(o, s)]; e != nil {
 			sigue("could not prepare the decoy network (" + e.Error() + ")")
@@ -1095,8 +1173,18 @@ func asegurarCaptura(ctx context.Context, d *docker.Cliente, o Opciones, sensor,
 	if err := borrar(ctx, d, nombre); err != nil {
 		return err
 	}
-	cid, err := d.Crear(ctx, nombre, map[string]any{
-		"Image":  o.ImagenSonda,
+	cid, err := d.Crear(ctx, nombre, configCaptura(o.ImagenSonda, id, contenedor, bpf))
+	if err != nil {
+		return err
+	}
+	return d.Arrancar(ctx, cid)
+}
+
+// configCaptura es el acompañante de captura de una trampa: la imagen del sensor
+// con su orden «captura», unido al espacio de red de la trampa, NET_RAW y nada más.
+func configCaptura(imagen, id, contenedor, bpf string) map[string]any {
+	return map[string]any{
+		"Image":  imagen,
 		"Cmd":    []string{"captura", bpf},
 		"User":   "0:0",
 		"Labels": map[string]string{etiquetaCaptura: id},
@@ -1108,16 +1196,15 @@ func asegurarCaptura(ctx context.Context, d *docker.Cliente, o Opciones, sensor,
 			// cambia rutas, ni ficheros ajenos, ni sale de su contenedor.
 			"CapAdd":        []string{"NET_RAW"},
 			"SecurityOpt":   []string{"no-new-privileges"},
-			"Memory":        int64(32) << 20,
+			"Memory":        docker.MemoriaAcompanante,
+			"MemorySwap":    docker.MemoriaAcompanante,
+			"NanoCpus":      docker.CPUAcompanante,
+			"CpuShares":     docker.PesoCPUTrampa,
 			"PidsLimit":     16,
 			"RestartPolicy": map[string]string{"Name": "unless-stopped"},
 			"LogConfig":     docker.RegistrosAcotados(),
 		},
-	})
-	if err != nil {
-		return err
 	}
-	return d.Arrancar(ctx, cid)
 }
 
 // codigoMotor: el código estable de un rechazo de sd-motor («… [motor.rechazo]»), si lo es.
@@ -1389,7 +1476,10 @@ func sondear(ctx context.Context, d *docker.Cliente, imagen, sensor, red string)
 				"ReadonlyRootfs": true,
 				"CapDrop":        []string{"ALL"},
 				"SecurityOpt":    []string{"no-new-privileges"},
-				"Memory":         int64(32) << 20,
+				"Memory":         docker.MemoriaAcompanante,
+				"MemorySwap":     docker.MemoriaAcompanante,
+				"NanoCpus":       docker.CPUAcompanante,
+				"CpuShares":      docker.PesoCPUTrampa,
 				"PidsLimit":      16,
 				"LogConfig":      docker.RegistrosAcotados(),
 			},
@@ -1514,4 +1604,18 @@ func PuertosPropios(ctx context.Context, d *docker.Cliente, sensor string) (map[
 		}
 	}
 	return r, nil
+}
+
+// textoDeParametro: el valor de un parámetro tal como va en el entorno o en un
+// fichero de la trampa. Los números del JSON llegan como float64 y fmt.Sprint
+// pondría 1e+06; lo que falta (nil) sería «<nil>» (auditoría 2026-11-14, §5 h16).
+func textoDeParametro(v any) string {
+	switch x := v.(type) {
+	case nil:
+		return ""
+	case float64:
+		return strconv.FormatFloat(x, 'f', -1, 64)
+	default:
+		return fmt.Sprint(x)
+	}
 }
