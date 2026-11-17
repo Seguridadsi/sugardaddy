@@ -41,8 +41,8 @@ procedencia:
   licencia: Código propio (SeguridadSI); biblioteca estándar de Go, BSD-3-Clause
 
 contenedor:
-  imagen: ghcr.io/seguridadsi/sugardaddy-registro-login-web:0.1.8@sha256:2a68b03c0862f74b7e84cdc7d95de1ea724382fa4f055df0f4a271ada51a9320
-  imagenPublica: ghcr.io/seguridadsi/sugardaddy-registro-login-web:0.1.8@sha256:2a68b03c0862f74b7e84cdc7d95de1ea724382fa4f055df0f4a271ada51a9320
+  imagen: ghcr.io/seguridadsi/sugardaddy-registro-login-web:0.1.9@sha256:cc852eff11672a4d63152d83f93fee954877a2031f3c9a78aec06dedd8f48d48
+  imagenPublica: ghcr.io/seguridadsi/sugardaddy-registro-login-web:0.1.9@sha256:cc852eff11672a4d63152d83f93fee954877a2031f3c9a78aec06dedd8f48d48
   puertos:
     - { interno: 8080, expuesto: '${puertoWeb}', protocolo: tcp }
   entorno:
@@ -54,6 +54,7 @@ contenedor:
     SD_LOGINWEB_PUERTO: '${puertoWeb}'
     SD_LOGINWEB_SEMILLA: ''
     SD_LOGINWEB_NOTA_AGENTES: ${notaAgentes}
+    SD_LOGINWEB_RETO_AGENTES: ${retoAgentes}
     SD_LOGINWEB_MAX_CONN: '512'
     SD_LOGINWEB_MAX_CONN_IP: '32'
     SD_LOGINWEB_MAX_CUERPO_BYTES: '8192'
@@ -125,6 +126,24 @@ parametros:
         'si': 'On'
         'no': 'Off'
       default: 'si'
+    retoAgentes:
+      type: string
+      title: Fake challenge for AI agents
+      description: >-
+        Answers the first page request from each address that presents itself as
+        Chrome with a fake Cloudflare "Just a moment..." check (403), and lets
+        every later request through: a person sees the check once and gets in on
+        reload. The CyberStrike and PentestCode AI agents answer that check by
+        retrying under their own name, which is recorded as a confirmed AI agent
+        with the tool's name. The same page requested twice at once with a
+        browser User-Agent, as PentAGI's headless browser does, is recorded as a
+        possible PentAGI. Turn it off if a one-off check page in front of this
+        decoy matters more to you than detecting these agents.
+      enum: ['si', 'no']
+      x-opciones:
+        'si': 'On'
+        'no': 'Off'
+      default: 'si'
 
 eventos:
   fuente: { tipo: fichero, ruta: login-web.json }
@@ -145,6 +164,9 @@ eventos:
       web.comando: comando
       web.agente.lee: conexion
       web.agente.obedece: conexion
+      web.agente.reto: conexion
+      web.agente.herramienta: conexion
+      web.agente.doble_carga: conexion
     porDefecto: otra
   severidad:
     porDefecto: media
@@ -152,6 +174,9 @@ eventos:
       web.login.cebo: alta
       web.comando: alta
       web.agente.obedece: alta
+      web.agente.herramienta: alta
+      web.agente.doble_carga: media
+      web.agente.reto: baja
       web.session.rechazos: alta
       web.session.tope: alta
       web.log.tope: alta
@@ -171,6 +196,7 @@ eventos:
     - resultado
     - grave
     - agente_ia
+    - herramienta_ia
     - motivo
     - duration
     - omitidos
@@ -241,3 +267,7 @@ eventos:
     web.log.tope: Today's log is full; nothing more is recorded until tomorrow
     web.log.omitidos: Events that do not fit (summary)
     web.log.error: Failed to write the log
+    herramienta_ia: AI agent tool
+    web.agente.reto: Fake Cloudflare challenge shown (first Chrome request from this address)
+    web.agente.herramienta: AI agent named by its retry after the fake challenge
+    web.agente.doble_carga: Same page loaded twice at once (possible PentAGI)

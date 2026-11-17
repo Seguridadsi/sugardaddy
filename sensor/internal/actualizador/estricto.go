@@ -26,6 +26,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -75,7 +76,16 @@ type ConfigEstricto struct {
 	Plazo int `json:"plazo"` // segundos; 0, el de serie
 }
 
-// EstrictoNodo lleva la cuenta entre vueltas.
+// RutaAnfitrionNodo es donde pregunta y cuenta el actualizador del nodo;
+// RutaAnfitrionSensor, el de un sensor remoto (con el token del sensor). Debajo
+// cuelgan /cortafuegos y /auditoria.
+const (
+	RutaAnfitrionNodo   = "/api/actualizador/anfitrion"
+	RutaAnfitrionSensor = "/api/sensor/anfitrion"
+)
+
+// EstrictoNodo lleva la cuenta entre vueltas. Sirve igual para un sensor remoto
+// (despliegue/sensor-remoto): Ruta RutaAnfitrionSensor y SinConsola.
 type EstrictoNodo struct {
 	Docker    *docker.Cliente
 	Consola   string
@@ -84,6 +94,18 @@ type EstrictoNodo struct {
 	Local     string // la carpeta del nodo en este contenedor
 	Anfitrion string // la misma carpeta vista desde la máquina
 	Log       func(string, ...any)
+	// Ruta en la consola (RutaAnfitrionNodo si vacía).
+	Ruta string
+	// SinConsola: en esta máquina no hay consola (un sensor remoto). No se abre su puerto.
+	SinConsola bool
+	// Propios: host:puerto a los que este actualizador sale siempre (la copia estática
+	// de la marca de tiempo y las imágenes retiradas; en un sensor remoto, su consola).
+	// Con la salida restringida se añaden a lo que dice la consola: lo que el propio
+	// nodo necesita no depende de que alguien lo escriba en una lista.
+	Propios []string
+	// Proxy (host:puerto) por el que sale este actualizador, si hay uno. Con la salida
+	// restringida se deja y es lo que se comprueba antes de confirmar.
+	Proxy string
 
 	// Dobles para las pruebas.
 	Publicados func(ctx context.Context) ([]cortafuegos.Publicado, error)
@@ -187,6 +209,9 @@ func (e *EstrictoNodo) aplicar(ctx context.Context, env map[string]string, cfg C
 		Consola:    cortafuegos.ConsolaEstricta{Puerto: puerto, Abierta: cfg.Consola.Estado != "restringida", Redes: cfg.Consola.Redes},
 		Publicados: pub,
 	}
+	if e.SinConsola {
+		est.Consola = cortafuegos.ConsolaEstricta{}
+	}
 	if est.Consola.Abierta {
 		est.Consola.Redes = nil
 	}
@@ -197,7 +222,11 @@ func (e *EstrictoNodo) aplicar(ctx context.Context, env map[string]string, cfg C
 		}
 	}
 	if cfg.Salida.Restringida {
-		ds, err := e.destinos(ctx, cfg.Salida.Destinos)
+		lista := append(append([]string{}, cfg.Salida.Destinos...), e.Propios...)
+		if e.Proxy != "" {
+			lista = append(lista, e.Proxy)
+		}
+		ds, err := e.destinos(ctx, unicos(lista))
 		if err != nil {
 			return err
 		}
@@ -243,6 +272,42 @@ func (e *EstrictoNodo) aplicar(ctx context.Context, env map[string]string, cfg C
 	return nil
 }
 
+func unicos(l []string) []string {
+	vistos := map[string]bool{}
+	var r []string
+	for _, x := range l {
+		x = strings.TrimSpace(x)
+		if x != "" && !vistos[x] {
+			vistos[x] = true
+			r = append(r, x)
+		}
+	}
+	return r
+}
+
+// DestinoDeURL da el host:puerto de una URL http(s) («» si no lo es): para Propios y Proxy.
+func DestinoDeURL(texto string) string {
+	u, err := url.Parse(strings.TrimSpace(texto))
+	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Hostname() == "" {
+		return ""
+	}
+	p := u.Port()
+	if p == "" {
+		p = "443"
+		if u.Scheme == "http" {
+			p = "80"
+		}
+	}
+	return net.JoinHostPort(u.Hostname(), p)
+}
+
+func (e *EstrictoNodo) ruta() string {
+	if e.Ruta != "" {
+		return e.Ruta
+	}
+	return RutaAnfitrionNodo
+}
+
 // confirmador: con las reglas nuevas puestas, ¿sigue el nodo hablando con su
 // consola y, con la salida restringida, llega a lo que tiene que llegar? Si sí,
 // escribe la huella para el auxiliar.
@@ -253,7 +318,11 @@ func (e *EstrictoNodo) confirmador(cfg ConfigEstricto) func(huella string) bool 
 		if _, err := e.pedir(ctx); err != nil {
 			return false
 		}
-		if cfg.Salida.Restringida && len(cfg.Salida.Comprobar) > 0 {
+		comprobar := cfg.Salida.Comprobar
+		if e.Proxy != "" {
+			comprobar = []string{e.Proxy}
+		}
+		if cfg.Salida.Restringida && len(comprobar) > 0 {
 			marcar := e.Marcar
 			if marcar == nil {
 				marcar = func(ctx context.Context, d string) error {
@@ -265,7 +334,7 @@ func (e *EstrictoNodo) confirmador(cfg ConfigEstricto) func(huella string) bool 
 				}
 			}
 			alguno := false
-			for _, d := range cfg.Salida.Comprobar {
+			for _, d := range comprobar {
 				if marcar(ctx, d) == nil {
 					alguno = true
 					break
@@ -393,7 +462,7 @@ func (e *EstrictoNodo) destinos(ctx context.Context, lista []string) ([]cortafue
 
 func (e *EstrictoNodo) pedir(ctx context.Context) (ConfigEstricto, error) {
 	var c ConfigEstricto
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, e.Consola+"/api/actualizador/anfitrion", nil)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, e.Consola+e.ruta(), nil)
 	req.Header.Set("Authorization", "Bearer "+e.Token)
 	resp, err := e.HTTP.Do(req)
 	if err != nil {
@@ -416,7 +485,7 @@ func (e *EstrictoNodo) informar(ctx context.Context) error {
 		return nil
 	}
 	b, _ := json.Marshal(map[string]any{"estado": e.estado, "detalle": e.ultimoDetalle, "huella": e.huella})
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, e.Consola+"/api/actualizador/anfitrion/cortafuegos", bytes.NewReader(b))
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, e.Consola+e.ruta()+"/cortafuegos", bytes.NewReader(b))
 	req.Header.Set("Authorization", "Bearer "+e.Token)
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := e.HTTP.Do(req)

@@ -259,6 +259,7 @@ def marcar_agente(ev: dict[str, Any], token: str) -> dict[str, Any]:
 RITMO_PERSONA = "human"  # teclas de una en una, con el ritmo de unas manos
 RITMO_PEGADO = "pasted"  # líneas que llegan enteras: pegadas o mandadas por un programa
 RITMO_MAQUINA = "scripted"  # órdenes seguidas o a intervalos iguales
+RITMO_AGENTE = "agent"  # líneas enteras cada pocos segundos, sin pausas: un modelo que lee y decide
 RITMO_DESCONOCIDO = "unknown"  # pocas muestras
 
 MAX_SESIONES_RITMO = 2048  # sesiones seguidas a la vez; la más vieja se olvida
@@ -273,6 +274,13 @@ MIN_INTERVALOS = 2  # con menos intervalos entre órdenes no se dice nada
 ORDEN_MAQUINA_MS = 500.0  # mediana entre órdenes que nadie teclea
 MIN_INTERVALOS_REGULARES = 3  # para decir «a intervalos iguales»
 VARIACION_REGULAR = 0.1  # desviación / mediana de un temporizador
+# Un agente de IA lee la respuesta, decide y manda la siguiente orden entera: unos
+# segundos entre órdenes, variables (lo que tarde el modelo), y sin las pausas de
+# una persona que piensa o mira otra cosa. Los honeypots de CSA (2026) vieron
+# agentes a unos 1,7 s y tomaron como humana una sesión con huecos de más de 10 s.
+MIN_INTERVALOS_AGENTE = 4  # con menos órdenes no se dice «agente»
+ORDEN_AGENTE_MAX_MS = 6000.0  # mediana entre órdenes de un agente: de ahí para abajo
+HUECO_PERSONA_MS = 10000.0  # un hueco así entre órdenes ya no es de un agente
 
 
 class _Ritmo:
@@ -321,6 +329,17 @@ def anotar_tecla(sesion: Any, borrado: bool = False, ahora: float | None = None)
         r.ultima_tecla = t
 
 
+def _es_agente(entre_ordenes: list[float]) -> bool:
+    """Líneas cada pocos segundos, sin ritmo de temporizador ni pausas de persona."""
+    if len(entre_ordenes) < MIN_INTERVALOS_AGENTE:
+        return False
+    mediana = statistics.median(entre_ordenes)
+    if not ORDEN_MAQUINA_MS < mediana <= ORDEN_AGENTE_MAX_MS or max(entre_ordenes) > HUECO_PERSONA_MS:
+        return False
+    # Un temporizador va a intervalos iguales; un modelo, no.
+    return statistics.pstdev(entre_ordenes) > VARIACION_REGULAR * mediana
+
+
 def clasificar_ritmo(entre_teclas: list[float], entre_ordenes: list[float], borrados: int = 0) -> str:
     """De los intervalos (en ms) entre teclas y entre órdenes, quién parece que
     escribe. Las teclas mandan: son lo que distingue a unas manos."""
@@ -330,7 +349,9 @@ def clasificar_ritmo(entre_teclas: list[float], entre_ordenes: list[float], borr
         if mediana >= TECLA_PERSONA_MS or (borrados > 0 and mediana > TECLA_PEGADO_MS):
             return RITMO_PERSONA
         if mediana <= TECLA_PEGADO_MS:
-            return RITMO_PEGADO
+            return RITMO_AGENTE if _es_agente(entre_ordenes) else RITMO_PEGADO
+    if _es_agente(entre_ordenes):
+        return RITMO_AGENTE
     if len(entre_ordenes) >= MIN_INTERVALOS:
         mediana = statistics.median(entre_ordenes)
         if mediana <= ORDEN_MAQUINA_MS:
@@ -344,9 +365,10 @@ def seguir_sesion(ev: dict[str, Any]) -> dict[str, Any]:
     """Sigue una sesión por sus eventos y deja, en el sitio:
 
     * en ``cowrie.client.kex``, la ``version`` que anunció el cliente;
-    * en ``cowrie.session.closed``, ``ritmo`` (human, pasted, scripted o
-      unknown) y sus cifras: ``ordenes``, ``intervalo_ms`` e
-      ``intervalo_desv_ms`` (mediana y desviación entre órdenes), ``teclas``,
+    * en ``cowrie.session.closed``, ``ritmo`` (human, pasted, scripted, agent o
+      unknown) y sus cifras: ``ordenes``, ``intervalo_ms``,
+      ``intervalo_desv_ms`` e ``intervalo_max_ms`` (mediana, desviación y el
+      mayor hueco entre órdenes), ``teclas``,
       ``teclas_ms`` (mediana entre teclas) y ``borrados``.
 
     Va DESPUÉS de ``recortar_evento``, como ``marcar_agente``: lo que añade es
@@ -365,6 +387,7 @@ def seguir_sesion(ev: dict[str, Any]) -> dict[str, Any]:
         if r.entre_ordenes:
             ev["intervalo_ms"] = round(statistics.median(r.entre_ordenes))
             ev["intervalo_desv_ms"] = round(statistics.pstdev(r.entre_ordenes))
+            ev["intervalo_max_ms"] = round(max(r.entre_ordenes))
         if r.teclas:
             ev["teclas"] = r.teclas
             ev["borrados"] = r.borrados

@@ -21,7 +21,7 @@
 	import { haceCuanto, nombreAccion, textoGeo, type Geo } from '$lib/formato';
 	import { AVISO_IP_MOTOR } from '$lib/capacidades';
 	import RevelarCredencial from '$lib/components/RevelarCredencial.svelte';
-	import { ETIQUETA_AGENTE, QUE_ES_AGENTE, agenteIaDe } from '$lib/agente-ia';
+	import { agenteIaDe, etiquetaAgente, herramientaIaDe, queEsAgente } from '$lib/agente-ia';
 	import { NOMBRE_CLASE, quienEs } from '$lib/quien-es';
 
 	/* El nombre legible de cada estado de triaje. */
@@ -185,8 +185,10 @@
 						>{/if}
 					{#if agenteIaDe(e.detalle)}<span
 							class="prueba agente-ia"
-							title="The honeypot carries a note only an AI agent follows, and this request followed it"
-							>{ETIQUETA_AGENTE[agenteIaDe(e.detalle)!]}</span
+							title={herramientaIaDe(e.detalle)
+								? 'The honeypot recognised this AI agent by how it behaves'
+								: 'The honeypot carries a note only an AI agent follows, and this request followed it'}
+							>{etiquetaAgente(e.detalle)}</span
 						>{:else if quienEs(e.detalle) && quienEs(e.detalle)!.clase !== 'navegador'}
 						{@const q = quienEs(e.detalle)!}
 						<span class="prueba quien" class:agente-ia={q.clase === 'ia'} title={q.motivo}
@@ -237,7 +239,7 @@
 			{#if abierto === e.id}
 				<div class="visita">
 					{#if agenteIaDe(e.detalle)}
-						<p class="nota">{QUE_ES_AGENTE[agenteIaDe(e.detalle)!]}</p>
+						<p class="nota">{queEsAgente(e.detalle)}</p>
 					{:else if quienEs(e.detalle)}
 						{@const q = quienEs(e.detalle)!}
 						<p class="nota">{NOMBRE_CLASE[q.clase]}: {q.nombre}. {q.motivo}</p>

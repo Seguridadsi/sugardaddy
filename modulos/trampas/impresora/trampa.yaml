@@ -40,8 +40,8 @@ procedencia:
   licencia: Código propio (SeguridadSI); biblioteca estándar de Go, BSD-3-Clause
 
 contenedor:
-  imagen: ghcr.io/seguridadsi/sugardaddy-registro-impresora:0.1.7@sha256:7c257488e4ee4c8c5467549e8181d4c71d0c9dcbf0d823bb8d974df124817828
-  imagenPublica: ghcr.io/seguridadsi/sugardaddy-registro-impresora:0.1.7@sha256:7c257488e4ee4c8c5467549e8181d4c71d0c9dcbf0d823bb8d974df124817828
+  imagen: ghcr.io/seguridadsi/sugardaddy-registro-impresora:0.1.8@sha256:2e8b48f33bc0ca2d79e0661569f9e654214aff505721a80c47d001c1d7129a0e
+  imagenPublica: ghcr.io/seguridadsi/sugardaddy-registro-impresora:0.1.8@sha256:2e8b48f33bc0ca2d79e0661569f9e654214aff505721a80c47d001c1d7129a0e
   puertos:
     - { interno: 9100, expuesto: '${puertoRaw}', protocolo: tcp }
     - { interno: 1631, expuesto: '${puertoIpp}', protocolo: tcp, si: ipp }
@@ -65,6 +65,7 @@ contenedor:
     SD_IMPRESORA_UBICACION: ${ubicacion}
     SD_IMPRESORA_SEMILLA: ''
     SD_IMPRESORA_NOTA_AGENTES: ${notaAgentes}
+    SD_IMPRESORA_RETO_AGENTES: ${retoAgentes}
     SD_IMPRESORA_MAX_CONN: '256'
     SD_IMPRESORA_MAX_CONN_IP: '16'
     SD_IMPRESORA_MAX_LINE_BYTES: '8192'
@@ -166,6 +167,24 @@ parametros:
         'si': 'On'
         'no': 'Off'
       default: 'no'
+    retoAgentes:
+      type: string
+      title: Fake challenge for AI agents
+      description: >-
+        Answers the first page request from each address that presents itself as
+        Chrome with a fake Cloudflare "Just a moment..." check (403), and lets
+        every later request through: a person sees the check once and gets in on
+        reload. The CyberStrike and PentestCode AI agents answer that check by
+        retrying under their own name, which is recorded as a confirmed AI agent
+        with the tool's name. The same page requested twice at once with a
+        browser User-Agent, as PentAGI's headless browser does, is recorded as a
+        possible PentAGI. Off by default: the real product this decoy imitates
+        is not behind Cloudflare, so the check page could give it away.
+      enum: ['si', 'no']
+      x-opciones:
+        'si': 'On'
+        'no': 'Off'
+      default: 'no'
 
 eventos:
   fuente: { tipo: fichero, ruta: impresora.json }
@@ -196,6 +215,9 @@ eventos:
       impresora.web.config: escritura
       impresora.web.agente.lee: conexion
       impresora.web.agente.obedece: conexion
+      impresora.web.agente.reto: conexion
+      impresora.web.agente.herramienta: conexion
+      impresora.web.agente.doble_carga: conexion
     porDefecto: otra
   severidad:
     porDefecto: media
@@ -219,6 +241,9 @@ eventos:
       impresora.web.config: alta
       impresora.web.agente.lee: media
       impresora.web.agente.obedece: alta
+      impresora.web.agente.herramienta: alta
+      impresora.web.agente.doble_carga: media
+      impresora.web.agente.reto: baja
       impresora.session.rechazos: alta
       impresora.session.tope: alta
       impresora.log.tope: alta
@@ -245,6 +270,7 @@ eventos:
     - tam
     - grave
     - agente_ia
+    - herramienta_ia
     - motivo
     - omitidos
     - omitidos_graves
@@ -333,6 +359,10 @@ eventos:
     impresora.web.config: Configuration change
     impresora.web.agente.lee: AI agent suspected (read the note's page)
     impresora.web.agente.obedece: AI agent confirmed (followed the note's page)
+    herramienta_ia: AI agent tool
+    impresora.web.agente.reto: Fake Cloudflare challenge shown (first Chrome request from this address)
+    impresora.web.agente.herramienta: AI agent named by its retry after the fake challenge
+    impresora.web.agente.doble_carga: Same page loaded twice at once (possible PentAGI)
     impresora.log.tope: Today's log is full; nothing more is recorded until tomorrow
     impresora.log.omitidos: Events that do not fit (summary)
     impresora.log.error: Failed to write the log

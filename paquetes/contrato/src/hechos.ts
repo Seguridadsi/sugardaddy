@@ -80,6 +80,13 @@ export const HECHOS: Record<string, { tipo: TipoHecho; fuentes: FuenteHecho[] }>
 	'disco.cifrado': { tipo: 'booleano', fuentes: ['sensor'] },
 	'disco.tpm': { tipo: 'booleano', fuentes: ['sensor'] },
 	/*
+	 * La comprobación diaria de AIDE del appliance (docs/seguridad/appliance-cis.md):
+	 * true si no encontró cambios en los ficheros del sistema; en false, el motivo
+	 * (aide.cambios, aide.sin-base, aide.fallo…). Llega como disco.*: script del
+	 * appliance, fichero en la carpeta del sensor, sensor.
+	 */
+	'integridad.aide': { tipo: 'booleano', fuentes: ['sensor'] },
+	/*
 	 * La sección red (docs/diseno/red.md): si la máquina puede dar a una
 	 * trampa su propia IP en el segmento del cliente (macvlan sobre interfaz
 	 * física por cable o VLAN). Wi-Fi y nube lo informan en false, con su
@@ -168,6 +175,7 @@ export const NOMBRE_HECHO: Readonly<Record<string, string>> = Object.freeze({
 	'disco.trampas': 'Each honeypot has its own fixed-size disk',
 	'disco.cifrado': 'Data disk encrypted (LUKS2)',
 	'disco.tpm': 'Data disk key sealed in the TPM',
+	'integridad.aide': 'System files unchanged (daily AIDE check)',
 	'red.capa2': 'Can give a honeypot its own IP',
 	'puertos.ocupados': 'Ports already in use',
 	'puertos.reservados': 'Reserved ports',

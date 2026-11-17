@@ -26,6 +26,14 @@ import (
 // FicheroRetiradas es donde el actualizador deja las listas comprobadas, junto a la versión firmada.
 const FicheroRetiradas = "retiradas.json"
 
+// CarpetaRetiradas es la carpeta de las listas dentro de la del nodo o del sensor remoto: la de
+// la versión firmada (firmado/), que es la que el sensor monta en /firmado y lee
+// (carpetaRetiradas en cmd/sensor). Hasta la 0.31.1 el actualizador las dejaba en la raíz de
+// la carpeta, donde el sensor no las veía; se vuelven a bajar en menos de una hora.
+func CarpetaRetiradas(local string) string {
+	return filepath.Join(local, filepath.Dir(FicheroFirmada))
+}
+
 const (
 	maxDigestsRetirados = 1024
 	maxListasGuardadas  = 16

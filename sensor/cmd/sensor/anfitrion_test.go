@@ -53,3 +53,42 @@ func TestHechosDelAnfitrionSinFicheroOGrande(t *testing.T) {
 		t.Fatalf("fichero de más de %d bytes: %#v", topeAnfitrion, h)
 	}
 }
+
+func TestHechosDelAnfitrionVariosFicheros(t *testing.T) {
+	d := escribirAnfitrion(t, `{"disco.cifrado":{"valor":true},"disco.tpm":{"valor":true}}`)
+	escribir := func(nombre, contenido string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(d, "anfitrion", nombre), []byte(contenido), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	escribir("aide.json", `{"integridad.aide":{"valor":false,"motivo":"aide.cambios"},"disco.tpm":{"valor":false}}`)
+	escribir("roto.json", `{`)
+	escribir("otro.txt", `{"integridad.aide":{"valor":true}}`)
+	if err := os.Mkdir(filepath.Join(d, "anfitrion", "dir.json"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	quiero := map[string]any{
+		"disco.cifrado": map[string]any{"valor": true},
+		// aide.json va antes que hechos.json: gana el primero que la dice.
+		"disco.tpm":       map[string]any{"valor": false},
+		"integridad.aide": map[string]any{"valor": false, "motivo": "aide.cambios"},
+	}
+	if got := hechosDelAnfitrion(d); !reflect.DeepEqual(got, quiero) {
+		t.Fatalf("hechosDelAnfitrion = %#v, quiero %#v", got, quiero)
+	}
+}
+
+func TestHechosDelAnfitrionSoloAide(t *testing.T) {
+	d := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(d, "anfitrion"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(d, "anfitrion", "aide.json"), []byte(`{"integridad.aide":{"valor":true}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	quiero := map[string]any{"integridad.aide": map[string]any{"valor": true}}
+	if got := hechosDelAnfitrion(d); !reflect.DeepEqual(got, quiero) {
+		t.Fatalf("hechosDelAnfitrion = %#v, quiero %#v", got, quiero)
+	}
+}

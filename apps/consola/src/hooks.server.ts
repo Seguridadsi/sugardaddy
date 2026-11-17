@@ -130,6 +130,12 @@ export const handle: Handle = async ({ event, resolve }) => {
 		}
 	}
 
+	/*
+	 * Rutas que empiezan por «//»: un 404. Es el arreglo provisional que da
+	 * GHSA-pfhg-q3qv-9q6r (redirección abierta con use:enhance) hasta SvelteKit 3;
+	 * la excepción está en osv-scanner.toml.
+	 */
+	if (event.url.pathname.startsWith('//')) return new Response(null, { status: 404 });
 	/* 308: una ruta de antes del paso a inglés (rutas-antiguas.ts), con su método y su cuerpo. */
 	const nueva = rutaNueva(event.url.pathname);
 	if (nueva)

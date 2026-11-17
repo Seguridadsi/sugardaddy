@@ -286,6 +286,32 @@ class RitmoTests(unittest.TestCase):
         self.assertEqual((ev["ritmo"], ev["ordenes"]), ("unknown", 1))
         self.assertNotIn("intervalo_ms", ev)
 
+    def test_lineas_enteras_cada_pocos_segundos_sin_pausas_son_de_un_agente(self) -> None:
+        t = 1000.0
+        for pausa in (0.0, 1.4, 2.9, 1.1, 4.2, 1.7, 2.3):
+            t += pausa
+            sd.seguir_sesion(de_sesion("cowrie.command.input", input="cat /etc/passwd", time=t))
+        ev = self.cerrar()
+        self.assertEqual(ev["ritmo"], "agent")
+        self.assertEqual(ev["intervalo_ms"], 2000)
+        self.assertEqual(ev["intervalo_max_ms"], 4200)
+
+    def test_un_hueco_de_mas_de_diez_segundos_ya_no_es_de_un_agente(self) -> None:
+        t = 1000.0
+        for pausa in (0.0, 1.4, 2.9, 1.1, 14.0, 1.7, 2.3):
+            t += pausa
+            sd.seguir_sesion(de_sesion("cowrie.command.input", input="ls", time=t))
+        self.assertEqual(self.cerrar()["ritmo"], "unknown")
+
+    def test_pegadas_cada_pocos_segundos_son_de_un_agente(self) -> None:
+        for i in range(12):
+            sd.anotar_tecla("s-ritmo", ahora=50.0 + i * 0.001)
+        t = 1000.0
+        for pausa in (0.0, 1.4, 2.9, 1.1, 4.2, 1.7):
+            t += pausa
+            sd.seguir_sesion(de_sesion("cowrie.command.input", input="id", time=t))
+        self.assertEqual(self.cerrar()["ritmo"], "agent")
+
     def test_teclas_de_una_en_una_son_de_una_persona(self) -> None:
         t = 50.0
         for i, pausa in enumerate([0.12, 0.2, 0.09, 0.31, 0.15, 0.11, 0.4, 0.18, 0.1, 0.22, 0.14, 1.9, 0.13]):

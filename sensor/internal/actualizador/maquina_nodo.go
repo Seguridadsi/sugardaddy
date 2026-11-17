@@ -48,6 +48,8 @@ type MaquinaNodo struct {
 	Confianza Confianza
 	Edicion   string
 	Log       func(string, ...any)
+	// Ruta en la consola (RutaAnfitrionNodo si vacía; RutaAnfitrionSensor en un sensor remoto).
+	Ruta string
 	// Lanzar corre el auxiliar; en las pruebas, un doble.
 	Lanzar  func(ctx context.Context, imagen, nodo string, motor *MotorFijado) (HechosMaquina, error)
 	Version func(ctx context.Context) (string, error)
@@ -138,7 +140,11 @@ func (m *MaquinaNodo) lanzar(ctx context.Context, imagen, nodo string, motor *Mo
 
 func (m *MaquinaNodo) informar(ctx context.Context, inf InformeMaquina) error {
 	b, _ := json.Marshal(inf)
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, m.Consola+"/api/actualizador/anfitrion", bytes.NewReader(b))
+	ruta := m.Ruta
+	if ruta == "" {
+		ruta = RutaAnfitrionNodo
+	}
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, m.Consola+ruta, bytes.NewReader(b))
 	req.Header.Set("Authorization", "Bearer "+m.Token)
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := m.HTTP.Do(req)

@@ -40,7 +40,39 @@ export type IndicadorSubida = {
 	 * avistamientos se guardan pero no propagan.
 	 */
 	conexion?: 'tcp';
+	/*
+	 * Qué agente de IA de ataque se reconoció en esa IP (ARTEX, CyberStrike…), con «?»
+	 * cuando es pista y no prueba. Solo nombres de AGENTES_IA: nada de texto libre, ni
+	 * lo que el atacante diga de sí mismo. Opcional: los nodos anteriores no lo mandan.
+	 */
+	agentes?: string[];
 };
+
+/* El vocabulario cerrado de agentes que se comparten. Los rastreadores de IA (GPTBot…) no. */
+export const AGENTES_IA = [
+	'AI agent',
+	'AI agent?',
+	'ARTEX',
+	'ARTEX?',
+	'CyberStrike',
+	'CyberStrike/RedAmon?',
+	'CyberStrikeAI',
+	'PentestCode',
+	'CyberStrike/PentestCode?',
+	'PentAGI?',
+	'HexStrike',
+	'RedAmon',
+	'CAI?',
+	'Claude Code',
+	'Gemini CLI'
+] as const;
+const AGENTES = new Set<string>(AGENTES_IA);
+
+/* Los agentes que se aceptan: del vocabulario, sin repetir. */
+export function agentesValidos(x: unknown): string[] {
+	if (!Array.isArray(x)) return [];
+	return [...new Set(x.filter((a): a is string => typeof a === 'string' && AGENTES.has(a)))].sort();
+}
 
 export const MAXIMO_MODULOS = 10;
 const MODULO = /^[a-z0-9][a-z0-9-]{0,40}$/;

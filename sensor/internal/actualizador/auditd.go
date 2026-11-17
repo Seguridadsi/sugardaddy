@@ -258,6 +258,8 @@ type AuditdNodo struct {
 	Local   string
 	Log     string // RutaAuditLog si vacío
 	Logf    func(string, ...any)
+	// Ruta en la consola (RutaAnfitrionNodo si vacía; RutaAnfitrionSensor en un sensor remoto).
+	Ruta string
 }
 
 // Vuelta lee lo nuevo del audit.log y lo manda.
@@ -337,7 +339,7 @@ func (a *AuditdNodo) mandar(ctx context.Context, eventos []EventoAuditd, omitido
 		eventos = []EventoAuditd{}
 	}
 	b, _ := json.Marshal(map[string]any{"eventos": eventos, "omitidos": omitidos, "saltado": saltado})
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, a.Consola+"/api/actualizador/anfitrion/auditoria", bytes.NewReader(b))
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, a.Consola+rutaOConsola(a.Ruta)+"/auditoria", bytes.NewReader(b))
 	req.Header.Set("Authorization", "Bearer "+a.Token)
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := a.HTTP.Do(req)
@@ -355,4 +357,11 @@ func (a *AuditdNodo) mandar(ctx context.Context, eventos []EventoAuditd, omitido
 		a.Logf("host audit: too many events in one round", "mandados", len(eventos), "omitidos", omitidos, "saltado", saltado)
 	}
 	return nil
+}
+
+func rutaOConsola(r string) string {
+	if r != "" {
+		return r
+	}
+	return RutaAnfitrionNodo
 }

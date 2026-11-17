@@ -524,4 +524,17 @@ describe('disco cifrado del appliance', () => {
 		expect(nombreHecho('disco.cifrado')).toBe('Data disk encrypted (LUKS2)');
 		expect(nombreHecho('disco.tpm')).toBe('Data disk key sealed in the TPM');
 	});
+
+	it('integridad.aide llega del sensor, como disco.*', () => {
+		const h = hechosDeSensor({
+			hechos: { 'integridad.aide': { valor: false, motivo: 'aide.cambios' } }
+		} as Capacidades);
+		expect(h['integridad.aide']).toMatchObject({
+			valor: false,
+			motivo: 'aide.cambios',
+			fuente: 'sensor'
+		});
+		expect(HECHOS['integridad.aide'].tipo).toBe('booleano');
+		expect(nombreHecho('integridad.aide')).toBe('System files unchanged (daily AIDE check)');
+	});
 });

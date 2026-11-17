@@ -28,6 +28,7 @@ import type { LicenciaFirmada } from './licencia.ts';
 import type { RevocacionFirmada } from './revocacion.ts';
 import type { MarcaFirmada } from './marca.ts';
 import type { OrdenFirmada } from './ordenes.ts';
+import type { LatidoDisco } from './disco-latido.ts';
 import {
 	motivoInstalador,
 	motivoInstaladorSensor,
@@ -727,6 +728,12 @@ export type Latido = {
 	 * de auditd y la versión de Docker frente a la que fija la versión firmada.
 	 */
 	anfitrion?: LatidoAnfitrion;
+	/*
+	 * Desde la 0.32 (docs/diseno/disco-cifrado.md): el disco de datos del appliance, el más
+	 * débil de sus sensores vivos que lo dicen. Dos booleanos (cifrado, sellado al TPM).
+	 * Opcional: un nodo instalado a mano no lo informa. No va en el mínimo.
+	 */
+	disco?: LatidoDisco;
 };
 
 export const ESTADOS_ESTRICTO_LATIDO = [
@@ -792,3 +799,4 @@ export * from './panel.ts';
 export * from './rangos-nubes.ts';
 export * from './ordenes.ts';
 export * from './rele-minimo.ts';
+export * from './disco-latido.ts';

@@ -42,7 +42,7 @@ func TestElAislamientoEsElDeInstalar(t *testing.T) {
 		t.Fatalf("sensor/internal/actualizador/scripts/sugardaddy-trampa.apparmor is not the profile in despliegue/nodo/instalar.sh:\n%s", got)
 	}
 	servicio, path := UnidadesDiscos("/opt/sugardaddy/datos/sensor")
-	inst := strings.ReplaceAll(heredoc(t, "/etc/systemd/system/sd-discos.service", "UNIDAD"), "$DIR/datos/sensor", "/opt/sugardaddy/datos/sensor")
+	inst := strings.ReplaceAll(heredoc(t, "/etc/systemd/system/sd-discos.service", "UNIDAD"), "$datos_sensor", "/opt/sugardaddy/datos/sensor")
 	if inst != servicio {
 		t.Fatalf("sd-discos.service differs from instalar.sh:\n%s\n---\n%s", inst, servicio)
 	}

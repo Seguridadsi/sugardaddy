@@ -11,6 +11,7 @@
 	/* Lo que se ve de la máquina (datos) y el cortafuegos estricto (configuración). */
 	const PESTANAS = [
 		{ id: 'machine', texto: 'Machine' },
+		{ id: 'sensors', texto: 'Remote sensors' },
 		{ id: 'firewall', texto: 'Strict firewall' }
 	] as const;
 	const pestana = $derived(pestanaDe(page.url, PESTANAS));
@@ -113,6 +114,52 @@
 			<p class="ayuda">Last report {fechaHora(data.hechos.recibido)}.</p>
 		</section>
 	{/if}
+{:else if pestana === 'sensors'}
+	<section class="panel bloque">
+		<h2>Remote sensor machines</h2>
+		<p class="ayuda">
+			Each remote sensor's updater applies the same strict firewall setting on its own machine
+			(without a console port: only its decoys and SSH from the ranges you allow get in), loads the
+			same audit rules and reports SSH access and its Docker version. It looks every 30 minutes.
+		</p>
+		{#if !data.sensores.length}
+			<p class="ayuda">There are no remote sensors.</p>
+		{:else}
+			<ul class="lista sensores">
+				{#each data.sensores as m (m.id)}
+					<li>
+						<b>{m.nombre}</b>
+						{#if !data.efectivo.activo && !m.estado}
+							<small>Strict firewall off</small>
+						{:else if m.viejo}
+							<small class="mal">Strict firewall: no report for more than ten minutes</small>
+						{:else if m.estado}
+							<small class:mal={m.estado.estado !== 'aplicada' && m.estado.estado !== 'quitada'}
+								>Strict firewall: {ESTADO[m.estado.estado] ?? m.estado.estado}</small
+							>
+						{/if}
+						{#if m.hechos}
+							<small class:mal={m.hechos.auditd.estado !== 'puesta'}
+								>auditd: {AUDITD[m.hechos.auditd.estado] ?? m.hechos.auditd.estado}</small
+							>
+							<small class:mal={m.hechos.ssh.activo}
+								>SSH {m.hechos.ssh.activo ? 'running' : 'not running'} · {m.hechos.ssh.usuarios
+									.length}
+								{m.hechos.ssh.usuarios.length === 1 ? 'user' : 'users'} with keys</small
+							>
+							<small class:mal={m.hechos.docker.desfasada}
+								>Docker {m.hechos.docker.version ?? 'unknown'}{#if m.hechos.docker.desfasada}
+									(older than {m.hechos.docker.fijada}){/if}</small
+							>
+							<small>Last report {fechaHora(m.hechos.recibido)}</small>
+						{:else}
+							<small>Its updater has not reported on its machine yet.</small>
+						{/if}
+					</li>
+				{/each}
+			</ul>
+		{/if}
+	</section>
 {:else}
 	<section class="panel bloque">
 		<h2>Status</h2>
@@ -145,7 +192,7 @@
 			ports of the node and its decoys, and SSH from the ranges below get in. Other containers'
 			published ports are closed. If, after applying it, the node cannot reach this console within
 			90 seconds, it goes back to the previous rules on its own. Not applied while UFW or firewalld
-			are active.
+			are active. Remote sensors apply the same setting on their machines.
 		</p>
 		<form method="POST" action="?/guardar" use:enhance class="formulario">
 			<fieldset>
@@ -180,14 +227,18 @@
 			>
 			<p class="ayuda">
 				Only to Central, the image registry, Microsoft sign-in (if used), the appliance package
-				repositories and the destinations below, plus DNS and NTP. Behind a proxy, only the proxy.
-				Add your SIEM, mail server and other outputs here.
+				repositories, the destinations of your active outputs (SIEM, mail, webhooks… added on their
+				own) and the destinations below, plus DNS and NTP. Behind a proxy, only the proxy. Remote
+				sensors only reach this console, the image registry, their proxy and the destinations below.
 			</p>
 			<label for="destinos">Extra outbound destinations (host:port, one per line)</label>
 			<textarea id="destinos" name="destinos" rows="3" placeholder="siem.example.com:6514"
 				>{data.ajuste.salida.destinos.join('\n')}</textarea
 			>
 			{#if data.salida}
+				{#if data.salida.deSalidas.length}
+					<p class="ayuda">From your outputs: {data.salida.deSalidas.join(', ')}.</p>
+				{/if}
 				<p class="ayuda">Allowed now: {data.salida.destinos.join(', ') || 'none'}.</p>
 			{/if}
 			<button class="boton principal">Save</button>
@@ -243,6 +294,11 @@
 		flex-wrap: wrap;
 		gap: 4px 10px;
 		align-items: baseline;
+	}
+
+	.sensores li {
+		display: grid;
+		gap: 2px;
 	}
 
 	code {

@@ -64,13 +64,20 @@ describe.skipIf(!process.env.DATABASE_URL)('anfitrion en la base', async () => {
 		'separacion-credenciales'
 	];
 	const QUIEN = 'zz-anfitrion@prueba';
+	const SENSOR = { id: 'zz-anfitrion-remoto', nombre: 'zz-anfitrion-remoto' };
 	let desde = 0;
 
 	const limpiar = async () => {
 		await db.delete(s.ajustes).where(inArray(s.ajustes.clave, CLAVES));
+		await db.delete(s.ajustes).where(like(s.ajustes.clave, `%:sensor:${SENSOR.id}`));
+		await db.delete(s.sensores).where(eq(s.sensores.id, SENSOR.id));
 		await borrarAuditoriaDePrueba(
 			db,
-			or(eq(s.auditoria.quien, QUIEN), like(s.auditoria.quien, 'node machine%'))
+			or(
+				eq(s.auditoria.quien, QUIEN),
+				like(s.auditoria.quien, 'node machine%'),
+				like(s.auditoria.quien, `sensor ${SENSOR.nombre} machine%`)
+			)
 		);
 		const [u] = await db
 			.select({ id: s.auditoria.id })
@@ -230,5 +237,63 @@ describe.skipIf(!process.env.DATABASE_URL)('anfitrion en la base', async () => {
 			['node machine', 'host change: audit events not sent (too many in one round)']
 		]);
 		expect(f.every((x) => x.accion.startsWith(a.PREFIJO_CAMBIO))).toBe(true);
+	});
+	it('un sensor remoto: el mismo ajuste, sin consola ni salidas, y su estado aparte', async () => {
+		await db.insert(s.sensores).values({
+			id: SENSOR.id,
+			nombre: SENSOR.nombre,
+			remoto: true,
+			claveHash: 'zz-anfitrion-remoto'
+		});
+		const amb = a.ambitoSensor(SENSOR);
+		/* De serie, apagado; el appliance que cuenta el sensor lo enciende solo para él. */
+		expect((await a.paraElSensor(SENSOR)).estricto).toBe(false);
+		await a.recibirHechos(
+			a.leerHechos({ docker: { desfasada: false }, maquina: { appliance: true } })!,
+			amb
+		);
+		expect((await a.paraElSensor(SENSOR)).estricto).toBe(true);
+		expect((await a.estrictoEfectivo()).activo).toBe(false);
+		await a.guardarAjusteAnfitrion(QUIEN, {
+			estricto: true,
+			sshPuerto: 2222,
+			sshRedes: ['10.20.0.0/16'],
+			restringida: true,
+			destinos: ['repo.empresa.es:443']
+		});
+		const r = await a.paraElSensor(SENSOR);
+		expect(r).toMatchObject({
+			estricto: true,
+			emergencia: false,
+			consola: { estado: 'abierta', redes: [] },
+			ssh: { puerto: 2222, redes: ['10.20.0.0/16'] },
+			salida: { restringida: true, comprobar: [] }
+		});
+		expect(r.salida.destinos).toEqual([...a.DESTINOS_APPLIANCE, 'repo.empresa.es:443']);
+		/* Su cortafuegos y su auditd, apuntados con su nombre; el del nodo, intacto. */
+		expect(
+			await a.recibirEstricto({ estado: 'aplicada', detalle: 'x', huella: 'b'.repeat(64) }, amb)
+		).toBe(true);
+		expect(await a.estadoEstricto()).toBeNull();
+		expect((await a.estadoEstricto(amb))?.estado).toBe('aplicada');
+		await a.recibirAuditd({ eventos: [{ categoria: 'ssh', usuario: 'ana' }] }, amb);
+		const f = await db
+			.select()
+			.from(s.auditoria)
+			.where(
+				and(gt(s.auditoria.id, desde), like(s.auditoria.quien, `sensor ${SENSOR.nombre} machine%`))
+			)
+			.orderBy(s.auditoria.id);
+		expect(f.map((x) => [x.quien, x.accion])).toEqual([
+			[`sensor ${SENSOR.nombre} machine`, 'host firewall aplicada'],
+			[`sensor ${SENSOR.nombre} machine (ana)`, 'host change: SSH configuration or keys']
+		]);
+		expect(f.every((x) => (x.detalle as { sensor?: string }).sensor === SENSOR.id)).toBe(true);
+		const m = (await a.maquinasSensores()).find((x) => x.id === SENSOR.id);
+		expect(m).toMatchObject({
+			estado: { estado: 'aplicada' },
+			viejo: false,
+			hechos: { appliance: true }
+		});
 	});
 });

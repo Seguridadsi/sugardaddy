@@ -65,8 +65,45 @@ const IA: Regla[] = [
 	[/CCBot/i, 'Common Crawl'],
 	[/Diffbot/i, 'Diffbot'],
 	[/Manus-User/i, 'Manus'],
-	[/browser-use|Stagehand|AgentQL/i, 'AI browser agent']
+	[/browser-use|Stagehand|AgentQL/i, 'AI browser agent'],
+	/* Datadog lo vio en ataques reales contra AWS: artex-pentest/1.0, Mozilla/5.0 ARTeX… */
+	[/\bart[e3]x\b/i, 'ARTEX'],
+	/* El gestor de webshells de CyberStrikeAI: si llega, ya hay una webshell dentro. */
+	[/CyberStrikeAI-WebShell/i, 'CyberStrikeAI (webshell already planted)'],
+	/* CyberStrike y PentestCode repiten con su nombre a secas tras un reto de Cloudflare. */
+	[/^cyberstrike$/i, 'CyberStrike'],
+	[/^pentestcode$/i, 'PentestCode'],
+	/* HexStrike AI: su cliente HTTP, su navegador y la plantilla de los exploits que fabrica. */
+	[/HexStrike/i, 'HexStrike'],
+	[/^Mozilla\/5\.0 \(Compatible Exploit\)$/i, 'HexStrike (generated exploit)'],
+	/* RedAmon: RedAmon-AISurfaceRecon/1.0, RedAmon-CachePoison/1.0, Mozilla/5.0 (compatible; RedAmon/4.7)… */
+	[/RedAmon/i, 'RedAmon']
 ];
+
+/*
+ * Asistentes de línea de órdenes que leen páginas por encargo. Un usuario legítimo
+ * genera la misma cadena: solo cuenta contra administración, APIs o inicios de sesión.
+ */
+const CLI_IA: Regla[] = [
+	[/Claude-User \(claude-cli\//i, 'Claude Code'],
+	[/Google-Gemini-CLI/i, 'Gemini CLI']
+];
+const RUTA_SENSIBLE =
+	/^\/(?:admin|api|login|signin|wp-|administrator|manager|console|dashboard|auth)/i;
+
+/* CAI (Alias Robotics) lee páginas como «Chrome/124.0 Safari/537.36»: un Chrome real manda cuatro números. */
+const UA_CAI = /Chrome\/124\.0 Safari\//;
+
+/*
+ * La cadena de Chrome cortada tras «AppleWebKit/537.36», sin «(KHTML, like Gecko)
+ * Chrome/… Safari/…»: ningún navegador la manda. Es la del implante de CyberStrikeAI
+ * y la de la exfiltración de CyberStrike (sale del código, no de ataques vistos).
+ */
+const UA_CORTADO = /^Mozilla\/5\.0 \(Windows NT 10\.0; Win64; x64\) AppleWebKit\/537\.36$/;
+
+/* El Chrome 143 en Windows con que se disfrazan CyberStrike y PentestCode al leer páginas. */
+const UA_CHROME_143 =
+	/^Mozilla\/5\.0 \(Windows NT 10\.0; Win64; x64\) AppleWebKit\/537\.36 \(KHTML, like Gecko\) Chrome\/143\.0\.0\.0 Safari\/537\.36$/;
 
 /* Herramientas de ataque y de búsqueda de fallos. */
 const ATAQUE: Regla[] = [
@@ -147,6 +184,17 @@ const RUTAS_IA: Regla[] = [
  * en `version`). El último elemento es la familia de su huella (HASSH), para
  * comparar lo que dice con cómo negocia; vacío si no hay con qué comparar.
  */
+/*
+ * La página inventada que ARTEX pide para ver cómo responde el servidor a un 404
+ * antes de lanzar el fuzzing (Datadog vio /zzz-nonexistent-xyz123).
+ */
+const PRUEBA_404_ARTEX = /zzz[-_]?non-?exist/i;
+/* Lo mismo sin la marca de ARTEX: también lo hacen otros escáneres, por eso va detrás de ellos. */
+const PRUEBA_404 = /non-?existent|not-?exist/i;
+
+/* Lo que ARTEX deja al entrar: ficheros artex-probe-12345, C:\ProgramData\artx5v\, cuentas ArtexProbe. */
+const MARCAS_ARTEX = /artex-probe-\d{5}|artx5v|ArtexProbe/i;
+
 const SSH: [RegExp, ClaseQuien, string, string][] = [
 	[/paramiko/i, 'programa', 'Python Paramiko', 'paramiko'],
 	[/AsyncSSH/i, 'programa', 'Python AsyncSSH', 'asyncssh'],
@@ -197,6 +245,18 @@ function porRitmo(detalle: Record<string, unknown>): Quien | null {
 				`${borrados > 0 ? `, with ${borrados} ${borrados === 1 ? 'correction' : 'corrections'}` : ''}: ` +
 				`the pace of someone typing by hand. ${PISTA}.`
 		};
+	if (ritmo === 'agent') {
+		const maximo = numero(detalle.intervalo_max_ms);
+		return {
+			clase: 'ia',
+			nombre: 'AI agent?',
+			motivo:
+				`${ordenes === null ? 'Commands' : `${ordenes} commands`} arrived as whole lines` +
+				`${intervalo === null ? '' : `, typically ${(intervalo / 1000).toFixed(1)} s apart`}` +
+				`${maximo === null ? '' : ` and never more than ${(maximo / 1000).toFixed(1)} s`}, at an uneven pace: ` +
+				`a model reading each answer and deciding the next step, with none of the pauses of a person. ${PISTA}.`
+		};
+	}
 	if (ritmo === 'pasted')
 		return {
 			clase: 'programa',
@@ -344,6 +404,23 @@ export function quienEs(detalle: Record<string, unknown> | null | undefined): Qu
 	/* Lo que dice el honeypot va por delante de lo que diga el atacante de sí mismo. */
 	const dicho = agenteIaDe(detalle);
 	if (dicho) {
+		/*
+		 * La herramienta que el honeypot reconoce por cómo se porta (reto_agentes.go
+		 * de las trampas web): tras un reto falso de Cloudflare (CyberStrike,
+		 * PentestCode) o por la doble carga (PentAGI). La escribe el honeypot, no el
+		 * atacante; si es solo sospecha, el nombre lleva la duda.
+		 */
+		const herramienta = texto(detalle?.herramienta_ia).slice(0, 80);
+		if (herramienta)
+			return {
+				clase: 'ia',
+				nombre: dicho === 'confirmed' ? herramienta : `${herramienta}?`,
+				motivo:
+					texto(detalle?.motivo).slice(0, 400) ||
+					(dicho === 'confirmed'
+						? `The honeypot recognised ${herramienta} by how it behaves, not by what it says about itself.`
+						: `It behaves like ${herramienta}. ${PISTA}.`)
+			};
 		/* El cliente MCP se presenta al hablar el protocolo (portal-agentes): da nombre al agente. */
 		const mcp = texto(detalle?.cliente_mcp).slice(0, 80);
 		if (mcp)
@@ -368,8 +445,28 @@ export function quienEs(detalle: Record<string, unknown> | null | undefined): Qu
 	const tls = tlsDe(detalle);
 	const como = `It presents itself as "${ua.slice(0, 120)}"; that text is chosen by whoever connects.`;
 
+	const cli = ua ? casa(CLI_IA, ua) : null;
+	if (cli && RUTA_SENSIBLE.test(ruta))
+		return {
+			clase: 'ia',
+			nombre: cli,
+			motivo: `${como} It is the page reader of ${cli}, an AI coding assistant, sent against ${ruta.slice(0, 80)}: an operator pointing an AI agent at an admin page, API or login. A legitimate user can send the same string. ${PISTA}.`
+		};
 	const ia = ua ? casa(IA, ua) : null;
 	if (ia) return { clase: 'ia', nombre: ia, motivo: como + yTls(tls) };
+	const orden = texto(detalle.input);
+	if (orden && MARCAS_ARTEX.test(orden))
+		return {
+			clase: 'ia',
+			nombre: 'ARTEX',
+			motivo: `Its command leaves a mark the ARTEX attack agent was seen leaving (${orden.match(MARCAS_ARTEX)![0]}). ${PISTA}: the name can be copied.`
+		};
+	if (ruta && PRUEBA_404_ARTEX.test(ruta))
+		return {
+			clase: 'ia',
+			nombre: 'ARTEX?',
+			motivo: `It asked for a made-up page (${ruta.slice(0, 120)}) to see how the server answers a missing page, the probe the ARTEX attack agent was seen making before fuzzing. ${PISTA}.`
+		};
 	const rutaIa = ruta ? casa(RUTAS_IA, ruta) : null;
 	if (rutaIa)
 		return {
@@ -399,10 +496,34 @@ export function quienEs(detalle: Record<string, unknown> | null | undefined): Qu
 			};
 		return null;
 	}
+	if (UA_CORTADO.test(ua))
+		return {
+			clase: 'ia',
+			nombre: 'CyberStrike or RedAmon?',
+			motivo: `It presents itself as "${ua}", a Chrome string cut short that no browser sends; it is the one the CyberStrikeAI implant, CyberStrike's exfiltration and the RedAmon crawler use. ${PISTA}.`
+		};
+	if (UA_CAI.test(ua))
+		return {
+			clase: 'ia',
+			nombre: 'CAI?',
+			motivo: `It presents itself as "${ua.slice(0, 120)}": Chrome with a two-part version, which no real Chrome sends (it always sends four, 124.0.0.0). It is the page reader of the CAI AI agent. ${PISTA}.`
+		};
+	if (ua === 'Mozilla/5.0')
+		return {
+			clase: 'programa',
+			nombre: 'Script posing as a browser',
+			motivo: `It presents itself only as "Mozilla/5.0", which no browser sends alone; some recon scripts of the CyberStrike AI agent do. ${PISTA}.`
+		};
 	const ataque = casa(ATAQUE, ua);
 	if (ataque) return { clase: 'ataque', nombre: ataque, motivo: como + yTls(tls) };
 	const barrido = casa(BARRIDO, ua);
 	if (barrido) return { clase: 'barrido', nombre: barrido, motivo: como + yTls(tls) };
+	if (ruta && PRUEBA_404.test(ruta))
+		return {
+			clase: 'ia',
+			nombre: 'AI agent?',
+			motivo: `It asked for a made-up page (${ruta.slice(0, 120)}) to see how the server answers a missing page before probing, as AI attack agents such as ARTEX do. ${como} ${PISTA}.`
+		};
 	const programa = casa(PROGRAMA, ua);
 	if (programa) {
 		const toca = TLS_DE_PROGRAMA[programa];
@@ -412,6 +533,15 @@ export function quienEs(detalle: Record<string, unknown> | null | undefined): Qu
 	}
 	const navegador = navegadorDe(ua);
 	if (navegador) {
+		/* CyberStrike va con Bun (misma lista de cifrados que Firefox, medido con Bun 1.4) y PentestCode con Bun o Node. */
+		if (tls?.huella && tls.huella.familia !== 'chromium' && UA_CHROME_143.test(ua))
+			return {
+				clase: 'ia',
+				nombre: 'CyberStrike or PentestCode?',
+				motivo:
+					`It presents itself as Chrome 143 on Windows, but its TLS handshake is the one ${tls.huella.nombre} produces (${tls.cual}): ` +
+					`the exact disguise the CyberStrike and PentestCode AI agents use to read web pages. ${SALVEDAD_TLS}`
+			};
 		if (tls?.huella && tls.huella.familia !== navegador.familia)
 			return contradiccionTls(ua, navegador.nombre, { ...tls, huella: tls.huella });
 		if (tls?.huella)

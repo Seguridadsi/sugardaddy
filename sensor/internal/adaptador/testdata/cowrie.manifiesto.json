@@ -22,7 +22,7 @@
     "licencia": "BSD-3-Clause"
   },
   "contenedor": {
-    "imagen": "ghcr.io/seguridadsi/sugardaddy-trampa-cowrie:3.1.2-sd8@sha256:b4fe7efd592bcca60bfa6b5c6bc3b40517542a9e315eba7635b009bb2843c302",
+    "imagen": "ghcr.io/seguridadsi/sugardaddy-trampa-cowrie:3.1.2-sd9@sha256:e282e2476a2fadad0ca3c24a53b4e5194afbeae2c344ca3f3193f2a0cdc91cc4",
     "puertos": [
       {
         "interno": 2222,
@@ -267,6 +267,7 @@
       "ordenes",
       "intervalo_ms",
       "intervalo_desv_ms",
+      "intervalo_max_ms",
       "teclas",
       "teclas_ms",
       "borrados",
@@ -320,6 +321,7 @@
       "ordenes": "Commands",
       "intervalo_ms": "Median gap between commands (ms)",
       "intervalo_desv_ms": "Gap deviation (ms)",
+      "intervalo_max_ms": "Longest gap between commands (ms)",
       "teclas": "Keystrokes",
       "teclas_ms": "Median gap between keystrokes (ms)",
       "borrados": "Corrections",

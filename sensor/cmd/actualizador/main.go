@@ -210,20 +210,33 @@ func main() {
 		pasarela = &actualizador.PasarelaTrampas{Docker: d, Local: cfg.local,
 			Log: func(m string, args ...any) { slog.Info(m, args...) }}
 	}
-	// Solo en el nodo: el cortafuegos estricto de la máquina, lo que se mira de ella
-	// (SSH, auditd, Docker) y sus eventos de auditd (docs/diseno/cortafuegos-anfitrion.md).
+	// En el nodo y en un sensor remoto: el cortafuegos estricto de la máquina, lo que se
+	// mira de ella (SSH, auditd, Docker) y sus eventos de auditd
+	// (docs/diseno/cortafuegos-anfitrion.md). El sensor remoto pregunta y cuenta por las
+	// rutas del sensor, con su token, y en su máquina no hay puerto de la consola.
+	estatica := strings.TrimRight(envO("MARCA_URL", actualizador.URLMarcaEstatica), "/")
+	// La copia estática (marca de tiempo e imágenes retiradas) no es la consola: sin su CA ni
+	// su certificado de cliente, por el proxy del entorno si lo hay.
+	fuera := &stdhttp.Client{Timeout: 15 * time.Second}
 	var estricto *actualizador.EstrictoNodo
 	var maquina *actualizador.MaquinaNodo
 	var auditd *actualizador.AuditdNodo
-	if *modo != "sensor" && cfg.local != "" {
+	if cfg.local != "" {
+		ruta := actualizador.RutaAnfitrionNodo
+		propios := []string{actualizador.DestinoDeURL(estatica)}
+		if *modo == "sensor" {
+			ruta = actualizador.RutaAnfitrionSensor
+			propios = append(propios, actualizador.DestinoDeURL(*consola))
+		}
 		estricto = &actualizador.EstrictoNodo{Docker: d, Consola: *consola, Token: token, HTTP: http,
-			Local: cfg.local, Anfitrion: cfg.anfitrion,
+			Local: cfg.local, Anfitrion: cfg.anfitrion, Ruta: ruta, SinConsola: *modo == "sensor",
+			Propios: propios, Proxy: actualizador.DestinoDeURL(envO("HTTPS_PROXY", os.Getenv("https_proxy"))),
 			Log: func(m string, args ...any) { slog.Info(m, args...) }}
 		maquina = &actualizador.MaquinaNodo{Docker: d, Consola: *consola, Token: token, HTTP: http,
 			Local: cfg.local, Anfitrion: cfg.anfitrion, Confianza: clave, Edicion: actualizador.EdicionDelNodo(os.Getenv),
-			Log: func(m string, args ...any) { slog.Warn(m, args...) }}
+			Ruta: ruta, Log: func(m string, args ...any) { slog.Warn(m, args...) }}
 		auditd = &actualizador.AuditdNodo{Consola: *consola, Token: token, HTTP: http, Local: cfg.local,
-			Logf: func(m string, args ...any) { slog.Warn(m, args...) }}
+			Ruta: ruta, Logf: func(m string, args ...any) { slog.Warn(m, args...) }}
 	}
 	// En un sensor remoto: las raíces en las que confía para hablar con la consola.
 	var raices *actualizador.RaizRemota
@@ -253,9 +266,9 @@ func main() {
 	var vigia *actualizador.Vigia
 	if *modo != "sensor" && cfg.local != "" {
 		vigia = &actualizador.Vigia{
-			Estatica: strings.TrimRight(envO("MARCA_URL", actualizador.URLMarcaEstatica), "/"),
+			Estatica: estatica,
 			Consola:  *consola + "/api/actualizador/marca", Token: token, HTTP: http,
-			Fuera: &stdhttp.Client{Timeout: 15 * time.Second}, Dir: cfg.local,
+			Fuera: fuera, Dir: cfg.local,
 			Edicion: actualizador.EdicionDelNodo(os.Getenv), Versiones: *versiones,
 			Log: func(m string, args ...any) { slog.Info(m, args...) },
 			// Del .env en cada vuelta: una versión puede haber cambiado las claves.
@@ -273,7 +286,7 @@ func main() {
 		cfg.vigia = vigia
 	}
 
-	var ultimaFirmada, ultimoPartner, ultimaMarca time.Time
+	var ultimaFirmada, ultimoPartner, ultimaMarca, ultimasRetiradas time.Time
 	for {
 		// Un resultado que no llegó a la consola (porque se estaba reiniciando)
 		// se reintenta antes que nada: si no, el nodo se quedaría en "aplicando".
@@ -307,13 +320,16 @@ func main() {
 				if e.Estado == "caducada" || e.Estado == "retenida" {
 					slog.Warn("timestamp", "estado", e.Estado, "detalle", e.Detalle)
 				}
-				// Las imágenes retiradas por SeguridadSI (manual 3 de respuesta a incidentes), de la
-				// misma copia estática: el panel no las controla.
-				conf, _ := vigia.Claves()
-				if cambio, err := actualizador.TraerRetiradas(ctx, vigia.Fuera, vigia.Estatica, cfg.local, conf, vigia.Edicion); err != nil {
+			}
+			// Las imágenes retiradas por SeguridadSI (manual 3 de respuesta a incidentes), de la
+			// misma copia estática que la marca de tiempo: el panel no las controla. También en
+			// un sensor remoto, que no tiene marca de tiempo propia.
+			if cfg.local != "" && time.Since(ultimasRetiradas) > time.Hour {
+				ultimasRetiradas = time.Now()
+				if cambio, err := actualizador.TraerRetiradas(ctx, fuera, estatica, actualizador.CarpetaRetiradas(cfg.local), clavesRetiradas(cfg.local, clave), actualizador.EdicionDelNodo(os.Getenv)); err != nil {
 					slog.Warn("retired images", "err", err)
 				} else if cambio {
-					slog.Warn("SeguridadSI has retired images: the node will not start them")
+					slog.Warn("SeguridadSI has retired images: this machine will not start them")
 				}
 			}
 			r, err := vuelta(ctx, http, *consola, rutas, token, clave, a, *versiones, cfg)
@@ -438,7 +454,7 @@ func vuelta(ctx context.Context, c *http.Client, base string, ru rutas, token st
 	// Una versión que lleve una imagen retirada por SeguridadSI (registro comprometido) no se
 	// instala, aunque venga firmada.
 	if cfg.local != "" {
-		retiradas, err := actualizador.RetiradasGuardadas(cfg.local, clave, actualizador.EdicionDelNodo(os.Getenv))
+		retiradas, err := actualizador.RetiradasGuardadas(actualizador.CarpetaRetiradas(cfg.local), clave, actualizador.EdicionDelNodo(os.Getenv))
 		if err != nil {
 			return nil, fmt.Errorf("cannot read the retired image list on this machine: %w", err)
 		}
@@ -519,6 +535,25 @@ func informar(ctx context.Context, c *http.Client, base string, ru rutas, token,
 		return fmt.Errorf("consola: %s", resp.Status)
 	}
 	return nil
+}
+
+// clavesRetiradas: las claves en las que se confía, del .env de la carpeta en cada vuelta
+// (una versión puede haberlas cambiado) y, si no están allí, las del entorno.
+func clavesRetiradas(local string, deEntorno actualizador.Confianza) actualizador.Confianza {
+	env, err := actualizador.LeerEnv(filepath.Join(local, ".env"))
+	if err != nil {
+		return deEntorno
+	}
+	c := actualizador.ConfianzaDelEntorno(func(k string) string {
+		if v, ok := env[k]; ok {
+			return v
+		}
+		return os.Getenv(k)
+	})
+	if c.Legado == nil && len(c.Claves) == 0 {
+		return deEntorno
+	}
+	return c
 }
 
 func envO(k, porDefecto string) string {

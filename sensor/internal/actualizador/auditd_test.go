@@ -1,7 +1,9 @@
 package actualizador
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -125,4 +127,71 @@ func TestAuditdNodoTope(t *testing.T) {
 func itoa(i int) string {
 	b, _ := json.Marshal(i)
 	return string(b)
+}
+
+// Un sensor remoto manda sus eventos por la ruta del sensor (con su token).
+func TestAuditdSensorRemotoRuta(t *testing.T) {
+	d := t.TempDir()
+	log := filepath.Join(d, "audit.log")
+	_ = os.WriteFile(log, nil, 0o600)
+	var mu sync.Mutex
+	var rutas []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		rutas = append(rutas, r.URL.Path)
+		mu.Unlock()
+	}))
+	defer srv.Close()
+	a := &AuditdNodo{Consola: srv.URL, Token: "t", HTTP: srv.Client(), Local: d, Log: log, Ruta: RutaAnfitrionSensor}
+	_ = a.Vuelta(t.Context())
+	_ = os.WriteFile(log, []byte(logAuditd), 0o600)
+	if err := a.Vuelta(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if len(rutas) == 0 || rutas[len(rutas)-1] != RutaAnfitrionSensor+"/auditoria" {
+		t.Fatalf("%v", rutas)
+	}
+}
+
+// Y lo que ve de su máquina, también.
+func TestMaquinaSensorRemotoRuta(t *testing.T) {
+	d := t.TempDir()
+	_ = os.WriteFile(filepath.Join(d, "versiones.env"), []byte("ACTUALIZADOR_IMAGEN=r/a@sha256:1\n"), 0o600)
+	var rutas []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { rutas = append(rutas, r.URL.Path) }))
+	defer srv.Close()
+	m := &MaquinaNodo{Consola: srv.URL, Token: "t", HTTP: srv.Client(), Local: d, Anfitrion: "/opt/sugardaddy-sensor", Ruta: RutaAnfitrionSensor,
+		Version: func(context.Context) (string, error) { return "29.0.0", nil },
+		Lanzar: func(_ context.Context, _, nodo string, _ *MotorFijado) (HechosMaquina, error) {
+			if nodo != "/opt/sugardaddy-sensor" {
+				t.Fatalf("the helper must watch the sensor folder, got %s", nodo)
+			}
+			var h HechosMaquina
+			h.Auditd.Estado = PiezaPuesta
+			return h, nil
+		}}
+	if err := m.Vuelta(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if len(rutas) != 1 || rutas[0] != RutaAnfitrionSensor {
+		t.Fatalf("%v", rutas)
+	}
+}
+
+// El nodo y el sensor remoto montan el audit.log de la máquina, solo de lectura, donde lo
+// busca el actualizador. El compose del sensor remoto no entra en el árbol de Community.
+func TestComposeMontaAuditLog(t *testing.T) {
+	linea := "- /var/log/audit:" + filepath.Dir(RutaAuditLog) + ":ro"
+	for _, f := range []string{"nodo", "sensor-remoto"} {
+		b, err := os.ReadFile(filepath.Join("..", "..", "..", "despliegue", f, "compose.yml"))
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(b), linea) {
+			t.Errorf("despliegue/%s/compose.yml does not mount the audit log for the updater (%s)", f, linea)
+		}
+	}
 }

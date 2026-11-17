@@ -52,7 +52,9 @@ type Estricto struct {
 	Salida     SalidaEstricta  `json:"salida"`
 }
 
-// ConsolaEstricta: el puerto de la consola y quién llega a él.
+// ConsolaEstricta: el puerto de la consola y quién llega a él. Puerto 0: en esta
+// máquina no hay consola (un sensor remoto, despliegue/sensor-remoto): no se abre
+// ningún puerto para ella.
 type ConsolaEstricta struct {
 	Puerto  int      `json:"puerto"`
 	Abierta bool     `json:"abierta"` // pendiente, abierta a propósito o emergencia
@@ -174,11 +176,14 @@ func puertoValido(p int) bool { return p >= 1 && p <= 65535 }
 // el mismo texto (y la misma huella).
 func canonico(e Estricto) (estrictoCanonico, error) {
 	var c estrictoCanonico
-	if !puertoValido(e.Consola.Puerto) {
+	if e.Consola.Puerto != 0 && !puertoValido(e.Consola.Puerto) {
 		return c, fmt.Errorf("invalid console port %d", e.Consola.Puerto)
 	}
 	c.consola, c.abierta = e.Consola.Puerto, e.Consola.Abierta
-	if !c.abierta {
+	if c.consola == 0 {
+		// Sin consola en la máquina, ni abierta ni con lista.
+		c.abierta = false
+	} else if !c.abierta {
 		v4, v6, err := separar(e.Consola.Redes, "console")
 		if err != nil {
 			return c, err
@@ -197,7 +202,7 @@ func canonico(e Estricto) (estrictoCanonico, error) {
 			return c, fmt.Errorf("invalid published port %s/%d", p.Proto, p.Puerto)
 		}
 		// El de la consola va aparte, con su lista.
-		if p.Proto == "tcp" && p.Puerto == c.consola {
+		if c.consola != 0 && p.Proto == "tcp" && p.Puerto == c.consola {
 			continue
 		}
 		if !vistos[p] {
@@ -215,7 +220,7 @@ func canonico(e Estricto) (estrictoCanonico, error) {
 		if !puertoValido(e.SSH.Puerto) {
 			return c, fmt.Errorf("invalid SSH port %d", e.SSH.Puerto)
 		}
-		if e.SSH.Puerto == c.consola {
+		if c.consola != 0 && e.SSH.Puerto == c.consola {
 			return c, errors.New("the SSH port is the console port")
 		}
 		if vistos[Publicado{"tcp", e.SSH.Puerto}] {
@@ -362,12 +367,17 @@ func ReglasEstricto(e Estricto) (string, error) {
 	b.WriteString("\t\tudp sport 547 udp dport 546 accept\n")
 	b.WriteString("\t\t# The node's own containers reach its published ports (Docker's proxy, same bridge).\n")
 	for _, p := range puentesNodo {
-		b.WriteString("\t\tiifname \"" + p + "\" tcp dport " + puerto + " accept\n")
+		if c.consola != 0 {
+			b.WriteString("\t\tiifname \"" + p + "\" tcp dport " + puerto + " accept\n")
+		}
 		b.WriteString("\t\tiifname \"" + p + "\" meta l4proto . th dport @publicados accept\n")
 	}
-	if c.abierta {
+	switch {
+	case c.consola == 0:
+		// Un sensor remoto: su consola está en otra máquina.
+	case c.abierta:
 		b.WriteString("\t\ttcp dport " + puerto + " accept\n")
-	} else {
+	default:
 		b.WriteString("\t\ttcp dport " + puerto + " ip saddr @consola4 accept\n")
 		b.WriteString("\t\ttcp dport " + puerto + " ip6 saddr @consola6 accept\n")
 	}
@@ -387,9 +397,11 @@ func ReglasEstricto(e Estricto) (string, error) {
 	b.WriteString("\t\tct state established,related accept\n")
 	b.WriteString("\t\tct state invalid drop\n")
 	dnatConsola := "ct status dnat meta l4proto tcp ct original proto-dst " + puerto
-	if c.abierta {
+	switch {
+	case c.consola == 0:
+	case c.abierta:
 		b.WriteString("\t\t" + dnatConsola + " accept\n")
-	} else {
+	default:
 		for _, p := range puentesNodo {
 			b.WriteString("\t\tiifname \"" + p + "\" " + dnatConsola + " accept\n")
 		}
@@ -550,6 +562,9 @@ func AplicarEstricto(ctx context.Context, e Estricto, ej Ejecutor, confirmar Con
 }
 
 func describirConsola(e Estricto) string {
+	if e.Consola.Puerto == 0 {
+		return "not on this machine"
+	}
 	if e.Consola.Abierta {
 		return "open to everyone"
 	}

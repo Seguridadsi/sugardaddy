@@ -79,7 +79,7 @@ const NMAP_TLS: HuellaTls = { familia: 'nmap', nombre: 'Nmap', tipo: 'ataque' };
 export const JA4_CIFRADOS: Record<string, HuellaTls> = {
 	/* Chromium 142 (Alpine 3.22) y 156 (Debian 13). La lista de 15 del ejemplo de la especificación de JA4. */
 	'8daaf6152771': CHROMIUM,
-	/* Firefox ESR 140 (Alpine 3.22), 17 cifrados; Firefox ESR 153 (Debian 13), 16 cifrados. */
+	/* Firefox ESR 140 (Alpine 3.22), 17 cifrados (Bun 1.4 ofrece la misma lista: por los cifrados no se distinguen); Firefox ESR 153 (Debian 13), 16 cifrados. */
 	'5b57614c22b0': FIREFOX,
 	'86a278354501': FIREFOX,
 	/* nscurl de macOS 15.6 (CFNetwork, la red de Safari y de las apps de Apple), 20 cifrados. */

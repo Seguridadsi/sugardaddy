@@ -3,19 +3,34 @@
  * las reglas de @sugardaddy/canal (esIpPublica); aquí además se quita lo que
  * el cliente tiene en su lista blanca: eso no se comparte nunca.
  */
-import { and, asc, eq, gt, inArray, isNotNull, isNull, ne, or, sql } from 'drizzle-orm';
+import {
+	and,
+	asc,
+	desc,
+	eq,
+	gt,
+	inArray,
+	isNotNull,
+	isNull,
+	ne,
+	or,
+	sql,
+	type SQL
+} from 'drizzle-orm';
 import { env } from '$env/dynamic/private';
 import {
 	contenidaEn,
 	rango,
 	restar,
 	esIpPublica,
+	agentesValidos,
 	modulosValidos,
 	verificarLista,
 	type IndicadorSubida,
 	type ListaFirmada
 } from '@sugardaddy/canal';
 import { db, schema as s } from './db';
+import { agenteCompartido } from '$lib/agente-compartido';
 import { listaTor, usoTor } from './tor';
 import { auditar } from './consultas';
 import { operador } from './operador';
@@ -68,7 +83,7 @@ async function blancas(ahora = new Date()) {
 	];
 }
 
-/* Lo que se subiría ahora: agrupado por IP, sin nada más que la IP, el tipo y los módulos de trampa y el recuento. */
+/* Lo que se subiría ahora: agrupado por IP, sin nada más que la IP, el tipo y los módulos de trampa, el recuento y el agente de IA reconocido. */
 export async function indicadoresPendientes() {
 	const desde = await marca();
 	/*
@@ -86,6 +101,25 @@ export async function indicadoresPendientes() {
 		.from(s.eventos)
 		.where(despuesDe);
 	const hasta = ultimo ?? desde;
+	const subibles = and(
+		despuesDe,
+		eq(s.eventos.conexionEstablecida, true),
+		isNotNull(s.eventos.ip),
+		/* Lo que provoca «Probar» viene de un equipo del propio cliente: no es un indicador. */
+		eq(s.eventos.prueba, false),
+		/*
+		 * Ni una baliza: quien abre un cebo fuera de la red puede ser un empleado en su
+		 * casa o un escáner, y el relé es público (docs/diseno/rele-balizas.md). Es un
+		 * aviso para este cliente, no una IP para repartir a los demás.
+		 */
+		ne(s.eventos.accion, 'baliza'),
+		/*
+		 * Ni lo que se apartó por un pentest o un origen conocido, ni lo que alguien
+		 * marcó como falso positivo: una empresa de pentest trabaja para varios clientes
+		 * y llegaba así al umbral de la lista común, que la bloqueaba en todos.
+		 */
+		sql`not exists (select 1 from ${s.triaje} t where t.evento = ${s.eventos.id} and (t.quien in ('modo pentest', 'origen conocido') or t.estado = 'falso-positivo'))`
+	);
 	const filas = await db
 		.select({
 			ip: s.eventos.ip,
@@ -95,42 +129,59 @@ export async function indicadoresPendientes() {
 			primeraVez: sql<Date>`min(${s.eventos.cuando})`
 		})
 		.from(s.eventos)
-		.where(
-			and(
-				despuesDe,
-				eq(s.eventos.conexionEstablecida, true),
-				isNotNull(s.eventos.ip),
-				/* Lo que provoca «Probar» viene de un equipo del propio cliente: no es un indicador. */
-				eq(s.eventos.prueba, false),
-				/*
-				 * Ni una baliza: quien abre un cebo fuera de la red puede ser un empleado en su
-				 * casa o un escáner, y el relé es público (docs/diseno/rele-balizas.md). Es un
-				 * aviso para este cliente, no una IP para repartir a los demás.
-				 */
-				ne(s.eventos.accion, 'baliza'),
-				/*
-				 * Ni lo que se apartó por un pentest o un origen conocido, ni lo que alguien
-				 * marcó como falso positivo: una empresa de pentest trabaja para varios clientes
-				 * y llegaba así al umbral de la lista común, que la bloqueaba en todos.
-				 */
-				sql`not exists (select 1 from ${s.triaje} t where t.evento = ${s.eventos.id} and (t.quien in ('modo pentest', 'origen conocido') or t.estado = 'falso-positivo'))`
-			)
-		)
+		.where(subibles)
 		.groupBy(s.eventos.ip);
 	const blanca = await blancas();
-	const indicadores: IndicadorSubida[] = filas
-		.filter((f) => f.ip && esIpPublica(f.ip) && !contenidaEn(f.ip, blanca))
-		.map((f) => ({
-			valor: f.ip!,
-			clase: 'ip',
-			tipo: f.tipo as IndicadorSubida['tipo'],
-			modulos: modulosValidos(f.modulos),
-			primeraVez: new Date(f.primeraVez).toISOString(),
-			eventos: f.eventos,
-			/* La consulta solo coge eventos con conexión establecida. */
-			conexion: 'tcp' as const
-		}));
+	const subir = filas.filter((f) => f.ip && esIpPublica(f.ip) && !contenidaEn(f.ip, blanca));
+	const agentes = await agentesPorIp(
+		subibles,
+		subir.map((f) => f.ip!)
+	);
+	const indicadores: IndicadorSubida[] = subir.map((f) => ({
+		valor: f.ip!,
+		clase: 'ip',
+		tipo: f.tipo as IndicadorSubida['tipo'],
+		modulos: modulosValidos(f.modulos),
+		primeraVez: new Date(f.primeraVez).toISOString(),
+		eventos: f.eventos,
+		/* La consulta solo coge eventos con conexión establecida. */
+		conexion: 'tcp' as const,
+		...(agentes.get(f.ip!)?.size ? { agentes: agentesValidos([...agentes.get(f.ip!)!]) } : {})
+	}));
 	return { indicadores, hasta };
+}
+
+/* Como mucho, cuántos eventos se leen enteros para buscar agentes de IA en una vuelta. */
+const MAXIMO_LEIDOS = 20000;
+
+/*
+ * Qué agente de IA de ataque se reconoció en cada IP (agente-compartido.ts), leyendo
+ * los eventos que se suben. Sale solo el nombre del vocabulario, nunca el evento.
+ */
+async function agentesPorIp(subibles: SQL | undefined, ips: string[]) {
+	const por = new Map<string, Set<string>>();
+	if (!ips.length) return por;
+	const filas = await db
+		.select({ ip: s.eventos.ip, linea: s.eventos.linea })
+		.from(s.eventos)
+		.where(and(subibles, inArray(s.eventos.ip, ips)))
+		.orderBy(desc(s.eventos.recibido))
+		.limit(MAXIMO_LEIDOS);
+	for (const f of filas) {
+		let detalle: unknown;
+		try {
+			detalle = JSON.parse(f.linea)?.detalle;
+		} catch {
+			continue;
+		}
+		const a = agenteCompartido(
+			detalle && typeof detalle === 'object' ? (detalle as Record<string, unknown>) : null
+		);
+		if (!a || !f.ip) continue;
+		if (!por.has(f.ip)) por.set(f.ip, new Set());
+		por.get(f.ip)!.add(a);
+	}
+	return por;
 }
 
 export async function marcarSubidos(hasta: string) {

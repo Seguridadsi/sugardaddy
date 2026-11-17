@@ -167,9 +167,10 @@ func TestTablaDePrivilegios(t *testing.T) {
 		actualizador.ConfigCortafuegosTrampas("actualizador@sha256:a"))
 	anadir("console firewall helper («cortafuegos»)", "updater", "seconds, when the console access list changes",
 		actualizador.ConfigCortafuegos("actualizador@sha256:a", cortafuegos.Pedido{Puerto: 443}))
-	anadir("strict host firewall helper («cortafuegos-anfitrion»)", "updater", "up to 90 s (dead-man wait), on change and every 5 minutes while on",
+	// También en un sensor remoto: <NODO> es entonces su carpeta (CARPETA, /opt/sugardaddy-sensor).
+	anadir("strict host firewall helper («cortafuegos-anfitrion»)", "updater (node and remote sensor)", "up to 90 s (dead-man wait), on change and every 5 minutes while on",
 		actualizador.ConfigCortafuegosAnfitrion("actualizador@sha256:a", []string{"ESTRICTO=<estado>"}, "<NODO>/cortafuegos-anfitrion"))
-	anadir("host facts and audit rules helper («anfitrion»)", "updater", "seconds, on start and every 30 minutes",
+	anadir("host facts and audit rules helper («anfitrion»)", "updater (node and remote sensor)", "seconds, on start and every 30 minutes",
 		actualizador.ConfigMaquina("actualizador@sha256:a", "<NODO>", nil))
 	anadir("SMB backups helper («copias-smb»), upload, list or delete", "updater", "seconds, after each nightly backup (cifs volume mounted by Docker, removed after)",
 		copias.ConfigAuxiliarSMB("actualizador@sha256:a", "<VOLUMEN-CIFS>", "<NODO>/copias", "", "subir", "<COPIA>", nil))

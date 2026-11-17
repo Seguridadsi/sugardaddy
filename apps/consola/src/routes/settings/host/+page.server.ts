@@ -9,12 +9,14 @@ import {
 	estadoEstricto,
 	estrictoEfectivo,
 	guardarAjusteAnfitrion,
-	hechosAnfitrion
+	hechosAnfitrion,
+	maquinasSensores
 } from '$lib/server/anfitrion';
 
 /*
  * La máquina del nodo (lib/server/anfitrion.ts, docs/diseno/cortafuegos-anfitrion.md):
  * lo que el actualizador ve de ella (SSH, Docker, auditd) y el cortafuegos estricto.
+ * Y la de cada sensor remoto, con el mismo ajuste.
  */
 export const load = async ({ locals }) => {
 	exigir(locals, 'ajustes');
@@ -27,6 +29,7 @@ export const load = async ({ locals }) => {
 		/* Sin noticias en diez minutos: el actualizador no informa (parado, o un nodo de antes). */
 		viejo: !estado || Date.now() - new Date(estado.recibido).getTime() > PLAZO_INFORME_MS,
 		hechos: await hechosAnfitrion(),
+		sensores: await maquinasSensores(),
 		salida: ajuste.salida.restringida ? await destinosEfectivos(ajuste) : null,
 		maxRedes: MAX_REDES,
 		maxDestinos: MAX_DESTINOS
@@ -54,7 +57,7 @@ export const actions = {
 		if (!r.ok) return fail(400, { error: r.error });
 		return {
 			mensaje:
-				'Saved. The node applies it within a minute; if it loses contact with this console it goes back on its own.'
+				'Saved. The node and its remote sensors apply it within a minute; one that loses contact with this console goes back on its own.'
 		};
 	}
 };

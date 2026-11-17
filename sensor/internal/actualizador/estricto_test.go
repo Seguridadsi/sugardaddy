@@ -22,6 +22,7 @@ type consolaEstricta struct {
 	cfg      ConfigEstricto
 	caida    bool
 	informes []map[string]any
+	rutas    []string
 }
 
 func (c *consolaEstricta) servidor(t *testing.T) *httptest.Server {
@@ -32,7 +33,9 @@ func (c *consolaEstricta) servidor(t *testing.T) *httptest.Server {
 			http.Error(w, "down", http.StatusBadGateway)
 			return
 		}
-		switch r.URL.Path {
+		c.rutas = append(c.rutas, r.URL.Path)
+		ruta := strings.Replace(r.URL.Path, RutaAnfitrionSensor, RutaAnfitrionNodo, 1)
+		switch ruta {
 		case "/api/actualizador/anfitrion":
 			_ = json.NewEncoder(w).Encode(c.cfg)
 		case "/api/actualizador/anfitrion/cortafuegos":
@@ -117,6 +120,84 @@ func TestEstrictoNodoAplicaYRepasa(t *testing.T) {
 	_ = e.Vuelta(context.Background())
 	if len(*lanzados) != 3 {
 		t.Fatal("a new list must relaunch the helper")
+	}
+}
+
+// Un sensor remoto: pregunta y cuenta por las rutas del sensor, no abre ningún puerto
+// de consola (en su máquina no la hay), sale siempre a su consola y a la copia
+// estática, y con proxy, el proxy es lo que se deja y lo que se comprueba.
+func TestEstrictoSensorRemoto(t *testing.T) {
+	c := &consolaEstricta{}
+	c.cfg.Estricto = true
+	c.cfg.Consola.Estado = "restringida"
+	c.cfg.Consola.Redes = []string{"192.0.2.0/24"}
+	c.cfg.Salida.Restringida = true
+	c.cfg.Salida.Destinos = []string{"registro.example:443"}
+	c.cfg.Salida.Comprobar = []string{"registro.example:443"}
+	e, lanzados, d := nodoEstricto(t, c)
+	e.Ruta, e.SinConsola = RutaAnfitrionSensor, true
+	e.Propios = []string{"consola.empresa.local:443", "raw.githubusercontent.com:443", ""}
+	e.Proxy = "10.9.9.9:3128"
+	var marcados []string
+	e.Marcar = func(_ context.Context, dir string) error {
+		marcados = append(marcados, dir)
+		return nil
+	}
+	resueltos := map[string]bool{}
+	e.Resolver = func(_ context.Context, h string) ([]netip.Addr, error) {
+		resueltos[h] = true
+		return []netip.Addr{netip.MustParseAddr("20.0.0.1")}, nil
+	}
+	if err := e.Vuelta(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if e.Estado() != cortafuegos.EstrictoAplicado || len(*lanzados) != 1 {
+		t.Fatalf("%s %v", e.Estado(), *lanzados)
+	}
+	for _, r := range c.rutas {
+		if !strings.HasPrefix(r, RutaAnfitrionSensor) {
+			t.Fatalf("a remote sensor must use the sensor routes, used %s", r)
+		}
+	}
+	var est cortafuegos.Estricto
+	_ = json.Unmarshal([]byte(strings.TrimPrefix(strings.Fields((*lanzados)[0])[0], "ESTRICTO=")), &est)
+	if est.Consola.Puerto != 0 || len(est.Consola.Redes) != 0 {
+		t.Fatalf("no console port on a remote sensor: %+v", est.Consola)
+	}
+	for _, h := range []string{"registro.example", "consola.empresa.local", "raw.githubusercontent.com"} {
+		if !resueltos[h] {
+			t.Errorf("%s must be an allowed destination", h)
+		}
+	}
+	proxy := false
+	for _, x := range est.Salida.Destinos {
+		proxy = proxy || (x.IP == "10.9.9.9" && x.Puerto == 3128)
+	}
+	if !proxy {
+		t.Fatalf("the proxy must be allowed: %+v", est.Salida.Destinos)
+	}
+	if len(marcados) != 1 || marcados[0] != "10.9.9.9:3128" {
+		t.Fatalf("with a proxy, the proxy is what is checked before confirming: %v", marcados)
+	}
+	b, _ := os.ReadFile(filepath.Join(d, CarpetaEstricto, "reglas.nft"))
+	if strings.Contains(string(b), "@consola4 accept") {
+		t.Fatal("the kept rules must not open a console port")
+	}
+}
+
+func TestDestinoDeURL(t *testing.T) {
+	for u, esperado := range map[string]string{
+		"https://consola.empresa.local":       "consola.empresa.local:443",
+		"https://consola.empresa.local:8443/": "consola.empresa.local:8443",
+		"http://usuario:clave@proxy:3128":     "proxy:3128",
+		"https://[2001:db8::1]/x":             "[2001:db8::1]:443",
+		"ftp://x":                             "",
+		"":                                    "",
+		"proxy:3128":                          "",
+	} {
+		if r := DestinoDeURL(u); r != esperado {
+			t.Errorf("%q: %q, expected %q", u, r, esperado)
+		}
 	}
 }
 

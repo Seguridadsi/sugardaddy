@@ -18,6 +18,7 @@ import { env } from '$env/dynamic/private';
 import { confianza } from './claves';
 import {
 	aislamientoMasDebil,
+	discoMasDebil,
 	compararVersiones,
 	edicionDeRelease,
 	firmarPeticion,
@@ -744,6 +745,8 @@ async function latido(panel: string | null = null): Promise<Latido> {
 	const aislamiento = aislamientoMasDebil(
 		vivos.map((x) => x.capacidades?.hechos?.['motor.aislamiento']?.valor)
 	);
+	/* El disco de datos del appliance (disco.cifrado y disco.tpm): el más débil que se sepa. */
+	const disco = discoMasDebil(vivos.map((x) => x.capacidades?.hechos));
 	/* Desde la 0.30: si sale por un proxy y a qué destinos llega (salida.ts). */
 	const salida = salidaParaLatido(panel);
 	return {
@@ -760,6 +763,7 @@ async function latido(panel: string | null = null): Promise<Latido> {
 		/* El último sello de la auditoría: fuera del nodo, nadie lo puede rehacer. */
 		...(await selloParaLatido()),
 		...(aislamiento ? { aislamiento } : {}),
+		...(disco ? { disco } : {}),
 		...(salida ? { salida } : {}),
 		/* Desde la 0.32: la máquina del nodo, resumida (anfitrion.ts). */
 		...(await anfitrionParaLatido())

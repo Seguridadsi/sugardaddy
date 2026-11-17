@@ -69,7 +69,9 @@ describe.skipIf(!hayBase)('el latido mínimo', async () => {
 		return new Response('{}', { status: 202 });
 	};
 
+	const SENSOR = 'zz-lmin-sensor';
 	const limpiar = async () => {
+		await db.delete(s.sensores).where(eq(s.sensores.id, SENSOR));
 		await db.delete(s.ajustes).where(inArray(s.ajustes.clave, ['canal', 'latido-minimo']));
 		await borrarAuditoriaDePrueba(db, eq(s.auditoria.quien, QUIEN));
 	};
@@ -120,6 +122,27 @@ describe.skipIf(!hayBase)('el latido mínimo', async () => {
 		expect(l).toHaveProperty('soporte');
 		const [a] = await db.select().from(s.auditoria).where(eq(s.auditoria.quien, QUIEN));
 		expect(a).toMatchObject({ accion: 'minimal heartbeat', detalle: { activo: true } });
+	});
+
+	it('el disco de datos del appliance va en el completo y no en el mínimo', async () => {
+		await db.insert(s.sensores).values({
+			id: SENSOR,
+			nombre: SENSOR,
+			claveHash: `x-${SENSOR}`,
+			ultimoLatido: new Date(),
+			capacidades: {
+				hechos: {
+					'disco.cifrado': { valor: true },
+					'disco.tpm': { valor: false, motivo: 'tpm.ausente' },
+					'integridad.aide': { valor: true }
+				}
+			} as never
+		});
+		await latir();
+		expect(cuerpos.at(-1)?.disco).toEqual({ cifrado: true, tpm: false });
+		await guardarLatidoMinimo(QUIEN, true);
+		await latir();
+		expect(cuerpos.at(-1)).not.toHaveProperty('disco');
 	});
 
 	it('al apagarlo vuelve el completo', async () => {

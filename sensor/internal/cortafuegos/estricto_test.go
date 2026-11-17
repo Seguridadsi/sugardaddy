@@ -29,6 +29,15 @@ func casosEstricto() map[string]Estricto {
 				{"20.1.2.3", 443}, {"2603:1000::1", 443}, {"20.1.2.3", 443}, {"52.0.0.9", 8080},
 			}},
 		},
+		// Un sensor remoto: sin consola en la máquina, solo sus trampas, el SSH de
+		// administración y la salida a su consola, al registro y a lo del cliente.
+		"sensor": {
+			Publicados: []Publicado{{"tcp", 21}, {"tcp", 443}, {"udp", 161}},
+			SSH:        SSHEstricto{Puerto: 22, Redes: []string{"10.20.0.0/16"}},
+			Salida: SalidaEstricta{Restringida: true, Destinos: []Destino{
+				{"10.0.0.5", 443}, {"20.1.2.3", 443},
+			}},
+		},
 		"abierta": {
 			Consola:    ConsolaEstricta{Puerto: 8443, Abierta: true, Redes: []string{"192.0.2.10"}},
 			Publicados: []Publicado{{"tcp", 21}, {"tcp", 3389}},
@@ -84,7 +93,7 @@ func TestEstrictoRechaza(t *testing.T) {
 		"todo internet":        func(e *Estricto) { e.Consola.Redes = []string{"0.0.0.0/0"} },
 		"red mal escrita":      func(e *Estricto) { e.Consola.Redes = []string{"10.0.0.0/33"} },
 		"inyección":            func(e *Estricto) { e.Consola.Redes = []string{"1.2.3.4 } accept; #"} },
-		"puerto consola":       func(e *Estricto) { e.Consola.Puerto = 0 },
+		"puerto consola":       func(e *Estricto) { e.Consola.Puerto = 70000 },
 		"protocolo":            func(e *Estricto) { e.Publicados = []Publicado{{"sctp", 80}} },
 		"puerto publicado":     func(e *Estricto) { e.Publicados = []Publicado{{"tcp", 70000}} },
 		"ssh en el de consola": func(e *Estricto) { e.SSH = SSHEstricto{Puerto: 443, Redes: []string{"10.0.0.0/8"}} },
@@ -242,6 +251,34 @@ func TestQuitarEstricto(t *testing.T) {
 }
 
 // La regla de SEN-5 y la de la consola tienen que estar en lo que se genera.
+// Sin consola en la máquina (sensor remoto): su 443 es el de una trampa, para
+// todos, y no queda ninguna regla de la consola; SEN-5 y el cierre siguen.
+func TestEstrictoSinConsola(t *testing.T) {
+	e := casosEstricto()["sensor"]
+	r, err := ReglasEstricto(e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, no := range []string{"@consola4 accept", "proto-dst 443", "tcp dport 443"} {
+		if strings.Contains(r, no) {
+			t.Errorf("a remote sensor has no console port, but the rules have %q", no)
+		}
+	}
+	for _, debe := range []string{`iifname "sd-trampas*" drop`, "policy drop;", "elements = { tcp . 21, tcp . 443, udp . 161 }", "ip daddr . tcp dport @salida4 accept"} {
+		if !strings.Contains(r, debe) {
+			t.Errorf("missing %q", debe)
+		}
+	}
+	// Abierta sin puerto no abre nada.
+	e.Consola.Abierta = true
+	if r2, _ := ReglasEstricto(e); r2 != r {
+		t.Fatal("without a console port, «open» must not change the rules")
+	}
+	if !strings.Contains(describirConsola(e), "not on this machine") {
+		t.Fatal(describirConsola(e))
+	}
+}
+
 func TestEstrictoConservaSEN5ySEN1(t *testing.T) {
 	r, _ := ReglasEstricto(estrictoDePrueba())
 	for _, debe := range []string{

@@ -437,11 +437,178 @@ describe('el ritmo de una sesión de SSH', () => {
 		expect(quienEs({ ritmo: 7 })).toBeNull();
 	});
 
+	it('la herramienta que reconoce el honeypot da nombre al agente', () => {
+		expect(
+			quienEs({
+				agente_ia: 'confirmed',
+				herramienta_ia: 'CyberStrike',
+				agente: 'cyberstrike',
+				motivo: 'AI agent CyberStrike: after a fake Cloudflare challenge…'
+			})
+		).toEqual({
+			clase: 'ia',
+			nombre: 'CyberStrike',
+			motivo: 'AI agent CyberStrike: after a fake Cloudflare challenge…'
+		});
+		/* La doble carga es una pista: el nombre lleva la duda. */
+		expect(
+			quienEs({
+				agente_ia: 'suspected',
+				herramienta_ia: 'PentAGI',
+				agente: 'Mozilla/5.0 (X11) Chrome/120'
+			})
+		).toMatchObject({ clase: 'ia', nombre: 'PentAGI?' });
+		/* Sin motivo en el evento, uno de serie. */
+		expect(quienEs({ agente_ia: 'confirmed', herramienta_ia: 'PentestCode' })?.motivo).toContain(
+			'PentestCode'
+		);
+		/* Va por delante del cliente MCP y del User-Agent. */
+		expect(
+			quienEs({ agente_ia: 'confirmed', herramienta_ia: 'PentestCode', cliente_mcp: 'otro 1.0' })
+				?.nombre
+		).toBe('PentestCode');
+		/* Sin agente_ia, herramienta_ia no basta: lo pone el honeypot junto a su veredicto. */
+		expect(quienEs({ herramienta_ia: 'CyberStrike', agente: 'curl/8.5.0' })?.nombre).not.toBe(
+			'CyberStrike'
+		);
+	});
+
 	it('el cliente MCP da nombre al agente', () => {
 		expect(quienEs({ agente_ia: 'confirmed', cliente_mcp: 'claude-code 2.4.1' })).toMatchObject({
 			clase: 'ia',
 			nombre: 'claude-code 2.4.1'
 		});
 		expect(quienEs({ ruta: '/.well-known/ai-catalog.json' })?.clase).toBe('ia');
+	});
+});
+
+describe('ARTEX, el agente de IA de ataque', () => {
+	it.each([
+		'artex-pentest/1.0',
+		'artex-readonly/1.0',
+		'Mozilla/5.0 ARTeX',
+		'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ARTeX-authorized-pentest',
+		'Mozilla/5.0 (X11; Linux x86_64) artex-verify/1.0',
+		'artex-i21861-canary',
+		'ARTEX-worker/1.0'
+	])('%s → ARTEX', (ua) => {
+		expect(de(ua)).toMatchObject({ clase: 'ia', nombre: 'ARTEX' });
+	});
+
+	it('no confunde palabras que contienen «artex»', () => {
+		expect(de('Partex-client/1.0')).toBeNull();
+	});
+
+	it('la página inventada para ver el 404', () => {
+		expect(de('python-requests/2.31.0', '/zzz-nonexistent-xyz123')).toMatchObject({
+			clase: 'ia',
+			nombre: 'ARTEX?'
+		});
+		expect(de('python-requests/2.31.0', '/this-does-not-exist-404')).toMatchObject({
+			clase: 'ia',
+			nombre: 'AI agent?'
+		});
+	});
+
+	it('un escáner con nombre que pide lo mismo sigue siendo el escáner', () => {
+		expect(de('Fuzz Faster U Fool v2.1.0', '/nonexistent')).toMatchObject({ nombre: 'ffuf' });
+	});
+
+	it('las marcas que deja al entrar por SSH', () => {
+		expect(quienEs({ input: 'touch /tmp/artex-probe-48213' })).toMatchObject({
+			clase: 'ia',
+			nombre: 'ARTEX'
+		});
+		expect(quienEs({ input: 'ls /tmp' })).toBeNull();
+	});
+});
+
+describe('CyberStrike, CyberStrikeAI y PentestCode', () => {
+	const CHROME_143 =
+		'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36';
+
+	it.each([
+		[
+			'Mozilla/5.0 (compatible; CyberStrikeAI-WebShell/1.0)',
+			'CyberStrikeAI (webshell already planted)'
+		],
+		['cyberstrike', 'CyberStrike'],
+		['pentestcode', 'PentestCode'],
+		['Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', 'CyberStrike or RedAmon?']
+	])('%s → %s', (ua, nombre) => {
+		expect(de(ua)).toMatchObject({ clase: 'ia', nombre });
+	});
+
+	it('el nombre a secas solo cuenta entero', () => {
+		expect(de('cyberstrike-scanner/2.0')?.clase).not.toBe('ia');
+	});
+
+	it('Mozilla/5.0 sin más es un guion', () => {
+		expect(de('Mozilla/5.0')).toMatchObject({ clase: 'programa' });
+	});
+
+	it('Chrome 143 que saluda como Bun o Node', () => {
+		/* Bun 1.4: misma lista de cifrados que Firefox (medido en Docker). */
+		expect(
+			quienEs({ agente: CHROME_143, ruta: '/', ja4: 't13d1715h2_5b57614c22b0_000000000000' })
+		).toMatchObject({ clase: 'ia', nombre: 'CyberStrike or PentestCode?' });
+		expect(
+			quienEs({ agente: CHROME_143, ruta: '/', ja4: 't13d5211h1_b262b3658495_000000000000' })
+		).toMatchObject({ clase: 'ia', nombre: 'CyberStrike or PentestCode?' });
+	});
+
+	it('Chrome 143 que saluda como Chrome es un navegador', () => {
+		expect(
+			quienEs({ agente: CHROME_143, ruta: '/', ja4: 't13d1516h2_8daaf6152771_000000000000' })
+		).toMatchObject({ clase: 'navegador' });
+	});
+});
+
+describe('HexStrike, RedAmon, CAI y los asistentes de línea de órdenes', () => {
+	it.each([
+		['HexStrike-HTTP-Framework/1.0 (Advanced Security Testing)', 'HexStrike'],
+		['HexStrike-BrowserAgent/1.0 (Security Testing)', 'HexStrike'],
+		['Mozilla/5.0 (Compatible Exploit)', 'HexStrike (generated exploit)'],
+		['RedAmon-AISurfaceRecon/1.0', 'RedAmon'],
+		['RedAmon-CachePoison/1.0', 'RedAmon'],
+		['Mozilla/5.0 (X11; Linux x86_64) RedAmon/1.0', 'RedAmon'],
+		['Mozilla/5.0 (compatible; RedAmon/4.7)', 'RedAmon'],
+		['Mozilla/5.0 (compatible; RedAmon-JsRecon/1.0)', 'RedAmon'],
+		[
+			'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
+			'CAI?'
+		]
+	])('%s → %s', (ua, nombre) => {
+		expect(de(ua)).toMatchObject({ clase: 'ia', nombre });
+	});
+
+	it('un Chrome 124 de verdad no es CAI', () => {
+		expect(
+			de(
+				'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+			)
+		).toMatchObject({ clase: 'navegador' });
+	});
+
+	const CLAUDE =
+		'Claude-User (claude-cli/2.1.325 (external, cli); +https://support.anthropic.com/)';
+	const GEMINI =
+		'Mozilla/5.0 (compatible; Google-Gemini-CLI/1.0; +https://github.com/google-gemini/gemini-cli)';
+
+	it('Claude Code y Gemini CLI cuentan contra administración, APIs o inicios de sesión', () => {
+		expect(de(CLAUDE, '/wp-login.php')).toMatchObject({ clase: 'ia', nombre: 'Claude Code' });
+		expect(de(GEMINI, '/api/users')).toMatchObject({ clase: 'ia', nombre: 'Gemini CLI' });
+	});
+
+	it('contra una página cualquiera, Claude Code es un asistente más', () => {
+		expect(de(CLAUDE, '/blog/post')).toMatchObject({ nombre: 'Claude' });
+	});
+});
+
+describe('el ritmo de un agente en SSH', () => {
+	it('líneas enteras cada pocos segundos y sin pausas', () => {
+		expect(
+			quienEs({ ritmo: 'agent', ordenes: 7, intervalo_ms: 2000, intervalo_max_ms: 4200 })
+		).toMatchObject({ clase: 'ia', nombre: 'AI agent?' });
 	});
 });

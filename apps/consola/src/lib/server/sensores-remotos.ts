@@ -18,6 +18,7 @@ import { credencialSensorRemoto, releaseDelNodo } from './canal';
 import type { Entorno } from '$lib/entorno';
 import { crearSensor, prepararToken, reactivarSensor } from './gestion';
 import { PROXY_SH } from './proxy-sh';
+import { AISLAMIENTO_SH } from './aislamiento-sh';
 import { normalizarIp } from './pruebas';
 import { comprobarArquitectura } from './arquitectura-sh';
 import { detectarRed } from './red-sh';
@@ -548,6 +549,12 @@ if docker run --rm --network none --read-only --cap-drop ALL --security-opt no-n
 	"$(grep '^SENSOR_IMAGEN=' versiones.env | cut -d= -f2-)" version >/dev/null 2>&1; then
 	printf '\\nSENSOR_PROPAGACION=rslave\\n' >> .env
 fi
+# El aislamiento de las trampas (docs/diseno/aislamiento-trampas.md), como en el nodo: el
+# perfil AppArmor y sd-discos. Lo que la máquina no admite se queda sin ello y la consola lo
+# dice; cada versión lo vuelve a poner (auxiliar «aislar-anfitrion»).
+PASO="isolate the decoys"
+${AISLAMIENTO_SH}
+sd_aislar_trampas "$DIR/.env" "$DIR/datos" "$(grep '^SENSOR_IMAGEN=' versiones.env | cut -d= -f2-)"
 echo "==> Starting the sensor"
 PASO="start the sensor"
 if ! docker compose --env-file .env --env-file versiones.env up -d --wait; then

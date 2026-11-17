@@ -169,3 +169,13 @@ func TestTraerRetiradas(t *testing.T) {
 		t.Fatal("debería estar guardada")
 	}
 }
+
+// El actualizador deja las listas donde el sensor las lee: junto a la versión firmada, la
+// carpeta que el sensor monta en /firmado (en el nodo y en un sensor remoto).
+func TestCarpetaRetiradasEsLaDeLaFirmada(t *testing.T) {
+	for _, local := range []string{"/nodo", "/sensor"} {
+		if got, want := CarpetaRetiradas(local), filepath.Dir(filepath.Join(local, FicheroFirmada)); got != want {
+			t.Fatalf("%s: %s, expected %s", local, got, want)
+		}
+	}
+}

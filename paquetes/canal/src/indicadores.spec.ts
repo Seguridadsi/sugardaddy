@@ -140,3 +140,12 @@ describe('los módulos de un indicador', () => {
 		expect(modulosValidos(muchos)).toHaveLength(MAXIMO_MODULOS);
 	});
 });
+
+describe('los agentes de IA de un indicador', () => {
+	it('solo los del vocabulario, sin repetir y ordenados', async () => {
+		const { agentesValidos } = await import('./indicadores.ts');
+		expect(agentesValidos(['ARTEX?', 'ARTEX', 'ARTEX'])).toEqual(['ARTEX', 'ARTEX?']);
+		expect(agentesValidos(['GPTBot', 'my-agent "x"', 7, null, ''])).toEqual([]);
+		expect(agentesValidos('ARTEX')).toEqual([]);
+	});
+});
