@@ -14,9 +14,12 @@ import {
 	huellasSensorDe,
 	MARCA_HUELLAS,
 	MARCA_HUELLAS_SENSOR,
+	motivoVersionNodos,
 	piezasInstalador,
 	piezasInstaladorSensor,
+	releaseParaNodos,
 	sellarEtapa1,
+	tamanoParaNodos,
 	verificarRelease,
 	type Release
 } from './index.ts';
@@ -249,5 +252,41 @@ describe('el instalador del sensor remoto', () => {
 		const guion = readFileSync(rutaGuion, 'utf8');
 		expect(guion.startsWith('#!/usr/bin/env bash\n')).toBe(true);
 		expect(Buffer.byteLength(guion)).toBeLessThan(64 * 1024);
+	});
+});
+
+describe('la versión para los nodos (0.32.1)', () => {
+	const completa = {
+		version: '0.32.1',
+		publicada: '2026-11-17T00:00:00.000Z',
+		notas: 'n',
+		servicios: { consola: 'r/c@sha256:' + 'a'.repeat(64) },
+		instalador: {
+			huellas: 'v1;',
+			ficheros: { 'instalar.sh': 'x'.repeat(1000) },
+			etapa1: { texto: 't', firmas: [] }
+		},
+		instaladorSensor: { huellasSensor: 'v1;', ficheros: { 'instalar.sh': 'y' } },
+		commit: 'c'.repeat(40)
+	} as unknown as Release;
+
+	it('es la completa sin el instalador ni el del sensor, en el mismo orden', () => {
+		const n = releaseParaNodos(completa);
+		expect(Object.keys(n)).toEqual(['version', 'publicada', 'notas', 'servicios', 'commit']);
+		expect(completa.instalador).toBeDefined();
+		expect(motivoVersionNodos(completa, JSON.parse(JSON.stringify(n)))).toBeNull();
+	});
+
+	it('no vale otra cosa', () => {
+		expect(motivoVersionNodos(completa, { ...releaseParaNodos(completa), notas: 'otra' })).toMatch(
+			/not the full version/
+		);
+		expect(motivoVersionNodos(completa, completa)).toMatch(/not the full version/);
+	});
+
+	it('mide como Go, que escapa < > &', () => {
+		expect(tamanoParaNodos({ release: 'a<b', firma: 'f' })).toBe(
+			JSON.stringify({ release: 'a<b', firma: 'f' }).length + 5
+		);
 	});
 });

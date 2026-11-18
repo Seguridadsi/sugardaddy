@@ -37,7 +37,8 @@ import { operador } from './operador';
 import { cubreDominio } from './dominios';
 import { migrados } from './origenes-comun';
 import { ipsDelDespliegue } from './ips-propias';
-import { diaDe, repartirListaComun, topeDia } from './lista-comun-frenos';
+import { diaDe, repartirListaComun, topeDia, topeValido } from './lista-comun-frenos';
+import { tecnicasPorIp } from './tecnicas-indicador';
 
 type Marca = { hasta: string };
 
@@ -137,6 +138,10 @@ export async function indicadoresPendientes() {
 		subibles,
 		subir.map((f) => f.ip!)
 	);
+	const tecnicas = await tecnicasPorIp(
+		subibles,
+		subir.map((f) => f.ip!)
+	);
 	const indicadores: IndicadorSubida[] = subir.map((f) => ({
 		valor: f.ip!,
 		clase: 'ip',
@@ -146,7 +151,8 @@ export async function indicadoresPendientes() {
 		eventos: f.eventos,
 		/* La consulta solo coge eventos con conexión establecida. */
 		conexion: 'tcp' as const,
-		...(agentes.get(f.ip!)?.size ? { agentes: agentesValidos([...agentes.get(f.ip!)!]) } : {})
+		...(agentes.get(f.ip!)?.size ? { agentes: agentesValidos([...agentes.get(f.ip!)!]) } : {}),
+		...(tecnicas.get(f.ip!)?.length ? { tecnicas: tecnicas.get(f.ip!) } : {})
 	}));
 	return { indicadores, hasta };
 }
@@ -202,15 +208,19 @@ export async function aplicarLista(
 	clavesPanel: string | readonly string[],
 	f: ListaFirmada,
 	nodo: string,
-	ahora = new Date()
+	ahora = new Date(),
+	/* Una lista sin `tipo`, de un panel anterior a la 0.32: se acepta y se cuenta (canal.ts). */
+	alLegado?: () => Promise<void>
 ) {
 	const v = verificarLista(clavesPanel, f);
 	if (!v.ok) {
 		await auditar(`node ${nodo}`, 'global list rejected', { motivo: v.motivo });
 		return false;
 	}
+	if (v.legado) await alLegado?.();
 	const quien = await operador();
 	const intocables = await ipsDelDespliegue();
+	const { tope } = await topeListaComun();
 	const reparto = await db.transaction(async (tx) => {
 		const admitidas = new Set(
 			(
@@ -231,7 +241,7 @@ export async function aplicarLista(
 			entrantes: Array.isArray(v.lista.indicadores) ? v.lista.indicadores : [],
 			admitidas,
 			esperaDesde,
-			cupo: Math.max(0, topeDia(env.LISTA_COMUN_TOPE_DIA) - usado),
+			cupo: Math.max(0, tope - usado),
 			intocables
 		});
 		await tx
@@ -285,6 +295,37 @@ export async function aplicarLista(
 const CUPO = 'lista-comun-cupo';
 type Cupo = { dia: string; n: number };
 
+/*
+ * El tope diario de la lista común. Lo pone el administrador de la consola en Lists, sin
+ * desplegar (ajuste `lista-comun-tope`); si no lo ha tocado, el de LISTA_COMUN_TOPE_DIA del
+ * .env, y si tampoco, 100. Vive en el nodo y no en el panel a propósito: es el freno contra
+ * un panel tomado (docs/diseno/frenos-del-nodo.md), y un panel que pudiera subirlo lo
+ * quitaría. Por eso no viaja en el estado deseado.
+ */
+const TOPE = 'lista-comun-tope';
+
+export async function topeListaComun(): Promise<{ tope: number; propio: boolean }> {
+	const [f] = await db.select().from(s.ajustes).where(eq(s.ajustes.clave, TOPE));
+	const n = topeValido((f?.valor as { n?: unknown } | undefined)?.n);
+	return n === null
+		? { tope: topeDia(env.LISTA_COMUN_TOPE_DIA), propio: false }
+		: { tope: n, propio: true };
+}
+
+/* Cambia el tope desde Lists. false si no es un entero de 0 a 10.000 o no cambia nada. */
+export async function fijarTopeListaComun(quien: string, valor: unknown) {
+	const n = topeValido(valor);
+	if (n === null) return 'invalido' as const;
+	const antes = await topeListaComun();
+	if (antes.propio && antes.tope === n) return 'igual' as const;
+	await db
+		.insert(s.ajustes)
+		.values({ clave: TOPE, valor: { n } })
+		.onConflictDoUpdate({ target: s.ajustes.clave, set: { valor: { n } } });
+	await auditar(quien, 'shared list daily limit changed', { antes: antes.tope, tope: n });
+	return 'guardado' as const;
+}
+
 /* Lo que espera a entrar en el EDL por el tope diario, para Lists. */
 export async function listaComunEnEspera() {
 	const filas = await db
@@ -292,7 +333,7 @@ export async function listaComunEnEspera() {
 		.from(s.listaComunEspera)
 		.orderBy(asc(s.listaComunEspera.recibida), asc(s.listaComunEspera.valor));
 	return {
-		tope: topeDia(env.LISTA_COMUN_TOPE_DIA),
+		...(await topeListaComun()),
 		entradas: filas.map((x) => ({
 			valor: x.valor,
 			motivo: x.motivo,

@@ -4,7 +4,15 @@
  * no toca nada ni para la instalación.
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	symlinkSync,
+	writeFileSync
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -42,16 +50,27 @@ describe('aislamiento de las trampas en los instaladores', () => {
 			writeFileSync(join(d, 'docker'), '#!/bin/sh\necho docker >> "$0.llamado"; exit 1\n', {
 				mode: 0o755
 			});
+			/*
+			 * Sin apparmor_parser ni systemctl en el PATH: no aplica nada. El PATH lleva solo
+			 * lo que usa el bloque, no /bin entero: en Ubuntu /bin es /usr/bin y trae los dos
+			 * (el runner de GitHub tiene AppArmor y systemd).
+			 */
+			const bin = join(d, 'bin');
+			mkdirSync(bin);
+			symlinkSync(join(d, 'docker'), join(bin, 'docker'));
+			for (const orden of ['grep', 'mv', 'chmod', 'cat', 'mkdir']) {
+				const ruta = ['/usr/bin', '/bin'].map((c) => join(c, orden)).find((r) => existsSync(r));
+				if (ruta) symlinkSync(ruta, join(bin, orden));
+			}
 			const guion = `set -Eeuo pipefail\n${AISLAMIENTO_SH}\nsd_aislar_trampas "${d}/.env" /opt/x/datos imagen@sha256:1\necho fin`;
 			const r = spawnSync('/bin/bash', ['-c', guion], {
-				/* Sin apparmor_parser ni systemctl en el PATH: no aplica nada. */
-				env: { PATH: `${d}:/bin` },
+				env: { PATH: bin },
 				encoding: 'utf8'
 			});
 			expect(r.status).toBe(0);
 			expect(r.stdout.trim()).toBe('fin');
 			expect(readFileSync(join(d, '.env'), 'utf8')).toBe('A=1\n');
-			expect(existsSync(join(d, 'docker.llamado'))).toBe(false);
+			expect(existsSync(join(bin, 'docker.llamado'))).toBe(false);
 			/* Y la orden que deja el valor en el .env, sin repetir la clave. */
 			const env = spawnSync(
 				'/bin/bash',

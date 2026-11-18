@@ -19,6 +19,8 @@ export type CodigoMotivo =
 	| 'licencia.revocada'
 	| 'registro.sin'
 	| 'registro.caducado'
+	| 'partner.caducado'
+	| 'partner.retirado'
 	| 'parametros.invalidos'
 	| 'ejecutor.desconocido'
 	| 'destino.inactivo'
@@ -86,6 +88,15 @@ export const MOTIVOS: Readonly<Record<CodigoMotivo, { texto: string; remedio?: s
 			texto: 'This honeypot is enabled for free with your registration, in Settings.'
 		},
 		'registro.caducado': { texto: 'Your registration has expired: renew it in Settings.' },
+		/* Trampas de partner (docs/diseno/trampas-de-partner.md): sin certificado vigente se paran. */
+		'partner.caducado': {
+			texto:
+				'The decoy certificate of partner {partner} expired on {caduca}: its honeypots are stopped until the partner renews it.'
+		},
+		'partner.retirado': {
+			texto:
+				'Partner {partner} no longer distributes its honeypots to this node: they are stopped. Contact your partner.'
+		},
 		'parametros.invalidos': { texto: '{errores}' },
 		'ejecutor.desconocido': {
 			texto: 'This method ({ejecutor}) will arrive with a newer version of Sugardaddy.'

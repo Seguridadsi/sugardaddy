@@ -635,11 +635,16 @@ func (c configDeAuxiliar) reinformar(ctx context.Context) {
 	_ = actualizador.GuardarResultado(c.local, r)
 }
 
-// aplicar es el auxiliar: aplica la versión firmada que le pasan por entorno.
+// aplicar es el auxiliar: aplica la versión firmada que le pasan por entorno (en trozos si
+// no cabe en una variable: VariablesVersion).
 func aplicar() int {
 	dir, modo, proyecto, red := os.Getenv("APLICAR_DIR"), os.Getenv("APLICAR_MODO"), os.Getenv("APLICAR_PROYECTO"), os.Getenv("APLICAR_RED")
 	var f actualizador.ReleaseFirmada
-	b, err := base64.StdEncoding.DecodeString(os.Getenv("APLICAR_VERSION"))
+	b64, err := actualizador.LeerVariablesVersion(os.Getenv)
+	var b []byte
+	if err == nil {
+		b, err = base64.StdEncoding.DecodeString(b64)
+	}
 	if err == nil {
 		err = json.Unmarshal(b, &f)
 	}

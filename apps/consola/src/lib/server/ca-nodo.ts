@@ -61,6 +61,32 @@ export function certificadoDeCA(pem: unknown): string | null {
 	}
 }
 
+/*
+ * Si la raíz lleva nameConstraints marcados como críticos (OID 2.5.29.30 seguido
+ * del BOOLEAN TRUE de «critical»). La raíz propia del nodo los lleva siempre
+ * (sensor/internal/canodo): una sin ellos, que vale para cualquier sitio, no se
+ * ofrece para instalar en los equipos (auditoría del 2026-11-14, defensa en
+ * profundidad frente a un actualizador o una versión defectuosos).
+ */
+const OID_NAME_CONSTRAINTS = Buffer.from([0x06, 0x03, 0x55, 0x1d, 0x1e]);
+export function conRestriccionesCriticas(pem: string | null): boolean {
+	if (!pem) return false;
+	try {
+		const der = new X509Certificate(pem).raw;
+		for (let i = der.indexOf(OID_NAME_CONSTRAINTS); i >= 0;) {
+			const j = i + OID_NAME_CONSTRAINTS.length;
+			if (der[j] === 0x01 && der[j + 1] === 0x01 && der[j + 2] === 0xff) return true;
+			i = der.indexOf(OID_NAME_CONSTRAINTS, i + 1);
+		}
+		return false;
+	} catch {
+		return false;
+	}
+}
+
+export const SIN_RESTRICCIONES =
+	'the prepared root has no critical name constraints, so it would be valid for any website: it is not offered for installation. Update the node and let it prepare the root again';
+
 /* El nombre con el que sale en el almacén de certificados de los equipos (su CN). */
 export function nombreDe(pem: string | null): string {
 	if (!pem) return '';
@@ -158,6 +184,8 @@ export async function informeDelNodo(b: unknown): Promise<boolean> {
 				: []
 		};
 	}
+	/* Una raíz preparada sin restricciones de nombre no se ofrece: queda como error del nodo. */
+	const sinRestricciones = modo === 'caddy' && !!raiz && !conRestriccionesCriticas(raiz);
 	const auditoria: { quien: string; accion: string; detalle: Record<string, unknown> }[] = [];
 	await cambiar((antes) => {
 		let aprobada = antes?.aprobada ?? null;
@@ -181,7 +209,13 @@ export async function informeDelNodo(b: unknown): Promise<boolean> {
 		 * ni una que el nodo no puede aplicar ahora (por ejemplo, con una versión
 		 * a medias): cuando se arregle, que se vuelva a confirmar.
 		 */
-		if (aprobada && (modo !== 'caddy' || !mismaHuella(aprobada.huella, huella) || texto(i.error)))
+		if (
+			aprobada &&
+			(modo !== 'caddy' ||
+				!mismaHuella(aprobada.huella, huella) ||
+				texto(i.error) ||
+				sinRestricciones)
+		)
 			aprobada = null;
 		/* Con la CA de Caddy, la raíz que usa hoy es la que habrá que quitar después. */
 		const hoy = modo === 'caddy' ? raizActiva() : null;
@@ -193,7 +227,7 @@ export async function informeDelNodo(b: unknown): Promise<boolean> {
 			raiz,
 			huella,
 			direccion: texto(i.direccion, 260) || null,
-			error: texto(i.error) || null,
+			error: texto(i.error) || (sinRestricciones ? SIN_RESTRICCIONES : null),
 			informado: new Date().toISOString(),
 			aprobada,
 			resultado: resultado ?? antes?.resultado ?? null,

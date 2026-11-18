@@ -33,6 +33,9 @@ import (
 
 var conservar bool
 
+// lleno: llenar el espacio acotado de la trampa antes de atacarla (lleno.go).
+var lleno bool
+
 // El banco del modo «IP propia» (docs/diseno/red.md §5, manual H76 §2.4): la
 // subred fija de pruebas del banco (la del ejemplo del manual), donde la
 // trampa va con IP fija y su atacante coincide con ella en capa 2: los
@@ -87,6 +90,7 @@ func main() {
 	motorSeguro := flag.String("motor", "", "socket de sd-motor: la trampa se crea a través de él, como en un nodo (docs/diseno/aislamiento-trampas.md); el atacante y la red de banco, con -docker")
 	licenciaRuta := flag.String("licencia", "", "fichero con la licencia de pago firmada, que se monta en la trampa")
 	flag.BoolVar(&conservar, "conservar", false, "no retirar la trampa al acabar (para mirar qué ha pasado)")
+	flag.BoolVar(&lleno, "lleno", false, "llenar antes sus tmpfs con ficheros viejos y darle tiempo a recuperarse (docs/diseno/espacio-trampas.md)")
 	flag.Parse()
 	if err := probar(*rutaM, *rutaP, *imagen, *atacante, *socket, *motorSeguro, *datos, *licenciaRuta); err != nil {
 		fmt.Fprintln(os.Stderr, "FALLA:", err)
@@ -256,70 +260,85 @@ func probar(rutaM, rutaP, imagen, atacante, socket, motorSeguro, datos, licencia
 		return errors.New(donde)
 	}
 	time.Sleep(time.Duration(max(p.Arranque, 3)) * time.Second)
-
-	for i, a := range p.Ataques {
-		img := a.Imagen
-		if img == "atacante" {
-			img = atacante
-		}
-		// Con IP propia el atacante entra en la red de banco, con IP fija:
-		// ataca la IP de la trampa de igual a igual, en capa 2 (así se ve
-		// el tráfico multidifusión del LLMNR/NBT-NS, que no cruza ningún NAT).
-		redAtacante, ipAtacante := "", ""
-		if m.Red != nil {
-			redAtacante, ipAtacante = redBanco, ipAtacanteBanco
-		}
-		codigo, err := atacar(ctx, d, img, rellenar(a.Orden, p.Parametros), redAtacante, ipAtacante)
-		fmt.Printf("ataque %d: código %d\n", i+1, codigo)
-		if err != nil {
-			return fmt.Errorf("ataque %d: %w", i+1, err)
-		}
-		if codigo != 0 && !a.PuedeFallar {
-			return fmt.Errorf("el ataque %d ha fallado (código %d)", i+1, codigo)
-		}
-	}
-
-	// Leer sus registros como el sensor y comprobar lo esperado.
-	ruta := filepath.Join(despliegue.Registros(o, trampa.ID), m.Eventos.Fuente.Ruta)
-	var vistos []evento.Evento
-	var pos seguidor.Posicion
-	fin := time.Now().Add(time.Duration(max(p.Tiempo, 10)) * time.Second)
-	for {
-		lineas, nueva, aviso, err := seguidor.Seguir(ruta, pos)
-		if err != nil {
-			return fmt.Errorf("registro: %w", err)
-		}
-		if aviso != "" {
-			fmt.Println("aviso:", aviso)
-		}
-		pos = nueva
-		for _, l := range lineas {
-			e, err := adaptador.Adaptar(sensor, trampa, l)
-			if errors.Is(err, adaptador.ErrIgnorada) {
-				continue
+	// Una pasada: los ataques y, en lo que la trampa apunte desde pos, los
+	// eventos esperados. Devuelve hasta dónde leyó.
+	pasada := func(pos seguidor.Posicion) (seguidor.Posicion, error) {
+		for i, a := range p.Ataques {
+			img := a.Imagen
+			if img == "atacante" {
+				img = atacante
 			}
+			// Con IP propia el atacante entra en la red de banco, con IP fija:
+			// ataca la IP de la trampa de igual a igual, en capa 2 (así se ve
+			// el tráfico multidifusión del LLMNR/NBT-NS, que no cruza ningún NAT).
+			redAtacante, ipAtacante := "", ""
+			if m.Red != nil {
+				redAtacante, ipAtacante = redBanco, ipAtacanteBanco
+			}
+			codigo, err := atacar(ctx, d, img, rellenar(a.Orden, p.Parametros), redAtacante, ipAtacante)
+			fmt.Printf("ataque %d: código %d\n", i+1, codigo)
 			if err != nil {
-				return fmt.Errorf("línea que el adaptador no entiende: %w\n%s", err, l)
+				return pos, fmt.Errorf("ataque %d: %w", i+1, err)
 			}
-			// Sin sensorMinimo, la trampa también llega a sensores 0.12: tienen que entenderla.
-			if m.SensorMinimo == "" {
-				if err := adaptador.Compatible012(trampa, l); err != nil {
-					return fmt.Errorf("un sensor 0.12 no entendería esta línea (%v): pon sensorMinimo: 0.13.0 en el manifiesto o cambia su registro\n%s", err, l)
+			if codigo != 0 && !a.PuedeFallar {
+				return pos, fmt.Errorf("el ataque %d ha fallado (código %d)", i+1, codigo)
+			}
+		}
+
+		// Leer sus registros como el sensor y comprobar lo esperado.
+		ruta := filepath.Join(despliegue.Registros(o, trampa.ID), m.Eventos.Fuente.Ruta)
+		var vistos []evento.Evento
+		fin := time.Now().Add(time.Duration(max(p.Tiempo, 10)) * time.Second)
+		for {
+			lineas, nueva, aviso, err := seguidor.Seguir(ruta, pos)
+			if err != nil {
+				return pos, fmt.Errorf("registro: %w", err)
+			}
+			if aviso != "" {
+				fmt.Println("aviso:", aviso)
+			}
+			pos = nueva
+			for _, l := range lineas {
+				e, err := adaptador.Adaptar(sensor, trampa, l)
+				if errors.Is(err, adaptador.ErrIgnorada) {
+					continue
 				}
+				if err != nil {
+					return pos, fmt.Errorf("línea que el adaptador no entiende: %w\n%s", err, l)
+				}
+				// Sin sensorMinimo, la trampa también llega a sensores 0.12: tienen que entenderla.
+				if m.SensorMinimo == "" {
+					if err := adaptador.Compatible012(trampa, l); err != nil {
+						return pos, fmt.Errorf("un sensor 0.12 no entendería esta línea (%v): pon sensorMinimo: 0.13.0 en el manifiesto o cambia su registro\n%s", err, l)
+					}
+				}
+				vistos = append(vistos, e)
+				fmt.Printf("  evento: %-13s %-8s %s:%d usuario=%q conexion=%v %s\n", e.Accion, e.Severidad, e.Origen.IP, e.Origen.Puerto, e.Origen.Usuario, e.ConexionEstablecida, resumen(e.Detalle))
 			}
-			vistos = append(vistos, e)
-			fmt.Printf("  evento: %-13s %-8s %s:%d usuario=%q conexion=%v %s\n", e.Accion, e.Severidad, e.Origen.IP, e.Origen.Puerto, e.Origen.Usuario, e.ConexionEstablecida, resumen(e.Detalle))
+			faltan := faltantes(p.Espera, vistos)
+			if len(faltan) == 0 {
+				return pos, nil
+			}
+			if time.Now().After(fin) {
+				b, _ := json.Marshal(faltan)
+				return pos, fmt.Errorf("faltan eventos: %s", b)
+			}
+			time.Sleep(time.Second)
 		}
-		faltan := faltantes(p.Espera, vistos)
-		if len(faltan) == 0 {
-			return nil
-		}
-		if time.Now().After(fin) {
-			b, _ := json.Marshal(faltan)
-			return fmt.Errorf("faltan eventos: %s", b)
-		}
-		time.Sleep(time.Second)
 	}
+
+	pos, err := pasada(seguidor.Posicion{})
+	if err != nil || !lleno {
+		return err
+	}
+	// Prueba de espacio lleno (lleno.go): con su /tmp lleno de lo viejo, la
+	// trampa lo limpia sola y los mismos ataques vuelven a dar sus eventos.
+	if err := llenarYRecuperar(ctx, d, sensor, trampa.ID, atacante); err != nil {
+		return err
+	}
+	fmt.Println("lleno: segunda pasada, con lo que la trampa haya dejado")
+	_, err = pasada(pos)
+	return err
 }
 
 var hueco = regexp.MustCompile(`\$\{([^}]*)\}`)

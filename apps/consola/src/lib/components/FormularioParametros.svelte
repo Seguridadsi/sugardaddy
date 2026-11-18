@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
 	import { resolve } from '$app/paths';
+	import { TEXTO_DERECHO } from '$lib/clonar-derecho';
 	import type { EsquemaParametros } from '@sugardaddy/contrato';
 
 	/*
@@ -146,10 +147,12 @@
 			)
 		)
 	);
-	let clon = $state<Record<string, { url: string; ocupado: boolean; aviso: string; mal: boolean }>>(
-		{}
-	);
-	const estadoClon = (k: string) => clon[k] ?? { url: '', ocupado: false, aviso: '', mal: false };
+	/* derecho: la casilla de que se puede copiar la página; el servidor la vuelve a exigir. */
+	let clon = $state<
+		Record<string, { url: string; derecho: boolean; ocupado: boolean; aviso: string; mal: boolean }>
+	>({});
+	const estadoClon = (k: string) =>
+		clon[k] ?? { url: '', derecho: false, ocupado: false, aviso: '', mal: false };
 	const kb = (n: number) => `${Math.ceil(n / 1000)} KB`;
 	async function subirHtml(k: string, c: Campo, e: Event & { currentTarget: HTMLInputElement }) {
 		const fichero = e.currentTarget.files?.[0];
@@ -192,14 +195,15 @@
 		avisoCarga = { ...avisoCarga, [k]: `${fichero.name} loaded: it is stored when you save` };
 	}
 	async function clonarHtml(k: string) {
-		const url = estadoClon(k).url.trim();
-		if (!url) return;
-		clon[k] = { url, ocupado: true, aviso: '', mal: false };
+		const { url: escrita, derecho } = estadoClon(k);
+		const url = escrita.trim();
+		if (!url || !derecho) return;
+		clon[k] = { url, derecho, ocupado: true, aviso: '', mal: false };
 		try {
 			const r = await fetch(resolve('/decoys/clone'), {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ url })
+				body: JSON.stringify({ url, derecho })
 			});
 			const d = (await r.json()) as { html?: string; error?: string };
 			if (!r.ok || typeof d.html !== 'string')
@@ -207,12 +211,13 @@
 			html[k] = d.html;
 			clon[k] = {
 				url,
+				derecho,
 				ocupado: false,
 				mal: false,
 				aviso: `Page cloned (${kb(d.html.length)}). Review it before saving.`
 			};
 		} catch (err) {
-			clon[k] = { url, ocupado: false, mal: true, aviso: (err as Error).message };
+			clon[k] = { url, derecho, ocupado: false, mal: true, aviso: (err as Error).message };
 		}
 	}
 
@@ -326,10 +331,18 @@
 				<button
 					type="button"
 					class="boton"
-					disabled={ec.ocupado || !ec.url.trim()}
+					disabled={ec.ocupado || !ec.url.trim() || !ec.derecho}
 					onclick={() => clonarHtml(clave)}>{ec.ocupado ? 'Cloning…' : 'Clone page'}</button
 				>
 			</div>
+			<label class="derecho">
+				<input
+					type="checkbox"
+					checked={ec.derecho}
+					onchange={(e) => (clon[clave] = { ...ec, derecho: e.currentTarget.checked })}
+				/>
+				<span>{TEXTO_DERECHO}</span>
+			</label>
 			{#if ec.aviso}<p class="ayuda" class:mal={ec.mal} role="status">{ec.aviso}</p>{/if}
 			<textarea
 				id="{prefijo}-{clave}"
@@ -400,6 +413,19 @@
 	.html-origen input[type='url'] {
 		flex: 1 1 240px;
 		min-width: 0;
+	}
+
+	.derecho {
+		display: flex;
+		align-items: flex-start;
+		gap: 8px;
+		margin-bottom: 8px;
+		font-weight: 400;
+		font-size: 13px;
+	}
+
+	.derecho input {
+		margin-top: 2px;
 	}
 
 	.html-origen .o {

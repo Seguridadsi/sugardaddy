@@ -718,8 +718,9 @@
 	<h2>Event webhook</h2>
 	<p>
 		Sends every new event as-is (JSON) to a URL you own, so you can forward it to NATS, your SIEM or
-		whatever you use. It is basic and <em>best-effort</em>: reliability is up to you. (Managed,
-		reliable alerts such as email, Teams and Sentinel are part of Sugardaddy Cloud.)
+		whatever you use. It is basic and <em>best-effort</em>: reliability is up to you. Plain
+		<code>http://</code> is only allowed to private addresses on your network. (Managed, reliable alerts
+		such as email, Teams and Sentinel are part of Sugardaddy Cloud.)
 	</p>
 	<form method="POST" action="?/webhook" use:enhance={sinVaciar}>
 		<label for="wh-url">URL</label>

@@ -17,12 +17,24 @@ import { sinMapear } from './sin-mapear';
 
 export const TOPE_DIA_POR_DEFECTO = 100;
 
-/* LISTA_COMUN_TOPE_DIA en el .env del nodo: entre 0 (no entra nada nuevo) y 10.000. */
+export const TOPE_DIA_MAXIMO = 10_000;
+
+/*
+ * LISTA_COMUN_TOPE_DIA en el .env del nodo: entre 0 (no entra nada nuevo) y 10.000. Es el
+ * valor de partida; el administrador lo cambia en Lists sin tocar el .env (ajuste
+ * `lista-comun-tope`, inteligencia.ts), y entonces manda ese.
+ */
 export function topeDia(valor: string | undefined): number {
 	const n = Number(valor);
 	if (valor === undefined || valor.trim() === '' || !Number.isInteger(n))
 		return TOPE_DIA_POR_DEFECTO;
-	return Math.min(Math.max(n, 0), 10_000);
+	return Math.min(Math.max(n, 0), TOPE_DIA_MAXIMO);
+}
+
+/* El tope que se guarda desde Lists: un entero de 0 a 10.000, o null si no lo es. */
+export function topeValido(x: unknown): number | null {
+	const n = typeof x === 'string' && x.trim() !== '' ? Number(x) : x;
+	return typeof n === 'number' && Number.isInteger(n) && n >= 0 && n <= TOPE_DIA_MAXIMO ? n : null;
 }
 
 export type Reparto = {

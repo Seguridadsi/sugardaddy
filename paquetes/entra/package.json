@@ -6,7 +6,9 @@
 	"exports": {
 		".": "./src/index.ts",
 		"./oidc": "./src/oidc.ts",
-		"./revision-accesos": "./src/revision-accesos.ts"
+		"./revision-accesos": "./src/revision-accesos.ts",
+		"./clave": "./src/clave.ts",
+		"./totp": "./src/totp.ts"
 	},
 	"dependencies": {
 		"jose": "^6.2.12"

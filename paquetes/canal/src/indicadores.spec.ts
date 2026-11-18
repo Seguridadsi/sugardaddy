@@ -88,6 +88,73 @@ describe('lista global firmada', () => {
 	it('firmada por otra clave no vale', () => {
 		expect(verificarLista(panel.publica, firmarLista(otro.privada, lista)).ok).toBe(false);
 	});
+
+	/* Auditoría 2026-11-14, «canal firmado»: `tipo` dentro de lo firmado. */
+	it('con tipo «global» se acepta y no es legado', () => {
+		const v = verificarLista(
+			panel.publica,
+			firmarLista(panel.privada, { ...lista, tipo: 'global' })
+		);
+		expect(v).toMatchObject({ ok: true, legado: false });
+	});
+
+	it('con el tipo cambiado no vale: ni otro tipo ni uno inventado', () => {
+		for (const tipo of ['tor', 'estado', 'globa1'])
+			expect(
+				verificarLista(
+					panel.publica,
+					firmarLista(panel.privada, { ...lista, tipo } as unknown as typeof lista)
+				),
+				tipo
+			).toEqual({ ok: false, motivo: 'not a global list' });
+	});
+
+	it('cambiar el tipo por el camino rompe la firma', () => {
+		const f = firmarLista(panel.privada, { ...lista, tipo: 'global' });
+		const tocada = { ...f, lista: f.lista.replace('"tipo":"global"', '"tipo":"tor"') };
+		expect(verificarLista(panel.publica, tocada)).toEqual({
+			ok: false,
+			motivo: 'list not signed by Central'
+		});
+	});
+
+	it('una lista de Tor firmada por el panel no pasa por lista global', () => {
+		const tor = firmarListaTor(panel.privada, {
+			version: 1,
+			tipo: 'tor',
+			fuente: 'x',
+			emitida: lista.emitida,
+			caduca: lista.caduca,
+			ips: ['185.220.101.4']
+		});
+		expect(verificarLista(panel.publica, tor)).toEqual({ ok: false, motivo: 'not a global list' });
+	});
+
+	it('un estado deseado firmado por el panel no pasa por lista global, con tipo o sin él', () => {
+		const estado = {
+			version: 1,
+			cliente: 'aldanza',
+			modulos: [],
+			emitido: lista.emitida,
+			caduca: lista.caduca
+		};
+		for (const e of [estado, { ...estado, tipo: 'estado' }])
+			expect(
+				verificarLista(panel.publica, firmarLista(panel.privada, e as unknown as typeof lista))
+			).toEqual({ ok: false, motivo: 'not a global list' });
+	});
+
+	it('compatibilidad: la lista sin tipo de un panel anterior se acepta, marcada como legado', () => {
+		expect(verificarLista(panel.publica, firmarLista(panel.privada, lista))).toMatchObject({
+			ok: true,
+			legado: true
+		});
+	});
+
+	it('una caducidad que no se lee no vale para siempre', () => {
+		const rara = firmarLista(panel.privada, { ...lista, caduca: 'nunca' });
+		expect(verificarLista(panel.publica, rara)).toEqual({ ok: false, motivo: 'list expired' });
+	});
 });
 
 describe('lista de Tor firmada', () => {

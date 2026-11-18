@@ -98,6 +98,10 @@ type Opciones struct {
 	// ("" si se puede): la ha retirado SeguridadSI con una lista firmada (registro de imágenes
 	// comprometido; herramientas/retirar-imagen.ts). nil: sin lista, como siempre.
 	Retirada func(imagen string) (motivo string)
+	// Caducada dice por qué no se puede arrancar ni dejar en marcha una trampa cuya
+	// autorización ha caducado ("" si se puede): hoy, la de un partner con el certificado
+	// caducado (catalogo.ReglaCaducadas). nil: nada caduca, como siempre.
+	Caducada func(plan.TrampaPlan) (motivo string)
 	// sinEscribir: config solo calcula, sin escribir los ficheros de la trampa en el
 	// anfitrión (para decir dónde está una trampa que el catálogo rechaza).
 	sinEscribir bool
@@ -121,6 +125,8 @@ const (
 	CodigoEscucha = "plan.escucha"
 	// CodigoRetirada: su imagen la ha retirado SeguridadSI.
 	CodigoRetirada = "imagen.retirada"
+	// CodigoCaducada: es de un partner cuyo certificado ha caducado.
+	CodigoCaducada = "partner.caducado"
 )
 
 // errorConCodigo es un rechazo de config con su código estable para la consola.
@@ -789,6 +795,20 @@ func Aplicar(ctx context.Context, d *docker.Cliente, o Opciones, p plan.Plan) ([
 					_ = borrar(ctx, d, nombreCaptura(p.Sensor, s.ID))
 				}
 				estados = append(estados, Estado{ID: s.ID, Donde: "error: " + motivo, Codigo: CodigoRetirada})
+				continue
+			}
+		}
+		// La de un partner con el certificado caducado se para y se quita, como una retirada:
+		// lo que la autorizaba ya no vale. Vuelve sola con el plan cuando lo renueve.
+		if o.Caducada != nil {
+			if motivo := o.Caducada(s); motivo != "" {
+				if existe {
+					if err := borrar(ctx, d, c.ID); err != nil {
+						fallos = append(fallos, fmt.Errorf("parar %s: %w", s.ID, err))
+					}
+					_ = borrar(ctx, d, nombreCaptura(p.Sensor, s.ID))
+				}
+				estados = append(estados, Estado{ID: s.ID, Donde: "error: " + motivo, Codigo: CodigoCaducada})
 				continue
 			}
 		}

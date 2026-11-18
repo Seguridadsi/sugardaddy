@@ -24,6 +24,7 @@ import { nombreConsola } from '$lib/server/direccion-consola';
 import { esLocal, quitarSensorDelAcceso } from '$lib/server/acceso';
 import { normalizarIp } from '$lib/server/pruebas';
 import { silenciosPorObjeto } from '$lib/server/alcance-ficha';
+import { coberturaDeAhora } from '$lib/server/mantenimiento';
 
 export const load = async ({ url }) => {
 	const destinos = await listaDestinos();
@@ -40,6 +41,17 @@ export const load = async ({ url }) => {
 		consola: consolaParaAlta(url.hostname),
 		/* Por qué salidas de avisos no sale lo de cada sensor (lib/alcance.ts). */
 		silencios: (await silenciosPorObjeto()).sensores,
+		/* Los sensores en una ventana de mantenimiento en curso, y hasta cuándo (mantenimiento.ts). */
+		mantenimiento: await (async () => {
+			const c = await coberturaDeAhora();
+			const hasta = new Map(c.ventanas.map((v) => [v.id, v.hasta.getTime()]));
+			return Object.fromEntries(
+				[...c.sensores].map(([sensor, ventanas]) => [
+					sensor,
+					new Date(Math.max(...ventanas.map((v) => hasta.get(v) ?? 0))).toISOString()
+				])
+			) as Record<string, string>;
+		})(),
 		cuarentena: await ultimaCuarentena(),
 		/* La ficha de la máquina de cada sensor, y los destinos sin sensor (un servidor, un NAS, una cuenta de nube). */
 		fichas: Object.fromEntries(destinos.flatMap((d) => (d.sensor ? [[d.sensor.id, d.id]] : []))),

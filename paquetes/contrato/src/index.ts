@@ -12,4 +12,3 @@ export * from './elector.ts';
 export * from './manual.ts';
 export * from './senal.ts';
 export * from './plantilla.ts';
-export * from './partner.ts';

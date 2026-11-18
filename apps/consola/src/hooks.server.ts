@@ -22,6 +22,7 @@ import {
 import { normalizarIp } from '$lib/server/pruebas';
 import { ponerCabeceras } from '$lib/server/cabeceras';
 import { vigilarSoporte } from '$lib/server/soporte';
+import { vigilarMantenimiento } from '$lib/server/mantenimiento';
 import { grabar } from '$lib/server/soporte-registro';
 import { desactivarInactivas } from '$lib/server/revision-accesos';
 import { separacionCredenciales } from '$lib/server/banca';
@@ -88,6 +89,12 @@ export const init: ServerInit = () => {
 	if (w.__webhook) clearInterval(w.__webhook);
 	w.__webhook = setInterval(enviarWebhook, 30_000);
 	w.__webhook.unref?.();
+	/* Ventanas de mantenimiento: cada minuto, el aviso de las que empiezan y el resumen de las que acaban. */
+	const mant = () => void vigilarMantenimiento().catch((e) => console.error('[mantenimiento]', e));
+	const mt = globalThis as { __mantenimiento?: ReturnType<typeof setInterval> };
+	if (mt.__mantenimiento) clearInterval(mt.__mantenimiento);
+	mt.__mantenimiento = setInterval(mant, 60_000);
+	mt.__mantenimiento.unref?.();
 	/* El acceso de soporte se cierra solo al caducar, aunque nadie tenga la consola abierta. */
 	const sop = () => void vigilarSoporte().catch((e) => console.error('[soporte]', e));
 	const so = globalThis as { __soporte?: ReturnType<typeof setInterval> };

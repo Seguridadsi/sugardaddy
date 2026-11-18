@@ -42,6 +42,10 @@ export const ICONOS_MENU = {
 		'M12 16.5h4'
 	],
 	respuestas: ['M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6l8-3Z', 'M9 12l2 2 4-4'],
+	/* Una llave inglesa: las ventanas de mantenimiento. */
+	mantenimiento: [
+		'M14.5 3.5a5 5 0 0 0-4.6 6.9L3.5 16.8v3.7h3.7l6.4-6.4a5 5 0 0 0 6.9-4.6l-2.9 2.9-3-1-1-3 2.9-2.9Z'
+	],
 	listas: ['M8 6h13', 'M8 12h13', 'M8 18h13', 'M3.5 6h.01', 'M3.5 12h.01', 'M3.5 18h.01'],
 	origenes: [circulo(12, 12, 9), 'M3 12h18', 'M12 3c3.2 3 3.2 15 0 18-3.2-3-3.2-15 0-18Z'],
 	avisos: ['M6 9.5a6 6 0 1 1 12 0c0 5.5 2.5 7.5 2.5 7.5h-17S6 15 6 9.5Z', 'M10 20.5a2 2 0 0 0 4 0'],

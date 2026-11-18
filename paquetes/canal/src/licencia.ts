@@ -197,9 +197,17 @@ export function verificarDelegacion(
 	return { ok: true, delegacion: d as Delegacion };
 }
 
+/*
+ * La firma de una licencia con la clave de un MSP: solo Ed25519, como el gemelo
+ * Go (modulos/comun/licencia, ClavePublica). Antes valía cualquier tipo de clave
+ * con verify(null): la consola daba por buena una licencia que la trampa luego
+ * rechazaba (auditoría del 2026-11-14, h07).
+ */
 const firmaValida = (clave: string, texto: string, firma: string) => {
 	try {
-		return verify(null, Buffer.from(texto), publica(clave), Buffer.from(firma, 'base64'));
+		const k = publica(clave);
+		if (k.asymmetricKeyType !== 'ed25519') return false;
+		return verify(null, Buffer.from(texto), k, Buffer.from(firma, 'base64'));
 	} catch {
 		return false;
 	}

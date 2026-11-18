@@ -1691,6 +1691,8 @@ describe('elector: lo demás', () => {
 			'licencia.revocada',
 			'registro.sin',
 			'registro.caducado',
+			'partner.caducado',
+			'partner.retirado',
 			'senal.objetivo-retirado',
 			'senal.objetivo-parado',
 			'senal.objetivo-cambiado'

@@ -11,6 +11,12 @@ import { huboMfa } from './oidc';
 
 const AUTORIDAD = 'https://login.microsoftonline.com';
 export const ALCANCES = 'openid profile email';
+/*
+ * Con `offline_access` Entra da además un token de renovación: el panel central lo
+ * guarda (cifrado) para volver a preguntar cada hora qué roles tiene la persona
+ * sin que tenga que volver a entrar (auditoría del 2026-11-14, §5).
+ */
+export const ALCANCES_RENOVABLES = 'openid profile email offline_access';
 
 /*
  * `contextoAuth`: el id de un contexto de autenticación del acceso condicional
@@ -51,6 +57,8 @@ export async function urlDeAutorizacion(
 		 * token un contexto de autenticación de Acceso condicional (`acrs`).
 		 */
 		reautenticar?: { claims?: string };
+		/* Los alcances que se piden; de serie, ALCANCES. */
+		alcances?: string;
 	}
 ) {
 	const p = new URLSearchParams({
@@ -58,7 +66,7 @@ export async function urlDeAutorizacion(
 		response_type: 'code',
 		redirect_uri: o.redirectUri,
 		response_mode: 'query',
-		scope: ALCANCES,
+		scope: o.alcances ?? ALCANCES,
 		state: o.estado,
 		nonce: o.nonce,
 		code_challenge: await reto(o.verificador),
@@ -89,34 +97,95 @@ function claves(tenant: string) {
 	return j;
 }
 
-export async function canjear(
-	c: Config,
-	o: { codigo: string; redirectUri: string; verificador: string; nonce: string }
-): Promise<JWTPayload> {
+/* Lo que da el endpoint de tokens: el id_token verificado y, si se pidió, el de renovación. */
+export type Tokens = { payload: JWTPayload; renovacion: string | null };
+
+/*
+ * El endpoint de tokens. Un rechazo de Entra (4xx con `error`) es definitivo para ese
+ * código o esa renovación: `RechazoEntra`. Cualquier otra cosa (red, 5xx) es pasajera.
+ */
+export class RechazoEntra extends Error {
+	constructor(
+		readonly codigo: string,
+		mensaje: string
+	) {
+		super(mensaje);
+	}
+}
+
+async function pedirTokens(c: Config, cuerpo: Record<string, string>) {
 	const r = await fetch(`${AUTORIDAD}/${c.tenant}/oauth2/v2.0/token`, {
 		method: 'POST',
 		headers: { 'content-type': 'application/x-www-form-urlencoded' },
-		body: new URLSearchParams({
-			client_id: c.clientId,
-			client_secret: c.secret,
-			grant_type: 'authorization_code',
-			code: o.codigo,
-			redirect_uri: o.redirectUri,
-			code_verifier: o.verificador,
-			scope: ALCANCES
-		})
+		body: new URLSearchParams({ client_id: c.clientId, client_secret: c.secret, ...cuerpo })
 	});
-	const cuerpo = (await r.json()) as { id_token?: string; error_description?: string };
-	if (!r.ok || !cuerpo.id_token)
-		throw new Error(`Code exchange rejected: ${cuerpo.error_description ?? r.status}`);
-
-	const { payload } = await jwtVerify(cuerpo.id_token, claves(c.tenant), {
+	const d = (await r.json().catch(() => ({}))) as {
+		id_token?: string;
+		refresh_token?: string;
+		error?: string;
+		error_description?: string;
+	};
+	if (r.status >= 400 && r.status < 500 && d.error)
+		throw new RechazoEntra(
+			d.error,
+			`Entra rejected the request: ${d.error_description ?? d.error}`
+		);
+	if (!r.ok || !d.id_token)
+		throw new Error(`Token endpoint failed: ${d.error_description ?? r.status}`);
+	const { payload } = await jwtVerify(d.id_token, claves(c.tenant), {
 		issuer: `${AUTORIDAD}/${c.tenant}/v2.0`,
 		audience: c.clientId,
 		clockTolerance: 60
 	});
-	if (payload.nonce !== o.nonce) throw new Error('The token nonce does not match.');
-	return payload;
+	return { payload, renovacion: d.refresh_token ?? null };
+}
+
+export async function canjearTokens(
+	c: Config,
+	o: {
+		codigo: string;
+		redirectUri: string;
+		verificador: string;
+		nonce: string;
+		alcances?: string;
+	}
+): Promise<Tokens> {
+	const t = await pedirTokens(c, {
+		grant_type: 'authorization_code',
+		code: o.codigo,
+		redirect_uri: o.redirectUri,
+		code_verifier: o.verificador,
+		scope: o.alcances ?? ALCANCES
+	});
+	if (t.payload.nonce !== o.nonce) throw new Error('The token nonce does not match.');
+	return t;
+}
+
+export async function canjear(
+	c: Config,
+	o: { codigo: string; redirectUri: string; verificador: string; nonce: string }
+): Promise<JWTPayload> {
+	return (await canjearTokens(c, o)).payload;
+}
+
+/*
+ * Un id_token nuevo con el token de renovación, sin que la persona haga nada: con
+ * los roles y el estado de la cuenta de AHORA. Si a la cuenta la han desactivado o
+ * le han revocado las sesiones, Entra lo rechaza (RechazoEntra, `invalid_grant`).
+ * El id_token de una renovación no lleva nonce. Entra puede dar un token de
+ * renovación nuevo: hay que guardar ese.
+ */
+export async function renovar(
+	c: Config,
+	renovacion: string,
+	alcances = ALCANCES_RENOVABLES
+): Promise<Tokens> {
+	const t = await pedirTokens(c, {
+		grant_type: 'refresh_token',
+		refresh_token: renovacion,
+		scope: alcances
+	});
+	return { payload: t.payload, renovacion: t.renovacion ?? renovacion };
 }
 
 /*

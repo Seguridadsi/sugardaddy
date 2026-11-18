@@ -29,7 +29,7 @@ import type {
 import { EN_ESPERA, enEspera } from '../espera';
 import { coberturaLicencia, licenciaGuardada, revocacionesGuardadas } from './candado';
 import { esDePago } from './modulos-gratis';
-import { esDePartner } from './catalogo-partner';
+import { esDePartner, motivoPartnerFuera } from './catalogo-partner';
 import { autorizados, honeycosas } from './catalogo';
 import { comprobarConEvento, trasDescarte, trasEstado, type FilaColocacion } from './colocacion';
 import { db, schema as s } from './db';
@@ -207,7 +207,17 @@ export async function plan(sensor: string, registroPrivado: boolean, versionSens
 	for (const f of filas) {
 		const h = catalogo.get(f.modulo);
 		if (!h) {
-			descartar(f.id, 'modulo.desconocido', { modulo: f.modulo });
+			/*
+			 * La trampa de un partner cuyo certificado ha caducado o cuya central lo ha
+			 * retirado: se para, y se dice por qué (catalogo-partner.ts).
+			 */
+			const fuera = motivoPartnerFuera(f.modulo);
+			if (fuera)
+				descartar(f.id, fuera.motivo === 'caducado' ? 'partner.caducado' : 'partner.retirado', {
+					partner: fuera.partner,
+					caduca: fuera.caduca.slice(0, 10)
+				});
+			else descartar(f.id, 'modulo.desconocido', { modulo: f.modulo });
 			continue;
 		}
 		/* La vía con que se puso, también por un id de antes (regla 10). */

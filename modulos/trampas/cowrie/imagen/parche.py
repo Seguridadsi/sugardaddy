@@ -242,7 +242,7 @@ from twisted.logger import Logger
 
 import cowrie.core.output
 from cowrie.core.config import CowrieConfig
-from cowrie.core.sugardaddy import RegistroDiario
+from cowrie.core.sugardaddy import RegistroDiario, podar_descargas
 """,
 )
 cambiar(
@@ -277,10 +277,23 @@ cambiar(
         # El resumen de lo que se calla sale aunque no lleguen más eventos.
         self.resumen = task.LoopingCall(self.outfile.tick)
         self.resumen.start(5, now=False)
+        # La carpeta de descargas (tmpfs de 16 MB) no se llena nunca: Cowrie no
+        # borra lo que guarda y, llena, toda descarga falla y la sesión se
+        # cuelga (cowrie.core.sugardaddy.podar_descargas).
+        self.descargas = CowrieConfig.get("honeypot", "download_path", fallback="")
+        self.minimo_libre = CowrieConfig.getint("honeypot", "download_limit_size", fallback=0)
+        self.poda = task.LoopingCall(self._sd_podar)
+        self.poda.start(60, now=True)
+
+    def _sd_podar(self):
+        if self.descargas:
+            podar_descargas(self.descargas, minimo_libre=self.minimo_libre)
 
     def stop(self):
         if self.resumen.running:
             self.resumen.stop()
+        if self.poda.running:
+            self.poda.stop()
         self.outfile.close()
 """,
 )

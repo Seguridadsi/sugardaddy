@@ -6,10 +6,9 @@
 	import { afterNavigate, invalidateAll } from '$app/navigation';
 	import { page } from '$app/state';
 	import { nombreRol, puede } from '$lib/permisos';
-	import { enhance } from '$app/forms';
 	import { onMount } from 'svelte';
 	import SelectorZona from '$lib/components/SelectorZona.svelte';
-	import { anotarZonaDelNavegador, diaHora, fechaHora } from '$lib/fechas-pantalla';
+	import { anotarZonaDelNavegador, diaHora, fechaHora, fechaLarga } from '$lib/fechas-pantalla';
 
 	let { data, children } = $props();
 
@@ -45,7 +44,8 @@
 				entradas: [
 					{ href: '/decoys', texto: 'Honeypots', icono: 'trampas' },
 					{ href: '/decoys/catalog', texto: 'Catalog', icono: 'catalogo' },
-					{ href: '/sensors', texto: 'Sensors', icono: 'sensores' }
+					{ href: '/sensors', texto: 'Sensors', icono: 'sensores' },
+					{ href: '/maintenance', texto: 'Maintenance', icono: 'mantenimiento' }
 				]
 			},
 			{
@@ -109,15 +109,15 @@
 				data.b2b === 'activo' && 'migrar',
 				data.entraSinMfa && 'entra-mfa',
 				data.pentest && 'pentest',
+				data.mantenimiento && 'mantenimiento',
 				data.modoDesarrollo && 'desarrollo',
-				!data.identidad.decidido && esAdmin && 'dominio',
+				data.partnerFuera && 'partner',
 				data.ca && 'ca',
 				data.marca && 'marca',
 				data.anfitrion && 'anfitrion',
 				data.versionPorAprobar && 'aprobar-version',
 				data.revisionVencida && 'revision-accesos',
-				data.actualizacion?.version && 'actualizacion',
-				data.community && !data.gestionado && !data.autoActualizar.decidido && esAdmin && 'oferta'
+				data.actualizacion?.version && 'actualizacion'
 			] as (string | false | null | undefined)[]
 		).filter(Boolean)
 	);
@@ -266,6 +266,27 @@
 							</p>
 						{/if}
 
+						{#if avisoActual === 'partner' && data.partnerFuera}
+							<p class="emergencia">
+								{#if data.partnerFuera.motivo === 'caducado'}
+									The decoy certificate of partner {data.partnerFuera.partner} expired on {fechaLarga(
+										data.partnerFuera.caduca
+									)}.
+								{:else}
+									Partner {data.partnerFuera.partner} no longer distributes its honeypots to this node.
+								{/if}
+								{data.partnerFuera.trampas === 0
+									? 'Its honeypots cannot be deployed'
+									: data.partnerFuera.trampas === 1
+										? 'Its honeypot is stopped and cannot be deployed'
+										: `Its ${data.partnerFuera.trampas} honeypots are stopped and cannot be deployed`}
+								{data.partnerFuera.motivo === 'caducado'
+									? 'until the partner renews it.'
+									: 'until the partner distributes them again.'}
+								Honeypots from SeguridadSI are not affected. Contact your partner.
+							</p>
+						{/if}
+
 						{#if avisoActual === 'ca'}
 							<p class="actualizacion">
 								{#if data.ca === 'fallida'}
@@ -326,6 +347,15 @@
 							</p>
 						{/if}
 
+						{#if avisoActual === 'mantenimiento' && data.mantenimiento}
+							<p class="pentest">
+								Maintenance window "{data.mantenimiento.nombre}" until {diaHora(
+									data.mantenimiento.hasta
+								)}: health alerts for {data.mantenimiento.alcance} are held back. Attacks still alert.
+								<a href="/maintenance/{data.mantenimiento.id}">View</a>
+							</p>
+						{/if}
+
 						{#if avisoActual === 'soporte' && data.soporte?.estado === 'abierto'}
 							<p class="soporte">
 								{#if data.usuario.soporte}
@@ -379,43 +409,6 @@
 								Development mode: Entra ID is not configured, so everyone signs in as an
 								administrator.
 							</p>
-						{/if}
-
-						{#if avisoActual === 'dominio'}
-							<div class="actualizacion oferta dominio">
-								<form class="pregunta" method="POST" action="/settings?/identidad">
-									<label for="dominio-empresa">
-										What is your company's domain? Honeypots will use names similar to those on your
-										network.
-									</label>
-									<input
-										id="dominio-empresa"
-										name="dominio"
-										required
-										value={data.dominioSugerido}
-										placeholder="company.com"
-										autocomplete="off"
-										spellcheck="false"
-									/>
-									<button type="submit">Save</button>
-								</form>
-								<form method="POST" action="/settings?/identidad" use:enhance>
-									<input type="hidden" name="omitir" value="si" />
-									<button type="submit">Not now</button>
-								</form>
-							</div>
-						{/if}
-
-						{#if avisoActual === 'oferta'}
-							<div class="actualizacion oferta">
-								<span>
-									Register your email, free of charge, to get more honeypots and automatic updates.
-									<a href="/settings#free-registration">Register</a>
-								</span>
-								<form method="POST" action="/settings?/autoActualizar" use:enhance>
-									<button type="submit">Not now</button>
-								</form>
-							</div>
 						{/if}
 
 						{#if avisoActual === 'actualizacion'}
@@ -588,47 +581,6 @@
 		font-weight: 700;
 	}
 
-	.actualizacion.oferta {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 12px;
-	}
-
-	.actualizacion.oferta form {
-		margin: 0;
-	}
-
-	.actualizacion.dominio .pregunta {
-		display: flex;
-		flex-wrap: wrap;
-		align-items: center;
-		gap: 8px;
-	}
-
-	.actualizacion.dominio input {
-		width: 180px;
-		padding: 3px 7px;
-		font: inherit;
-		color: var(--ink-1);
-		background: var(--surface);
-		border: 1px solid currentColor;
-		border-radius: var(--r-sm);
-	}
-
-	.actualizacion.oferta button {
-		background: none;
-		border: 1px solid currentColor;
-		border-radius: var(--r-sm);
-		color: inherit;
-		font: inherit;
-		font-size: 12px;
-		font-weight: 600;
-		padding: 3px 10px;
-		cursor: pointer;
-		white-space: nowrap;
-	}
-
 	/*
 	 * Todos los avisos sobre la franja negra: texto claro y una barra de su
 	 * color a la izquierda (miel: hay que hacer algo; azul: soporte; verde: novedad).
@@ -660,16 +612,6 @@
 	.soporte a,
 	.actualizacion a {
 		color: var(--accent);
-	}
-
-	.actualizacion.dominio input {
-		color: #111;
-		background: #fff;
-	}
-
-	.actualizacion :global(label) {
-		margin: 0;
-		color: inherit;
 	}
 
 	.logo {

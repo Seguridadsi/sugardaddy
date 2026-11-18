@@ -93,7 +93,9 @@ export function descifrar(sobre: string, contexto: string, clave = claveDelNodo(
 	const [, id, iv, datos, etiqueta] = partes;
 	if (id !== clave.id) return { ok: false, motivo: 'otra-clave' };
 	try {
-		const d = createDecipheriv(ALGORITMO, clave.bytes, Buffer.from(iv, 'base64url'));
+		const d = createDecipheriv(ALGORITMO, clave.bytes, Buffer.from(iv, 'base64url'), {
+			authTagLength: 16
+		});
 		d.setAAD(aad(id, contexto));
 		d.setAuthTag(Buffer.from(etiqueta, 'base64url'));
 		const texto = Buffer.concat([d.update(Buffer.from(datos, 'base64url')), d.final()]).toString(

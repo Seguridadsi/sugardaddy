@@ -48,6 +48,7 @@ grep -q '^        recortar_evento(ev)$' "$DEST/src/cowrie/core/events.py" \
 	&& grep -q 'self.outfile = RegistroDiario(' "$DEST/src/cowrie/output/jsonlog.py" \
 	&& grep -q '^max_bytes_day = ' "$DEST/src/cowrie/data/etc/cowrie.cfg.dist" \
 	&& grep -q 'sd-pruebas' "$DEST/docker/Dockerfile" \
+	&& grep -q 'podar_descargas(self.descargas' "$DEST/src/cowrie/output/jsonlog.py" \
 	|| { echo "El parche no ha dejado el recorte, el tope de cowrie.json o sus pruebas: no se construye"; exit 1; }
 # SEN-8: la identidad por semilla (fs por plantilla, txtcmds sin el UUID fijo ni
 # el E5-2680, y los enganches en honeyfs/protocol/ifconfig), y el KEXINIT a

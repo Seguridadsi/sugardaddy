@@ -27,6 +27,7 @@
 	const d = $derived(data.destino);
 	const roles = $derived(page.data.usuario?.roles ?? []);
 	const opera = $derived(puede(roles, 'desplegar'));
+	const silencia = $derived(puede(roles, 'ajustes'));
 	const admin = $derived(puede(roles, 'ajustes'));
 	const valen = $derived(d.queCabe.filter((m) => m.elegida).length);
 	const nube = $derived(data.cortafuegos);
@@ -145,7 +146,7 @@
 {#if form?.accion === 'alcance' && form.mensaje}<p class="ok" role="status">{form.mensaje}</p>{/if}
 {#if data.alcance}
 	<div hidden={pestana !== 'alerts'}>
-		<AlcancePorSalida filas={data.alcance} que="this sensor" puede={opera} />
+		<AlcancePorSalida filas={data.alcance} que="this sensor" puede={opera} silenciar={silencia} />
 	</div>
 {/if}
 

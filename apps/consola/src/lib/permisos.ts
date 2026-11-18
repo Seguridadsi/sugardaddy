@@ -46,6 +46,16 @@ export const separarCredenciales = (roles: readonly string[]) =>
 export const puede = (roles: readonly string[], permiso: Permiso) =>
 	PERMISOS[permiso].some((r) => roles.includes(r));
 
+/*
+ * Si lo de un sensor o un honeypot sale por una salida de avisos (salidas_alcance)
+ * se cambia desde la salida, con `ajustes`, y desde las fichas, con `desplegar`.
+ * El mismo dato, con un solo criterio: dejar de enviar a un canal que configura
+ * el administrador (el SIEM, el correo del cliente) es cosa suya; enviar o
+ * heredar basta con `desplegar` (auditoría del 2026-11-14, h02).
+ */
+export const permisoDeAlcance = (envia: boolean | null | undefined): Permiso =>
+	envia === false ? 'ajustes' : 'desplegar';
+
 const NOMBRES_DE_ROL: Record<Rol, string> = {
 	credenciales: 'Credential viewer',
 	lector: 'Viewer',

@@ -108,7 +108,9 @@ export function abrir(s: Sellada, privada: Uint8Array): Buffer | null {
 		const todo = Buffer.from(s.c, 'base64url');
 		if (efimera.length !== 32 || todo.length < 16) return null;
 		const secreto = diffieHellman({ privateKey: priv, publicKey: publicaDe(efimera) });
-		const d = createDecipheriv('aes-256-gcm', llave(secreto, efimera, destino), Buffer.alloc(12));
+		const d = createDecipheriv('aes-256-gcm', llave(secreto, efimera, destino), Buffer.alloc(12), {
+			authTagLength: 16
+		});
 		d.setAAD(Buffer.from(s.r));
 		d.setAuthTag(todo.subarray(todo.length - 16));
 		return Buffer.concat([d.update(todo.subarray(0, todo.length - 16)), d.final()]);

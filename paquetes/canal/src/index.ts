@@ -73,9 +73,29 @@ export const huella = (publicaB64: string) =>
 
 export const MARGEN_RELOJ_MS = 5 * 60_000;
 
+/*
+ * Dos cadenas canónicas (auditoría 2026-11-14, «canal firmado»):
+ *
+ * - la de siempre (`x-firma`): método, ruta, fecha y sha256 del cuerpo. No lleva el nodo: la
+ *   identidad sale de la cabecera `x-nodo`, que solo elige la clave con la que se comprueba.
+ * - la 2 (`x-firma-2`, desde la 0.32): la misma más un prefijo propio y el id del nodo. Una
+ *   firma de un nodo ya no puede pasar por la de otro aunque compartieran clave, ni por la
+ *   de otro documento firmado con la misma clave.
+ *
+ * Transición: el nodo nuevo manda las dos. El panel anterior solo mira `x-firma` y sigue
+ * aceptándolo; el panel nuevo exige `x-firma-2` si viene y, si no viene (un nodo anterior),
+ * acepta `x-firma` y lo cuenta como firma antigua (`legado`). Cuando no quede ningún nodo
+ * anterior, el panel puede exigirla siempre (`exigirNodo`) y el nodo dejar de mandar la vieja.
+ */
+const PREFIJO_CANONICA_2 = 'sugardaddy-canal-2';
+
 function canonica(metodo: string, ruta: string, fecha: string, cuerpo: string) {
 	const h = createHash('sha256').update(cuerpo).digest('hex');
 	return `${metodo.toUpperCase()}\n${ruta}\n${fecha}\n${h}`;
+}
+
+function canonica2(nodo: string, metodo: string, ruta: string, fecha: string, cuerpo: string) {
+	return `${PREFIJO_CANONICA_2}\n${nodo}\n${canonica(metodo, ruta, fecha, cuerpo)}`;
 }
 
 export function firmarPeticion(
@@ -87,60 +107,121 @@ export function firmarPeticion(
 	ahora = Date.now()
 ): Record<string, string> {
 	const fecha = new Date(ahora).toISOString();
-	const firma = sign(
-		null,
-		Buffer.from(canonica(metodo, ruta, fecha, cuerpo)),
-		privada(clavePrivada)
-	);
-	return { 'x-nodo': nodo, 'x-fecha': fecha, 'x-firma': firma.toString('base64') };
+	const clave = privada(clavePrivada);
+	const firma = sign(null, Buffer.from(canonica(metodo, ruta, fecha, cuerpo)), clave);
+	const firma2 = sign(null, Buffer.from(canonica2(nodo, metodo, ruta, fecha, cuerpo)), clave);
+	return {
+		'x-nodo': nodo,
+		'x-fecha': fecha,
+		'x-firma': firma.toString('base64'),
+		'x-firma-2': firma2.toString('base64')
+	};
 }
 
-export type Verificacion = { ok: true } | { ok: false; motivo: string };
+export type Verificacion = { ok: true; legado: boolean } | { ok: false; motivo: string };
+
+export type CabecerasPeticion = {
+	fecha: string | null;
+	firma: string | null;
+	/* Desde la 0.32; los nodos anteriores no la mandan. */
+	firma2?: string | null;
+	nodo?: string | null;
+};
+
+/* Las cabeceras del canal de una petición, para comprobarPeticion y verificarPeticion. */
+export const cabecerasDe = (h: { get(n: string): string | null }): CabecerasPeticion => ({
+	nodo: h.get('x-nodo'),
+	fecha: h.get('x-fecha'),
+	firma: h.get('x-firma'),
+	firma2: h.get('x-firma-2')
+});
+
+function firmaValidaSobre(clavePublica: string, texto: string, bytes: Buffer) {
+	try {
+		return verify(null, Buffer.from(texto), publica(clavePublica), bytes);
+	} catch {
+		return false;
+	}
+}
+
+/*
+ * Firma y reloj, sin la repetición: `huellas` son las firmas de la petición por sus bytes
+ * (Buffer.from admite la misma firma escrita de varias formas), y quien la acepta tiene que
+ * apuntarlas todas como vistas. Todas, también la vieja de una petición que trae las dos:
+ * quitarle `x-firma-2` a una petición ya vista no la convierte en otra.
+ */
+export function comprobarPeticion(
+	clavePublica: string,
+	cabeceras: CabecerasPeticion,
+	metodo: string,
+	ruta: string,
+	cuerpo: string,
+	ahora = Date.now(),
+	opciones: { exigirNodo?: boolean } = {}
+): { ok: true; legado: boolean; huellas: string[] } | { ok: false; motivo: string } {
+	const { fecha, firma, firma2, nodo } = cabeceras;
+	if (!fecha || (!firma && !firma2)) return { ok: false, motivo: 'missing signature headers' };
+	const t = Date.parse(fecha);
+	if (!Number.isFinite(t) || Math.abs(ahora - t) > MARGEN_RELOJ_MS)
+		return { ok: false, motivo: 'date out of range' };
+	const huellas: string[] = [];
+	let legado: boolean;
+	if (firma2) {
+		/* Si viene la nueva, manda ella: no se cae a la vieja si no cuadra. */
+		if (!nodo) return { ok: false, motivo: 'missing signature headers' };
+		const bytes = Buffer.from(firma2, 'base64');
+		if (!firmaValidaSobre(clavePublica, canonica2(nodo, metodo, ruta, fecha, cuerpo), bytes))
+			return { ok: false, motivo: 'invalid signature' };
+		huellas.push(bytes.toString('base64'));
+		legado = false;
+	} else {
+		if (opciones.exigirNodo) return { ok: false, motivo: 'old signature format' };
+		const bytes = Buffer.from(firma!, 'base64');
+		if (!firmaValidaSobre(clavePublica, canonica(metodo, ruta, fecha, cuerpo), bytes))
+			return { ok: false, motivo: 'invalid signature' };
+		legado = true;
+	}
+	if (firma) huellas.push(Buffer.from(firma, 'base64').toString('base64'));
+	return { ok: true, legado, huellas };
+}
+
+/* Cuánto hay que recordar una firma aceptada: lo que dura la fecha más el margen. */
+export const RECORDAR_FIRMA_MS = 2 * MARGEN_RELOJ_MS;
 
 /*
  * Firma, reloj y repetición. `vistas` guarda las firmas aceptadas dentro del
- * margen de reloj: la misma petición no vale dos veces.
+ * margen de reloj: la misma petición no vale dos veces. En memoria: el panel
+ * guarda las suyas en Postgres (comprobarPeticion y la tabla firmas_vistas).
  */
 export function verificarPeticion(
 	clavePublica: string,
-	cabeceras: { fecha: string | null; firma: string | null },
+	cabeceras: CabecerasPeticion,
 	metodo: string,
 	ruta: string,
 	cuerpo: string,
 	vistas: Map<string, number>,
-	ahora = Date.now()
+	ahora = Date.now(),
+	opciones: { exigirNodo?: boolean } = {}
 ): Verificacion {
-	const { fecha, firma } = cabeceras;
-	if (!fecha || !firma) return { ok: false, motivo: 'missing signature headers' };
-	const t = Date.parse(fecha);
-	if (!Number.isFinite(t) || Math.abs(ahora - t) > MARGEN_RELOJ_MS)
-		return { ok: false, motivo: 'date out of range' };
-	const bytes = Buffer.from(firma, 'base64');
-	let valida = false;
-	try {
-		valida = verify(
-			null,
-			Buffer.from(canonica(metodo, ruta, fecha, cuerpo)),
-			publica(clavePublica),
-			bytes
-		);
-	} catch {
-		valida = false;
-	}
-	if (!valida) return { ok: false, motivo: 'invalid signature' };
-
-	/* Por sus bytes, no por el texto: Buffer.from admite la misma firma escrita de varias formas. */
-	const huella = bytes.toString('base64');
-	for (const [f, cuando] of vistas) if (ahora - cuando > 2 * MARGEN_RELOJ_MS) vistas.delete(f);
-	if (vistas.has(huella)) return { ok: false, motivo: 'repeated request' };
-	vistas.set(huella, ahora);
-	return { ok: true };
+	const v = comprobarPeticion(clavePublica, cabeceras, metodo, ruta, cuerpo, ahora, opciones);
+	if (!v.ok) return v;
+	for (const [f, cuando] of vistas) if (ahora - cuando > RECORDAR_FIRMA_MS) vistas.delete(f);
+	if (v.huellas.some((h) => vistas.has(h))) return { ok: false, motivo: 'repeated request' };
+	for (const h of v.huellas) vistas.set(h, ahora);
+	return { ok: true, legado: v.legado };
 }
 
 /* ---------- bajada: estado deseado firmado por el panel ---------- */
 
 export type EstadoDeseado = {
 	version: 1;
+	/*
+	 * Qué documento es, dentro de lo firmado (desde la 0.32): con la misma clave del panel se
+	 * firman también la lista global y la de Tor, y ninguna puede pasar por otra. Opcional
+	 * porque los paneles anteriores no lo mandan (verificarEstado los acepta como `legado`);
+	 * los nodos anteriores lo ignoran.
+	 */
+	tipo?: typeof TIPO_ESTADO;
 	cliente: string;
 	/* Versión de Sugardaddy que debería tener el nodo. */
 	versionObjetivo: string;
@@ -247,9 +328,16 @@ export type EstadoDeseado = {
 	 * está en el repo público. Opcional: los nodos anteriores la ignoran.
 	 */
 	panelFirmado?: OrdenFirmada;
+	/*
+	 * Cuándo lo firmó el panel. Desde la 0.32 el nodo no acepta un estado tipado más viejo que
+	 * el último que aceptó (verificarEstado, `ultimoEmitido`): repetir uno anterior capturado no
+	 * deshace lo que el panel ya ha cambiado.
+	 */
 	emitido: string;
 	caduca: string;
 };
+
+export const TIPO_ESTADO = 'estado';
 
 export type AtencionIncidente = { id: string; por: string };
 
@@ -332,27 +420,72 @@ export function firmarEstado(clavePrivada: string, estado: EstadoDeseado): Estad
 }
 
 /*
+ * Cuánto puede ir por delante del reloj del nodo la fecha de emisión de un estado. Holgado:
+ * solo está para que un estado con el reloj del panel disparado no deje al nodo sin aceptar
+ * ninguno hasta esa fecha.
+ */
+export const MARGEN_EMITIDO_MS = 24 * 3600_000;
+
+export type EstadoVerificado = {
+	ok: true;
+	estado: EstadoDeseado;
+	/* Firmado por un panel anterior a la 0.32: sin `tipo`, y no cuenta para `ultimoEmitido`. */
+	legado: boolean;
+};
+
+/*
  * claves: la clave del panel que el nodo fijó en el alta o, desde la rotación, la lista de las
  * que le ha dado una versión firmada (panel.ts). Vale `firma` o una de `firmas`.
+ *
+ * ultimoEmitido: el `emitido` del último estado tipado que aceptó el nodo. Un estado anterior a
+ * él no vale, tenga tipo o no: es una repetición. Solo los tipados lo hacen avanzar, porque el
+ * panel anterior reutiliza firmas de hasta media hora y puede volver a mandar uno más viejo
+ * (y un estado sin tipo caduca en una hora: pasada la transición no queda ninguno vigente).
  */
 export function verificarEstado(
 	clavesPanel: string | readonly string[],
 	cliente: string,
 	f: EstadoFirmado,
-	ahora = Date.now()
-): { ok: true; estado: EstadoDeseado } | { ok: false; motivo: string } {
+	ahora = Date.now(),
+	opciones: { ultimoEmitido?: string | null } = {}
+): EstadoVerificado | { ok: false; motivo: string } {
 	if (!f || typeof f.estado !== 'string' || motivoFirmas(f.firmas))
 		return { ok: false, motivo: 'invalid Central signature' };
 	if (!firmadoPorPanel(clavesPanel, f.estado, f.firma, f.firmas))
 		return { ok: false, motivo: 'invalid Central signature' };
-	const e = JSON.parse(f.estado) as EstadoDeseado;
+	let e: EstadoDeseado;
+	try {
+		e = JSON.parse(f.estado) as EstadoDeseado;
+	} catch {
+		return { ok: false, motivo: 'not a desired state' };
+	}
+	if (!e || typeof e !== 'object') return { ok: false, motivo: 'not a desired state' };
+	if (e.tipo !== undefined && e.tipo !== TIPO_ESTADO)
+		return { ok: false, motivo: 'not a desired state' };
 	if (e.version !== 1) return { ok: false, motivo: 'unknown state version' };
 	if (e.cliente !== cliente) return { ok: false, motivo: 'the state is for another customer' };
 	/* Una fecha que no se lee (NaN) no puede valer para siempre (auditoría 2026-11-14, §5 h07). */
 	const caduca = Date.parse(e.caduca);
 	if (!Number.isFinite(caduca) || caduca < ahora)
 		return { ok: false, motivo: 'the state has expired' };
-	return { ok: true, estado: e };
+	const emitido = Date.parse(e.emitido);
+	if (!Number.isFinite(emitido) || emitido > ahora + MARGEN_EMITIDO_MS)
+		return { ok: false, motivo: 'the state has an invalid issue date' };
+	const ultimo = opciones.ultimoEmitido ? Date.parse(opciones.ultimoEmitido) : NaN;
+	if (Number.isFinite(ultimo) && emitido < ultimo)
+		return { ok: false, motivo: 'the state is older than the last one accepted' };
+	return { ok: true, estado: e, legado: e.tipo === undefined };
+}
+
+/* El `emitido` que queda como último aceptado tras aceptar `v` (verificarEstado). */
+export function ultimoEmitidoTras(
+	previo: string | null | undefined,
+	v: EstadoVerificado
+): string | null {
+	if (v.legado) return previo ?? null;
+	const p = previo ? Date.parse(previo) : NaN;
+	if (!Number.isFinite(p) || Date.parse(v.estado.emitido) > p) return v.estado.emitido;
+	return previo ?? null;
 }
 
 /* ---------- versiones publicadas ---------- */
@@ -734,7 +867,39 @@ export type Latido = {
 	 * Opcional: un nodo instalado a mano no lo informa. No va en el mínimo.
 	 */
 	disco?: LatidoDisco;
+	/*
+	 * Una ventana de mantenimiento en curso en el nodo (parches, reinicios).
+	 * `nodo`: cubre todo el nodo, y hasta `hasta` el panel no lo escala como caído si deja de
+	 * latir; `sensoresParados`: los sensores sin latido que lo están por mantenimiento, que no
+	 * cuentan como caídos. Solo mientras dura. Opcional: los nodos anteriores no lo mandan y
+	 * los paneles anteriores lo ignoran.
+	 */
+	mantenimiento?: LatidoMantenimiento;
 };
+
+export type LatidoMantenimiento = { hasta: string; nodo: boolean; sensoresParados: number };
+
+/* El tope de una ventana en el nodo es de 72 h; el panel no cree una que diga más de una semana. */
+const MANTENIMIENTO_MAXIMO_MS = 7 * 86_400_000;
+
+/* Lo que el panel acepta del latido: mal formado o fuera de plazo, se ignora. */
+export function leerMantenimientoLatido(
+	x: unknown,
+	ahora = Date.now()
+): LatidoMantenimiento | undefined {
+	if (!x || typeof x !== 'object') return undefined;
+	const m = x as Record<string, unknown>;
+	const hasta = typeof m.hasta === 'string' ? Date.parse(m.hasta) : NaN;
+	if (!Number.isFinite(hasta) || hasta > ahora + MANTENIMIENTO_MAXIMO_MS) return undefined;
+	if (typeof m.nodo !== 'boolean') return undefined;
+	const n = m.sensoresParados;
+	if (typeof n !== 'number' || !Number.isInteger(n) || n < 0 || n > 100_000) return undefined;
+	return { hasta: new Date(hasta).toISOString(), nodo: m.nodo, sensoresParados: n };
+}
+
+/* ¿Sigue en curso la ventana que dijo el último latido? */
+export const enMantenimiento = (m: LatidoMantenimiento | null | undefined, ahora = Date.now()) =>
+	!!m && Date.parse(m.hasta) > ahora;
 
 export const ESTADOS_ESTRICTO_LATIDO = [
 	'apagado',
@@ -786,7 +951,6 @@ export * from './indicadores.ts';
 export * from './licencia.ts';
 export * from './revocacion.ts';
 export * from './retiradas.ts';
-export * from './catalogo-partner.ts';
 export * from './planes.ts';
 export * from './registro.ts';
 export * from './confianza.ts';

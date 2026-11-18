@@ -5,7 +5,13 @@
  */
 import { describe, expect, it } from 'vitest';
 import type { IndicadorGlobal } from '@sugardaddy/canal';
-import { diaDe, repartirListaComun, topeDia, TOPE_DIA_POR_DEFECTO } from './lista-comun-frenos';
+import {
+	diaDe,
+	repartirListaComun,
+	topeDia,
+	topeValido,
+	TOPE_DIA_POR_DEFECTO
+} from './lista-comun-frenos';
 
 const ip = (valor: string, clase: IndicadorGlobal['clase'] = 'ip'): IndicadorGlobal => ({
 	valor,
@@ -119,6 +125,18 @@ describe('el tope de IPs nuevas al día', () => {
 		['-3', 0],
 		['999999', 10_000]
 	])('LISTA_COMUN_TOPE_DIA=%s es %s', (v, n) => expect(topeDia(v)).toBe(n));
+
+	it.each([
+		['100', 100],
+		[0, 0],
+		['10000', 10_000],
+		['10001', null],
+		['-1', null],
+		['2.5', null],
+		['', null],
+		[null, null],
+		[undefined, null]
+	])('el tope de Lists %s es %s', (v, n) => expect(topeValido(v)).toBe(n));
 
 	it('el día del cupo es el de UTC', () =>
 		expect(diaDe(new Date('2026-11-14T23:30:00-02:00'))).toBe('2026-11-15'));

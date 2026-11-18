@@ -51,7 +51,9 @@ const CON_GESTOR: Record<string, string[]> = {
 	 * La web pública: el correo de quien se da de baja. Registrarse ya no pide
 	 * correo en la web (3a46f64b): se hace desde Settings de la consola.
 	 */
-	'apps/central/src/routes/register/unsubscribe/+page.svelte': ['correo']
+	'apps/central/src/routes/register/unsubscribe/+page.svelte': ['correo'],
+	/* La entrada local de emergencia al panel (B31): usuario, contraseña y TOTP de verdad. */
+	'apps/central/src/routes/sign-in/emergency/+page.svelte': ['usuario', 'clave', 'codigo']
 };
 
 function svelte(carpeta: string): string[] {

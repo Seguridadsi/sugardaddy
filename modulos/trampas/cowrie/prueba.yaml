@@ -94,6 +94,14 @@ ataques:
       - |
         (sleep 2; printf 'id\n'; sleep 1; printf 'whoami\n'; sleep 1; printf 'exit\n'; sleep 1) | sshpass -p 'Prueba-2026' ssh -tt -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 -p ${puertoSsh} root@127.0.0.1
         exit 0
+  # Una subida por scp: Cowrie la guarda en su /tmp (tmpfs de 16 MB). Es lo que
+  # escribe la trampa, y lo que mira la prueba de espacio lleno (LLENO=1,
+  # docs/diseno/espacio-trampas.md): que lo limpie sola.
+  - imagen: atacante
+    orden:
+      - sh
+      - -c
+      - "head -c 1048576 /dev/urandom > /tmp/carga.bin && for i in 1 2 3; do sshpass -p 'Prueba-2026' scp -O -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 -P ${puertoSsh} /tmp/carga.bin root@127.0.0.1:/tmp/carga.bin && exit 0; sleep 2; done; exit 1"
 espera:
   - { accion: conexion, conexion: true }
   - { accion: autenticacion, detalle: { password: root, eventid: cowrie.login.failed } }
@@ -128,3 +136,5 @@ espera:
   # que le llegan las líneas enteras queda como pegada.
   - { detalle: { eventid: cowrie.session.closed, ritmo: unknown, ordenes: '1' } }
   - { detalle: { eventid: cowrie.session.closed, ritmo: pasted } }
+  # La subida por scp, con su hash.
+  - { accion: escritura, detalle: { eventid: cowrie.session.file_upload } }

@@ -41,8 +41,8 @@ procedencia:
   licencia: Código propio (SeguridadSI); biblioteca estándar de Go, BSD-3-Clause
 
 contenedor:
-  imagen: ghcr.io/seguridadsi/sugardaddy-registro-login-web:0.1.9@sha256:cc852eff11672a4d63152d83f93fee954877a2031f3c9a78aec06dedd8f48d48
-  imagenPublica: ghcr.io/seguridadsi/sugardaddy-registro-login-web:0.1.9@sha256:cc852eff11672a4d63152d83f93fee954877a2031f3c9a78aec06dedd8f48d48
+  imagen: ghcr.io/seguridadsi/sugardaddy-registro-login-web:0.1.10@sha256:0f9ce8ae93dd57e1aff2a9dbe46d61b30278373abdc0fd6256cc3ea4cc1e17a3
+  imagenPublica: ghcr.io/seguridadsi/sugardaddy-registro-login-web:0.1.10@sha256:0f9ce8ae93dd57e1aff2a9dbe46d61b30278373abdc0fd6256cc3ea4cc1e17a3
   puertos:
     - { interno: 8080, expuesto: '${puertoWeb}', protocolo: tcp }
   entorno:
@@ -55,6 +55,7 @@ contenedor:
     SD_LOGINWEB_SEMILLA: ''
     SD_LOGINWEB_NOTA_AGENTES: ${notaAgentes}
     SD_LOGINWEB_RETO_AGENTES: ${retoAgentes}
+    SD_LOGINWEB_IDIOMA: ${idioma}
     SD_LOGINWEB_MAX_CONN: '512'
     SD_LOGINWEB_MAX_CONN_IP: '32'
     SD_LOGINWEB_MAX_CUERPO_BYTES: '8192'
@@ -144,6 +145,20 @@ parametros:
         'si': 'On'
         'no': 'Off'
       default: 'si'
+    idioma:
+      type: string
+      title: Decoy language
+      description: >-
+        The language of everything an attacker sees on this decoy: the sign-in
+        form, its error messages and the portal shown after signing in. Choose
+        the one your organisation works in, so the portal fits in with the rest
+        of your intranet. It does not change the events or what this console
+        shows.
+      enum: ['en', 'es']
+      x-opciones:
+        'en': 'English'
+        'es': 'Spanish'
+      default: 'en'
 
 eventos:
   fuente: { tipo: fichero, ruta: login-web.json }

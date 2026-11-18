@@ -2,6 +2,7 @@ import { error, fail, redirect } from '@sveltejs/kit';
 import { entreComillas } from '$lib/formato';
 import { SIN_IDENTIFICADOR, identificador } from '$lib/identificador';
 import { exigir } from '$lib/server/auth/permisos';
+import { permisoDeAlcance } from '$lib/permisos';
 import {
 	darDeBajaDestino,
 	edicionDestino,
@@ -43,6 +44,7 @@ export const actions = {
 	alcance: async ({ params, request, locals }) => {
 		const u = exigir(locals, 'desplegar');
 		const v = leerAlcance(await request.formData());
+		exigir(locals, permisoDeAlcance(v?.envia));
 		const destino = await fichaDestino(params.id);
 		if (!destino) error(404, 'That target does not exist.');
 		if (!v || !destino.sensor)

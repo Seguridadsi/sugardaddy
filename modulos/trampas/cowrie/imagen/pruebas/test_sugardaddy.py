@@ -890,3 +890,52 @@ class JsonlogTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PodaDescargasTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.dir)
+
+    def fichero(self, nombre: str, edad: float, bytes_: int = 10) -> str:
+        ruta = os.path.join(self.dir, nombre)
+        with open(ruta, "wb") as f:
+            f.write(b"x" * bytes_)
+        os.utime(ruta, (DIA - edad, DIA - edad))
+        return ruta
+
+    def test_borra_lo_viejo_y_deja_lo_reciente(self) -> None:
+        self.fichero("a" * 64, 3600)
+        self.fichero("b" * 64, 60)
+        self.fichero("tmpviejo", 3600)
+        self.fichero("tmpnuevo", 5)
+        borrados = sd.podar_descargas(self.dir, conservar=900, reloj=lambda: DIA)
+        self.assertEqual(sorted(borrados), sorted(["a" * 64, "tmpviejo"]))
+        self.assertEqual(sorted(os.listdir(self.dir)), sorted(["b" * 64, "tmpnuevo"]))
+
+    def test_sin_sitio_borra_los_terminados_mas_antiguos(self) -> None:
+        self.fichero("c" * 64, 300)
+        self.fichero("d" * 64, 200)
+        self.fichero("tmpencurso", 10)
+        self.fichero("e" * 64, 30)  # recién llegado: el sensor aún no lo ha sacado
+        libres = iter([0, 10**9])
+        with mock.patch.object(sd.os, "statvfs", lambda _: mock.Mock(f_bavail=next(libres), f_frsize=1)):
+            borrados = sd.podar_descargas(self.dir, conservar=900, minimo_libre=100, reloj=lambda: DIA)
+        self.assertEqual(borrados, ["c" * 64])
+        self.assertIn("tmpencurso", os.listdir(self.dir))
+        self.assertIn("e" * 64, os.listdir(self.dir))
+
+    def test_no_sigue_enlaces_ni_entra_en_carpetas(self) -> None:
+        fuera = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, fuera)
+        objetivo = os.path.join(fuera, "no-tocar")
+        open(objetivo, "w").close()
+        os.utime(objetivo, (DIA - 9999, DIA - 9999))
+        os.symlink(objetivo, os.path.join(self.dir, "enlace"))
+        os.mkdir(os.path.join(self.dir, "sub"))
+        sd.podar_descargas(self.dir, conservar=0, reloj=lambda: DIA)
+        self.assertTrue(os.path.exists(objetivo))
+        self.assertTrue(os.path.isdir(os.path.join(self.dir, "sub")))
+
+    def test_carpeta_que_no_existe(self) -> None:
+        self.assertEqual(sd.podar_descargas(os.path.join(self.dir, "no"), reloj=lambda: DIA), [])

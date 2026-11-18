@@ -12,6 +12,7 @@ import {
 	regenerarPasos
 } from '$lib/server/alta';
 import { exigir } from '$lib/server/auth/permisos';
+import { permisoDeAlcance } from '$lib/permisos';
 import { alcanceDeFicha, fijarAlcance, leerAlcance } from '$lib/server/alcance-ficha';
 import { honeycosas, trampasAutorizadas } from '$lib/server/catalogo';
 import { estadosVisibles } from '$lib/server/colocacion';
@@ -226,6 +227,7 @@ export const actions = {
 	alcance: async ({ params, request, locals }) => {
 		const u = exigir(locals, 'desplegar');
 		const v = leerAlcance(await request.formData());
+		exigir(locals, permisoDeAlcance(v?.envia));
 		if (!v) return fail(400, { aviso: 'That output or value is not valid.' });
 		if (!(await trampa(params.id))) error(404, 'That honeypot does not exist.');
 		if (!(await fijarAlcance(u.correo, { ...v, nivel: 'trampa', objeto: params.id })))

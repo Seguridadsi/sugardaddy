@@ -41,6 +41,10 @@ func TestEncolarArtefactoFiltraYDeduplica(t *testing.T) {
 	// sha256 inválido o outfile vacío: no se puede sacar, no se apunta.
 	s.encolarArtefacto(descarga("ev-1", "no-es-sha", "/tmp/x"))
 	s.encolarArtefacto(descarga("ev-2", shaBueno, ""))
+	// Una ruta que no es la de una copia capturada: no se lee del contenedor.
+	s.encolarArtefacto(descarga("ev-4", shaBueno, "/etc/shadow"))
+	s.encolarArtefacto(descarga("ev-5", shaBueno, "/tmp/../etc/"+shaBueno))
+	s.encolarArtefacto(descarga("ev-6", shaBueno, "/tmp/"+shaBueno+"/x"))
 	if len(s.artefactos) != 0 {
 		t.Fatalf("no debía encolar lo que no se puede subir: %+v", s.artefactos)
 	}
@@ -60,7 +64,7 @@ func TestEncolarArtefactoFiltraYDeduplica(t *testing.T) {
 
 func TestEncolarArtefactoNormalizaSha(t *testing.T) {
 	s := conArtefactos()
-	s.encolarArtefacto(descarga("ev-1", "  "+strings_ToUpper(shaBueno)+"  ", "/tmp/x"))
+	s.encolarArtefacto(descarga("ev-1", "  "+strings_ToUpper(shaBueno)+"  ", "/tmp/"+shaBueno))
 	if len(s.artefactos) != 1 || s.artefactos[0].sha256 != shaBueno {
 		t.Fatalf("el sha256 debía quedar en minúsculas y sin espacios: %+v", s.artefactos)
 	}
@@ -69,7 +73,7 @@ func TestEncolarArtefactoNormalizaSha(t *testing.T) {
 func TestEncolarArtefactoRespetaElTope(t *testing.T) {
 	s := conArtefactos()
 	for i := range maxArtefactosPendientes + 5 {
-		s.encolarArtefacto(descarga(fmt.Sprintf("ev-%d", i), shaBueno, fmt.Sprintf("/tmp/%d", i)))
+		s.encolarArtefacto(descarga(fmt.Sprintf("ev-%d", i), shaBueno, "/tmp/"+shaBueno))
 	}
 	if len(s.artefactos) != maxArtefactosPendientes {
 		t.Fatalf("no respetó el tope: %d", len(s.artefactos))
@@ -78,7 +82,7 @@ func TestEncolarArtefactoRespetaElTope(t *testing.T) {
 
 func TestReintentarArtefactoEsperaYSeAgota(t *testing.T) {
 	s := conArtefactos()
-	s.encolarArtefacto(descarga("ev-1", shaBueno, "/tmp/x"))
+	s.encolarArtefacto(descarga("ev-1", shaBueno, "/tmp/"+shaBueno))
 	// Cada reintento programa el siguiente y crece la espera, hasta agotarse.
 	for i := 1; i < artefactoMaxIntentos; i++ {
 		if !s.reintentarArtefacto("ev-1", shaBueno) {
@@ -96,8 +100,8 @@ func TestReintentarArtefactoEsperaYSeAgota(t *testing.T) {
 
 func TestQuitarArtefacto(t *testing.T) {
 	s := conArtefactos()
-	s.encolarArtefacto(descarga("ev-1", shaBueno, "/tmp/a"))
-	s.encolarArtefacto(descarga("ev-2", shaBueno, "/tmp/b"))
+	s.encolarArtefacto(descarga("ev-1", shaBueno, "/var/lib/cowrie/downloads/"+shaBueno))
+	s.encolarArtefacto(descarga("ev-2", shaBueno, "/tmp/"+shaBueno))
 	s.quitarArtefacto("ev-1", shaBueno)
 	if len(s.artefactos) != 1 || s.artefactos[0].evento != "ev-2" {
 		t.Fatalf("quitó mal: %+v", s.artefactos)

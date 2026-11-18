@@ -483,6 +483,7 @@ func (s *sensor) actualizarPlan(ctx context.Context) {
 	}
 	s.opc.Catalogo = s.reglaDelCatalogo()
 	s.opc.Retirada = s.reglaDeRetiradas()
+	s.opc.Caducada = s.reglaDeCaducadas()
 	estados, err := despliegue.Aplicar(ctx, s.docker, s.opc, p)
 	if err != nil {
 		slog.Error("deployment", "err", err)
@@ -1423,6 +1424,20 @@ func (s *sensor) reglaDelCatalogo() func(plan.TrampaPlan) string {
 		slog.Error("partner catalog", "err", errPartner)
 	}
 	return catalogo.Regla(c, p, errPartner, nil)
+}
+
+// reglaDeCaducadas: las trampas de un partner cuyo certificado ha caducado se paran
+// (catalogo.ReglaCaducadas). Sin catálogo firmado o sin catálogo de partner auténtico, nada.
+func (s *sensor) reglaDeCaducadas() func(plan.TrampaPlan) string {
+	c, err := s.catalogo.Leer()
+	if err != nil || c == nil {
+		return nil
+	}
+	p, err := s.partner.Leer()
+	if err != nil {
+		return nil
+	}
+	return catalogo.ReglaCaducadas(c, p, nil)
 }
 
 // reglaDeRetiradas: las imágenes que SeguridadSI ha retirado (manual 3 de respuesta a

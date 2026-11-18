@@ -194,6 +194,32 @@
 					<button class="boton principal">Add</button>
 				</form>
 			{/if}
+			{#if !blanca && data.espera}
+				<form class="panel bloque" method="POST" action="?/tope" use:enhance={sinVaciar}>
+					<h2>Shared list daily limit</h2>
+					<p class="nota">
+						How many new addresses from the shared list can reach your firewalls each day. The rest
+						wait their turn. 0 lets nothing new in. It protects your firewalls if Central were ever
+						compromised, so only you can change it.
+					</p>
+					<label for="tope">New addresses per day</label>
+					<input
+						id="tope"
+						name="tope"
+						class="mono"
+						type="number"
+						min="0"
+						max="10000"
+						step="1"
+						required
+						value={data.espera.tope}
+						disabled={!puede(roles, 'ajustes')}
+					/>
+					{#if form?.errorTope}<p class="error" role="alert">{form.errorTope}</p>{/if}
+					{#if form?.guardadoTope}<p class="guardado" role="status">Saved.</p>{/if}
+					{#if puede(roles, 'ajustes')}<button class="boton">Save</button>{/if}
+				</form>
+			{/if}
 		</div>
 	</div>
 {/if}

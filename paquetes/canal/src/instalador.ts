@@ -239,3 +239,53 @@ export function firmaParaOpenssl(publicaB64: string, firmaB64: string): Buffer |
 	const cuerpo = Buffer.concat([entero(f.subarray(0, 32)), entero(f.subarray(32))]);
 	return Buffer.concat([Buffer.from([0x30, cuerpo.length]), cuerpo]);
 }
+
+/*
+ * ---------- La versión para los nodos (0.32.1) ----------
+ *
+ * El actualizador de un nodo pasa la versión firmada al auxiliar que la aplica en una
+ * variable de entorno, en base64, y Linux no deja pasar una de más de 128 KB
+ * (MAX_ARG_STRLEN): el auxiliar no arranca. Con el instalador dentro (la 0.30.1 ya medía
+ * 108 KB) ningún nodo podía subir. Los actualizadores de la 0.32.1 la parten en trozos,
+ * pero los que ya están en los nodos son los que lanzan el auxiliar de la versión nueva.
+ *
+ * Por eso cada versión con instalador se firma dos veces: la completa, para instalar desde
+ * cero (la primera etapa, el panel, el sensor remoto), y esta, sin lo que solo sirve para
+ * instalar, que es la que el panel da a los nodos. Las dos van al registro de transparencia.
+ */
+export const CAMPOS_SOLO_INSTALACION = ['instalador', 'instaladorSensor'] as const;
+
+export function releaseParaNodos(r: Release): Release {
+	const copia = { ...r };
+	for (const c of CAMPOS_SOLO_INSTALACION) delete copia[c];
+	return copia;
+}
+
+/*
+ * Lo más que puede medir la versión firmada que reciben los nodos, como la escribe el
+ * actualizador (Go): en base64 y tras «APLICAR_VERSION=» tiene que quedar por debajo de
+ * 128 KB, con margen.
+ */
+export const MAX_VERSION_NODOS = 90 * 1024;
+
+/* Lo que mide en JSON como la escribe Go: escapa <, >, &, U+2028 y U+2029 como \u00XX. */
+export function tamanoParaNodos(f: { release: string; firma: string; firmas?: Firma[] }) {
+	const t = JSON.stringify({
+		release: f.release,
+		firma: f.firma,
+		...(f.firmas ? { firmas: f.firmas } : {})
+	});
+	let n = Buffer.byteLength(t, 'utf8');
+	for (const c of t) if (c === '<' || c === '>' || c === '&' || c === ' ' || c === ' ') n += 5;
+	return n;
+}
+
+/*
+ * Que la versión para los nodos sea la completa sin lo de instalar, byte a byte como la
+ * hace publicacion.ts. null si lo es; si no, el motivo.
+ */
+export function motivoVersionNodos(completa: Release, nodos: Release): string | null {
+	if (JSON.stringify(nodos) !== JSON.stringify(releaseParaNodos(completa)))
+		return 'the version for nodes is not the full version without its installer';
+	return null;
+}

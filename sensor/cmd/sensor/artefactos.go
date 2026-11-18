@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"path"
 	"regexp"
 	"slices"
 	"strings"
@@ -60,6 +61,23 @@ var reSha256 = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 func esSha256(s string) bool { return reSha256.MatchString(s) }
 
+// enSuSitio dice si la ruta del evento es la de una copia capturada: un fichero
+// que se llama como su sha256 (así las guarda Cowrie, en downloads/<sha256>) y
+// sin «..». El sensor no lee del contenedor otra cosa que diga un evento, que
+// escribe la trampa (auditoría del 2026-11-14, LeerDeContenedor; defensa en
+// profundidad: lo leído se compara además con el sha256).
+func enSuSitio(outfile, sha string) bool {
+	if outfile == "" || strings.ContainsRune(outfile, 0) {
+		return false
+	}
+	for _, parte := range strings.Split(outfile, "/") {
+		if parte == ".." {
+			return false
+		}
+	}
+	return path.Base(outfile) == sha
+}
+
 // encolarArtefacto apunta, si procede, la copia de un fichero capturado para
 // subirla luego. Barato: solo guarda el metadato (sacar el binario del
 // contenedor es cosa de subirArtefactos). Lo llama leer() con un evento que SÍ
@@ -75,7 +93,7 @@ func (s *sensor) encolarArtefacto(e evento.Evento) {
 	sha, _ := e.Detalle["shasum"].(string)
 	sha = strings.ToLower(strings.TrimSpace(sha))
 	outfile, _ := e.Detalle["outfile"].(string)
-	if !esSha256(sha) || outfile == "" {
+	if !esSha256(sha) || !enSuSitio(outfile, sha) {
 		return
 	}
 	nombre, _ := e.Detalle["filename"].(string)

@@ -458,7 +458,9 @@ cd "$DIR"
 # su catálogo es lo único que el sensor arranca, desde el primer minuto (SEN-3). Sin ella
 # (Community), el actualizador la pide a la consola en cuanto arranca.
 if [[ -s "$AQUI/version-firmada.json" ]]; then
+	# El sensor la lee sin ser root: la carpeta no puede quedar en 700 por el umask 077 de arriba.
 	mkdir -p "$DIR/firmado"
+	chmod 755 "$DIR/firmado"
 	cp "$AQUI/version-firmada.json" "$DIR/firmado/version.json"
 	chmod 644 "$DIR/firmado/version.json"
 	grep -q '"catalogo' "$DIR/firmado/version.json" && echo 1 > "$DIR/firmado/exigir"

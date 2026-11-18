@@ -25,6 +25,7 @@ import {
 	generarClaves,
 	huella,
 	verificarEstado,
+	ultimoEmitidoTras,
 	verificarListaTor,
 	verificarOrden,
 	verificarRelease,
@@ -56,6 +57,7 @@ import {
 import { db, schema as s } from './db';
 import { auditar, autoActualizar, cabecera, comparticion, latidoMinimo } from './consultas';
 import { anfitrionParaLatido } from './anfitrion';
+import { mantenimientoParaLatido } from './mantenimiento';
 import { esperaActual } from './politica-actualizacion';
 import {
 	aplicarLista,
@@ -73,7 +75,7 @@ import {
 	guardarCatalogoPartner,
 	huellaCatalogoPartner,
 	partnerDelNodo,
-	quitarCatalogoPartner
+	retirarCatalogoPartner
 } from './catalogo-partner';
 import { validarDescarga } from './script-sensor';
 
@@ -96,6 +98,16 @@ type Canal = {
 	ultimoContacto: string | null;
 	error: string | null;
 	estado: EstadoDeseado | null;
+	/*
+	 * El `emitido` del último estado tipado aceptado (auditoría 2026-11-14): uno anterior es una
+	 * repetición y no vale (verificarEstado). Ausente en los nodos que vienen de antes de la 0.32.
+	 */
+	ultimoEmitido?: string | null;
+	/*
+	 * Cuándo aceptó el nodo por última vez algo firmado a la antigua, sin `tipo` (un panel
+	 * anterior a la 0.32). Para saber cuándo ha acabado la transición.
+	 */
+	firmasAntiguas?: { estado?: string; lista?: string };
 };
 
 /* Las claves del panel con las que se comprueba lo que baja. */
@@ -132,6 +144,8 @@ export async function estadoCanal() {
 		huellaNodo: huella(c.clavePublica),
 		huellaPanel: huella(c.clavePublicaPanel),
 		huellasPanel: clavesDelPanel(c).map(huella),
+		/* Cuándo llegó por última vez algo firmado por un panel anterior a la 0.32. */
+		firmasAntiguas: c.firmasAntiguas ?? null,
 		ordenPanel: await ordenPanelAplicada(),
 		cortado: c.cortado,
 		ultimoContacto: c.ultimoContacto,
@@ -704,6 +718,11 @@ async function latidoComun(soporteLatido: Latido['soporte']) {
 		})()),
 		/* Solo si el cliente comparte sus incidentes o tiene abierto el soporte. */
 		...(await vigilanciaParaLatido(soporteLatido.estado === 'abierto')),
+		/*
+		 * Una ventana de mantenimiento en curso (mantenimiento.ts): el panel no da por caído el
+		 * nodo ni sus sensores parados por ella. También en el mínimo: es gobierno de la flota.
+		 */
+		...(await mantenimientoParaLatido()),
 		...(await (async () => {
 			const m = await estadoMarca();
 			return m ? { marca: m } : {};
@@ -838,6 +857,30 @@ export async function escalarAlPanel(d: Escalado): Promise<boolean> {
 	}
 }
 
+/*
+ * Algo firmado por el panel a la antigua, sin `tipo` (auditoría 2026-11-14): un panel anterior a
+ * la 0.32. Se acepta durante la transición y se cuenta: queda en el canal (`firmasAntiguas`, que
+ * devuelve estadoCanal) y sale en el registro una vez al día.
+ */
+const DIA_MS = 86_400_000;
+
+function avisarFirmaAntigua(clase: 'estado' | 'lista', anterior: string | undefined) {
+	if (anterior && Date.now() - Date.parse(anterior) < DIA_MS) return;
+	console.warn(
+		`[canal] Central signed the ${clase === 'estado' ? 'desired state' : 'global list'} the old way (no type)`
+	);
+}
+
+async function anotarFirmaAntigua(clase: 'estado' | 'lista') {
+	const c = await leer();
+	if (!c) return;
+	avisarFirmaAntigua(clase, c.firmasAntiguas?.[clase]);
+	await guardar({
+		...c,
+		firmasAntiguas: { ...c.firmasAntiguas, [clase]: new Date().toISOString() }
+	});
+}
+
 /* Un latido. Lo llama el reloj de hooks.server.ts; los fallos se guardan, no se lanzan. */
 export async function latir() {
 	const c = await leer();
@@ -849,16 +892,22 @@ export async function latir() {
 	try {
 		const r = await enviar(c, '/api/nodo/latido', JSON.stringify(await latido(c.panel)));
 		if (!r.ok) throw new Error(`Central responded ${r.status}`);
-		const v = verificarEstado(clavesDelPanel(c), c.cliente, await r.json());
+		const v = verificarEstado(clavesDelPanel(c), c.cliente, await r.json(), Date.now(), {
+			ultimoEmitido: c.ultimoEmitido
+		});
 		if (!v.ok) {
 			/* Esto no es un fallo de red: alguien que no es el panel está respondiendo. */
 			await auditar(`node ${c.nodo}`, 'desired state rejected', { motivo: v.motivo });
 			throw new Error(`desired state rejected: ${v.motivo}`);
 		}
+		const ahora = new Date().toISOString();
+		if (v.legado) avisarFirmaAntigua('estado', c.firmasAntiguas?.estado);
 		await guardar({
 			...c,
 			estado: v.estado,
-			ultimoContacto: new Date().toISOString(),
+			ultimoEmitido: ultimoEmitidoTras(c.ultimoEmitido, v),
+			...(v.legado ? { firmasAntiguas: { ...c.firmasAntiguas, estado: ahora } } : {}),
+			ultimoContacto: ahora,
 			error: null
 		});
 		/*
@@ -1167,7 +1216,9 @@ async function intercambiarInteligencia(c: Canal) {
 	if (recibir) {
 		const r = await enviar(c, '/api/nodo/lista', '{}');
 		if (!r.ok) throw new Error(`Central did not deliver the global list: ${r.status}`);
-		await aplicarLista(clavesDelPanel(c), await r.json(), c.nodo);
+		await aplicarLista(clavesDelPanel(c), await r.json(), c.nodo, new Date(), () =>
+			anotarFirmaAntigua('lista')
+		);
 	} else {
 		await retirarListaGlobal();
 	}
@@ -1373,8 +1424,8 @@ export async function reanudar(quien: string) {
 
 /* ---------- sensores en otras máquinas ---------- */
 
-async function guardarRelease(version: string, firmada: ReleaseFirmada) {
-	const valor = { version, firmada };
+async function guardarRelease(version: string, firmada: ReleaseFirmada, completa?: ReleaseFirmada) {
+	const valor = { version, firmada, ...(completa ? { completa } : {}) };
 	await db
 		.insert(s.ajustes)
 		.values({ clave: 'release', valor })
@@ -1400,16 +1451,30 @@ async function pedirAlPanel(sensor?: string) {
 	);
 	if (!r.ok) throw new Error(`Central responded ${r.status}: ${(await r.text()).slice(0, 200)}`);
 	/* descarga viene sin firma: credencialSensorRemoto la acota antes de darla (script-sensor.ts). */
-	const b = (await r.json()) as { descarga: unknown; release: ReleaseFirmada };
+	const b = (await r.json()) as {
+		descarga: unknown;
+		release: ReleaseFirmada;
+		completa?: ReleaseFirmada;
+	};
 	const clave = confianza();
 	const v = clave ? verificarRelease(clave, b.release) : null;
 	if (!v?.ok || v.release.version !== version)
 		throw new Error(
 			'The version delivered by Central is not authentic or is not the node version.'
 		);
-	await guardarRelease(version, b.release);
+	/*
+	 * Desde la 0.32.1 el panel da a los nodos la versión sin el instalador (releaseParaNodos)
+	 * y, aparte, la completa: la que hace falta para instalar un sensor verificado. Se
+	 * comprueba igual; si no vale o no viene, la de siempre.
+	 */
+	const vc = b.completa && clave ? verificarRelease(clave, b.completa) : null;
+	const completa =
+		vc?.ok && vc.release.version === version
+			? { firmada: b.completa!, release: vc.release }
+			: { firmada: b.release, release: v.release };
+	await guardarRelease(version, b.release, completa.firmada);
 	await adoptarClavesPanel(v.release);
-	return { descarga: b.descarga, firmada: b.release, release: v.release };
+	return { descarga: b.descarga, firmada: b.release, release: v.release, completa };
 }
 
 /*
@@ -1456,6 +1521,26 @@ export async function releaseDelNodo() {
 	return { firmada: p.firmada, release: p.release };
 }
 
+/*
+ * La versión completa en la que está el nodo, con su instalador: la que necesita la
+ * instalación de un sensor verificado (la que reciben los nodos no lo lleva desde la 0.32.1).
+ */
+export async function releaseCompletaDelNodo() {
+	const version = (await cabecera()).cliente.version;
+	const [f] = await db.select().from(s.ajustes).where(eq(s.ajustes.clave, 'release'));
+	const guardada = f?.valor as
+		{ version: string; firmada: ReleaseFirmada; completa?: ReleaseFirmada } | undefined;
+	const clave = confianza();
+	if (guardada?.version === version && clave) {
+		for (const firmada of [guardada.completa, guardada.firmada]) {
+			if (!firmada) continue;
+			const v = verificarRelease(clave, firmada);
+			if (v.ok && v.release.instalador) return { firmada, release: v.release };
+		}
+	}
+	return (await pedirAlPanel()).completa;
+}
+
 export async function credencialSensorRemoto(sensor: string) {
 	const p = await pedirAlPanel(sensor);
 	if (!p.descarga) throw new Error('Central did not provide a download credential.');
@@ -1463,7 +1548,11 @@ export async function credencialSensorRemoto(sensor: string) {
 	 * Lo único de la respuesta que no viene firmado con la clave de publicación: va al
 	 * instalador que corre como root en otra máquina, así que se acota su forma (C03).
 	 */
-	return { descarga: validarDescarga(p.descarga), firmada: p.firmada, release: p.release };
+	return {
+		descarga: validarDescarga(p.descarga),
+		firmada: p.completa.firmada,
+		release: p.completa.release
+	};
 }
 
 /* ---------- logotipo del cliente ---------- */
@@ -1534,7 +1623,7 @@ async function sincronizarTor(c: Canal, huellaFirmada: string | null) {
 async function sincronizarCatalogoPartner(c: Canal, huellaFirmada: string | null) {
 	if (!partnerDelNodo()) return;
 	if (!huellaFirmada) {
-		if (await huellaCatalogoPartner()) await quitarCatalogoPartner();
+		if (await huellaCatalogoPartner()) await retirarCatalogoPartner();
 		return;
 	}
 	if ((await huellaCatalogoPartner()) === huellaFirmada) return;

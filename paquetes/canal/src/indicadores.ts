@@ -46,6 +46,13 @@ export type IndicadorSubida = {
 	 * lo que el atacante diga de sí mismo. Opcional: los nodos anteriores no lo mandan.
 	 */
 	agentes?: string[];
+	/*
+	 * Las técnicas de MITRE ATT&CK que se vieron en esa IP (T1110, T1046…), del mapeo de
+	 * «Qué hacer ahora» (@sugardaddy/contrato/que-hacer-ahora): solo ids de ese vocabulario,
+	 * que el panel vuelve a comprobar. Opcional: los nodos anteriores no lo mandan, y el
+	 * panel deduce lo que puede de sus módulos.
+	 */
+	tecnicas?: string[];
 };
 
 /* El vocabulario cerrado de agentes que se comparten. Los rastreadores de IA (GPTBot…) no. */
@@ -94,10 +101,19 @@ export type IndicadorGlobal = {
 
 export type ListaGlobal = {
 	version: 1;
+	/*
+	 * Desde la 0.32, dentro de lo firmado: una lista de Tor o un estado deseado, firmados con la
+	 * misma clave del panel, no pasan por lista global. Opcional porque los paneles anteriores
+	 * no lo mandan (verificarLista la acepta como `legado` si tiene forma de lista global); los
+	 * nodos anteriores lo ignoran.
+	 */
+	tipo?: typeof TIPO_LISTA_GLOBAL;
 	emitida: string;
 	caduca: string;
 	indicadores: IndicadorGlobal[];
 };
+
+export const TIPO_LISTA_GLOBAL = 'global';
 
 /* firmas: las de las claves nuevas del panel (panel.ts). */
 export type ListaFirmada = { lista: string; firma: string; firmas?: Firma[] };
@@ -153,21 +169,44 @@ export function firmarLista(clavePrivada: string, l: ListaGlobal): ListaFirmada 
 	};
 }
 
+/* Lo que se lee del texto firmado, sin lanzar: un objeto o nada. */
+function objetoDe(texto: string): Record<string, unknown> | null {
+	try {
+		const o = JSON.parse(texto);
+		return o && typeof o === 'object' && !Array.isArray(o) ? o : null;
+	} catch {
+		return null;
+	}
+}
+
+/* Una fecha de caducidad que no se lee (NaN) no puede valer para siempre. */
+const caducada = (caduca: unknown, ahora: number) => {
+	const t = typeof caduca === 'string' ? Date.parse(caduca) : NaN;
+	return !Number.isFinite(t) || t < ahora;
+};
+
 export function verificarLista(
 	clavesPanel: string | readonly string[],
 	f: ListaFirmada,
 	ahora = Date.now()
-): { ok: true; lista: ListaGlobal } | { ok: false; motivo: string } {
+): { ok: true; lista: ListaGlobal; legado: boolean } | { ok: false; motivo: string } {
 	const valida =
 		!!f &&
 		typeof f.lista === 'string' &&
 		!motivoFirmas(f.firmas) &&
 		firmadoPorPanel(clavesPanel, f.lista, f.firma, f.firmas);
 	if (!valida) return { ok: false, motivo: 'list not signed by Central' };
-	const l = JSON.parse(f.lista) as ListaGlobal;
+	const o = objetoDe(f.lista);
+	/*
+	 * Con tipo, el suyo. Sin tipo (un panel anterior a la 0.32), solo si tiene forma de lista
+	 * global: la de Tor ya llevaba el suyo y un estado deseado no trae `indicadores`.
+	 */
+	if (!o || (o.tipo !== undefined ? o.tipo !== TIPO_LISTA_GLOBAL : !Array.isArray(o.indicadores)))
+		return { ok: false, motivo: 'not a global list' };
+	const l = o as unknown as ListaGlobal;
 	if (l.version !== 1) return { ok: false, motivo: 'unknown list version' };
-	if (Date.parse(l.caduca) < ahora) return { ok: false, motivo: 'list expired' };
-	return { ok: true, lista: l };
+	if (caducada(l.caduca, ahora)) return { ok: false, motivo: 'list expired' };
+	return { ok: true, lista: l, legado: l.tipo === undefined };
 }
 
 /* ---------- nodos de salida de Tor, firmados por el panel ---------- */
@@ -206,9 +245,9 @@ export function verificarListaTor(
 		!motivoFirmas(f.firmas) &&
 		firmadoPorPanel(clavesPanel, f.lista, f.firma, f.firmas);
 	if (!valida) return { ok: false, motivo: 'list not signed by Central' };
-	const l = JSON.parse(f.lista) as ListaTor;
-	if (l.version !== 1 || l.tipo !== 'tor') return { ok: false, motivo: 'not a Tor list' };
-	if (Date.parse(l.caduca) < ahora) return { ok: false, motivo: 'list expired' };
+	const l = objetoDe(f.lista) as ListaTor | null;
+	if (!l || l.version !== 1 || l.tipo !== 'tor') return { ok: false, motivo: 'not a Tor list' };
+	if (caducada(l.caduca, ahora)) return { ok: false, motivo: 'list expired' };
 	if (!Array.isArray(l.ips) || l.ips.some((ip) => !isIP(ip)))
 		return { ok: false, motivo: 'the list contains something that is not an IP' };
 	return { ok: true, lista: l };

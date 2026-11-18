@@ -34,6 +34,7 @@
 	]);
 	const pestana = $derived(pestanaDe(page.url, PESTANAS) as string);
 	const opera = $derived(puede(page.data.usuario?.roles ?? [], 'desplegar'));
+	const silencia = $derived(puede(page.data.usuario?.roles ?? [], 'ajustes'));
 	/* Dónde escucha solo tiene sentido si está puesta. */
 	const puesta = $derived(e?.estado === 'comprobada' || e?.estado === 'colocada');
 	/* Lo que devuelve cada acción: los errores de guardar, o el resultado de un botón. */
@@ -111,7 +112,7 @@
 
 {#if data.alcance}
 	<div hidden={pestana !== 'alerts'}>
-		<AlcancePorSalida filas={data.alcance} que="this honeypot" puede={opera} />
+		<AlcancePorSalida filas={data.alcance} que="this honeypot" puede={opera} silenciar={silencia} />
 	</div>
 {/if}
 

@@ -1,5 +1,5 @@
 import { isIP } from 'node:net';
-import { motivoHost, motivoIp, sinCorchetes } from '$lib/server/destino-red';
+import { esPrivada, motivoHost, motivoIp, sinCorchetes } from '$lib/server/destino-red';
 import { operador } from '$lib/server/operador';
 import { fail, redirect } from '@sveltejs/kit';
 import { leerDominio, proponer, sugerirDominio } from '$lib/camuflaje';
@@ -394,6 +394,11 @@ export const actions = {
 			const servidor = sinCorchetes(new URL(url).hostname);
 			const motivo = motivoHost(servidor) ?? (isIP(servidor) ? motivoIp(servidor) : null);
 			if (motivo) return fail(400, { error: `The webhook cannot be sent there: ${motivo}.` });
+			/* Sin cifrar, solo dentro de su red (con un nombre, se mira en cada envío). */
+			if (new URL(url).protocol === 'http:' && isIP(servidor) && !esPrivada(servidor))
+				return fail(400, {
+					error: 'Unencrypted webhooks are only sent to private addresses. Use an https:// URL.'
+				});
 		}
 		if (secreto.length > 512) return fail(400, { error: 'The signing secret is too long.' });
 		/*

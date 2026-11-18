@@ -10,8 +10,13 @@ import {
 	generarClaves,
 	verificarEstado,
 	verificarPeticion,
+	cabecerasDe,
+	comprobarPeticion,
+	ultimoEmitidoTras,
 	type EstadoDeseado
 } from './index.ts';
+import { createHash, createPrivateKey, sign } from 'node:crypto';
+import { firmadoPorPanel } from './panel.ts';
 
 const nodo = generarClaves();
 const otro = generarClaves();
@@ -28,7 +33,7 @@ describe('peticiones del nodo', () => {
 	) =>
 		verificarPeticion(
 			clave,
-			{ fecha: c['x-fecha'], firma: c['x-firma'] },
+			cabecerasDe(new Headers(c)),
 			'POST',
 			'/api/nodo/latido',
 			cuerpo,
@@ -36,7 +41,7 @@ describe('peticiones del nodo', () => {
 		);
 
 	it('una petición firmada por el nodo se acepta', () => {
-		expect(verificar(firmar())).toEqual({ ok: true });
+		expect(verificar(firmar())).toEqual({ ok: true, legado: false });
 	});
 
 	it('si cambia el cuerpo, la firma no vale', () => {
@@ -50,14 +55,14 @@ describe('peticiones del nodo', () => {
 	it('la misma petición no vale dos veces', () => {
 		const c = firmar();
 		const vistas = new Map();
-		expect(verificar(c, '{"v":1}', vistas)).toEqual({ ok: true });
+		expect(verificar(c, '{"v":1}', vistas)).toEqual({ ok: true, legado: false });
 		expect(verificar(c, '{"v":1}', vistas)).toEqual({ ok: false, motivo: 'repeated request' });
 	});
 
 	it('tampoco escribiendo la misma firma de otra forma', () => {
 		const c = firmar();
 		const vistas = new Map();
-		expect(verificar(c, '{"v":1}', vistas)).toEqual({ ok: true });
+		expect(verificar(c, '{"v":1}', vistas)).toEqual({ ok: true, legado: false });
 		const firma = c['x-firma'] as string;
 		for (const otra of [
 			firma.replace(/=+$/, ''),
@@ -74,6 +79,109 @@ describe('peticiones del nodo', () => {
 	it('una petición vieja no vale', () => {
 		const c = firmar('{"v":1}', Date.now() - 10 * 60_000);
 		expect(verificar(c)).toEqual({ ok: false, motivo: 'date out of range' });
+	});
+	/* Auditoría 2026-11-14, «canal firmado»: el nodo dentro de la cadena canónica. */
+	describe('el nodo dentro de lo firmado (x-firma-2)', () => {
+		it('cambiar x-nodo rompe la firma nueva, aunque los dos nodos compartieran clave', () => {
+			const c = firmar();
+			expect(verificar({ ...c, 'x-nodo': 'nodo-bcn02' })).toEqual({
+				ok: false,
+				motivo: 'invalid signature'
+			});
+		});
+
+		it('si viene la firma nueva y no cuadra, no se cae a la vieja', () => {
+			const c = firmar();
+			const otraFirma2 = firmarPeticion(
+				otro.privada,
+				'nodo-mad01',
+				'POST',
+				'/api/nodo/latido',
+				'{"v":1}'
+			);
+			expect(verificar({ ...c, 'x-firma-2': otraFirma2['x-firma-2'] })).toEqual({
+				ok: false,
+				motivo: 'invalid signature'
+			});
+		});
+
+		it('quitar x-firma-2 a una petición ya aceptada no la hace pasar otra vez', () => {
+			const c = firmar();
+			const vistas = new Map();
+			expect(verificar(c, '{"v":1}', vistas)).toEqual({ ok: true, legado: false });
+			const { 'x-firma-2': _quitada, ...sinNueva } = c;
+			expect(verificar(sinNueva, '{"v":1}', vistas)).toEqual({
+				ok: false,
+				motivo: 'repeated request'
+			});
+		});
+
+		it('las huellas que hay que apuntar son las dos firmas', () => {
+			const v = comprobarPeticion(
+				nodo.publica,
+				cabecerasDe(new Headers(firmar())),
+				'POST',
+				'/api/nodo/latido',
+				'{"v":1}'
+			);
+			expect(v).toMatchObject({ ok: true, legado: false });
+			expect(v.ok && v.huellas.length).toBe(2);
+		});
+
+		it('exigirNodo rechaza la firma vieja sola (para cuando no quede ningún nodo anterior)', () => {
+			const { 'x-firma-2': _q, ...viejo } = firmar();
+			expect(
+				comprobarPeticion(
+					nodo.publica,
+					cabecerasDe(new Headers(viejo)),
+					'POST',
+					'/api/nodo/latido',
+					'{"v":1}',
+					Date.now(),
+					{ exigirNodo: true }
+				)
+			).toEqual({ ok: false, motivo: 'old signature format' });
+		});
+	});
+
+	/*
+	 * Compatibilidad: así firmaba un nodo hasta la 0.31 (solo x-nodo, x-fecha y x-firma, sobre
+	 * método, ruta, fecha y sha256 del cuerpo). El panel nuevo lo sigue aceptando y lo cuenta.
+	 */
+	describe('compatibilidad con los nodos anteriores', () => {
+		const firmarComoAntes = (cuerpo = '{"v":1}', ahora = Date.now()) => {
+			const fecha = new Date(ahora).toISOString();
+			const h = createHash('sha256').update(cuerpo).digest('hex');
+			const clave = createPrivateKey({
+				key: Buffer.from(nodo.privada, 'base64'),
+				format: 'der',
+				type: 'pkcs8'
+			});
+			const firma = sign(null, Buffer.from(`POST\n/api/nodo/latido\n${fecha}\n${h}`), clave);
+			return { 'x-nodo': 'nodo-mad01', 'x-fecha': fecha, 'x-firma': firma.toString('base64') };
+		};
+
+		it('una petición de un nodo anterior se acepta, marcada como legado', () => {
+			expect(verificar(firmarComoAntes())).toEqual({ ok: true, legado: true });
+		});
+
+		it('y tampoco vale dos veces', () => {
+			const c = firmarComoAntes();
+			const vistas = new Map();
+			expect(verificar(c, '{"v":1}', vistas)).toEqual({ ok: true, legado: true });
+			expect(verificar(c, '{"v":1}', vistas)).toEqual({ ok: false, motivo: 'repeated request' });
+		});
+
+		it('la petición de un nodo nuevo la entiende un panel anterior (su x-firma es la de siempre)', () => {
+			const c = firmar();
+			/* Lo único que miraba el panel anterior: la firma vieja sobre la cadena vieja. */
+			expect(
+				verificar({ 'x-nodo': c['x-nodo'], 'x-fecha': c['x-fecha'], 'x-firma': c['x-firma'] })
+			).toEqual({
+				ok: true,
+				legado: true
+			});
+		});
 	});
 });
 
@@ -128,6 +236,112 @@ describe('estado deseado', () => {
 		/* Una fecha que no se lee no vale para siempre. */
 		const raro = firmarEstado(panel.privada, estado({ caduca: 'nunca' }));
 		expect(verificarEstado(panel.publica, 'aldanza', raro)).toMatchObject({ ok: false });
+	});
+
+	/* Auditoría 2026-11-14, «canal firmado»: `tipo` dentro de lo firmado y `emitido` creciente. */
+	describe('tipo y emitido', () => {
+		const ahora = Date.parse('2026-11-17T12:00:00Z');
+		const en = (ms: number) => new Date(ahora + ms).toISOString();
+		const tipado = (emitido: number, cambios: Partial<EstadoDeseado> = {}) =>
+			firmarEstado(
+				panel.privada,
+				estado({ tipo: 'estado', emitido: en(emitido), caduca: en(emitido + 3600_000), ...cambios })
+			);
+		const verificar = (f: ReturnType<typeof firmarEstado>, ultimoEmitido?: string | null) =>
+			verificarEstado(panel.publica, 'aldanza', f, ahora, { ultimoEmitido });
+
+		it('un estado tipado se acepta y no es legado', () => {
+			expect(verificar(tipado(0))).toMatchObject({ ok: true, legado: false });
+		});
+
+		it('con otro tipo no vale (una lista global o de Tor firmadas por el panel tampoco)', () => {
+			for (const tipo of ['global', 'tor', 'Estado'])
+				expect(verificar(tipado(0, { tipo } as unknown as Partial<EstadoDeseado>)), tipo).toEqual({
+					ok: false,
+					motivo: 'not a desired state'
+				});
+		});
+
+		it('cambiar el tipo por el camino rompe la firma', () => {
+			const f = tipado(0);
+			const tocado = { ...f, estado: f.estado.replace('"tipo":"estado"', '"tipo":"global"') };
+			expect(verificar(tocado)).toEqual({ ok: false, motivo: 'invalid Central signature' });
+		});
+
+		it('repetir un estado anterior al último aceptado no vale', () => {
+			const viejo = tipado(-20 * 60_000, { modulos: ['cowrie', 'rdp'] });
+			const nuevo = tipado(-60_000, { modulos: ['cowrie'] });
+			const v = verificar(nuevo);
+			expect(v).toMatchObject({ ok: true });
+			const ultimo = ultimoEmitidoTras(null, v as Extract<typeof v, { ok: true }>);
+			expect(ultimo).toBe(en(-60_000));
+			expect(verificar(viejo, ultimo)).toEqual({
+				ok: false,
+				motivo: 'the state is older than the last one accepted'
+			});
+		});
+
+		it('el mismo estado otra vez sí vale: el panel reutiliza la firma hasta media hora', () => {
+			const f = tipado(-60_000);
+			expect(verificar(f, en(-60_000))).toMatchObject({ ok: true });
+		});
+
+		it('un emitido que no se lee, o disparado hacia el futuro, no vale', () => {
+			expect(verificar(tipado(0, { emitido: 'ayer' }))).toEqual({
+				ok: false,
+				motivo: 'the state has an invalid issue date'
+			});
+			expect(verificar(tipado(2 * 86_400_000))).toEqual({
+				ok: false,
+				motivo: 'the state has an invalid issue date'
+			});
+		});
+
+		it('ultimoEmitidoTras solo avanza, y solo con estados tipados', () => {
+			const v = (f: ReturnType<typeof firmarEstado>) =>
+				verificar(f) as Extract<ReturnType<typeof verificar>, { ok: true }>;
+			expect(ultimoEmitidoTras(en(0), v(tipado(-60_000)))).toBe(en(0));
+			expect(ultimoEmitidoTras(en(-60_000), v(tipado(0)))).toBe(en(0));
+			const sinTipo = firmarEstado(panel.privada, estado({ emitido: en(0), caduca: en(3600_000) }));
+			expect(ultimoEmitidoTras(en(-60_000), v(sinTipo))).toBe(en(-60_000));
+			expect(ultimoEmitidoTras('roto', v(tipado(0)))).toBe(en(0));
+		});
+
+		/* Compatibilidad: así firma el estado un panel hasta la 0.31 (sin `tipo`). */
+		describe('compatibilidad con los paneles anteriores', () => {
+			const sinTipo = (emitido: number) =>
+				firmarEstado(
+					panel.privada,
+					estado({ emitido: en(emitido), caduca: en(emitido + 3600_000) })
+				);
+
+			it('un estado sin tipo se acepta, marcado como legado', () => {
+				expect(verificar(sinTipo(0))).toMatchObject({ ok: true, legado: true });
+			});
+
+			it('el panel anterior puede repetir uno más viejo (reutiliza firmas) y se acepta', () => {
+				expect(verificar(sinTipo(-20 * 60_000))).toMatchObject({ ok: true, legado: true });
+			});
+
+			it('pero no uno anterior al último tipado aceptado (no sirve para saltarse la regla)', () => {
+				expect(verificar(sinTipo(-20 * 60_000), en(-60_000))).toEqual({
+					ok: false,
+					motivo: 'the state is older than the last one accepted'
+				});
+			});
+
+			it('un nodo anterior entiende el estado tipado: `tipo` es un campo más', () => {
+				/* verificarEstado de la 0.31 (c7d228d6), tal cual: firma, versión, cliente y caducidad. */
+				const comoAntes = (f: ReturnType<typeof firmarEstado>) => {
+					if (!firmadoPorPanel(panel.publica, f.estado, f.firma, f.firmas)) return false;
+					const e = JSON.parse(f.estado) as EstadoDeseado;
+					if (e.version !== 1 || e.cliente !== 'aldanza') return false;
+					const caduca = Date.parse(e.caduca);
+					return Number.isFinite(caduca) && caduca >= ahora;
+				};
+				expect(comoAntes(tipado(0))).toBe(true);
+			});
+		});
 	});
 });
 

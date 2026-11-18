@@ -41,7 +41,7 @@ let ultimoFallo: string | null | undefined;
  * El POST a la dirección del cliente. El nombre se resuelve y se comprueba
  * antes (destino-red: nunca al propio nodo, a sus contenedores ni a los
  * metadatos de la nube) y se conecta a esa dirección ya comprobada, sin volver
- * a preguntar al DNS. Sin seguir redirecciones (CON-8) y sin leer el cuerpo de
+ * a preguntar al DNS. Por http://, solo a direcciones privadas. Sin seguir redirecciones (CON-8) y sin leer el cuerpo de
  * la respuesta: solo importan el estado y, si redirige, a dónde.
  */
 async function publicar(
@@ -51,9 +51,14 @@ async function publicar(
 ): Promise<{ estado: number; destino?: string }> {
 	if (url.protocol !== 'https:' && url.protocol !== 'http:')
 		throw new ErrorDestino('the address must start with http:// or https://');
-	const dirs = await resolver(url.hostname);
-	const servidor = sinCorchetes(url.hostname);
 	const cifrado = url.protocol === 'https:';
+	/*
+	 * Sin cifrar, solo dentro de su red (la misma regla que Avisos y SIEM): el
+	 * evento lleva las contraseñas que probó el atacante y no puede cruzar
+	 * internet en claro.
+	 */
+	const dirs = await resolver(url.hostname, { sinCifrar: !cifrado });
+	const servidor = sinCorchetes(url.hostname);
 	const puerto = puertoDePrueba(url.hostname) ?? (url.port ? Number(url.port) : cifrado ? 443 : 80);
 	return new Promise((resolve, reject) => {
 		const peticion = (cifrado ? https : http).request(

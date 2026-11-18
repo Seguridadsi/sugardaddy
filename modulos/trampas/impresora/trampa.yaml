@@ -40,8 +40,8 @@ procedencia:
   licencia: Código propio (SeguridadSI); biblioteca estándar de Go, BSD-3-Clause
 
 contenedor:
-  imagen: ghcr.io/seguridadsi/sugardaddy-registro-impresora:0.1.8@sha256:2e8b48f33bc0ca2d79e0661569f9e654214aff505721a80c47d001c1d7129a0e
-  imagenPublica: ghcr.io/seguridadsi/sugardaddy-registro-impresora:0.1.8@sha256:2e8b48f33bc0ca2d79e0661569f9e654214aff505721a80c47d001c1d7129a0e
+  imagen: ghcr.io/seguridadsi/sugardaddy-registro-impresora:0.1.9@sha256:c29dc04df5bdac94f26c77212bddabba5a839784f9f1fce80e582f25724d9d73
+  imagenPublica: ghcr.io/seguridadsi/sugardaddy-registro-impresora:0.1.9@sha256:c29dc04df5bdac94f26c77212bddabba5a839784f9f1fce80e582f25724d9d73
   puertos:
     - { interno: 9100, expuesto: '${puertoRaw}', protocolo: tcp }
     - { interno: 1631, expuesto: '${puertoIpp}', protocolo: tcp, si: ipp }
@@ -66,6 +66,7 @@ contenedor:
     SD_IMPRESORA_SEMILLA: ''
     SD_IMPRESORA_NOTA_AGENTES: ${notaAgentes}
     SD_IMPRESORA_RETO_AGENTES: ${retoAgentes}
+    SD_IMPRESORA_IDIOMA: ${idioma}
     SD_IMPRESORA_MAX_CONN: '256'
     SD_IMPRESORA_MAX_CONN_IP: '16'
     SD_IMPRESORA_MAX_LINE_BYTES: '8192'
@@ -185,6 +186,19 @@ parametros:
         'si': 'On'
         'no': 'Off'
       default: 'no'
+    idioma:
+      type: string
+      title: Decoy language
+      description: >-
+        The language of everything an attacker sees on this decoy: the web pages,
+        the control panel messages and the IPP texts. Choose the one your
+        organisation works in, so the printer fits in with the rest of your
+        network. It does not change the events or what this console shows.
+      enum: ['en', 'es']
+      x-opciones:
+        'en': 'English'
+        'es': 'Spanish'
+      default: 'en'
 
 eventos:
   fuente: { tipo: fichero, ruta: impresora.json }

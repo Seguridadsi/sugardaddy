@@ -551,3 +551,38 @@ func TestImagenRetiradaNiSeArrancaNiSigue(t *testing.T) {
 		t.Fatalf("solo se crea la de la imagen buena: %v", m.creados)
 	}
 }
+
+// La trampa de un partner con el certificado caducado (decisión del 2026-11-17): la que
+// estaba en marcha se para y se quita, y no se crea ninguna nueva; las demás siguen.
+func TestPartnerCaducadoSeParaYNoArranca(t *testing.T) {
+	m := &motorFalso{redes: map[string]map[string]any{}}
+	d := preparar(t, m)
+	o := Opciones{Datos: t.TempDir(), Escucha: "0.0.0.0", Caducada: func(tr plan.TrampaPlan) string {
+		if tr.ID == "t1" || tr.ID == "t2" {
+			return "the decoy certificate of partner acme expired on 2026-11-01"
+		}
+		return ""
+	}}
+	p := plan.Plan{Sensor: "s1", Trampas: []plan.TrampaPlan{
+		trampa("t1", "r/x@sha256:a"), trampa("t2", "r/x@sha256:a"), trampa("t3", "r/x@sha256:b"),
+	}}
+	estados, err := Aplicar(context.Background(), d, o, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	por := map[string]Estado{}
+	for _, e := range estados {
+		por[e.ID] = e
+	}
+	for _, id := range []string{"t1", "t2"} {
+		if e := por[id]; e.Codigo != CodigoCaducada || !strings.HasPrefix(e.Donde, "error: ") {
+			t.Fatalf("%s: %+v", id, e)
+		}
+	}
+	if !m.hizo("DELETE /containers/c-t1") {
+		t.Fatalf("la que estaba en marcha se para: %v", m.llamadas)
+	}
+	if len(m.creados) != 1 || m.creados[0]["Labels"].(map[string]any)[etiquetaTrampa] != "t3" {
+		t.Fatalf("solo se crea la que no es del partner caducado: %v", m.creados)
+	}
+}

@@ -1,37 +1,24 @@
 /*
  * Trampas de partner: PIEZA DE CLOUD. La edición community no tiene central ni
- * partner, así que aquí queda solo lo que el catálogo, el plan y el canal
- * esperan, con la respuesta de un nodo sin partner: no hay trampas de partner,
- * no se ofrecen y no se acepta ningún paquete.
+ * partner, así que aquí queda solo lo que el catálogo, el plan, el canal y la
+ * franja esperan, con la respuesta de un nodo sin partner: no hay trampas de
+ * partner, no se ofrecen, no se acepta ningún paquete y ninguna se para por él.
+ * La verificación de firmas (canal y contrato) y la del sensor no entran.
  */
-import type { CatalogoPartnerFirmado } from '@sugardaddy/canal';
 import type { Honeycosa } from '@sugardaddy/contrato';
 
-type Leido =
-	| {
-			ok: true;
-			serie: number;
-			partner: string;
-			prefijo: string;
-			caduca: string;
-			firmado: CatalogoPartnerFirmado;
-			modulos: Honeycosa[];
-	  }
-	| { ok: false; motivo: string };
+type PartnerFuera = {
+	motivo: 'caducado' | 'retirado';
+	partner: string;
+	caduca: string;
+	modulos: { id: string; nombre: string }[];
+};
 
 const SIN_PARTNER = 'this edition has no partner honeypots';
 
 export const partnerDelNodo = (): string | null => null;
 
-export function leerPaquetePartner(texto: string, ahora = Date.now()): Leido {
-	void texto;
-	void ahora;
-	return { ok: false, motivo: SIN_PARTNER };
-}
-
-export async function partnerAlDia(
-	ahora = Date.now()
-): Promise<Extract<Leido, { ok: true }> | null> {
+export async function partnerAlDia(ahora = Date.now()): Promise<{ modulos: Honeycosa[] } | null> {
 	void ahora;
 	return null;
 }
@@ -45,9 +32,22 @@ export const esDePartner = (id: string) => {
 	return false;
 };
 
-export const catalogoPartnerFirmado = async (): Promise<CatalogoPartnerFirmado | null> => null;
+export const partnerFuera = (): PartnerFuera | null => null;
+
+export const motivoPartnerFuera = (id: string): PartnerFuera | null => {
+	void id;
+	return null;
+};
+
+export async function avisoPartnerFuera(): Promise<
+	(Omit<PartnerFuera, 'modulos'> & { trampas: number }) | null
+> {
+	return null;
+}
 
 export const huellaCatalogoPartner = async (): Promise<string | null> => null;
+
+export async function retirarCatalogoPartner() {}
 
 export async function quitarCatalogoPartner() {}
 

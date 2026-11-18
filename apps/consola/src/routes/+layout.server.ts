@@ -1,6 +1,5 @@
 import { avisoAnfitrion } from '$lib/server/anfitrion';
 import { actualizacionDisponible, autoActualizar, cabecera } from '$lib/server/consultas';
-import { gestionado } from '$lib/server/actualizaciones';
 import { actualizacion as actualizacionPendiente } from '$lib/server/canal';
 import { esperaActual } from '$lib/server/politica-actualizacion';
 import { hayGeo } from '$lib/server/geo';
@@ -10,10 +9,9 @@ import { estadoB2B } from '$lib/server/auth/b2b';
 import { estadoEntraPropio } from '$lib/server/auth/entra-propio';
 import { estadoMarca, logo } from '$lib/server/canal';
 import { pentestActivo } from '$lib/server/pentest-activo';
-import { identidad } from '$lib/server/identidad';
+import { mantenimientoActivo } from '$lib/server/mantenimiento';
 import { esCommunity } from '$lib/server/edicion';
 import { OPERADOR_POR_DEFECTO, operador } from '$lib/server/operador';
-import { sugerirDominio } from '$lib/camuflaje';
 import { zonasDe } from '$lib/server/zona-horaria';
 import { redirect } from '@sveltejs/kit';
 import { puede } from '$lib/permisos';
@@ -25,6 +23,7 @@ import {
 } from '$lib/server/acceso';
 import { avisoCa } from '$lib/server/ca-nodo';
 import { resumenConfiguracion } from '$lib/server/configuracion-inicial';
+import { avisoPartnerFuera } from '$lib/server/catalogo-partner';
 
 /*
  * El acceso a la consola por IP (docs/diseno/acceso-consola.md): sin decidir,
@@ -112,7 +111,6 @@ export const load = async ({ locals, url, cookies }) =>
 				geo: hayGeo(),
 				actualizacion: await actualizacionDisponible(),
 				autoActualizar: await autoActualizar(),
-				gestionado: await gestionado(),
 				community: esCommunity(),
 				/* Docker por detrás de la versión firmada y el cortafuegos estricto que no queda (anfitrion.ts). */
 				anfitrion: puede(locals.usuario.roles, 'ajustes')
@@ -126,9 +124,10 @@ export const load = async ({ locals, url, cookies }) =>
 						})()
 					: null,
 				pentest: await pentestActivo(),
-				/* Solo esto: la semilla no sale del servidor. */
-				identidad: { decidido: (await identidad()).decidido },
-				dominioSugerido: sugerirDominio(url.hostname),
+				/* Una ventana de mantenimiento en curso: la salud de lo que cubre no avisa. */
+				mantenimiento: await mantenimientoActivo(),
+				/* Las trampas de un partner cuyo certificado caducó o se retiró: paradas (catalogo-partner.ts). */
+				partnerFuera: await avisoPartnerFuera(),
 				...(await cabecera())
 			}
 		: {
@@ -155,13 +154,12 @@ export const load = async ({ locals, url, cookies }) =>
 				geo: false,
 				actualizacion: { version: null },
 				autoActualizar: { decidido: true, activo: false, correo: null, consentimiento: null },
-				gestionado: true,
 				community: false,
 				anfitrion: null,
 				versionPorAprobar: null,
 				pentest: null,
-				identidad: { decidido: true },
-				dominioSugerido: '',
+				mantenimiento: null,
+				partnerFuera: null,
 				cliente: null,
 				pendientes: 0
 			};

@@ -14,7 +14,7 @@ vi.mock('$env/dynamic/private', () => ({ env: process.env }));
 vi.mock('$app/environment', () => ({ building: false, dev: true }));
 
 /* Dos raíces de CA autofirmadas, con openssl: la «de Caddy» y la «propia». */
-function raiz(cn: string): string {
+function raiz(cn: string, restricciones?: string): string {
 	const dir = mkdtempSync(join(tmpdir(), 'ca-nodo-'));
 	execFileSync('openssl', [
 		'req',
@@ -33,7 +33,9 @@ function raiz(cn: string): string {
 		'-days',
 		'2',
 		'-addext',
-		'basicConstraints=critical,CA:TRUE'
+		'basicConstraints=critical,CA:TRUE',
+		/* La propia del nodo los lleva siempre (sensor/internal/canodo). */
+		...(restricciones ? ['-addext', `nameConstraints=${restricciones}`] : [])
 	]);
 	return readFileSync(join(dir, 'c.pem'), 'utf8');
 }
@@ -52,7 +54,10 @@ describe.skipIf(!process.env.DATABASE_URL || !hayOpenssl)('CA propia del nodo', 
 	const QUIEN = 'zz-ca@prueba';
 	const PREFIJO = 'zz-ca-';
 	const vieja = raiz('Caddy Local Authority - 2026 ECC Root');
-	const nueva = raiz('Sugardaddy console root 2026-11-09');
+	const nueva = raiz(
+		'Sugardaddy console root 2026-11-09',
+		'critical,permitted;DNS:consola.aldanza.local'
+	);
 	const huellaNueva = ca.huellaDe(nueva)!;
 	const fichero = join(mkdtempSync(join(tmpdir(), 'ca-raiz-')), 'ca-raiz.crt');
 
@@ -90,6 +95,19 @@ describe.skipIf(!process.env.DATABASE_URL || !hayOpenssl)('CA propia del nodo', 
 				.from(s.auditoria)
 				.where(inArray(s.auditoria.quien, [QUIEN, 'machine']))
 		).map((a) => a.accion);
+
+	it('una raíz preparada sin nameConstraints críticos no se ofrece para instalar', async () => {
+		expect(ca.conRestriccionesCriticas(nueva)).toBe(true);
+		expect(ca.conRestriccionesCriticas(vieja)).toBe(false);
+		const blandas = raiz('Sin criticas', 'permitted;DNS:consola.aldanza.local');
+		expect(ca.conRestriccionesCriticas(blandas)).toBe(false);
+		const abierta = raiz('Sugardaddy console root sin limites');
+		expect(await ca.informeDelNodo({ modo: 'caddy', raiz: abierta })).toBe(true);
+		const e = (await ca.leerCaNodo())!;
+		expect(e.error).toMatch(/no critical name constraints/);
+		expect(await ca.avisoCa(true)).toBeNull();
+		expect(await ca.aprobarCambio(QUIEN, ca.huellaDe(abierta)!)).toMatchObject({ ok: false });
+	});
 
 	it('guarda la raíz preparada y la anterior, y no acepta lo que no es una CA', async () => {
 		expect(await informe()).toBe(true);

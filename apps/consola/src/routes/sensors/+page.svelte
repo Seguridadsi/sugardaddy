@@ -253,6 +253,13 @@
 											: 'never connected'}
 								</span>
 							{/if}
+							{#if data.mantenimiento[x.id] && !x.retirado}
+								<small class="aviso" title="Its health alerts are held back while the window lasts"
+									><a href="/maintenance">In maintenance</a> until {fechaHora(
+										data.mantenimiento[x.id]
+									)}</small
+								>
+							{/if}
 							{#if data.silencios[x.id]?.length}
 								<small class="aviso" title="Set on the Alerts tab of this sensor"
 									>Alerts muted: {data.silencios[x.id].join(', ')}</small

@@ -505,6 +505,12 @@ func GuardarFirmada(dir string, f ReleaseFirmada) error {
 	if err := os.MkdirAll(filepath.Dir(ruta), 0o755); err != nil {
 		return err
 	}
+	// El sensor la lee sin ser root. Los instalar.sh crean la carpeta con umask 077 (700, de
+	// root) y MkdirAll no cambia una que ya existe: en un nodo instalado así, el sensor no
+	// podía leer el catálogo y no arrancaba ninguna trampa.
+	if err := os.Chmod(filepath.Dir(ruta), 0o755); err != nil {
+		return err
+	}
 	if err := escribirAtomico(ruta, b, 0o644); err != nil {
 		return err
 	}

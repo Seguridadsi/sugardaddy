@@ -14,7 +14,7 @@ import { lineasDeClaves } from './claves';
 import { lineasDePartner } from './catalogo-partner';
 import { esCommunity } from './edicion';
 import { db, schema as s } from './db';
-import { credencialSensorRemoto, releaseDelNodo } from './canal';
+import { credencialSensorRemoto, releaseCompletaDelNodo } from './canal';
 import type { Entorno } from '$lib/entorno';
 import { crearSensor, prepararToken, reactivarSensor } from './gestion';
 import { PROXY_SH } from './proxy-sh';
@@ -653,7 +653,7 @@ export async function registrosDatosSensor(codigo: string): Promise<string | nul
 export async function etapa1DelNodo(): Promise<{ texto: string; huella: string } | null> {
 	if (esCommunity()) return null;
 	try {
-		const { release } = await releaseDelNodo();
+		const { release } = await releaseCompletaDelNodo();
 		const texto = release.instalador?.etapa1?.texto;
 		if (!texto || !piezasInstaladorSensor(release)) return null;
 		return { texto, huella: hash(texto) };
@@ -684,7 +684,7 @@ export async function versionParaEtapa1(codigo: string): Promise<string | null> 
 			)
 		);
 	if (!f) return null;
-	const { firmada, release } = await releaseDelNodo();
+	const { firmada, release } = await releaseCompletaDelNodo();
 	const nodo = piezasInstalador(release);
 	const sensor = piezasInstaladorSensor(release);
 	if (!nodo || !sensor)

@@ -18,12 +18,15 @@
 	let {
 		filas,
 		que,
-		puede = true
+		puede = true,
+		silenciar = true
 	}: {
 		filas: Fila[];
 		/* De quién se habla, para los textos: «this sensor», «this honeypot». */
 		que: string;
 		puede?: boolean;
+		/* Dejar de enviar es de quien administra las salidas (permisoDeAlcance). */
+		silenciar?: boolean;
 	} = $props();
 
 	const efectivo = (f: Fila) => (f.valor === 'hereda' ? f.heredado.envia : f.valor === 'si');
@@ -68,7 +71,12 @@
 											: 'do not send'})</option
 									>
 									<option value="si" selected={f.valor === 'si'}>Send</option>
-									<option value="no" selected={f.valor === 'no'}>Do not send</option>
+									<option
+										value="no"
+										selected={f.valor === 'no'}
+										disabled={!silenciar && f.valor !== 'no'}
+										>Do not send{silenciar ? '' : ' (administrators only)'}</option
+									>
 								</select>
 							</form>
 						</td>

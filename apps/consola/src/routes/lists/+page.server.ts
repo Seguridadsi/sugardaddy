@@ -4,7 +4,7 @@ import { exigir } from '$lib/server/auth/permisos';
 import { anadirALista, listasDe } from '$lib/server/consultas';
 import { normalizarDominio } from '$lib/server/dominios';
 import { migrados } from '$lib/server/origenes-comun';
-import { listaComunEnEspera } from '$lib/server/inteligencia';
+import { fijarTopeListaComun, listaComunEnEspera } from '$lib/server/inteligencia';
 import { cambiarUsoTor, listaTor, usoTor } from '$lib/server/tor';
 
 /* Una IP, una red en CIDR o un dominio. Devuelve además el valor ya normalizado
@@ -105,5 +105,16 @@ export const actions = {
 		const u = exigir(locals, 'listas');
 		await cambiarUsoTor(u.correo, { edl: (await request.formData()).get('edl') === 'on' });
 		return { guardadoTor: true };
+	},
+
+	/*
+	 * El tope diario de la lista común (docs/diseno/frenos-del-nodo.md). Solo admin: es un
+	 * freno de seguridad, no una entrada más de la lista. Queda en la auditoría.
+	 */
+	tope: async ({ request, locals }) => {
+		const u = exigir(locals, 'ajustes');
+		const r = await fijarTopeListaComun(u.correo, (await request.formData()).get('tope'));
+		if (r === 'invalido') return fail(400, { errorTope: 'Enter a whole number from 0 to 10,000.' });
+		return { guardadoTope: true };
 	}
 };

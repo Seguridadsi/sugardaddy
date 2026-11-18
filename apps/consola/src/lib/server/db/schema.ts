@@ -885,7 +885,15 @@ export type AvisoGuardado = {
 	/* respuesta: el id es la ejecución (o la aprobación) y el nombre, el de su regla. */
 	sobre?: {
 		/* nodo: algo del propio nodo (sus copias de seguridad, id «copias»). */
-		tipo: 'sensor' | 'trampa' | 'salida' | 'respuesta' | 'incidente' | 'pentest' | 'nodo';
+		tipo:
+			| 'sensor'
+			| 'trampa'
+			| 'salida'
+			| 'respuesta'
+			| 'incidente'
+			| 'pentest'
+			| 'mantenimiento'
+			| 'nodo';
 		id: string;
 		nombre: string;
 	};
@@ -1576,6 +1584,52 @@ export const ventanasPentest = pgTable(
 		terminado: timestamp('terminado', { withTimezone: true })
 	},
 	(t) => [index('ventanas_pentest_hasta').on(t.hasta)]
+);
+
+/* Un aviso de salud que una ventana de mantenimiento calló, por su clave de avisos_salud. */
+export type CalladoMantenimiento = { codigo: string; nombre: string; desde: string };
+
+/* Lo que pasó durante una ventana de mantenimiento, hecho al terminar (mantenimiento.ts). */
+export type ResumenMantenimiento = {
+	/* Los eventos de su alcance: se guardan y avisan como siempre. */
+	eventos: number;
+	porSeveridad: Record<string, number>;
+	porTrampa: { trampa: string; nombre: string; eventos: number }[];
+	/* Los avisos de salud que no salieron (sensor callado, trampa caída o parada). */
+	callados: ({ clave: string } & CalladoMantenimiento)[];
+	/* Los sensores de su alcance que al terminar seguían sin latir: ahora sí avisan. */
+	sinVolver: { id: string; nombre: string }[];
+};
+
+/*
+ * Ventanas de mantenimiento (mantenimiento.ts): una parada programada de todo
+ * el nodo, de unos sitios (destinos) o de unos sensores. Mientras dura, los
+ * avisos de SALUD de su alcance no salen (sensor sin latido, silencio, trampa
+ * caída o parada); los eventos se guardan y avisan igual. Tienen tope de
+ * duración, terminan solas y dejan un resumen.
+ */
+export const ventanasMantenimiento = pgTable(
+	'ventanas_mantenimiento',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		nombre: text('nombre').notNull(),
+		/* nodo: todo; sitios: ids de destinos; sensores: ids de sensores. */
+		alcance: text('alcance', { enum: ['nodo', 'sitios', 'sensores'] }).notNull(),
+		objetivos: jsonb('objetivos').$type<string[]>().notNull().default([]),
+		desde: timestamp('desde', { withTimezone: true }).notNull(),
+		hasta: timestamp('hasta', { withTimezone: true }).notNull(),
+		nota: text('nota'),
+		quien: text('quien').notNull(),
+		creado: timestamp('creado', { withTimezone: true }).notNull().defaultNow(),
+		/* Quién la cerró antes de tiempo (nulo: terminó sola o sigue). */
+		cerradaPor: text('cerrada_por'),
+		avisadoInicio: timestamp('avisado_inicio', { withTimezone: true }),
+		/* Lo que se calló, por clave de avisos_salud; se va llenando mientras dura. */
+		callado: jsonb('callado').$type<Record<string, CalladoMantenimiento>>().notNull().default({}),
+		resumen: jsonb('resumen').$type<ResumenMantenimiento>(),
+		terminado: timestamp('terminado', { withTimezone: true })
+	},
+	(t) => [index('ventanas_mantenimiento_hasta').on(t.hasta)]
 );
 
 /*

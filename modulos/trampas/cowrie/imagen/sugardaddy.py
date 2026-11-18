@@ -901,3 +901,69 @@ class RegistroDiario:
                 self._resumen(ahora, siempre=True)
             self.cerrado = True
             self._cerrar_fd()
+
+
+def podar_descargas(
+    carpeta: str,
+    *,
+    conservar: float = 900.0,
+    minimo_libre: int = 0,
+    gracia: float = 120.0,
+    reloj: Callable[[], float] = time.time,
+) -> list[str]:
+    """Deja sitio en la carpeta de descargas (el /tmp de 16 MB del contenedor).
+
+    Cowrie guarda ahí cada fichero que el atacante sube o manda traer y nunca
+    lo borra: con dos subidas grandes la carpeta se llena y desde entonces
+    toda descarga falla («No space left on device») y la sesión del atacante
+    se queda colgada, que además delata a la trampa.
+
+    * Se borran los ficheros con más de ``conservar`` segundos: el sensor ya ha
+      tenido tiempo de sacar su copia (reintenta unos 7 minutos).
+    * Si aun así quedan menos de ``minimo_libre`` bytes libres, se borran los
+      más antiguos ya terminados (ni los ``tmp*``, descargas en curso, ni los de
+      menos de ``gracia`` segundos, que el sensor aún no ha podido sacar) hasta
+      que haya sitio: mejor perder una copia que la trampa.
+
+    Solo ficheros normales de esa carpeta, sin seguir enlaces. Devuelve los
+    nombres borrados.
+    """
+    ahora = reloj()
+    ficheros: list[tuple[float, str, str]] = []
+    try:
+        with os.scandir(carpeta) as entradas:
+            for e in entradas:
+                try:
+                    st = e.stat(follow_symlinks=False)
+                except OSError:
+                    continue
+                if stat.S_ISREG(st.st_mode):
+                    ficheros.append((st.st_mtime, e.path, e.name))
+    except OSError:
+        return []
+    ficheros.sort()
+
+    def libre() -> int:
+        try:
+            s = os.statvfs(carpeta)
+        except OSError:
+            return minimo_libre
+        return s.f_bavail * s.f_frsize
+
+    borrados: list[str] = []
+    for mtime, ruta, nombre in ficheros:
+        viejo = ahora - mtime >= conservar
+        sin_sitio = (
+            bool(minimo_libre)
+            and not nombre.startswith("tmp")
+            and ahora - mtime >= gracia
+            and libre() < minimo_libre
+        )
+        if not (viejo or sin_sitio):
+            continue
+        try:
+            os.unlink(ruta)
+        except OSError:
+            continue
+        borrados.append(nombre)
+    return borrados
