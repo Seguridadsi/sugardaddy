@@ -51,6 +51,10 @@ const CONTEXTO = 'entra-propio';
 export const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DOMINIO = /^(?=.{4,253}$)([a-z0-9-]{1,63}\.)+[a-z]{2,63}$/i;
 
+/* Una fecha AAAA-MM-DD que existe (sin 2027-02-30). */
+const fechaValida = (t: string) =>
+	/^\d{4}-\d{2}-\d{2}$/.test(t) && new Date(`${t}T00:00:00Z`).toISOString().slice(0, 10) === t;
+
 type Guardado = {
 	tenant: string;
 	clientId: string;
@@ -64,6 +68,8 @@ type Guardado = {
 	/* Sin el campo: guardada antes de 2026-11-15, MFA «heredada» (ver arriba). */
 	exigirMfa?: boolean;
 	contextoAuth?: string | null;
+	/* Cuándo caduca el secreto (AAAA-MM-DD), si se dijo: para avisar antes (salidas/caducidades.ts). */
+	secretoCaduca?: string | null;
 };
 
 /*
@@ -99,6 +105,7 @@ export async function estadoEntraPropio() {
 		exigirMfa: modoMfa(g) === 'exigida',
 		modoMfa: modoMfa(g),
 		contextoAuth: g.contextoAuth ?? null,
+		secretoCaduca: g.secretoCaduca ?? null,
 		legible: descifrar(secreto, CONTEXTO).ok
 	};
 }
@@ -168,6 +175,8 @@ export async function guardarEntraPropio(
 		exigirMfa?: boolean;
 		confirmarSinMfa?: boolean;
 		contextoAuth?: string;
+		/* AAAA-MM-DD; vacío: no se sabe (o, sin secreto nuevo, la que había). */
+		secretoCaduca?: string;
 	},
 	comprobar: (t: string) => Promise<'si' | 'no' | 'sin-red'> = existeTenant
 ): Promise<{ ok: true } | { ok: false; error: string }> {
@@ -182,6 +191,9 @@ export async function guardarEntraPropio(
 			error:
 				'The authentication context ID is the one shown in Entra ID > Conditional Access > Authentication contexts: c1 to c99.'
 		};
+	const caducaTexto = (datos.secretoCaduca ?? '').trim();
+	if (caducaTexto && !fechaValida(caducaTexto))
+		return { ok: false, error: 'The secret end date is a date such as 2028-11-18.' };
 	if (!exigirMfa && !datos.confirmarSinMfa)
 		return {
 			ok: false,
@@ -205,12 +217,15 @@ export async function guardarEntraPropio(
 	const previo = await leer();
 	let sobre: string;
 	let fin: string | null;
+	/* Con el secreto de antes se queda su fecha, salvo que se diga otra. */
+	let secretoCaduca: string | null = caducaTexto || null;
 	if (secreto) {
 		sobre = cifrar({ secreto }, CONTEXTO);
 		fin = final(secreto);
 	} else if (previo && previo.clientId === clientId && descifrar(previo.secreto, CONTEXTO).ok) {
 		sobre = previo.secreto;
 		fin = previo.final;
+		secretoCaduca ??= previo.secretoCaduca ?? null;
 	} else return { ok: false, error: 'The application secret is missing.' };
 
 	const existe = await comprobar(tenant);
@@ -231,13 +246,15 @@ export async function guardarEntraPropio(
 		guardadoPor: quien,
 		guardado: new Date().toISOString(),
 		exigirMfa,
-		contextoAuth
+		contextoAuth,
+		secretoCaduca
 	});
 	await auditar(quien, 'Microsoft sign-in (own Entra) saved, pending test', {
 		tenant,
 		clientId,
 		exigirMfa,
-		contextoAuth
+		contextoAuth,
+		secretoCaduca
 	});
 	if (!exigirMfa)
 		await auditar(quien, 'Microsoft sign-in (own Entra): two-factor from Entra not required', {

@@ -8,6 +8,7 @@
 	import { puede } from '$lib/permisos';
 
 	let { data, form } = $props();
+	let verToken = $state(false);
 	const blanca = $derived(data.lista === 'blanca');
 	const roles = $derived(page.data.usuario?.roles ?? []);
 	/* Una IP o red de confianza: el alta en Orígenes conocidos, ya rellena. */
@@ -37,9 +38,47 @@
 	<a href="{resolve('/lists')}?lista=tor" aria-current={data.lista === 'tor' ? 'page' : undefined}>
 		Tor <span class="mono">{data.cuentas.tor}</span>
 	</a>
+	<a href="{resolve('/lists')}?lista=edl" aria-current={data.lista === 'edl' ? 'page' : undefined}>
+		Firewall feed
+	</a>
 </nav>
 
-{#if data.lista === 'tor'}
+{#if data.lista === 'edl' && data.edl}
+	<section class="panel edl">
+		<h2>External dynamic list (EDL)</h2>
+		<p class="nota">
+			Your firewalls, DNS filters and proxies read the blocklist from these addresses. Use HTTP
+			basic authentication with the user and password below (Palo Alto, FortiGate), or send the
+			password as a bearer token.
+		</p>
+		{#if !data.edl.configurada}
+			<p class="error" role="alert">
+				This node has no firewall feed credential yet. It is created on the next update.
+			</p>
+		{:else}
+			<dl>
+				<dt>IP addresses and networks</dt>
+				<dd class="mono">{data.edl.ips}</dd>
+				<dt>Domains</dt>
+				<dd class="mono">{data.edl.dominios}</dd>
+				<dt>User</dt>
+				<dd class="mono">{data.edl.usuario}</dd>
+				<dt>Password</dt>
+				<dd class="mono">
+					{#if data.edl.token}
+						{#if verToken}
+							{data.edl.token}
+						{:else}
+							<button type="button" class="boton" onclick={() => (verToken = true)}>Show</button>
+						{/if}
+					{:else}
+						Only list administrators can see it.
+					{/if}
+				</dd>
+			</dl>
+		{/if}
+	</section>
+{:else if data.lista === 'tor'}
 	<div class="rejilla">
 		<section class="panel">
 			{#if data.tor}
@@ -242,6 +281,15 @@
 		max-width: 80ch;
 	}
 
+	.edl dl {
+		display: grid;
+		grid-template-columns: max-content 1fr;
+		gap: 0.4rem 1rem;
+	}
+	.edl dd {
+		margin: 0;
+		word-break: break-all;
+	}
 	.pestanas {
 		display: flex;
 		gap: 4px;

@@ -107,7 +107,7 @@ func TestDiscoNuevoConLoQueHabiaAntes(t *testing.T) {
 		t.Fatalf("el fichero del disco: %v %v", fi, err)
 	}
 	if !m.hizo("mkfs.ext4 -q -F -m 0 -J size=4 -i 65536 -O ^orphan_file,^metadata_csum_seed") ||
-		!m.hizo("mount -t ext4 -o loop,nosuid,nodev,noexec "+img+" "+Dir(datos, "t1")) {
+		!m.hizo("mount -c -t ext4 -o loop,nosuid,nodev,noexec "+img+" "+Dir(datos, "t1")) {
 		t.Fatalf("órdenes: %v", m.ordenes)
 	}
 	reg, _ := os.Stat(Registros(datos, "t1"))
@@ -165,6 +165,7 @@ func TestDiscoQueSigueEnUnLoopNiSeComprueba(t *testing.T) {
 
 func TestYaMontadoSoloSusCarpetas(t *testing.T) {
 	m, a, datos := nuevaMaquina(t)
+	_ = os.MkdirAll(Dir(datos, "t1"), 0o755)
 	m.montados[Dir(datos, "t1")] = true
 	etc := CarpetaImagen("/cowrie/cowrie-git/etc")
 	r := a.Aplicar(context.Background(), Pedido{Datos: datos, TamMb: 1024, Montar: []Montaje{{ID: "t1", Escribibles: 2, Carpetas: []string{etc}}}})
@@ -244,7 +245,7 @@ func TestRetirarDesmontaYBorra(t *testing.T) {
 	_ = os.WriteFile(Fichero(datos, "t1"), nil, 0o600)
 	m.montados[Dir(datos, "t1")] = true
 	r := a.Aplicar(context.Background(), Pedido{Datos: datos, Retirar: []string{"t1"}})
-	if r.Discos["t1"].Codigo != "" || !m.hizo("umount -l "+Dir(datos, "t1")) {
+	if r.Discos["t1"].Codigo != "" || !m.hizo("umount -c -l "+Dir(datos, "t1")) {
 		t.Fatalf("%+v %v", r, m.ordenes)
 	}
 	for _, p := range []string{Fichero(datos, "t1"), Dir(datos, "t1")} {
@@ -263,7 +264,7 @@ func TestRetirarDesmontaYBorra(t *testing.T) {
 func TestProbar(t *testing.T) {
 	m, a, datos := nuevaMaquina(t)
 	r := a.Aplicar(context.Background(), Pedido{Datos: datos, TamMb: 1024, Probar: true})
-	if r.Codigo != "" || !m.hizo("mkfs.ext4") || !m.hizo("mount") || !m.hizo("umount -l") {
+	if r.Codigo != "" || !m.hizo("mkfs.ext4") || !m.hizo("mount") || !m.hizo("umount -c -l") {
 		t.Fatalf("%+v %v", r, m.ordenes)
 	}
 	if e, _ := os.ReadDir(filepath.Join(datos, Carpeta)); len(e) != 0 {
@@ -303,5 +304,105 @@ func TestPedidosQueNoSeAceptan(t *testing.T) {
 		if r := a.Aplicar(context.Background(), p); r.Codigo != CodigoError {
 			t.Fatalf("%+v: %+v", p, r)
 		}
+	}
+}
+
+// F8: el auxiliar es root y la carpeta del sensor no: nada de lo que el sensor ponga
+// en ella (enlaces, carpetas cambiadas) hace que monte, cree o borre fuera.
+func TestEnlacesDelSensorNoLlevanFuera(t *testing.T) {
+	fuera := t.TempDir()
+	victima := filepath.Join(fuera, "t1")
+	_ = os.MkdirAll(victima, 0o755)
+	_ = os.WriteFile(filepath.Join(victima, "importante"), []byte("x"), 0o600)
+	intacta := func(t *testing.T) {
+		t.Helper()
+		if b, err := os.ReadFile(filepath.Join(victima, "importante")); err != nil || string(b) != "x" {
+			t.Fatalf("se ha tocado lo de fuera: %v", err)
+		}
+		if e, _ := os.ReadDir(fuera); len(e) != 1 {
+			t.Fatalf("se ha creado algo fuera: %v", e)
+		}
+	}
+
+	t.Run("la carpeta de los discos es un enlace", func(t *testing.T) {
+		m, a, datos := nuevaMaquina(t)
+		_ = os.Symlink(fuera, filepath.Join(datos, Carpeta))
+		r := a.Aplicar(context.Background(), Pedido{Datos: datos, TamMb: 1024, Montar: []Montaje{{ID: "t2"}}, Retirar: []string{"t1"}})
+		if r.Codigo != CodigoError || r.Discos["t1"].Codigo != CodigoError || r.Discos["t2"].Codigo != CodigoError || len(m.ordenes) != 0 {
+			t.Fatalf("falla cerrado, sin tocar nada: %+v %v", r, m.ordenes)
+		}
+		intacta(t)
+	})
+	t.Run("el punto de montaje es un enlace", func(t *testing.T) {
+		m, a, datos := nuevaMaquina(t)
+		_ = os.MkdirAll(filepath.Join(datos, Carpeta), 0o755)
+		_ = os.Symlink(victima, Dir(datos, "t1"))
+		r := a.Aplicar(context.Background(), Pedido{Datos: datos, TamMb: 1024, Montar: []Montaje{{ID: "t1"}}})
+		if r.Discos["t1"].Codigo != CodigoError || m.hizo("mount") {
+			t.Fatalf("no se monta encima de lo que apunta: %+v %v", r, m.ordenes)
+		}
+		// Y al retirarlo se borra el enlace, no lo de dentro.
+		r = a.Aplicar(context.Background(), Pedido{Datos: datos, Retirar: []string{"t1"}})
+		if r.Discos["t1"].Codigo != "" {
+			t.Fatalf("%+v", r)
+		}
+		if _, err := os.Lstat(Dir(datos, "t1")); !errors.Is(err, os.ErrNotExist) {
+			t.Fatal("el enlace se borra")
+		}
+		intacta(t)
+	})
+	t.Run("el fichero del disco es un enlace", func(t *testing.T) {
+		m, a, datos := nuevaMaquina(t)
+		_ = os.MkdirAll(filepath.Join(datos, Carpeta), 0o755)
+		_ = os.Symlink(filepath.Join(victima, "importante"), Fichero(datos, "t1"))
+		r := a.Aplicar(context.Background(), Pedido{Datos: datos, TamMb: 1024, Montar: []Montaje{{ID: "t1"}}})
+		if r.Discos["t1"].Codigo != CodigoError || m.hizo("e2fsck") || m.hizo("mount") || m.hizo("mkfs") {
+			t.Fatalf("%+v %v", r, m.ordenes)
+		}
+		if r := a.Aplicar(context.Background(), Pedido{Datos: datos, Retirar: []string{"t1"}}); r.Discos["t1"].Codigo != "" {
+			t.Fatalf("%+v", r)
+		}
+		intacta(t)
+	})
+	t.Run("lo de antes del disco es un enlace", func(t *testing.T) {
+		m, a, datos := nuevaMaquina(t)
+		_ = os.MkdirAll(filepath.Join(datos, "registros"), 0o755)
+		_ = os.Symlink(victima, filepath.Join(datos, "registros", "t1"))
+		r := a.Aplicar(context.Background(), Pedido{Datos: datos, TamMb: 1024, Montar: []Montaje{{ID: "t1"}}})
+		if r.Discos["t1"].Codigo != "" || m.hizo("cp") {
+			t.Fatalf("no se copia lo que apunta: %+v %v", r, m.ordenes)
+		}
+		if _, err := os.Stat(filepath.Join(Registros(datos, "t1"), "importante")); err == nil {
+			t.Fatal("lo de fuera no entra en el disco")
+		}
+		intacta(t)
+	})
+}
+
+// La carpeta de los discos queda 0755: el sensor la lee pero no escribe en ella (de
+// root, cuando el auxiliar lo es).
+func TestLaCarpetaDeLosDiscosQuedaCerrada(t *testing.T) {
+	_, a, datos := nuevaMaquina(t)
+	_ = os.MkdirAll(filepath.Join(datos, Carpeta), 0o777)
+	_ = os.Chmod(filepath.Join(datos, Carpeta), 0o777)
+	if r := a.Aplicar(context.Background(), Pedido{Datos: datos, TamMb: 1024, Montar: []Montaje{{ID: "t1"}}}); r.Discos["t1"].Codigo != "" {
+		t.Fatalf("%+v", r)
+	}
+	if fi, _ := os.Lstat(filepath.Join(datos, Carpeta)); fi.Mode().Perm() != 0o755 {
+		t.Fatalf("%v", fi.Mode())
+	}
+}
+
+// Si lo montado no es el fichero del disco (mount lo busca por su ruta real), se
+// desmonta y el disco nuevo se borra.
+func TestLoMontadoTieneQueSerSuFichero(t *testing.T) {
+	m, a, datos := nuevaMaquina(t)
+	a.Respaldo = func(context.Context, string, string) error { return errors.New("/dev/loop7 holds another file") }
+	r := a.Aplicar(context.Background(), Pedido{Datos: datos, TamMb: 1024, Montar: []Montaje{{ID: "t1"}}})
+	if r.Discos["t1"].Codigo != CodigoError || m.montados[Dir(datos, "t1")] || !m.hizo("umount -c -l") {
+		t.Fatalf("%+v %v", r, m.ordenes)
+	}
+	if _, err := os.Stat(Fichero(datos, "t1")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("el disco nuevo se borra")
 	}
 }

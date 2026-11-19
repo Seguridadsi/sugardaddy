@@ -222,3 +222,35 @@ func TestResumenDeLoDescartadoConLaColaLlena(t *testing.T) {
 		t.Fatal("un número de JSON no es un resumen de omitidos")
 	}
 }
+
+// F8: el tipo nativo del evento (la clave de la reserva de primeros del sensor) solo
+// toma valores que declara el manifiesto, y el detalle anidado también se acota.
+func TestNativaDeclaradaYDetalleAnidadoAcotado(t *testing.T) {
+	var s plan.TrampaPlan
+	s.ID, s.Manifiesto.ID = "t1", "m"
+	ev := &s.Manifiesto.Eventos
+	ev.Campos.Cuando, ev.Campos.IP = "t", "ip"
+	ev.Accion.Campo, ev.Accion.PorDefecto = "accion", "otra"
+	ev.Accion.Valores = map[string]string{"login.ok": "autenticacion"}
+	ev.Severidad.PorDefecto = "baja"
+	ev.Severidad.PorValor = map[string]string{"descarga": "alta"}
+	ev.Detalle = []string{"datos", "corto"}
+	grande := map[string]any{"lista": []string{strings.Repeat("x", 3000), strings.Repeat("y", 3000)}}
+	for valor, quiere := range map[string]string{"login.ok": "login.ok", "descarga": "descarga", "inventado-por-el-atacante-1": ""} {
+		l, _ := json.Marshal(map[string]any{"t": "2026-11-18T10:00:00Z", "ip": "203.0.113.1", "accion": valor, "datos": grande, "corto": map[string]any{"a": 1}})
+		e, err := Adaptar("s", s, l)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if e.Nativa != quiere {
+			t.Errorf("%q: Nativa %q, quería %q", valor, e.Nativa, quiere)
+		}
+		d, ok := e.Detalle["datos"].(string)
+		if !ok || len(d) > maxDetalle || !strings.HasPrefix(d, `{"lista":["xxx`) {
+			t.Errorf("el detalle anidado grande pasa a texto recortado: %T %d", e.Detalle["datos"], len(d))
+		}
+		if c, ok := e.Detalle["corto"].(map[string]any); !ok || c["a"] != float64(1) {
+			t.Errorf("el pequeño se queda como está: %#v", e.Detalle["corto"])
+		}
+	}
+}

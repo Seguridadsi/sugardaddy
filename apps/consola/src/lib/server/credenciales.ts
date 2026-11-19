@@ -20,6 +20,7 @@ import { honeycosas, traductorDeTrampa } from './catalogo';
 import { claveDelNodo } from './secretos';
 import {
 	CAMPOS_CREDENCIAL,
+	CREDENCIAL_CADUCADA,
 	MAXIMO_CREDENCIAL,
 	abrir,
 	huella,
@@ -129,7 +130,7 @@ function contrasenaGuardada(f: {
 	contrasena: string | null;
 }): string | null | undefined {
 	if (f.credencial === null) return f.contrasena;
-	if (f.credencial === '') return undefined;
+	if (f.credencial === '' || f.credencial === CREDENCIAL_CADUCADA) return undefined;
 	const r = abrir(f.credencial, f.hash);
 	return r.ok ? r.credencial.contrasena : undefined;
 }
@@ -217,6 +218,8 @@ function patronCredencial(): string {
 }
 
 export const LOTE_CIFRADO = 500;
+const LOTE_RECORRIDO = 2000;
+const PAUSA_LOTE_MS = 20;
 const AJUSTE_CIFRADO = 'credenciales-cifradas';
 
 /*
@@ -242,30 +245,55 @@ export async function cifrarAnteriores(desde: Date | null = null): Promise<numbe
 		])
 	);
 	const patron = patronCredencial();
+	const enJs = new RegExp(`"(${clavesCredencial().join('|')})"\\s*:`);
 	let ultimo: string | null = null;
 	let cifradas = 0;
 	for (;;) {
-		const filas = await db
-			.select({
-				id: s.eventos.id,
-				hash: s.eventos.hash,
-				linea: s.eventos.linea,
-				contrasena: s.eventos.contrasena,
-				modulo: s.eventos.modulo,
-				trampa: s.eventos.trampa
-			})
-			.from(s.eventos)
-			.where(
-				and(
-					isNull(s.eventos.credencial),
-					or(isNotNull(s.eventos.contrasena), sql`${s.eventos.linea} ~ ${patron}`),
-					desde ? gte(s.eventos.recibido, desde) : undefined,
-					ultimo ? sql`${s.eventos.id} > ${ultimo}::uuid` : undefined
-				)
-			)
-			.orderBy(s.eventos.id)
-			.limit(LOTE_CIFRADO);
-		if (!filas.length) break;
+		/*
+		 * Con «desde», lo recibido desde entonces por su índice: pocas filas. Sin él
+		 * (la primera pasada), la tabla entera por la clave primaria, a trozos fijos,
+		 * y el filtro aquí: con la expresión regular en el WHERE cada lote era un
+		 * recorrido entero de la tabla y con medio millón de eventos dejaba la
+		 * consola sin CPU durante horas (KEBAPS, 2026-11-18).
+		 */
+		const tras: string | null = ultimo;
+		const columnas = {
+			id: s.eventos.id,
+			hash: s.eventos.hash,
+			linea: s.eventos.linea,
+			contrasena: s.eventos.contrasena,
+			credencial: s.eventos.credencial,
+			modulo: s.eventos.modulo,
+			trampa: s.eventos.trampa
+		};
+		const tanda: Pick<
+			typeof s.eventos.$inferSelect,
+			'id' | 'hash' | 'linea' | 'contrasena' | 'credencial' | 'modulo' | 'trampa'
+		>[] = desde
+			? await db
+					.select(columnas)
+					.from(s.eventos)
+					.where(
+						and(
+							isNull(s.eventos.credencial),
+							or(isNotNull(s.eventos.contrasena), sql`${s.eventos.linea} ~ ${patron}`),
+							gte(s.eventos.recibido, desde),
+							tras ? sql`${s.eventos.id} > ${tras}::uuid` : undefined
+						)
+					)
+					.orderBy(s.eventos.id)
+					.limit(LOTE_CIFRADO)
+			: await db
+					.select(columnas)
+					.from(s.eventos)
+					.where(tras ? sql`${s.eventos.id} > ${tras}::uuid` : undefined)
+					.orderBy(s.eventos.id)
+					.limit(LOTE_RECORRIDO);
+		if (!tanda.length) break;
+		ultimo = tanda[tanda.length - 1].id;
+		const filas = tanda.filter(
+			(f) => f.credencial === null && (f.contrasena !== null || enJs.test(f.linea ?? ''))
+		);
 		const cambios = filas.flatMap((f) => {
 			const p = proteger(
 				f.linea,
@@ -298,7 +326,8 @@ export async function cifrarAnteriores(desde: Date | null = null): Promise<numbe
 			`);
 			cifradas += hechas.length;
 		}
-		ultimo = filas[filas.length - 1].id;
+		/* Un respiro entre lotes: que las páginas y los latidos no esperen detrás. */
+		await new Promise((r) => setTimeout(r, PAUSA_LOTE_MS));
 	}
 	return cifradas;
 }
@@ -397,14 +426,19 @@ export type Revelado =
 
 const texto = (v: unknown) => (typeof v === 'string' ? v : JSON.stringify(v));
 
-const NO_SE_PUEDE: Record<'sin-clave' | 'otra-clave' | 'ilegible' | 'perdida', string> = {
+const NO_SE_PUEDE: Record<
+	'sin-clave' | 'otra-clave' | 'ilegible' | 'perdida' | 'caducada',
+	string
+> = {
 	'sin-clave':
 		'This node does not have its key (CLAVE_SECRETOS): the credentials cannot be decrypted.',
 	'otra-clave':
 		'These credentials were encrypted with a different node key (e.g. before restoring a backup on another machine).',
 	ilegible: 'The stored credentials cannot be read.',
 	perdida:
-		'This node had no key (CLAVE_SECRETOS) when the event arrived: only the masked value was kept.'
+		'This node had no key (CLAVE_SECRETOS) when the event arrived: only the masked value was kept.',
+	caducada:
+		'These credentials are older than the period set in Settings for captured credentials: only the masked value is kept.'
 };
 
 /*
@@ -429,8 +463,11 @@ export async function revelarDeEvento(quien: string, id: string): Promise<Revela
 	const r: Revelado =
 		f.credencial === null
 			? { ok: true, contrasena: f.contrasena, campos: {} }
-			: f.credencial === ''
-				? { ok: false, error: NO_SE_PUEDE.perdida }
+			: f.credencial === '' || f.credencial === CREDENCIAL_CADUCADA
+				? {
+						ok: false,
+						error: f.credencial === '' ? NO_SE_PUEDE.perdida : NO_SE_PUEDE.caducada
+					}
 				: (() => {
 						const a = abrir(f.credencial!, f.hash);
 						if (!a.ok) return { ok: false as const, error: NO_SE_PUEDE[a.motivo] };
@@ -467,7 +504,7 @@ export async function revelarPorHuella(quien: string, h: string): Promise<Revela
 			and(
 				eq(s.eventos.contrasenaHuella, h),
 				isNotNull(s.eventos.credencial),
-				sql`${s.eventos.credencial} <> ''`
+				sql`${s.eventos.credencial} not in ('', ${CREDENCIAL_CADUCADA})`
 			)
 		)
 		.orderBy(desc(s.eventos.cuando))

@@ -275,3 +275,34 @@ export async function avisarContacto(): Promise<'no-toca' | 'avisado' | 'sin-con
 		return 'sin-conexion';
 	}
 }
+
+/*
+ * Lo mismo que panelesPorCanal para un nodo de Community registrado: manda el token del
+ * registro y las IP públicas que lo han atacado, nada más. null si no está registrado o
+ * no hay respuesta.
+ */
+export async function panelesPorRegistro(
+	ips: string[]
+): Promise<Record<
+	string,
+	{ agente: string; version: string | null; visto: string | null }
+> | null> {
+	if (!(await puedeRegistrarse())) return null;
+	const r = await guardado();
+	if (!r || !urlPanelValida(PANEL)) return null;
+	const d = descifrar(r.token, CONTEXTO);
+	if (!d.ok || typeof d.valores.token !== 'string') return null;
+	try {
+		const res = await fetch(`${PANEL}/api/registro/paneles`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ token: d.valores.token, ips }),
+			signal: AbortSignal.timeout(10_000)
+		});
+		if (!res.ok) return null;
+		const c = (await res.json()) as { paneles?: unknown };
+		return c?.paneles && typeof c.paneles === 'object' ? (c.paneles as never) : null;
+	} catch {
+		return null;
+	}
+}

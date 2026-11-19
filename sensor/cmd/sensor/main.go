@@ -231,6 +231,24 @@ func main() {
 			defer cancelar()
 			return d.Perforar(c, ruta, hasta)
 		}
+		// Y lo que el honeypot crea en su carpeta de registros, que el sensor no puede
+		// borrar (F16): primero él, por si es suyo; lo que no, sd-motor.
+		borrarDeRegistros = func(ruta string) error {
+			if err := os.RemoveAll(ruta); err == nil {
+				return nil
+			}
+			c, cancelar := context.WithTimeout(context.Background(), time.Minute)
+			defer cancelar()
+			err := d.BorrarRegistros(c, ruta)
+			// Lo que quede (una entrada vacía de su carpeta de registros, que es
+			// pegajosa y del sensor), lo borra él.
+			if e := os.RemoveAll(ruta); e == nil {
+				return nil
+			} else if err == nil {
+				err = e
+			}
+			return err
+		}
 		s.opc.Discos.Lanzar = func(ctx context.Context, _ string, p discos.Pedido) (discos.Resultado, error) {
 			var r discos.Resultado
 			err := d.Discos(ctx, p, &r)
@@ -1102,7 +1120,12 @@ func (s *sensor) podar(ahora time.Time) {
 			if ahora.Sub(ultimaEscritura(dir)) < guardarRetiradas {
 				continue
 			}
-			if err := os.RemoveAll(dir); err == nil {
+			// Lo que el honeypot creó en sus registros es de su usuario (F16).
+			borrar := os.RemoveAll
+			if sub == "registros" {
+				borrar = borrarDeRegistros
+			}
+			if err := borrar(dir); err == nil {
 				slog.Info("folder of a removed decoy deleted", "carpeta", dir)
 				delete(s.estado.Leido, e.Name())
 				delete(s.estado.Inodos, e.Name())
@@ -1163,7 +1186,12 @@ func (s *sensor) podarTrampa(sp plan.TrampaPlan, ahora time.Time) int64 {
 		}
 	}
 	// Toda la carpeta, también lo que no es su registro ni sus rotados
-	// (subcarpetas, otros nombres): eso no lo libera nada, así que se para (SEN-4).
+	// (subcarpetas, otros nombres): las carpetas que ha creado la trampa se borran
+	// (F16); si con lo que queda no cabe, se para (SEN-4).
+	if s.conAjenos(sp) {
+		// Las subcarpetas no cuentan en total (solo los ficheros de arriba).
+		s.quitarCarpetasAjenas(sp)
+	}
 	if s.conAjenos(sp) {
 		if _, parada := s.estado.Paradas[sp.ID]; !parada {
 			s.pararPorCuota(sp, errAjenos)

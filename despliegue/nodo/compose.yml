@@ -110,6 +110,10 @@ services:
       # La generan instalar.sh y, en un nodo de antes, el actualizador
       # (entorno.json); vacía, la consola no guarda secretos.
       CLAVE_SECRETOS: ${CLAVE_SECRETOS:-}
+      # La credencial con la que los firewalls leen la lista dinámica (EDL,
+      # /api/edl/*). La generan instalar.sh y, en un nodo de antes, el
+      # actualizador (entorno.json); la consola la enseña en Lists.
+      EDL_TOKEN: ${EDL_TOKEN:-}
       ENTRA_TENANT_ID: ${ENTRA_TENANT_ID:-}
       ENTRA_CLIENT_ID: ${ENTRA_CLIENT_ID:-}
       ENTRA_CLIENT_SECRET: ${ENTRA_CLIENT_SECRET:-}

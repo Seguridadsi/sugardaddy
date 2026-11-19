@@ -24,9 +24,24 @@ import (
 var ErrIgnorada = errors.New("line ignored")
 
 const (
-	maxTexto = 256
-	maxCrudo = 65536
+	maxTexto   = 256
+	maxCrudo   = 65536
+	maxDetalle = 4096
 )
+
+// nativaDeclarada: el valor nativo del campo de acción solo si el manifiesto lo
+// declara (en accion.valores o severidad.porValor); si no, vacío. Es la clave de la
+// reserva de primeros por IP y tipo del sensor: con texto del atacante en ese campo,
+// una sola IP la gastaría inventando tipos (F8).
+func nativaDeclarada(ev plan.Eventos, v string) string {
+	if _, ok := ev.Accion.Valores[v]; ok {
+		return recortar(v, maxTexto)
+	}
+	if _, ok := ev.Severidad.PorValor[v]; ok {
+		return recortar(v, maxTexto)
+	}
+	return ""
+}
 
 // Adaptar convierte una línea. Todo lo que viene de la línea lo escribió el
 // atacante: se recorta y se comprueba antes de meterlo en el evento.
@@ -95,7 +110,12 @@ func Adaptar(sensor string, s plan.TrampaPlan, linea []byte) (evento.Evento, err
 				detalle = map[string]any{}
 			}
 			if t, ok := v.(string); ok {
-				v = recortar(t, 4096)
+				v = recortar(t, maxDetalle)
+			} else if b, err := json.Marshal(v); err != nil || len(b) > maxDetalle {
+				// Un objeto o una lista anidados, también acotados (F8): un evento de más
+				// de 128 KiB acababa en cuarentena en la consola. Pasa a ser su texto JSON
+				// recortado: se sigue viendo qué era.
+				v = recortar(string(b), maxDetalle)
 			}
 			detalle[campo] = v
 		}
@@ -113,7 +133,7 @@ func Adaptar(sensor string, s plan.TrampaPlan, linea []byte) (evento.Evento, err
 		ConexionEstablecida: conexion,
 		Detalle:             detalle,
 		Crudo:               recortar(string(linea), maxCrudo),
-		Nativa:              recortar(valorAccion, maxTexto),
+		Nativa:              nativaDeclarada(ev, valorAccion),
 	}, nil
 }
 

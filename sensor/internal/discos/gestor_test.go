@@ -38,8 +38,15 @@ func nuevoGestor(t *testing.T) *gestorFalso {
 			return f.responde(p)
 		}
 		r := Resultado{Discos: map[string]Estado{}}
+		a := &Auxiliar{}
+		c, err := a.abrir(p.Datos)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer c.cerrar()
 		for _, m := range p.Montar {
-			_ = subcarpetas(p.Datos, m)
+			_ = c.raiz.Mkdir(m.ID, 0o755)
+			_ = subcarpetas(c, m)
 			f.montados[Dir(p.Datos, m.ID)] = true
 			r.Discos[m.ID] = Estado{}
 		}
@@ -160,7 +167,12 @@ func TestListoConTodasSusCarpetas(t *testing.T) {
 	if f.g.Listo(m) {
 		t.Fatal("le faltan la escribible y la del VOLUME de la imagen")
 	}
-	_ = subcarpetas(f.g.Datos, m)
+	c, err := (&Auxiliar{}).abrir(f.g.Datos)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.cerrar()
+	_ = subcarpetas(c, m)
 	if !f.g.Listo(m) {
 		t.Fatal("ya las tiene")
 	}

@@ -757,6 +757,25 @@ func (c *Cliente) Perforar(ctx context.Context, ruta string, hasta int64) error 
 	return nil
 }
 
+// BorrarRegistros pide a sd-motor borrar lo que una trampa ha creado en su carpeta de
+// registros, o la carpeta entera de una retirada (intermediario.RutaBorrarRegistros).
+func (c *Cliente) BorrarRegistros(ctx context.Context, ruta string) error {
+	var r struct {
+		Errno int    `json:"errno"`
+		Error string `json:"error"`
+	}
+	if err := c.pedir(ctx, http.MethodPost, "/sd/v1/borrar-registros", map[string]any{"ruta": ruta}, &r, nil); err != nil {
+		return err
+	}
+	if r.Errno != 0 {
+		return fmt.Errorf("sd-motor: %s: %w", r.Error, syscall.Errno(r.Errno))
+	}
+	if r.Error != "" {
+		return errors.New("sd-motor: " + r.Error)
+	}
+	return nil
+}
+
 // Discos pasa a sd-motor un pedido de discos para el servicio sd-discos del anfitrión.
 func (c *Cliente) Discos(ctx context.Context, pedido, resultado any) error {
 	return c.pedir(ctx, http.MethodPost, "/sd/v1/discos", pedido, resultado, nil)

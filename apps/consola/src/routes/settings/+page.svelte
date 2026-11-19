@@ -501,6 +501,43 @@
 	<button class="boton">Save</button>
 </form>
 
+<form
+	class="panel bloque"
+	method="POST"
+	action="?/conservacionCredenciales"
+	use:enhance
+	hidden={oculto('events')}
+>
+	<h2>How long captured credentials are kept</h2>
+	<p class="ayuda">
+		Passwords, hashes and tokens typed into the decoys can be real secrets of your company. They are
+		stored encrypted and kept in full for this period, so that you can reveal them. After it, only
+		the masked value (<span class="mono">P*****d1</span>) is kept: the event stays, and
+		<b>Captured passwords</b> still groups them, but they can no longer be revealed. Never longer
+		than the events themselves. Between {data.conservacionCredenciales.minimo} and
+		{data.conservacionCredenciales.maximo} days.
+	</p>
+	{#if data.ahora < Date.parse(data.conservacionCredenciales.aPartirDe)}
+		<p class="ayuda">
+			This starts on <b>{fechaCorta(data.conservacionCredenciales.aPartirDe)}</b>: nothing is
+			removed until then, so you have time to change the period.
+		</p>
+	{/if}
+	<div class="plazo">
+		<input
+			id="diasCredenciales"
+			name="diasCredenciales"
+			type="number"
+			inputmode="numeric"
+			min={data.conservacionCredenciales.minimo}
+			max={data.conservacionCredenciales.maximo}
+			value={form?.diasCredenciales ?? data.conservacionCredenciales.dias}
+		/>
+		<label for="diasCredenciales">days</label>
+	</div>
+	<button class="boton">Save</button>
+</form>
+
 <section class="panel bloque" hidden={oculto('events')}>
 	<h2>Event storage</h2>
 	<p class="ayuda">

@@ -214,6 +214,15 @@
 						>{e.origen.ip ?? '—'}{#if e.origen.ip && geos[e.origen.ip]?.tor}<span
 								class="tor"
 								title="Tor exit node">Tor</span
+							>{/if}{#if e.origen.ip && geos[e.origen.ip]?.panel}{@const p =
+								geos[e.origen.ip].panel!}<span
+								class="tor panel-ataque"
+								title="This address hosts a control panel of the {p.agente} AI attack agent{p.version
+									? ` (version ${p.version})`
+									: ''}, seen by internet-wide scans{p.visto
+									? ` on ${p.visto.slice(0, 10)}`
+									: ''}. A hint, not proof: the panel and the attacker may not be the same machine."
+								>{p.agente} panel</span
 							>{/if}{#if e.origen.oculta}<span class="motor" title={AVISO_IP_MOTOR}>Engine IP</span
 							>{/if}</span
 					>

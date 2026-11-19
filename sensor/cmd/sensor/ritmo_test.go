@@ -202,3 +202,45 @@ func TestLaRiadaSinConexionNoTapaElAtaqueConConexion(t *testing.T) {
 		t.Fatal("sin conexión, los cupos gastados siguen gastados")
 	}
 }
+
+// F8 (revisión del 2026-11-14): una riada UDP con más IP inventadas de las que se
+// cuentan llenaba la cuenta común de IP, y desde ahí cada IP TCP nueva iba sin cupo
+// propio: una sola gastaba el de la trampa. Ahora cada clase tiene su cuenta.
+func TestLaRiadaSinConexionNoDejaSinCupoAUnaIPConConexion(t *testing.T) {
+	r, tp := ritmo{}, trampaPrueba()
+	for i := 0; i < 2*ipsContadas; i++ {
+		r.pasa("s", tp, evc(i, fmt.Sprintf("10.%d.%d.1", i/250, i%250), "udp.x", "consulta", "baja"))
+	}
+	pasan := 0
+	for i := 0; i < porMinuto; i++ {
+		e := evc(10000+i, "203.0.113.7", "tcp.x", "consulta", "baja")
+		e.ConexionEstablecida = true
+		if ok, _ := r.pasa("s", tp, e); ok {
+			pasan++
+		}
+	}
+	if pasan > porIPMinuto+primerosTipo {
+		t.Fatalf("una sola IP con conexión pasó %d eventos leves (su cupo es %d)", pasan, porIPMinuto)
+	}
+}
+
+// F8: eventos de un minuto anterior intercalados (dos escritores, o retenidos) no
+// ponen los cupos a cero: cuentan en el minuto en curso.
+func TestUnMinutoAnteriorNoReiniciaLosCupos(t *testing.T) {
+	r, tp := ritmo{}, trampaPrueba()
+	pasan := 0
+	for i := 0; i < 4*porIPMinuto; i++ {
+		e := ev(60000+i, "203.0.113.8", "baja") // 10:01
+		if i%2 == 1 {
+			e = ev(59000-i, "203.0.113.8", "baja") // 10:00, ya pasado
+		}
+		if ok, resumen := r.pasa("s", tp, e); ok {
+			pasan++
+		} else if resumen != nil {
+			t.Fatal("volver a un minuto anterior no cierra la ventana")
+		}
+	}
+	if pasan > porIPMinuto+primerosTipo {
+		t.Fatalf("pasaron %d (el cupo de la IP es %d)", pasan, porIPMinuto)
+	}
+}

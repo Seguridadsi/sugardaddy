@@ -58,9 +58,28 @@ type ventana struct {
 	GravesC  int               `json:"gravesC,omitempty"`
 	NuevasC  int               `json:"nuevasC,omitempty"`
 	Omitidos adaptador.Resumen `json:"omitidos"`
-	porIP    map[string]*porOrigen
-	porTipo  map[string]int
+	// Por IP y por IP y tipo, aparte para lo que llega sin conexión (sin) y con ella
+	// (con): una riada UDP con miles de IP inventadas llena las suyas, no las de las
+	// IP de verdad (F8; antes era un mapa común y las TCP nuevas se quedaban sin cupo).
+	sin, con cuentas
 	trampa   plan.TrampaPlan
+}
+
+type cuentas struct {
+	porIP   map[string]*porOrigen
+	porTipo map[string]int
+}
+
+func (c cuentas) copia() cuentas {
+	x := cuentas{porIP: make(map[string]*porOrigen, len(c.porIP)), porTipo: make(map[string]int, len(c.porTipo))}
+	for k, n := range c.porTipo {
+		x.porTipo[k] = n
+	}
+	for ip, n := range c.porIP {
+		o := *n
+		x.porIP[ip] = &o
+	}
+	return x
 }
 
 type porOrigen struct{ leves, graves int }
@@ -73,15 +92,7 @@ func (r ritmo) copia() ritmo {
 	c := ritmo{}
 	for k, v := range r {
 		x := *v
-		x.porTipo = make(map[string]int, len(v.porTipo))
-		for k, n := range v.porTipo {
-			x.porTipo[k] = n
-		}
-		x.porIP = make(map[string]*porOrigen, len(v.porIP))
-		for ip, n := range v.porIP {
-			c := *n
-			x.porIP[ip] = &c
-		}
+		x.sin, x.con = v.sin.copia(), v.con.copia()
 		x.Omitidos = v.Omitidos.Copia()
 		c[k] = &x
 	}
@@ -97,6 +108,12 @@ func (r ritmo) pasa(sensor string, t plan.TrampaPlan, e evento.Evento) (bool, *e
 	}
 	m := cuando.UTC().Truncate(time.Minute)
 	v := r[t.ID]
+	// Un evento de un minuto anterior al de la ventana (dos escritores intercalados,
+	// o retenido en su máquina) cuenta en el minuto en curso: volver atrás pondría los
+	// cupos a cero cada vez (F8).
+	if v != nil && m.Before(v.Minuto) {
+		m = v.Minuto
+	}
 	var resumen *evento.Evento
 	if v == nil || !v.Minuto.Equal(m) {
 		if v != nil && v.Omitidos.N > 0 {
@@ -106,29 +123,29 @@ func (r ritmo) pasa(sensor string, t plan.TrampaPlan, e evento.Evento) (bool, *e
 		v = &ventana{Trampa: t.ID, Minuto: m}
 		r[t.ID] = v
 	}
-	if v.porIP == nil {
-		v.porIP, v.porTipo = map[string]*porOrigen{}, map[string]int{}
-	}
 	v.trampa, v.Modulo, v.Tipo = t, t.Manifiesto.ID, t.Manifiesto.Tipo
 	grave := rangoSeveridad[e.Severidad] >= 2
 	ip := e.Origen.IP
-	o := v.porIP[ip]
+	// Con conexión o sin ella, cada uno gasta sus contadores.
+	total, leves, graves, nuevas, c := &v.N, &v.Leves, &v.Graves, &v.Nuevas, &v.sin
+	if e.ConexionEstablecida {
+		total, leves, graves, nuevas, c = &v.NC, &v.LevesC, &v.GravesC, &v.NuevasC, &v.con
+	}
+	if c.porIP == nil {
+		c.porIP, c.porTipo = map[string]*porOrigen{}, map[string]int{}
+	}
+	o := c.porIP[ip]
 	if o == nil {
 		o = &porOrigen{}
-		if len(v.porIP) < ipsContadas {
-			v.porIP[ip] = o
+		if len(c.porIP) < ipsContadas {
+			c.porIP[ip] = o
 		}
-	}
-	// Con conexión o sin ella, cada uno gasta sus contadores.
-	total, leves, graves, nuevas := &v.N, &v.Leves, &v.Graves, &v.Nuevas
-	if e.ConexionEstablecida {
-		total, leves, graves, nuevas = &v.NC, &v.LevesC, &v.GravesC, &v.NuevasC
 	}
 	// Los primeros de cada IP y tipo salen de su propia reserva y no gastan
 	// los cupos de la trampa; el resto, de los cupos.
 	clave := ip + "|" + e.Nativa
-	n, contado := v.porTipo[clave]
-	deReserva := n < primerosTipo && *nuevas < reservaNuevas && (contado || len(v.porTipo) < tiposContados)
+	n, contado := c.porTipo[clave]
+	deReserva := n < primerosTipo && *nuevas < reservaNuevas && (contado || len(c.porTipo) < tiposContados)
 	ok := deReserva
 	if !deReserva && *total < techoMinuto {
 		if grave {
@@ -147,7 +164,7 @@ func (r ritmo) pasa(sensor string, t plan.TrampaPlan, e evento.Evento) (bool, *e
 		o.leves++
 	}
 	if deReserva {
-		v.porTipo[clave]++
+		c.porTipo[clave]++
 		*nuevas++
 		return true, resumen
 	}

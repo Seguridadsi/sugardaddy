@@ -125,31 +125,32 @@ func ayudante(ctx context.Context, d *docker.Cliente, imagen, guion string) (str
 
 // llenarYRecuperar: si la trampa ha escrito en su tmpfs en la primera pasada,
 // se le llena de ficheros viejos y, pasado recuperacionLleno, tiene que haber
-// dejado al menos libreMinimo libre. Si no ha escrito nada, no le afecta.
-func llenarYRecuperar(ctx context.Context, d *docker.Cliente, sensor, trampa, imagen string) error {
+// dejado al menos libreMinimo libre. Si no ha escrito nada, no le afecta y
+// devuelve false: no hace falta la segunda pasada.
+func llenarYRecuperar(ctx context.Context, d *docker.Cliente, sensor, trampa, imagen string) (bool, error) {
 	id, err := despliegue.ContenedorDeTrampa(ctx, d, sensor, trampa)
 	if err != nil || id == "" {
-		return fmt.Errorf("lleno: no encuentro el contenedor de la trampa: %v", err)
+		return false, fmt.Errorf("lleno: no encuentro el contenedor de la trampa: %v", err)
 	}
 	info, err := d.Inspeccionar(ctx, id)
 	if err != nil {
-		return err
+		return false, err
 	}
 	rutas, pid := tmpfsDe(info), pidDe(info)
 	if len(rutas) == 0 || pid <= 0 {
 		fmt.Println("lleno: la trampa no tiene tmpfs; nada que probar")
-		return nil
+		return false, nil
 	}
 	out, err := ayudante(ctx, d, imagen, ordenMedir(pid, rutas))
 	if err != nil {
-		return fmt.Errorf("lleno: no se pudo medir su espacio (¿gVisor?): %w", err)
+		return false, fmt.Errorf("lleno: no se pudo medir su espacio (¿gVisor?): %w", err)
 	}
 	antes := leerMedida(out)
 	var usadas []string
 	for _, r := range rutas {
 		e, ok := antes[r]
 		if !ok {
-			return fmt.Errorf("lleno: no se pudo medir %s:\n%s", r, out)
+			return false, fmt.Errorf("lleno: no se pudo medir %s:\n%s", r, out)
 		}
 		usado := e.total - e.libre
 		fmt.Printf("lleno: %s usa %d KB de %d KB tras la primera pasada\n", r, usado/1024, e.total/1024)
@@ -159,28 +160,28 @@ func llenarYRecuperar(ctx context.Context, d *docker.Cliente, sensor, trampa, im
 	}
 	if len(usadas) == 0 {
 		fmt.Println("lleno: la trampa no escribe en sus tmpfs; nada que probar")
-		return nil
+		return false, nil
 	}
 	if _, err := ayudante(ctx, d, imagen, ordenLlenar(pid, usadas)); err != nil {
-		return fmt.Errorf("lleno: %w", err)
+		return false, fmt.Errorf("lleno: %w", err)
 	}
 	fmt.Printf("lleno: %s llenos; se le dan %s para limpiarlos\n", strings.Join(usadas, ", "), recuperacionLleno)
 	select {
 	case <-ctx.Done():
-		return ctx.Err()
+		return false, ctx.Err()
 	case <-time.After(recuperacionLleno):
 	}
 	out, err = ayudante(ctx, d, imagen, ordenMedir(pid, usadas))
 	if err != nil {
-		return fmt.Errorf("lleno: %w", err)
+		return false, fmt.Errorf("lleno: %w", err)
 	}
 	despues := leerMedida(out)
 	for _, r := range usadas {
 		e := despues[r]
 		fmt.Printf("lleno: %s con %d KB libres de %d KB tras %s\n", r, e.libre/1024, e.total/1024, recuperacionLleno)
 		if e.total == 0 || float64(e.libre) < libreMinimo*float64(e.total) {
-			return fmt.Errorf("la trampa escribe en %s y no lo limpia: lleno, se queda lleno (docs/diseno/espacio-trampas.md)", r)
+			return false, fmt.Errorf("la trampa escribe en %s y no lo limpia: lleno, se queda lleno (docs/diseno/espacio-trampas.md)", r)
 		}
 	}
-	return nil
+	return true, nil
 }

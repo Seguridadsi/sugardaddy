@@ -97,6 +97,14 @@
 	# Caddy no sabría qué certificado presentar y abortaría el TLS (internal error).
 	# Con esto usa el de la dirección del nodo cuando no hay SNI, así se entra por IP.
 	default_sni {$CONSOLA_DOMINIO}
+	# Con certificado de cliente (sensores remotos, abajo) Caddy exige que el SNI
+	# coincida con el Host, y al entrar por IP no coinciden (SNI vacío, Host la IP):
+	# contestaba 421 a todo el que entrara por IP en cuanto el nodo tenía un sensor
+	# remoto. Se apaga porque solo hay un sitio HTTPS: no hay otro al que saltar con
+	# el certificado de un sensor, y qué sensor es lo decide la consola por la huella.
+	servers {
+		strict_sni_host insecure_off
+	}
 	import ca-{$CADDY_CA}
 }
 

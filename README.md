@@ -56,6 +56,22 @@ sends nothing to SeguridadSI. If you register, SeguridadSI receives your email a
 and version, and the node occasionally asks to renew its license;
 never events, IPs or anything that happens on your decoys.
 
+## Security notes
+
+- **Threat model:** trust boundaries, what we have built against each threat, the gaps and the
+  risks we accept, in [THREATMODEL.md](THREATMODEL.md).
+- **Signed updates:** a node applies only versions signed by SeguridadSI, with every image pinned
+  by digest. Keep the updater on.
+- **Isolated decoys:** each decoy runs without capabilities, with a read-only filesystem and no
+  outbound access. The sensor itself runs without root and without the Docker socket.
+- **Console access:** restrict it to your admins' IPs in **Settings → Console access**. The
+  node's firewall enforces it.
+- **Separate machines:** for anything beyond a first test, put the decoys on remote sensors in
+  other networks and keep the console on a management network. An intruder who finds a decoy
+  should not be next to the console.
+- **The host is yours:** root or the Docker socket on the host is control of the node. Keep it
+  minimal, patched and with few administrators.
+
 ## Security and contributions
 
 - **Found a vulnerability?** Tell us privately, as described in

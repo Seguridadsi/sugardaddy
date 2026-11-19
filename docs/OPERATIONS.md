@@ -102,6 +102,8 @@ Sugardaddy's publishing key, so a tampered image doesn't get in.
 
 The console deletes events older than a set period on its own, every hour: by default, **1 year**. You are responsible for that data, so set the period your privacy policy requires under **Settings → How long events are kept** (between 30 days and 10 years).
 
+Captured credentials (passwords, hashes and tokens typed into the decoys) have their own, shorter period: by default, **90 days**, under **Settings → How long captured credentials are kept** (never longer than the events). After it, the event stays with the masked value (`P*****d1`), but the credential can no longer be revealed.
+
 The console's audit log (who signs in and what they do) is kept for a year, or for the events period if that is longer.
 
 Deleted data cannot be recovered. If you need to keep something longer (for example, for a criminal complaint), make a backup first. The first time, deletions wait 30 days, so you have time to change the period.

@@ -149,8 +149,9 @@ MACHINE**, which is shown only once. Keep both values in your password manager:
 ### Your first sign-in
 
 - **Local sign-in** (the default in Community): sign in as `admin` with the initial
-  password from the installer's box. The console asks you for a new password and a
-  recovery email address, then for the IP addresses that can open it, and then takes
+  password from the installer's box. The console asks you for a new password, a second
+  factor (a passkey or an authenticator app) and a recovery email address, then for the IP
+  addresses that can open it, and then takes
   you to **Setup**: a short list of steps (emergency code, your company, free
   registration, console certificate and your first honeypot) that you can stop and
   continue later from the menu.
@@ -196,8 +197,13 @@ shows up, Sugardaddy works end to end.
 
 ## Update
 
-New versions are published on GitHub. In this edition they **don't install themselves**:
-you keep up to date yourself, from your clone of the repository.
+New versions are published on GitHub. Without registration they **don't install
+themselves**: with **Notify me of new versions** (in **Settings**, under **Version and
+updates**), the console tells you at the top of the page when there is a newer one. With your
+free registration you can turn on **automatic updates** under **Settings → Free registration**:
+the node then installs each signed version by itself.
+
+To update by hand, from your clone of the repository:
 
 ```bash
 git pull
@@ -262,6 +268,25 @@ registry or any SeguridadSI infrastructure. The node's three images
 are built by `despliegue/nodo/construir-imagenes-local.sh` (that is step 4). The SSH
 decoy is also built from its source (`modulos/trampas/cowrie/imagen/`). The
 registration decoys are closed-source images: they are downloaded from ghcr.io.
+
+### Check where the published images come from
+
+Signed Community versions use console, sensor and updater images that a GitHub Action of the
+public repository, `Seguridadsi/sugardaddy`, builds and publishes in `ghcr.io/seguridadsi`.
+Each one carries a signed provenance attestation that says which workflow built it and from
+which commit. Check it with the GitHub CLI and the image digest (in the `*_IMAGEN` lines of
+`/opt/sugardaddy/versiones.env`, when they point at `ghcr.io`; leave out the tag):
+
+```bash
+gh attestation verify oci://ghcr.io/seguridadsi/sugardaddy-consola@sha256:… \
+  -R Seguridadsi/sugardaddy \
+  --signer-workflow Seguridadsi/sugardaddy/.github/workflows/publicar-imagenes.yml \
+  --source-ref refs/heads/main
+```
+
+Do the same with `sugardaddy-sensor` and `sugardaddy-actualizador`. SeguridadSI runs this
+check before it signs a Community version: it does not sign one if an image has no
+attestation, or if the three images come from different commits.
 
 ## If something fails
 

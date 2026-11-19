@@ -124,6 +124,8 @@ func (s *Servidor) decidir(w http.ResponseWriter, r *http.Request, ruta string) 
 		return json.NewEncoder(w).Encode(a)
 	case m == http.MethodPost && ruta == RutaPerforar:
 		return s.perforar(w, r)
+	case m == http.MethodPost && ruta == RutaBorrarRegistros:
+		return s.borrarRegistros(w, r)
 	case m == http.MethodPost && ruta == RutaDiscos:
 		if s.Discos == nil {
 			return rechazar("this machine has no disk service")

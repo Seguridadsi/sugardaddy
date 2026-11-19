@@ -157,6 +157,36 @@ describe.skipIf(!hayBase)('Entra propio del cliente', () => {
 		).toMatchObject({ ok: false });
 	});
 
+	it('la fecha en que caduca el secreto: se valida, se guarda y se conserva con el mismo secreto', async () => {
+		expect(
+			await ep.guardarEntraPropio(
+				'admin@local',
+				{ tenant: TENANT, clientId: APP, secreto: SECRETO, secretoCaduca: '2027-02-30' },
+				existe
+			)
+		).toMatchObject({ ok: false });
+		await ep.guardarEntraPropio(
+			'admin@local',
+			{ tenant: TENANT, clientId: APP, secreto: SECRETO, secretoCaduca: '2028-11-18' },
+			existe
+		);
+		expect((await ep.estadoEntraPropio())?.secretoCaduca).toBe('2028-11-18');
+		/* Sin secreto nuevo ni fecha: la de antes. */
+		await ep.guardarEntraPropio(
+			'admin@local',
+			{ tenant: TENANT, clientId: APP, secreto: '' },
+			existe
+		);
+		expect((await ep.estadoEntraPropio())?.secretoCaduca).toBe('2028-11-18');
+		/* Un secreto nuevo sin fecha: no se sabe. */
+		await ep.guardarEntraPropio(
+			'admin@local',
+			{ tenant: TENANT, clientId: APP, secreto: 'otro-secreto-nuevo' },
+			existe
+		);
+		expect((await ep.estadoEntraPropio())?.secretoCaduca).toBeNull();
+	});
+
 	it('el propio activo manda sobre el de SeguridadSI; sin él, vale el del .env', async () => {
 		Object.assign(process.env, {
 			ENTRA_TENANT_ID: 'tenant-seguridadsi',

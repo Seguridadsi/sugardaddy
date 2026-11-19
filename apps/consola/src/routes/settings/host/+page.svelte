@@ -11,6 +11,7 @@
 	/* Lo que se ve de la máquina (datos) y el cortafuegos estricto (configuración). */
 	const PESTANAS = [
 		{ id: 'machine', texto: 'Machine' },
+		{ id: 'integrity', texto: 'Integrity' },
 		{ id: 'sensors', texto: 'Remote sensors' },
 		{ id: 'firewall', texto: 'Strict firewall' }
 	] as const;
@@ -114,6 +115,41 @@
 			<p class="ayuda">Last report {fechaHora(data.hechos.recibido)}.</p>
 		</section>
 	{/if}
+{:else if pestana === 'integrity'}
+	<section class="panel bloque">
+		<h2>Integrity check</h2>
+		<p class="ayuda">
+			Every 10 minutes the updater compares this machine with the signed version installed: the
+			signed configuration files, the images, the variables of <code>.env</code> and the image each
+			container runs. A difference raises the <code>integridad.desviacion</code> alert.
+		</p>
+		{#if !data.integridad}
+			<p class="ayuda">
+				The updater has not reported a check yet (it is stopped, or the node runs a version before
+				this feature).
+			</p>
+		{:else}
+			<p class="integridad" class:mal={data.integridad.desviaciones.length > 0}>
+				<b
+					>{data.integridad.desviaciones.length
+						? `${data.integridad.desviaciones.length} ${data.integridad.desviaciones.length === 1 ? 'difference' : 'differences'} from version ${data.integridad.version}`
+						: `Matches version ${data.integridad.version}`}</b
+				>
+			</p>
+			<p class="ayuda" class:mal={data.integridadVieja}>
+				Last check: {fechaHora(data.integridad.comprobado)}{data.integridadVieja
+					? ' — more than 30 minutes ago: the updater may be stopped'
+					: ''}.
+			</p>
+			{#if data.integridad.desviaciones.length}
+				<ul class="desviaciones">
+					{#each data.integridad.desviaciones as d, i (i)}
+						<li><span class="mono">{d.tipo}</span> {d.detalle}</li>
+					{/each}
+				</ul>
+			{/if}
+		{/if}
+	</section>
 {:else if pestana === 'sensors'}
 	<section class="panel bloque">
 		<h2>Remote sensor machines</h2>
@@ -250,6 +286,15 @@
 {/if}
 
 <style>
+	.integridad.mal,
+	.ayuda.mal {
+		color: var(--crit);
+	}
+	.desviaciones {
+		margin: 8px 0 0;
+		padding-left: 18px;
+		font-size: 14px;
+	}
 	.cabecera {
 		margin-bottom: 18px;
 	}

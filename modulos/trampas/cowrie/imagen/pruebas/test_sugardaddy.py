@@ -131,6 +131,14 @@ class RecorteTests(unittest.TestCase):
         )
         self.assertEqual(ev["message"], "Connection lost after 1500 milliseconds")
 
+    def test_la_duracion_llega_en_segundos(self) -> None:
+        ev = sd.seguir_sesion({"eventid": "cowrie.session.closed", "session": "d1", "duration_ms": 1500})
+        self.assertEqual(ev["duration"], "1.500")
+        ev = sd.seguir_sesion({"eventid": "cowrie.session.closed", "session": "d2", "duration": "7.0", "duration_ms": 1})
+        self.assertEqual(ev["duration"], "7.0")
+        ev = sd.seguir_sesion({"eventid": "cowrie.session.closed", "session": "d3", "duration_ms": "mucho"})
+        self.assertNotIn("duration", ev)
+
     def test_sesion_y_origen_no_se_pierden_aunque_el_evento_venga_lleno(self) -> None:
         ev = login("p" * 10**6)
         ev.update({f"campo{i}": "z" * 100000 for i in range(30)})

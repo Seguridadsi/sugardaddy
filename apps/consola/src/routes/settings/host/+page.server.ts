@@ -12,6 +12,7 @@ import {
 	hechosAnfitrion,
 	maquinasSensores
 } from '$lib/server/anfitrion';
+import { estadoIntegridad } from '$lib/server/integridad';
 
 /*
  * La máquina del nodo (lib/server/anfitrion.ts, docs/diseno/cortafuegos-anfitrion.md):
@@ -22,7 +23,12 @@ export const load = async ({ locals }) => {
 	exigir(locals, 'ajustes');
 	const ajuste = await ajusteAnfitrion();
 	const estado = await estadoEstricto();
+	/* La última comprobación de integridad del actualizador (integridad.ts), con su detalle. */
+	const integridad = await estadoIntegridad();
 	return {
+		integridad,
+		integridadVieja:
+			!!integridad && Date.now() - new Date(integridad.comprobado).getTime() > 30 * 60_000,
 		ajuste,
 		efectivo: await estrictoEfectivo(ajuste),
 		estado,

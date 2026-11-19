@@ -333,7 +333,8 @@ func probar(rutaM, rutaP, imagen, atacante, socket, motorSeguro, datos, licencia
 	}
 	// Prueba de espacio lleno (lleno.go): con su /tmp lleno de lo viejo, la
 	// trampa lo limpia sola y los mismos ataques vuelven a dar sus eventos.
-	if err := llenarYRecuperar(ctx, d, sensor, trampa.ID, atacante); err != nil {
+	llenado, err := llenarYRecuperar(ctx, d, sensor, trampa.ID, atacante)
+	if err != nil || !llenado {
 		return err
 	}
 	fmt.Println("lleno: segunda pasada, con lo que la trampa haya dejado")

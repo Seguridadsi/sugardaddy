@@ -140,8 +140,9 @@ func (s *sensor) reanudar(sp plan.TrampaPlan, ahora time.Time) {
 			return
 		}
 	}
-	// Lo que no es su registro no se va solo: mientras siga, sigue parada (SEN-4).
-	if s.conAjenos(sp) {
+	// Lo que no es su registro no se va solo: las carpetas que haya creado se borran
+	// (F16) y, si aun así sigue, sigue parada (SEN-4).
+	if s.conAjenos(sp) && (s.quitarCarpetasAjenas(sp) == 0 || s.conAjenos(sp)) {
 		return
 	}
 	total := s.podarTrampa(sp, ahora)
@@ -154,6 +155,37 @@ func (s *sensor) reanudar(sp plan.TrampaPlan, ahora time.Time) {
 	delete(s.estado.Paradas, sp.ID)
 	s.guardar()
 	slog.Info("decoy resumed: its logs fit in its quota again", "trampa", sp.ID)
+}
+
+// borrarDeRegistros borra una ruta (con lo de dentro) de la carpeta de registros de
+// una trampa. Lo que ha creado el honeypot es de su usuario: un sensor sin root no
+// puede borrar lo de dentro, y con sd-motor se lo pide a él (F16). Variable para las pruebas.
+var borrarDeRegistros = os.RemoveAll
+
+// quitarCarpetasAjenas borra las carpetas que ha creado la trampa en su carpeta de
+// registros, que tiene más de lo que cabe (SEN-4): una trampa de verdad solo deja ahí
+// su registro y ficheros pequeños. Cada una se apunta en el registro del sensor con
+// la trampa. Devuelve cuántas ha borrado.
+func (s *sensor) quitarCarpetasAjenas(sp plan.TrampaPlan) int {
+	dir := despliegue.Registros(s.opc, sp.ID)
+	entradas, _ := os.ReadDir(dir)
+	n := 0
+	for _, e := range entradas {
+		// ReadDir no sigue enlaces: un enlace a una carpeta no es una carpeta.
+		if !e.IsDir() {
+			continue
+		}
+		ruta := filepath.Join(dir, e.Name())
+		b, entradas := medirRegistros(ruta)
+		if err := borrarDeRegistros(ruta); err != nil {
+			slog.Warn("could not remove a folder the decoy created in its logs folder", "trampa", sp.ID, "carpeta", e.Name(), "err", err)
+			continue
+		}
+		n++
+		slog.Warn("folder created by the decoy in its logs folder removed: the folder exceeded its quota",
+			"trampa", sp.ID, "carpeta", e.Name(), "bytes", b, "entradas", entradas)
+	}
+	return n
 }
 
 // conAjenos dice si la carpeta de registros de la trampa tiene, aparte de su

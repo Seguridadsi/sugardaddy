@@ -365,7 +365,8 @@ def seguir_sesion(ev: dict[str, Any]) -> dict[str, Any]:
     """Sigue una sesión por sus eventos y deja, en el sitio:
 
     * en ``cowrie.client.kex``, la ``version`` que anunció el cliente;
-    * en ``cowrie.session.closed``, ``ritmo`` (human, pasted, scripted, agent o
+    * en ``cowrie.session.closed``, ``duration`` en segundos (de ``duration_ms``)
+      y ``ritmo`` (human, pasted, scripted, agent o
       unknown) y sus cifras: ``ordenes``, ``intervalo_ms``,
       ``intervalo_desv_ms`` e ``intervalo_max_ms`` (mediana, desviación y el
       mayor hueco entre órdenes), ``teclas``,
@@ -378,6 +379,12 @@ def seguir_sesion(ev: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(eventid, str) or not isinstance(sesion, str) or not sesion:
         return ev
     if eventid == "cowrie.session.closed":
+        # Cowrie apunta la duración en milisegundos (``duration_ms``); el manifiesto,
+        # como las demás trampas, la lee en segundos (``duration``). Sin esto, la
+        # duración de la sesión no llegaba a la consola.
+        ms = ev.get("duration_ms")
+        if "duration" not in ev and isinstance(ms, (int, float)) and not isinstance(ms, bool) and ms >= 0:
+            ev["duration"] = f"{ms / 1000:.3f}"
         with _ritmos_cerrojo:
             r = _ritmos.pop(sesion, None)
         if r is None or (r.ordenes == 0 and r.teclas == 0):

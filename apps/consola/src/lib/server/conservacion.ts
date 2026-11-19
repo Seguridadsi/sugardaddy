@@ -12,6 +12,13 @@
  * cada hora, con el TTL que eligió el cliente al añadir cada una (al margen del
  * plazo de conservación de eventos). Lo que no caduca (caduca NULL) se queda.
  *
+ * Las credenciales que capturan las trampas (contraseñas, hashes, tokens;
+ * credenciales-protegidas.ts) tienen su propio plazo, más corto: 90 días por
+ * defecto, nunca más que el de los eventos. Pasado, se borra su sobre cifrado y
+ * el evento se queda con la máscara (P*****d1) y la huella, que sigue agrupando
+ * «Captured passwords» sin poder revelar nada. Mismo margen de 30 días la
+ * primera vez.
+ *
  * Dos cuidados:
  *
  * - La cadena de cada sensor tiene que seguir verificable. Se borra por
@@ -25,6 +32,7 @@
 import { eq, inArray, lt, or, sql } from 'drizzle-orm';
 import { db, schema as s } from './db';
 import { auditar } from './consultas';
+import { CREDENCIAL_CADUCADA } from './credenciales-protegidas';
 
 export const DIAS_POR_DEFECTO = 365;
 export const DIAS_MINIMO = 30;
@@ -34,11 +42,19 @@ const AVISO = 30 * 86_400_000;
 const LOTE = 5000;
 const DIA = 86_400_000;
 
+export const DIAS_CREDENCIALES_POR_DEFECTO = 90;
+export const DIAS_CREDENCIALES_MINIMO = 1;
+
 export type Conservacion = { dias: number; aPartirDe: string };
 
 export function validarDias(v: unknown): number | null {
 	const n = typeof v === 'number' ? v : Number(String(v ?? '').trim());
 	return Number.isInteger(n) && n >= DIAS_MINIMO && n <= DIAS_MAXIMO ? n : null;
+}
+
+export function validarDiasCredenciales(v: unknown): number | null {
+	const n = typeof v === 'number' ? v : Number(String(v ?? '').trim());
+	return Number.isInteger(n) && n >= DIAS_CREDENCIALES_MINIMO && n <= DIAS_MAXIMO ? n : null;
 }
 
 /* Hasta qué fecha se borra ahora, o null si todavía no toca. */
@@ -53,28 +69,83 @@ export function limiteDeAuditoria(c: Conservacion, ahora: Date): Date | null {
 	return new Date(ahora.getTime() - Math.max(c.dias, DIAS_AUDITORIA) * DIA);
 }
 
-async function leer(): Promise<Conservacion | null> {
-	const [f] = await db.select().from(s.ajustes).where(eq(s.ajustes.clave, 'conservacion'));
+const CLAVE_EVENTOS = 'conservacion';
+const CLAVE_CREDENCIALES = 'conservacion-credenciales';
+
+async function leer(clave = CLAVE_EVENTOS): Promise<Conservacion | null> {
+	const [f] = await db.select().from(s.ajustes).where(eq(s.ajustes.clave, clave));
 	return (f?.valor as Conservacion) ?? null;
 }
 
-async function guardar(valor: Conservacion) {
+async function guardar(valor: Conservacion, clave = CLAVE_EVENTOS) {
 	await db
 		.insert(s.ajustes)
-		.values({ clave: 'conservacion', valor })
+		.values({ clave, valor })
 		.onConflictDoUpdate({ target: s.ajustes.clave, set: { valor } });
 }
 
-/* El plazo vigente. La primera vez se fija el de por defecto, con su aviso de 30 días. */
-export async function conservacion(ahora = new Date()): Promise<Conservacion> {
-	const c = await leer();
+async function vigente(clave: string, dias: number, ahora: Date): Promise<Conservacion> {
+	const c = await leer(clave);
 	if (c) return c;
-	const nuevo = {
-		dias: DIAS_POR_DEFECTO,
-		aPartirDe: new Date(ahora.getTime() + AVISO).toISOString()
-	};
-	await guardar(nuevo);
+	const nuevo = { dias, aPartirDe: new Date(ahora.getTime() + AVISO).toISOString() };
+	await guardar(nuevo, clave);
 	return nuevo;
+}
+
+/* El plazo vigente. La primera vez se fija el de por defecto, con su aviso de 30 días. */
+export const conservacion = (ahora = new Date()) => vigente(CLAVE_EVENTOS, DIAS_POR_DEFECTO, ahora);
+
+/* El de las credenciales capturadas, igual. */
+export const conservacionCredenciales = (ahora = new Date()) =>
+	vigente(CLAVE_CREDENCIALES, DIAS_CREDENCIALES_POR_DEFECTO, ahora);
+
+/*
+ * Hasta qué fecha se borran ahora las credenciales, o null si aún no toca. Nunca
+ * después que los eventos: con un plazo de eventos más corto, manda ese.
+ */
+export function limiteDeCredenciales(
+	cred: Conservacion,
+	eventos: Conservacion,
+	ahora: Date
+): Date | null {
+	if (ahora.getTime() < Date.parse(cred.aPartirDe)) return null;
+	return new Date(ahora.getTime() - Math.min(cred.dias, eventos.dias) * DIA);
+}
+
+export async function cambiarPlazoCredenciales(quien: string, dias: number) {
+	const antes = await conservacionCredenciales();
+	await guardar({ ...antes, dias }, CLAVE_CREDENCIALES);
+	await auditar(quien, 'captured credentials retention changed', {
+		antes: antes.dias,
+		ahora: dias
+	});
+}
+
+/*
+ * Borra el sobre de las credenciales de lo recibido antes de «limite» (y la
+ * contraseña en claro de las filas de antes de la 0063, si quedara alguna). La
+ * línea, su hash, la máscara y la huella no se tocan: la cadena sigue igual.
+ */
+export async function olvidarCredencialesAntesDe(limite: Date) {
+	let n = 0;
+	for (;;) {
+		const lote = await db.execute<{ id: string }>(sql`
+			update ${s.eventos} set credencial = ${CREDENCIAL_CADUCADA}, contrasena = null
+			where ${s.eventos.id} in (
+				select ${s.eventos.id} from ${s.eventos}
+				where ${s.eventos.recibido} < ${limite.toISOString()}
+				and (
+					(${s.eventos.credencial} is not null and ${s.eventos.credencial} not in ('', ${CREDENCIAL_CADUCADA}))
+					or ${s.eventos.contrasena} is not null
+				)
+				limit ${LOTE}
+			)
+			returning ${s.eventos.id}
+		`);
+		if (!lote.length) break;
+		n += lote.length;
+	}
+	return n;
 }
 
 export async function cambiarPlazo(quien: string, dias: number) {
@@ -245,9 +316,21 @@ export async function purgar(ahora = new Date()) {
 	if (listas) await auditar('node', 'expired list entries deleted', { entradas: listas });
 	await borrarSesionesMuertas(ahora);
 	const c = await conservacion(ahora);
+	const cc = await conservacionCredenciales(ahora);
+	const limiteCred = limiteDeCredenciales(cc, c, ahora);
+	const credenciales = limiteCred ? await olvidarCredencialesAntesDe(limiteCred) : 0;
+	if (credenciales)
+		await auditar(
+			'node',
+			`captured credentials older than ${Math.min(cc.dias, c.dias)} days deleted`,
+			{
+				antesDe: limiteCred!.toISOString(),
+				eventos: credenciales
+			}
+		);
 	const limite = limiteDeBorrado(c, ahora);
 	const limiteAuditoria = limiteDeAuditoria(c, ahora);
-	if (!limite || !limiteAuditoria) return { listas };
+	if (!limite || !limiteAuditoria) return { listas, credenciales };
 	const r = await borrarAntesDe(limite);
 	if (r.eventos || r.cuarentena)
 		await auditar('node', `events older than ${c.dias} days deleted`, {
@@ -258,5 +341,5 @@ export async function purgar(ahora = new Date()) {
 	const auditoria = await borrarAuditoriaAntesDe(limiteAuditoria);
 	/* Lo grabado del soporte se queda lo mismo que la auditoría (soporte-registro.ts). */
 	await db.delete(s.soporteRegistro).where(lt(s.soporteRegistro.cuando, limiteAuditoria));
-	return { ...r, auditoria, listas };
+	return { ...r, auditoria, listas, credenciales };
 }

@@ -20,6 +20,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/kinomakino/sugardaddy/sensor/internal/discos"
@@ -608,6 +609,16 @@ func dePago(s plan.TrampaPlan, licenciaRuta string) bool {
 // plan lo lleva en su estado (menos las paradas por el sensor, que siguen
 // diciendo por qué): la consola tiene que saberlo de todas.
 func Aplicar(ctx context.Context, d *docker.Cliente, o Opciones, p plan.Plan) ([]Estado, error) {
+	// El nombre del sensor acaba en filtros de etiquetas y en nombres de contenedores,
+	// volúmenes y discos: con la forma de un id, o no se toca nada.
+	if !SensorValido(p.Sensor) {
+		err := fmt.Errorf("the plan names an invalid sensor %q", recortarTexto(p.Sensor, 80))
+		estados := make([]Estado, 0, len(p.Trampas))
+		for _, s := range p.Trampas {
+			estados = append(estados, Estado{ID: s.ID, Donde: "error: " + err.Error()})
+		}
+		return estados, err
+	}
 	// Solo los contenedores de ESTE sensor: en la misma máquina puede haber
 	// otros sensores, y lo suyo no es asunto de este.
 	ctxLista, cancelar := context.WithTimeout(ctx, esperaMotor)
@@ -1596,15 +1607,54 @@ func puerto(expuesto any, rellenar func(string) string, desplazar int) (int, err
 	return 0, fmt.Errorf("invalid port: %v", expuesto)
 }
 
+// SensorValido: el nombre del sensor que trae el plan, con la forma de un id.
+func SensorValido(s string) bool { return idValido.MatchString(s) && !strings.Contains(s, "..") }
+
+func recortarTexto(s string, n int) string {
+	if len(s) > n {
+		return s[:n] + "…"
+	}
+	return s
+}
+
+// escribirFichero escribe en el sitio (sin cambiar el inodo, que la trampa tiene
+// montado) un fichero de la carpeta del sensor que se monta en una trampa: su
+// configuración o la licencia. Sin seguir enlaces, ni en el fichero ni en su
+// carpeta: una carpeta o un fichero cambiados por un enlace no hacen escribir fuera.
 func escribirFichero(ruta, texto string) error {
-	if err := os.MkdirAll(filepath.Dir(ruta), 0o755); err != nil {
+	dir := filepath.Dir(ruta)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	if err := os.WriteFile(ruta, []byte(texto), 0o644); err != nil {
+	if fi, err := os.Lstat(dir); err != nil {
+		return err
+	} else if !fi.IsDir() {
+		return fmt.Errorf("%s is not a plain folder", dir)
+	}
+	// Sin O_TRUNC al abrir: primero, que sea un fichero normal (O_NONBLOCK, para que
+	// una tubería en su lugar no deje al sensor esperando).
+	f, err := os.OpenFile(ruta, os.O_WRONLY|os.O_CREATE|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0o644)
+	if err != nil {
 		return err
 	}
-	// El honeypot corre con su propio usuario: tiene que poder leerlo.
-	return os.Chmod(ruta, 0o644)
+	fi, err := f.Stat()
+	if err == nil && !fi.Mode().IsRegular() {
+		err = fmt.Errorf("%s is not a regular file", ruta)
+	}
+	if err == nil {
+		err = f.Truncate(0)
+	}
+	if err == nil {
+		_, err = f.WriteString(texto)
+	}
+	if err == nil {
+		// El honeypot corre con su propio usuario: tiene que poder leerlo.
+		err = f.Chmod(0o644)
+	}
+	if e := f.Close(); err == nil {
+		err = e
+	}
+	return err
 }
 
 // PuertosPropios da los puertos que publican en el anfitrión las trampas de

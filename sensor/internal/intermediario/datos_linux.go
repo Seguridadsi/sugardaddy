@@ -14,7 +14,8 @@ import (
 // para los nodos de antes, donde todo era de root. Lo que escriben las trampas
 // (sus registros y sus discos) no cambia de dueño: el honeypot sigue siendo quien
 // escribe en ellos. Solo sus carpetas de registros pasan al sensor (1777, con el
-// bit pegajoso), para que pueda borrar lo rotado que ya ha leído.
+// bit pegajoso), para que pueda borrar lo rotado que ya ha leído. La carpeta de los
+// discos se queda de root (el auxiliar la devuelve a root si era del sensor).
 func PrepararDatos(datos string, uid int) error {
 	if err := os.MkdirAll(datos, 0o700); err != nil {
 		return err
@@ -31,7 +32,9 @@ func PrepararDatos(datos string, uid int) error {
 			_ = os.Lchown(ruta, uid, uid)
 			carpetasDe(ruta, "", uid)
 		case discos.Carpeta:
-			_ = os.Lchown(ruta, uid, uid)
+			// La de los discos no: es de root (la usa el servicio de discos, que es
+			// root, y nada de lo que hay en ella puede cambiarlo el sensor, F8). Solo
+			// las carpetas de registros de dentro de cada disco son suyas.
 			carpetasDe(ruta, "registros", uid)
 		default:
 			// Lo que escribe el sensor: su estado, sus colas, la configuración de las trampas.

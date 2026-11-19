@@ -246,8 +246,32 @@ func (a *Aplicacion) verificar(f ReleaseFirmada) (Release, error) {
 	if clave.Legado == nil && len(clave.Claves) == 0 {
 		return Release{}, errors.New("a valid PUBLICACION_CLAVES or PUBLICACION_CLAVE_PUBLICA is missing in .env")
 	}
-	return VerificarEnNodo(clave, EdicionDelNodo(get), f)
+	edicion := EdicionDelAuxiliar(get, a.Modo)
+	if edicion == "" {
+		return Release{}, errors.New("this node's edition is unknown: EDICION is missing in .env")
+	}
+	return VerificarEnNodo(clave, edicion, f)
 }
+
+// EdicionDelAuxiliar es la edición con la que el auxiliar liga cada versión, la misma
+// que ve el actualizador que lo lanza: la de .env y, si .env no la dice, la del
+// registro que le pone el compose por defecto (en el del nodo, ghcr.io: Community; en
+// el del sensor remoto no hay valor por defecto). Vacía: no se sabe, y el auxiliar no
+// aplica nada (falla cerrado). Antes, sin EDICION ni REGISTRO en .env, aceptaba una
+// versión de cualquier edición firmada con una clave de confianza.
+func EdicionDelAuxiliar(get func(string) string, modo string) string {
+	if e := EdicionDelNodo(get); e != "" {
+		return e
+	}
+	if modo == ModoNodo && strings.TrimSpace(get("EDICION")) == "" && strings.TrimSpace(get("REGISTRO")) == "" {
+		return EdicionDelNodo(func(k string) string { return map[string]string{"REGISTRO": RegistroPorDefectoNodo}[k] })
+	}
+	return ""
+}
+
+// RegistroPorDefectoNodo: el REGISTRO que da despliegue/nodo/compose.yml al
+// actualizador cuando .env no lo trae («${REGISTRO:-ghcr.io}»).
+const RegistroPorDefectoNodo = "ghcr.io"
 
 // comprobarMotor: antes de tocar nada, el motor tiene que contestar y no ser
 // más antiguo que el mínimo (docker-compose negocia su versión por su cuenta;

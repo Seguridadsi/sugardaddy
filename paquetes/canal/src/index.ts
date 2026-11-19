@@ -875,7 +875,44 @@ export type Latido = {
 	 * los paneles anteriores lo ignoran.
 	 */
 	mantenimiento?: LatidoMantenimiento;
+	/*
+	 * La última comprobación de integridad del nodo (integridad.ts de la consola, que la
+	 * recibe del actualizador cada 10 minutos): cuándo fue y cuántas desviaciones vio. Solo
+	 * el número: el detalle (rutas, nombres de variables) se queda en el nodo. Opcional: los
+	 * nodos anteriores no lo mandan. No va en el mínimo.
+	 */
+	integridad?: LatidoIntegridad;
+	/*
+	 * Las líneas de la cola de entrega que los sensores apartaron porque la consola no las
+	 * sabía procesar (hecho entrega.apartadas, auditoría del 2026-11-14 C01): la suma de
+	 * todos sus sensores y en cuántos pasó. Opcional. No va en el mínimo.
+	 */
+	entrega?: LatidoEntrega;
 };
+
+export type LatidoIntegridad = { comprobado: string; desviaciones: number };
+export type LatidoEntrega = { apartadas: number; sensores: number };
+
+const ENTERO_LATIDO = (n: unknown, max: number): n is number =>
+	typeof n === 'number' && Number.isInteger(n) && n >= 0 && n <= max;
+
+/* Lo que el panel acepta de la integridad del latido: mal formada, se ignora. */
+export function leerIntegridadLatido(x: unknown): LatidoIntegridad | undefined {
+	if (!x || typeof x !== 'object') return undefined;
+	const m = x as Record<string, unknown>;
+	const cuando =
+		typeof m.comprobado === 'string' && m.comprobado.length <= 40 ? Date.parse(m.comprobado) : NaN;
+	if (!Number.isFinite(cuando) || !ENTERO_LATIDO(m.desviaciones, 1000)) return undefined;
+	return { comprobado: new Date(cuando).toISOString(), desviaciones: m.desviaciones };
+}
+
+/* Lo que el panel acepta de la entrega del latido: mal formada, se ignora. */
+export function leerEntregaLatido(x: unknown): LatidoEntrega | undefined {
+	if (!x || typeof x !== 'object') return undefined;
+	const m = x as Record<string, unknown>;
+	if (!ENTERO_LATIDO(m.apartadas, 1e9) || !ENTERO_LATIDO(m.sensores, 100_000)) return undefined;
+	return { apartadas: m.apartadas, sensores: m.sensores };
+}
 
 export type LatidoMantenimiento = { hasta: string; nodo: boolean; sensoresParados: number };
 

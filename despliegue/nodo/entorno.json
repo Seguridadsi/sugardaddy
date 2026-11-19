@@ -1,3 +1,3 @@
 {
-	"generar": ["CLAVE_SECRETOS"]
+	"generar": ["CLAVE_SECRETOS", "EDL_TOKEN"]
 }

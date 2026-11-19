@@ -57,6 +57,7 @@ import {
 import { db, schema as s } from './db';
 import { auditar, autoActualizar, cabecera, comparticion, latidoMinimo } from './consultas';
 import { anfitrionParaLatido } from './anfitrion';
+import { entregaParaLatido, integridadParaLatido } from './integridad-latido';
 import { mantenimientoParaLatido } from './mantenimiento';
 import { esperaActual } from './politica-actualizacion';
 import {
@@ -785,7 +786,13 @@ async function latido(panel: string | null = null): Promise<Latido> {
 		...(disco ? { disco } : {}),
 		...(salida ? { salida } : {}),
 		/* Desde la 0.32: la máquina del nodo, resumida (anfitrion.ts). */
-		...(await anfitrionParaLatido())
+		...(await anfitrionParaLatido()),
+		/*
+		 * La última comprobación de integridad (cuándo y cuántas desviaciones, sin el detalle)
+		 * y lo que sus sensores apartaron de la entrega. No en el mínimo, como el sello.
+		 */
+		...(await integridadParaLatido()),
+		...entregaParaLatido(sensores.map((x) => x.capacidades?.hechos))
 	};
 }
 
@@ -799,6 +806,29 @@ async function enviar(c: Canal, ruta: string, cuerpo: string, espera = 15_000) {
 		body: cuerpo,
 		signal: AbortSignal.timeout(espera)
 	});
+}
+
+/*
+ * Cuáles de estas IP (públicas, que han atacado al nodo) alojan el panel de un agente de
+ * IA de ataque, según la central (paneles-ataque.ts). Por el canal firmado; null si este
+ * nodo no lo gestiona un panel, está cortado o no hay respuesta.
+ */
+export async function panelesPorCanal(
+	ips: string[]
+): Promise<Record<
+	string,
+	{ agente: string; version: string | null; visto: string | null }
+> | null> {
+	const c = await leer();
+	if (!c || c.cortado) return null;
+	try {
+		const r = await enviar(c, '/api/nodo/paneles', JSON.stringify({ ips }), 10_000);
+		if (!r.ok) return null;
+		const d = (await r.json()) as { paneles?: unknown };
+		return d?.paneles && typeof d.paneles === 'object' ? (d.paneles as never) : null;
+	} catch {
+		return null;
+	}
 }
 
 /*

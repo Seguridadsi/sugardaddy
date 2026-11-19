@@ -6,6 +6,8 @@ import { normalizarDominio } from '$lib/server/dominios';
 import { migrados } from '$lib/server/origenes-comun';
 import { fijarTopeListaComun, listaComunEnEspera } from '$lib/server/inteligencia';
 import { cambiarUsoTor, listaTor, usoTor } from '$lib/server/tor';
+import { USUARIO_EDL, tokenEdl } from '$lib/server/edl-acceso';
+import { puede } from '$lib/permisos';
 
 /* Una IP, una red en CIDR o un dominio. Devuelve además el valor ya normalizado
  * (el dominio en minúsculas, sin punto final). null si no es nada de eso. */
@@ -27,9 +29,10 @@ function clasificar(valor: string): { clase: 'ip' | 'red' | 'dominio'; valor: st
 	return dominio ? { clase: 'dominio', valor: dominio } : null;
 }
 
-export const load = async ({ url }) => {
+export const load = async ({ url, locals }) => {
 	const pedida = url.searchParams.get('lista');
-	const lista = pedida === 'blanca' ? 'blanca' : pedida === 'tor' ? 'tor' : 'negra';
+	const lista =
+		pedida === 'blanca' ? 'blanca' : pedida === 'tor' ? 'tor' : pedida === 'edl' ? 'edl' : 'negra';
 	const { entradas, cuentas } = await listasDe(lista === 'blanca' ? 'blanca' : 'negra');
 	const tor = await listaTor();
 	/*
@@ -55,6 +58,20 @@ export const load = async ({ url }) => {
 			? { ips: lista === 'tor' ? tor.ips : [], emitida: tor.emitida, fuente: tor.fuente }
 			: null,
 		usoTor: await usoTor(),
+		/*
+		 * Cómo la leen los firewalls: la dirección y la credencial. La credencial
+		 * solo para quien gestiona las listas; el resto ve que existe.
+		 */
+		edl:
+			lista === 'edl'
+				? {
+						ips: `${url.origin}/api/edl/negra`,
+						dominios: `${url.origin}/api/edl/dominios`,
+						usuario: USUARIO_EDL,
+						configurada: !!tokenEdl(),
+						token: puede(locals.usuario?.roles ?? [], 'listas') ? tokenEdl() : null
+					}
+				: null,
 		/* Lo de la lista común que espera por el tope diario (docs/diseno/frenos-del-nodo.md). */
 		espera: lista === 'negra' ? await listaComunEnEspera() : null
 	};

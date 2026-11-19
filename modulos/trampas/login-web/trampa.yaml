@@ -33,7 +33,7 @@ ficha:
     - The chosen port must be free (the machine must not already have its own website).
   instalacion:
     automatica: true
-versionModulo: 0.1.0
+versionModulo: 0.1.1
 tipo: contenedor
 procedencia:
   proyecto: Sugardaddy (SeguridadSI)
@@ -41,8 +41,8 @@ procedencia:
   licencia: Código propio (SeguridadSI); biblioteca estándar de Go, BSD-3-Clause
 
 contenedor:
-  imagen: ghcr.io/seguridadsi/sugardaddy-registro-login-web:0.1.10@sha256:0f9ce8ae93dd57e1aff2a9dbe46d61b30278373abdc0fd6256cc3ea4cc1e17a3
-  imagenPublica: ghcr.io/seguridadsi/sugardaddy-registro-login-web:0.1.10@sha256:0f9ce8ae93dd57e1aff2a9dbe46d61b30278373abdc0fd6256cc3ea4cc1e17a3
+  imagen: ghcr.io/seguridadsi/sugardaddy-registro-login-web:0.1.11@sha256:3a230187151f60863115537f7f46262bdbad3317236123b7a7711873aebce8db
+  imagenPublica: ghcr.io/seguridadsi/sugardaddy-registro-login-web:0.1.11@sha256:3a230187151f60863115537f7f46262bdbad3317236123b7a7711873aebce8db
   puertos:
     - { interno: 8080, expuesto: '${puertoWeb}', protocolo: tcp }
   entorno:

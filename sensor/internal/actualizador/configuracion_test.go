@@ -126,8 +126,8 @@ func (n *nodoDePrueba) firmada(t *testing.T, r Release) ReleaseFirmada {
 
 func releaseConConfiguracion(compose string) Release {
 	r := Release{
-		Version: "0.12.0", Servicios: map[string]string{"consola": "r/consola@sha256:" + strings.Repeat("a", 64)},
-		Actualizador: "r/actualizador@sha256:" + strings.Repeat("b", 64),
+		Version: "0.12.0", Servicios: map[string]string{"consola": "ghcr.io/r/consola@sha256:" + strings.Repeat("a", 64)},
+		Actualizador: "ghcr.io/r/actualizador@sha256:" + strings.Repeat("b", 64),
 		Nodo:         &Configuracion{Ficheros: map[string]string{"compose.yml": compose, "Caddyfile": "nuevo\n"}},
 	}
 	r.Nodo.Entorno = &struct {
@@ -160,7 +160,7 @@ func TestAplicarConfiguracion(t *testing.T) {
 	if strings.Contains(env, "pisado") {
 		t.Fatal("una variable que ya existía no se cambia nunca")
 	}
-	if ConfiguracionAplicada(filepath.Join(n.dir, "versiones.env")) != "0.12.0" || !strings.Contains(leer(t, n.dir, "versiones.env"), "ACTUALIZADOR_IMAGEN=r/actualizador@") {
+	if ConfiguracionAplicada(filepath.Join(n.dir, "versiones.env")) != "0.12.0" || !strings.Contains(leer(t, n.dir, "versiones.env"), "ACTUALIZADOR_IMAGEN=ghcr.io/r/actualizador@") {
 		t.Fatalf("versiones.env:\n%s", leer(t, n.dir, "versiones.env"))
 	}
 	if leer(t, n.dir, "Caddyfile") != "nuevo\n" {
@@ -482,6 +482,8 @@ func TestConfianzaYVersionFirmadaParaElSensor(t *testing.T) {
 	r.Servicios = map[string]string{"consola": "ejemplo.azurecr.io/consola@sha256:" + strings.Repeat("a", 64)}
 	r.Actualizador = "ejemplo.azurecr.io/actualizador@sha256:" + strings.Repeat("b", 64)
 	r.Confianza = &ConfianzaNueva{Claves: "cloud:" + nueva}
+	// Un nodo de Cloud lo dice en .env (sin EDICION ni REGISTRO, el del nodo es Community).
+	anadirEnv(t, n.dir, "EDICION=cloud\n")
 	f := n.firmada(t, r)
 	res := n.app.Aplicar(context.Background(), f)
 	if res.Estado != "aplicada" {
@@ -549,4 +551,65 @@ func TestExportarRaizConLaCAPropiaNoLeeLaDeCaddy(t *testing.T) {
 	if strings.Contains(llamadas, "pki/authorities/local") {
 		t.Fatalf("no se lee la CA local de Caddy:\n%s", llamadas)
 	}
+}
+
+func anadirEnv(t *testing.T, dir, lineas string) {
+	t.Helper()
+	f, err := os.OpenFile(filepath.Join(dir, ".env"), os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if _, err := f.WriteString(lineas); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// El auxiliar liga cada versión a la edición del nodo y, si no la sabe, no aplica nada
+// (falla cerrado). Sin EDICION ni REGISTRO, la del nodo es la que le da su compose
+// (ghcr.io: Community); un sensor remoto no tiene valor por defecto.
+func TestElAuxiliarSinEdicionConocidaNoAplica(t *testing.T) {
+	cloud := func(r Release) Release {
+		r.Servicios = map[string]string{"consola": "ejemplo.azurecr.io/consola@sha256:" + strings.Repeat("a", 64)}
+		r.Actualizador = "ejemplo.azurecr.io/actualizador@sha256:" + strings.Repeat("b", 64)
+		return r
+	}
+	t.Run("nodo sin EDICION ni REGISTRO: Community, no acepta una de Cloud", func(t *testing.T) {
+		n := nuevoNodo(t)
+		res := n.app.Aplicar(context.Background(), n.firmada(t, cloud(releaseConConfiguracion("services: {}\n"))))
+		if res.Estado != "fallida" || !strings.Contains(res.Detalle, "not for this edition (community)") {
+			t.Fatalf("%+v", res)
+		}
+	})
+	t.Run("REGISTRO que no es de ninguna edición", func(t *testing.T) {
+		n := nuevoNodo(t)
+		anadirEnv(t, n.dir, "REGISTRO=registro.local:5000\n")
+		res := n.app.Aplicar(context.Background(), n.firmada(t, releaseConConfiguracion("services: {}\n")))
+		if res.Estado != "fallida" || !strings.Contains(res.Detalle, "edition is unknown") {
+			t.Fatalf("%+v", res)
+		}
+	})
+	t.Run("sensor remoto sin EDICION ni REGISTRO", func(t *testing.T) {
+		n := nuevoNodo(t)
+		n.app.Modo = ModoSensorRemoto
+		res := n.app.Aplicar(context.Background(), n.firmada(t, cloud(releaseConConfiguracion("services: {}\n"))))
+		if res.Estado != "fallida" || !strings.Contains(res.Detalle, "edition is unknown") {
+			t.Fatalf("%+v", res)
+		}
+	})
+	t.Run("EDICION manda sobre el registro por defecto", func(t *testing.T) {
+		for _, c := range []struct{ modo, env, edicion string }{
+			{ModoNodo, "", "community"},
+			{ModoNodo, "EDICION=cloud", "cloud"},
+			{ModoNodo, "REGISTRO=x.azurecr.io", "cloud"},
+			{ModoNodo, "REGISTRO=otro.example", ""},
+			{ModoSensorRemoto, "", ""},
+			{ModoSensorRemoto, "EDICION=community", "community"},
+		} {
+			k, v, _ := strings.Cut(c.env, "=")
+			if got := EdicionDelAuxiliar(func(x string) string { return map[string]string{k: v}[x] }, c.modo); got != c.edicion {
+				t.Errorf("%s %q: %q, quería %q", c.modo, c.env, got, c.edicion)
+			}
+		}
+	})
 }

@@ -439,6 +439,8 @@ done
 sd_proxy_env "$DIR/.env"
 sd_proxy_guion "$DIR"
 grep -q '^CLAVE_SECRETOS=.' "$DIR/.env" || echo "CLAVE_SECRETOS=$(openssl rand -hex 32)" >> "$DIR/.env"
+# La credencial de la lista dinámica para los firewalls (EDL): sin ella, /api/edl/* contesta 503.
+grep -q '^EDL_TOKEN=.' "$DIR/.env" || echo "EDL_TOKEN=$(openssl rand -hex 32)" >> "$DIR/.env"
 # Las copias van cifradas con age a una clave pública (copia.sh). Quien instala
 # puede dar la suya (SUGARDADDY_COPIAS_CLAVE=age1…, varias separadas por comas):
 # así el nodo cifra sus copias sin poder leerlas. Si no, copia.sh crea un par

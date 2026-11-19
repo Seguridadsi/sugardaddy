@@ -6,6 +6,8 @@ package discos
 
 import (
 	"context"
+	"errors"
+	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -246,15 +248,23 @@ func (g *Gestor) Estado() (valor bool, motivo string, sabido bool) {
 // RetirarSinAuxiliar borra el disco de una trampa que ya no está si no está montado
 // (tras un reinicio de la máquina, por ejemplo): no hace falta el auxiliar. false si
 // está montado y tiene que desmontarlo él.
+//
+// La carpeta de los discos es de root (la deja así el auxiliar, F8): un sensor sin
+// root no puede borrar en ella, y entonces lo hace el auxiliar (false).
 func (g *Gestor) RetirarSinAuxiliar(id string) bool {
 	if g.ve(Dir(g.Datos, id)) {
 		return false
 	}
 	if err := os.Remove(Fichero(g.Datos, id)); err != nil && !os.IsNotExist(err) {
+		if errors.Is(err, fs.ErrPermission) {
+			return false
+		}
 		slog.Warn("could not delete the disk of a removed decoy", "trampa", id, "err", err)
 		return true
 	}
-	_ = os.RemoveAll(Dir(g.Datos, id))
+	if err := os.RemoveAll(Dir(g.Datos, id)); errors.Is(err, fs.ErrPermission) {
+		return false
+	}
 	return true
 }
 

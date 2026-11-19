@@ -83,6 +83,13 @@ export function mascara(v: string): string {
 /* Lo que se enseña en lugar de un valor que no es texto (una lista, un objeto). */
 export const OCULTO = '[encrypted]';
 
+/*
+ * Lo que queda en `credencial` cuando pasa su plazo (conservacion.ts,
+ * olvidarCredencialesAntesDe): el sobre se borra y se quedan la máscara y la
+ * huella. Distinto de '' (el nodo no tenía clave al llegar el evento).
+ */
+export const CREDENCIAL_CADUCADA = 'caducada';
+
 const enmascarar = (v: unknown) => (typeof v === 'string' ? mascara(v) : OCULTO);
 
 /* ¿Hay algo que proteger en este valor? Números y sí/no (p. ej. «usando_password») no. */

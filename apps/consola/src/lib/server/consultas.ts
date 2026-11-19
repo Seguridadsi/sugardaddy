@@ -25,12 +25,14 @@ import { entornoDe, type Entorno } from '$lib/entorno';
 import { redYVlan } from '$lib/red';
 import { ipBuscada } from './buscar-ip';
 import { db, schema as s } from './db';
+import { CREDENCIAL_CADUCADA } from './credenciales-protegidas';
 import { honeycosas, traductorDeTrampa } from './catalogo';
 import { estadosVisibles, type EstadoVisible } from './colocacion';
 import type { Tx } from './destinos';
 import { geo, type Geo } from './geo';
 import { descifrar } from './secretos';
 import { ipsTor } from './tor';
+import { panelesDe, type PanelAtaque } from './paneles-ataque';
 import type { CriterioTriaje } from './triaje-auto';
 
 export const SEVERIDADES = ['baja', 'media', 'alta', 'critica'] as const;
@@ -95,7 +97,7 @@ const COLUMNAS = {
 	prueba: s.eventos.prueba,
 	escaner: s.eventos.escaner,
 	/* Solo si trae credenciales que revelar: el sobre no sale de la base. */
-	credencial: sql<boolean>`(${s.eventos.credencial} is not null and ${s.eventos.credencial} <> '')`
+	credencial: sql<boolean>`(${s.eventos.credencial} is not null and ${s.eventos.credencial} not in ('', ${CREDENCIAL_CADUCADA}))`
 };
 /* Las columnas de triaje, solo para las consultas que unen la tabla `triaje`. */
 const COLUMNAS_TRIAJE = { triajeEstado: s.triaje.estado, triajeNota: s.triaje.nota };
@@ -1171,7 +1173,10 @@ export async function eventosParaWebhook(pos: WebhookPos, limite = 200) {
 export async function visita(id: string) {
 	const [fila] = await db.select().from(s.eventos).where(eq(s.eventos.id, id));
 	if (!fila) return null;
-	const e = conAlerta({ ...fila, credencial: !!fila.credencial });
+	const e = conAlerta({
+		...fila,
+		credencial: !!fila.credencial && fila.credencial !== CREDENCIAL_CADUCADA
+	});
 	const h = honeycosas().find((x) => x.id === e.trampa.modulo);
 	const [t] = await db
 		.select({ via: s.trampas.via })
@@ -1280,12 +1285,18 @@ export async function modificarTrampa(
 }
 
 /* Para pintar junto a cada evento de dónde viene su IP (solo las públicas). */
-export async function geoDe(eventos: Evento[]): Promise<Record<string, Geo & { tor: boolean }>> {
+export async function geoDe(
+	eventos: Evento[]
+): Promise<Record<string, Geo & { tor: boolean; panel?: PanelAtaque }>> {
 	const tor = await ipsTor();
-	const r: Record<string, Geo & { tor: boolean }> = {};
+	/* Si la IP aloja el panel de un agente de IA de ataque (paneles-ataque.ts): una pista. */
+	const paneles = panelesDe(eventos.flatMap((e) => (e.origen.ip ? [e.origen.ip] : [])));
+	const r: Record<string, Geo & { tor: boolean; panel?: PanelAtaque }> = {};
 	for (const e of eventos) {
 		const g = e.origen.ip ? geo(e.origen.ip) : null;
-		if (g && e.origen.ip) r[e.origen.ip] = { ...g, tor: tor.has(e.origen.ip) };
+		const panel = e.origen.ip ? paneles.get(e.origen.ip) : undefined;
+		if (g && e.origen.ip)
+			r[e.origen.ip] = { ...g, tor: tor.has(e.origen.ip), ...(panel ? { panel } : {}) };
 	}
 	return r;
 }

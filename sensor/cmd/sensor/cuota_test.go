@@ -169,43 +169,105 @@ func TestLasParadasDeTrampasRetiradasSeOlvidan(t *testing.T) {
 	}
 }
 
-// SEN-4: una trampa tomada que escribe en una subcarpeta o con otro nombre (lo
-// que la cuota de siempre no miraba) se para; lo que es su registro, no.
+// SEN-4: una trampa tomada que escribe con otro nombre (lo que la cuota de siempre
+// no miraba) se para; lo que es su registro, no. Lo que escribe en subcarpetas se
+// borra (F16), también lo que el sensor sin root no puede borrar (lo pide a sd-motor).
 func TestLoQueNoEsSuRegistroTambienCuenta(t *testing.T) {
 	conCuota(t, 1<<30, func(string, int64) error { return nil })
-	antes := cuotaAjenos
+	antes, antesB := cuotaAjenos, borrarDeRegistros
 	cuotaAjenos = 1 << 20
-	t.Cleanup(func() { cuotaAjenos = antes })
+	var pedidas []string
+	falla := false
+	borrarDeRegistros = func(ruta string) error {
+		pedidas = append(pedidas, ruta)
+		if falla {
+			return syscall.EACCES
+		}
+		return os.RemoveAll(ruta)
+	}
+	t.Cleanup(func() { cuotaAjenos, borrarDeRegistros = antes, antesB })
 
 	s, activo, paradas := sensorConRegistro(t, 2048)
 	// Un registro de 2 MB, más que la cuota de ajenos: es suyo, no cuenta.
 	s.vigilarCuota(time.Now())
-	if len(*paradas) != 0 {
-		t.Fatalf("su propio registro no la para: %v", s.estado.Paradas)
+	if len(*paradas) != 0 || len(pedidas) != 0 {
+		t.Fatalf("su propio registro no la para: %v %v", s.estado.Paradas, pedidas)
 	}
-	// Una subcarpeta con 2 MB de verdad (no disperso).
+	// Una subcarpeta con 2 MB de verdad (no disperso): se borra entera y sigue en marcha.
 	sub := filepath.Join(filepath.Dir(activo), "x")
-	if err := os.MkdirAll(sub, 0o755); err != nil {
-		t.Fatal(err)
+	llenar := func() {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Join(sub, "honda"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(sub, "honda", "f"), []byte(strings.Repeat("z", 2<<20)), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if err := os.WriteFile(filepath.Join(sub, "f"), []byte(strings.Repeat("z", 2<<20)), 0o644); err != nil {
-		t.Fatal(err)
+	llenar()
+	s.vigilarCuota(time.Now())
+	if len(*paradas) != 0 || len(pedidas) != 1 || pedidas[0] != sub {
+		t.Fatalf("la subcarpeta se borra y la trampa sigue: %v %v %v", *paradas, s.estado.Paradas, pedidas)
 	}
+	if _, err := os.Lstat(sub); !os.IsNotExist(err) {
+		t.Fatal("la subcarpeta ya no está")
+	}
+	// Si no se puede borrar, se para; cuando se puede, vuelve.
+	llenar()
+	falla = true
 	s.vigilarCuota(time.Now())
 	if len(*paradas) != 1 || !strings.Contains(s.estado.Paradas["t1"], "(registros.ajenos)") {
-		t.Fatalf("lo de la subcarpeta la para: %v %v", *paradas, s.estado.Paradas)
+		t.Fatalf("lo de la subcarpeta que no se puede borrar la para: %v %v", *paradas, s.estado.Paradas)
 	}
-	// Sigue parada mientras esté; quitado, vuelve.
 	s.vigilarCuota(time.Now())
 	if _, sigue := s.estado.Paradas["t1"]; !sigue {
 		t.Fatal("con lo ajeno aún ahí, sigue parada")
 	}
-	if err := os.RemoveAll(sub); err != nil {
+	falla = false
+	s.vigilarCuota(time.Now())
+	if _, sigue := s.estado.Paradas["t1"]; sigue {
+		t.Fatalf("borrada la subcarpeta, vuelve: %v", s.estado.Paradas)
+	}
+	// Un fichero con otro nombre no se borra: la para hasta que lo quiten.
+	otro := filepath.Join(filepath.Dir(activo), "otro.bin")
+	if err := os.WriteFile(otro, []byte(strings.Repeat("z", 2<<20)), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	s.vigilarCuota(time.Now())
+	if _, sigue := s.estado.Paradas["t1"]; !sigue {
+		t.Fatal("un fichero ajeno grande la para")
+	}
+	if _, err := os.Stat(otro); err != nil {
+		t.Fatal("y no se borra")
+	}
+	_ = os.Remove(otro)
+	s.vigilarCuota(time.Now())
 	if _, sigue := s.estado.Paradas["t1"]; sigue {
 		t.Fatalf("sin lo ajeno, vuelve: %v", s.estado.Paradas)
+	}
+}
+
+// Las carpetas de registros de las trampas retiradas se borran también con lo que el
+// honeypot creó dentro (F16): por borrarDeRegistros, que con sd-motor lo pide a él.
+func TestPodarRetiradaBorraLoQueCreoLaTrampa(t *testing.T) {
+	antes := borrarDeRegistros
+	var pedidas []string
+	borrarDeRegistros = func(ruta string) error { pedidas = append(pedidas, ruta); return os.RemoveAll(ruta) }
+	t.Cleanup(func() { borrarDeRegistros = antes })
+	s, _, _ := sensorConRegistro(t, 4)
+	vieja := filepath.Join(s.opc.Datos, "registros", "retirada")
+	if err := os.MkdirAll(filepath.Join(vieja, "creada"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	hace := time.Now().Add(-2 * guardarRetiradas)
+	_ = os.Chtimes(filepath.Join(vieja, "creada"), hace, hace)
+	_ = os.Chtimes(vieja, hace, hace)
+	s.podar(time.Now())
+	if len(pedidas) != 1 || pedidas[0] != vieja {
+		t.Fatalf("%v", pedidas)
+	}
+	if _, err := os.Lstat(vieja); !os.IsNotExist(err) {
+		t.Fatal("la carpeta de la retirada ya no está")
 	}
 }
 

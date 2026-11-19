@@ -29,7 +29,7 @@ ficha:
     - On Windows, 445 is held by the system itself; use this decoy on a Linux sensor, not on the workstation.
   instalacion:
     automatica: true
-versionModulo: 0.1.0
+versionModulo: 0.1.1
 tipo: contenedor
 procedencia:
   proyecto: glutton
@@ -37,8 +37,8 @@ procedencia:
   licencia: MIT AND BSD-3-Clause
 
 contenedor:
-  imagen: ghcr.io/seguridadsi/sugardaddy-registro-smb:1.0.1-sd6@sha256:815747520eafc33d2dc2ec18a7abc1529ffbd2103edb39c5476c09cff4776e7d
-  imagenPublica: ghcr.io/seguridadsi/sugardaddy-registro-smb:1.0.1-sd6@sha256:815747520eafc33d2dc2ec18a7abc1529ffbd2103edb39c5476c09cff4776e7d
+  imagen: ghcr.io/seguridadsi/sugardaddy-registro-smb:1.0.1-sd7@sha256:6a107cb5e6681147a9df03a8b8d15e6e07c24cc941152a5edcc9452982905ff2
+  imagenPublica: ghcr.io/seguridadsi/sugardaddy-registro-smb:1.0.1-sd7@sha256:6a107cb5e6681147a9df03a8b8d15e6e07c24cc941152a5edcc9452982905ff2
   puertos:
     - { interno: 1445, expuesto: '${puertoSmb}', protocolo: tcp }
   entorno:

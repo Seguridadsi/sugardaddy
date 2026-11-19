@@ -88,12 +88,16 @@ import {
 } from '$lib/server/emergencia';
 import { MINIMO_PALABRA, guardarPalabras, palabras } from '$lib/server/credenciales';
 import {
+	DIAS_CREDENCIALES_MINIMO,
 	DIAS_MAXIMO,
 	DIAS_MINIMO,
 	borrarAntesDe,
 	cambiarPlazo,
+	cambiarPlazoCredenciales,
 	conservacion,
-	validarDias
+	conservacionCredenciales,
+	validarDias,
+	validarDiasCredenciales
 } from '$lib/server/conservacion';
 import { estadoEspacio, estimacion } from '$lib/server/espacio';
 import { fechasLicencia } from '$lib/server/candado';
@@ -201,6 +205,11 @@ export const load = async ({ locals, url }) => {
 		palabras: await palabras(),
 		minimoPalabra: MINIMO_PALABRA,
 		conservacion: { ...cons, minimo: DIAS_MINIMO, maximo: DIAS_MAXIMO },
+		conservacionCredenciales: {
+			...(await conservacionCredenciales()),
+			minimo: DIAS_CREDENCIALES_MINIMO,
+			maximo: DIAS_MAXIMO
+		},
 		codigoEmergencia: await estadoCodigoEmergencia(),
 		recuperacionPanel: await recuperacionPanelActiva(),
 		/* Segundo factor de los usuarios locales: si se exige y cuántos aún no lo tienen. */
@@ -446,6 +455,18 @@ export const actions = {
 		await cambiarPlazo(u.correo, dias);
 		return { mensaje: `Retention period: ${dias} days.` };
 	},
+	conservacionCredenciales: async ({ request, locals }) => {
+		const u = exigir(locals, 'ajustes');
+		const texto = String((await request.formData()).get('diasCredenciales') ?? '');
+		const dias = validarDiasCredenciales(texto);
+		if (!dias)
+			return fail(400, {
+				error: `The period for captured credentials is in days, between ${DIAS_CREDENCIALES_MINIMO} and ${DIAS_MAXIMO}.`,
+				diasCredenciales: texto
+			});
+		await cambiarPlazoCredenciales(u.correo, dias);
+		return { mensaje: `Captured credentials are kept in full for ${dias} days.` };
+	},
 	/* Aplicar el plazo YA (sin esperar al borrado de cada hora): borra ahora los
 	 * eventos más viejos que el plazo. Es manual y deliberado, así que no respeta
 	 * el margen de gracia; queda en la auditoría con quién lo pidió. */
@@ -544,7 +565,8 @@ export const actions = {
 			secreto: String(f.get('secreto') ?? ''),
 			exigirMfa: f.get('exigirMfa') === 'si',
 			confirmarSinMfa: f.get('confirmarSinMfa') === 'si',
-			contextoAuth: String(f.get('contextoAuth') ?? '')
+			contextoAuth: String(f.get('contextoAuth') ?? ''),
+			secretoCaduca: String(f.get('secretoCaduca') ?? '')
 		};
 		const r = await guardarEntraPropio(u.correo, datos);
 		if (!r.ok)
@@ -554,7 +576,8 @@ export const actions = {
 					tenant: datos.tenant,
 					clientId: datos.clientId,
 					exigirMfa: datos.exigirMfa,
-					contextoAuth: datos.contextoAuth
+					contextoAuth: datos.contextoAuth,
+					secretoCaduca: datos.secretoCaduca
 				}
 			});
 		redirect(303, '/auth/login?probar=1');

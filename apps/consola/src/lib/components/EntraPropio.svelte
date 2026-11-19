@@ -22,6 +22,7 @@
 		exigirMfa: boolean;
 		modoMfa: 'exigida' | 'apagada' | 'heredada';
 		contextoAuth: string | null;
+		secretoCaduca?: string | null;
 	} | null;
 
 	let {
@@ -38,7 +39,13 @@
 		b2b: 'no' | 'activo' | 'retirado';
 		retorno: string;
 		error?: string;
-		valores?: { tenant: string; clientId: string; exigirMfa?: boolean; contextoAuth?: string };
+		valores?: {
+			tenant: string;
+			clientId: string;
+			exigirMfa?: boolean;
+			contextoAuth?: string;
+			secretoCaduca?: string;
+		};
 	} = $props();
 
 	const RESULTADO: Record<string, string> = {
@@ -120,7 +127,15 @@ az rest --method POST --uri "https://graph.microsoft.com/v1.0/servicePrincipals/
   --body "{\\"principalId\\":\\"$YO\\",\\"resourceId\\":\\"$SP\\",\\"appRoleId\\":\\"$ADMIN\\"}" -o none
 SECRETO=$(az ad app credential reset --id "$APP" --display-name sugardaddy --years 2 --query password -o tsv)
 echo; echo "Tenant:    $(az account show --query tenantId -o tsv)"
-echo "Client:    $APP"; echo "Secret:    $SECRETO"`);
+echo "Client:    $APP"; echo "Secret:    $SECRETO"
+echo "Expires:   $(az ad app credential list --id "$APP" --query 'max([].endDateTime)' -o tsv | cut -c1-10)"`);
+
+	/* Días que le quedan al secreto, si se sabe cuándo caduca. */
+	const quedan = $derived(
+		propio?.secretoCaduca
+			? Math.ceil((Date.parse(`${propio.secretoCaduca}T00:00:00Z`) - Date.now()) / 86_400_000)
+			: null
+	);
 
 	let copiado = $state(false);
 	async function copiar() {
@@ -148,11 +163,19 @@ echo "Client:    $APP"; echo "Secret:    $SECRETO"`);
 		</p>
 	{/if}
 
+	{#if propio?.activo && quedan !== null && quedan <= 30}
+		<p class="mal" role="alert">
+			{quedan <= 0
+				? `The client secret expired on ${propio.secretoCaduca}: nobody can sign in with Microsoft until you save a new one.`
+				: `The client secret expires on ${propio.secretoCaduca} (in ${quedan === 1 ? '1 day' : `${quedan} days`}): create a new one in Entra ID and save it here before then.`}
+		</p>
+	{/if}
 	{#if propio?.activo}
 		<p class="bien">
 			Enabled. Tenant <code>{propio.tenant}</code>, application
 			<code>{propio.clientId}</code>{#if propio.final}, secret ending in <code>{propio.final}</code
-				>{/if}. Tested by {propio.activadoPor} on
+				>{/if}{#if propio.secretoCaduca}, expires on {propio.secretoCaduca}{/if}. Tested by {propio.activadoPor}
+			on
 			{fechaCorta(propio.activado ?? propio.guardado)}.
 			{#if propio.exigirMfa}
 				MFA required{#if propio.contextoAuth}
@@ -269,6 +292,19 @@ echo "Client:    $APP"; echo "Secret:    $SECRETO"`);
 					required={!propio}
 				/>
 			</label>
+			<label class="campo">
+				<span>Secret expires on (recommended)</span>
+				<input
+					name="secretoCaduca"
+					type="date"
+					value={valores?.secretoCaduca ?? propio?.secretoCaduca ?? ''}
+				/>
+			</label>
+			<p class="ayuda">
+				The script prints it ("Expires"). With it, the console warns 30 and 7 days before the secret
+				expires (here and, with alert outputs, through them), so Microsoft sign-in does not stop
+				without notice.
+			</p>
 			<label class="campo">
 				<span>Conditional Access authentication context ID (recommended)</span>
 				<input
