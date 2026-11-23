@@ -11,6 +11,7 @@ import { EJECUTORES } from '@sugardaddy/contrato';
 import { avisosSensor, resumenMotor } from '$lib/capacidades';
 import type { Entorno } from '$lib/entorno';
 import { trasHecho, trasParar, trasQuitado, trasRetirar } from './colocacion';
+import { marcarColocada, marcarRetirada, marcarRetirando } from './colocaciones';
 import { db, schema as s } from './db';
 import { clavesCredencial } from './credenciales';
 import { enmascararLinea } from './credenciales-protegidas';
@@ -478,8 +479,17 @@ async function dependientesDeTrampa(tx: Tx, id: string) {
 /* La huella de los pasos de una trampa a mano, para la auditoría. */
 const huella = (f: typeof s.trampas.$inferSelect) => (f.manual ? { pasos: f.manual.sha256 } : {});
 
-/* Borra la trampa y lo deja en la auditoría: sus eventos se quedan, que son historia. */
-async function borrarTrampa(tx: Tx, quien: string, f: typeof s.trampas.$inferSelect) {
+/*
+ * Borra la trampa y lo deja en la auditoría: sus eventos se quedan, que son historia, y su
+ * inventario de colocaciones también, cerrado con quién la retiró (D7).
+ */
+export async function borrarTrampa(
+	tx: Tx,
+	quien: string,
+	f: typeof s.trampas.$inferSelect,
+	por: 'manual' | 'caducada' | 'trampa-retirada' = 'trampa-retirada'
+) {
+	await marcarRetirada(tx, f.id, por);
 	await tx.delete(s.trampas).where(eq(s.trampas.id, f.id));
 	await tx.insert(s.auditoria).values({
 		quien,
@@ -502,13 +512,39 @@ async function borrarTrampa(tx: Tx, quien: string, f: typeof s.trampas.$inferSel
 export async function retirarTrampa(
 	quien: string,
 	id: string
-): Promise<'retirada' | 'retirando' | 'no-existe' | { dependientes: string[] }> {
+): Promise<
+	'retirada' | 'retirando' | 'retirando-conector' | 'no-existe' | { dependientes: string[] }
+> {
 	return db.transaction(async (tx) => {
 		/* Bloqueada: dar de alta una que apunte a esta espera a que acabe, y al revés. */
 		const [f] = await tx.select().from(s.trampas).where(eq(s.trampas.id, id)).for('update');
 		if (!f) return 'no-existe';
 		const dependientes = await dependientesDeTrampa(tx, id);
 		if (dependientes.length) return { dependientes };
+		/*
+		 * La de un conector (graph@1): queda «retirando» y la quita la consola por la conexión
+		 * del tenant (conector-ficheros.ts, enseguida y, si falla, cada pocos minutos); al
+		 * quitarla, se borra la fila. Nunca se borra sin haber quitado lo que colocó.
+		 */
+		if (EJECUTORES[f.ejecutor]?.clase === 'conector') {
+			if (f.colocacion !== 'retirando') {
+				await tx
+					.update(s.trampas)
+					.set({
+						colocacion: 'retirando',
+						colocacionMotivo: 'conector.retirando',
+						colocacionCuando: new Date()
+					})
+					.where(eq(s.trampas.id, id));
+				await marcarRetirando(tx, id);
+				await tx.insert(s.auditoria).values({
+					quien,
+					accion: 'decoy being removed',
+					detalle: { id, modulo: f.modulo, destino: f.destino, ...huella(f) }
+				});
+			}
+			return 'retirando-conector';
+		}
 		const retirada =
 			EJECUTORES[f.ejecutor]?.retirada === 'confirmada' ? 'confirmada' : 'automatica';
 		const r = trasRetirar(f, retirada, new Date());
@@ -518,6 +554,7 @@ export async function retirarTrampa(
 		}
 		if (Object.keys(r).length) {
 			await tx.update(s.trampas).set(r).where(eq(s.trampas.id, id));
+			await marcarRetirando(tx, id);
 			await tx.insert(s.auditoria).values({
 				quien,
 				accion: 'decoy being removed',
@@ -543,7 +580,8 @@ export async function trampaQuitada(
 		if (trasQuitado(f) !== 'borrar') return 'no-retirando';
 		const dependientes = await dependientesDeTrampa(tx, id);
 		if (dependientes.length) return { dependientes };
-		await borrarTrampa(tx, quien, f);
+		const caducada = !!f.caduca && f.caduca.getTime() <= Date.now();
+		await borrarTrampa(tx, quien, f, caducada ? 'caducada' : 'manual');
 		return 'retirada';
 	});
 }
@@ -565,6 +603,7 @@ export async function trampaHecha(
 		const c = trasHecho(f, new Date());
 		if (!c) return 'no-por-colocar';
 		await tx.update(s.trampas).set(c).where(eq(s.trampas.id, id));
+		await marcarColocada(tx, id);
 		await tx.insert(s.auditoria).values({
 			quien,
 			accion: 'decoy deployed manually',

@@ -17,7 +17,12 @@
 	] as const;
 	const pestana = $derived(pestanaDe(page.url, PESTANAS));
 
-	const ORIGEN = { local: 'Local user', entra: 'Microsoft', oidc: 'Identity provider' } as const;
+	const ORIGEN = {
+		local: 'Local user',
+		entra: 'Microsoft',
+		oidc: 'Identity provider (OIDC)',
+		saml: 'Identity provider (SAML)'
+	} as const;
 	const activas = $derived(data.cuentas.filter((c) => !c.desactivada).length);
 	const yo = $derived(page.data.usuario?.oid ?? null);
 </script>

@@ -1,4 +1,5 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { EJECUTORES_CONECTOR } from './ejecutores-conector';
 import { eq } from 'drizzle-orm';
 import { join } from 'node:path';
 import { leerHoneycosa, leerRespuesta, traductorDe, validarCatalogo } from '@sugardaddy/contrato';
@@ -101,8 +102,15 @@ export function plantillaDeFichero(h: Honeycosa): Uint8Array | null {
 export const nombresModulos = (catalogo: Iterable<Honeycosa>): Record<string, string> =>
 	Object.fromEntries([...catalogo].map((h) => [h.id, h.nombre]));
 
-/* Los ejecutores que conoce esta consola (§6.1): las vías que pone desde el alta. */
-export const EJECUTORES_CONSOLA: IdEjecutor[] = ['contenedor@1', 'manual@1'];
+/*
+ * Los ejecutores que conoce esta consola (§6.1): las vías que pone desde el alta. Los de
+ * conector (graph@1) solo en Cloud: la Community deja su lista vacía.
+ */
+export const EJECUTORES_CONSOLA: IdEjecutor[] = [
+	'contenedor@1',
+	'manual@1',
+	...EJECUTORES_CONECTOR
+];
 
 /*
  * Se puede poner desde esta consola: tiene alguna vía que ella sabe poner

@@ -7,9 +7,18 @@
  */
 import { isIP } from 'node:net';
 
-/* Como normalizarIp de pruebas.ts, sin traerse la base: aquí solo hay texto. */
-function normalizar(ip: string): string | null {
-	let t = ip.toLowerCase().replace(/^\[(.*)\]$/, '$1');
+/*
+ * Una IP escrita como la guarda la consola: en minúsculas, sin corchetes, una
+ * IPv4 dentro de IPv6 (::ffff:10.0.0.5, como la da un servidor de doble pila)
+ * como IPv4 y una IPv6 abreviada. null si no es una IP. Sin base: solo texto, para
+ * que lo usen el buscador, la recepción de eventos y las pruebas.
+ */
+export function normalizarIp(ip: string | null | undefined): string | null {
+	if (!ip) return null;
+	let t = ip
+		.trim()
+		.toLowerCase()
+		.replace(/^\[(.*)\]$/, '$1');
 	t = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/.exec(t)?.[1] ?? t;
 	const v = isIP(t);
 	if (v === 4) return t;
@@ -27,7 +36,7 @@ export function ipBuscada(q: string | null | undefined): IpBuscada | null {
 	if (!t || /\s/.test(t)) return null;
 	const barra = t.indexOf('/');
 	if (barra < 0) {
-		const ip = normalizar(t);
+		const ip = normalizarIp(t);
 		return ip ? { clase: 'ip', ip } : null;
 	}
 	const base = t.slice(0, barra).replace(/^\[(.*)\]$/, '$1');

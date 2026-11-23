@@ -79,10 +79,12 @@ type SalidaEstricta struct {
 	Destinos    []Destino `json:"destinos"`
 }
 
-// Destino es una IP (ya resuelta) y un puerto TCP al que el nodo puede salir.
+// Destino es una IP (ya resuelta) y un puerto al que el nodo puede salir. Proto vacío
+// es TCP; "udp", una salida syslog por UDP (sus conjuntos solo existen si hay alguna).
 type Destino struct {
 	IP     string `json:"ip"`
 	Puerto int    `json:"puerto"`
+	Proto  string `json:"proto,omitempty"`
 }
 
 // Topes: el estado sale de la consola y de Docker; uno desmedido es un error, no
@@ -116,6 +118,8 @@ type estrictoCanonico struct {
 	salida     bool
 	destinos4  []Destino
 	destinos6  []Destino
+	udp4       []Destino
+	udp6       []Destino
 }
 
 func separar(redes []string, que string) (v4, v6 []netip.Prefix, err error) {
@@ -240,21 +244,26 @@ func canonico(e Estricto) (estrictoCanonico, error) {
 		vistos := map[Destino]bool{}
 		for _, d := range e.Salida.Destinos {
 			a, err := netip.ParseAddr(strings.TrimSpace(d.IP))
-			if err != nil || !puertoValido(d.Puerto) {
+			if err != nil || !puertoValido(d.Puerto) || (d.Proto != "" && d.Proto != "udp") {
 				return c, fmt.Errorf("invalid outbound destination %s:%d", d.IP, d.Puerto)
 			}
 			a = a.Unmap()
 			if a.IsUnspecified() {
 				return c, fmt.Errorf("invalid outbound destination %s", d.IP)
 			}
-			n := Destino{a.String(), d.Puerto}
+			n := Destino{a.String(), d.Puerto, d.Proto}
 			if vistos[n] {
 				continue
 			}
 			vistos[n] = true
-			if a.Is4() {
+			switch {
+			case a.Is4() && d.Proto == "udp":
+				c.udp4 = append(c.udp4, n)
+			case d.Proto == "udp":
+				c.udp6 = append(c.udp6, n)
+			case a.Is4():
 				c.destinos4 = append(c.destinos4, n)
-			} else {
+			default:
 				c.destinos6 = append(c.destinos6, n)
 			}
 		}
@@ -269,6 +278,8 @@ func canonico(e Estricto) (estrictoCanonico, error) {
 		}
 		ordenar(c.destinos4)
 		ordenar(c.destinos6)
+		ordenar(c.udp4)
+		ordenar(c.udp6)
 	}
 	return c, nil
 }
@@ -349,6 +360,19 @@ func ReglasEstricto(e Estricto) (string, error) {
 		}
 		conjunto(&b, "salida4", "ipv4_addr . inet_service", false, d4)
 		conjunto(&b, "salida6", "ipv6_addr . inet_service", false, d6)
+		// UDP (syslog sin cifrar a un SIEM del cliente): sus conjuntos y su regla, solo
+		// si hay alguno; sin ellos la tabla es la de siempre.
+		if len(c.udp4)+len(c.udp6) > 0 {
+			var u4, u6 []string
+			for _, d := range c.udp4 {
+				u4 = append(u4, d.IP+" . "+strconv.Itoa(d.Puerto))
+			}
+			for _, d := range c.udp6 {
+				u6 = append(u6, d.IP+" . "+strconv.Itoa(d.Puerto))
+			}
+			conjunto(&b, "salida4u", "ipv4_addr . inet_service", false, u4)
+			conjunto(&b, "salida6u", "ipv6_addr . inet_service", false, u6)
+		}
 	}
 	puerto := strconv.Itoa(c.consola)
 
@@ -415,7 +439,7 @@ func ReglasEstricto(e Estricto) (string, error) {
 	b.WriteString("\t\tct state new ct status dnat drop\n")
 	if c.salida {
 		b.WriteString("\t\t# Restricted outbound: only to the list (plus DNS and NTP).\n")
-		escribirSalida(&b, "oifname")
+		escribirSalida(&b, "oifname", len(c.udp4)+len(c.udp6) > 0)
 	}
 	b.WriteString("\t}\n")
 
@@ -425,14 +449,14 @@ func ReglasEstricto(e Estricto) (string, error) {
 		b.WriteString("\t\tct state established,related accept\n")
 		b.WriteString("\t\tmeta l4proto { icmp, ipv6-icmp } accept\n")
 		b.WriteString("\t\tudp dport { 67, 547 } accept\n")
-		escribirSalida(&b, "oifname")
+		escribirSalida(&b, "oifname", len(c.udp4)+len(c.udp6) > 0)
 		b.WriteString("\t}\n")
 	}
 	b.WriteString("}\n")
 	return b.String(), nil
 }
 
-func escribirSalida(b *strings.Builder, oif string) {
+func escribirSalida(b *strings.Builder, oif string, udp bool) {
 	for _, p := range append(append([]string{}, puentesNodo...), PrefijoPuenteTrampas+"*") {
 		b.WriteString("\t\tct state new " + oif + " \"" + p + "\" accept\n")
 	}
@@ -440,6 +464,10 @@ func escribirSalida(b *strings.Builder, oif string) {
 	b.WriteString("\t\tct state new udp dport 123 accept\n")
 	b.WriteString("\t\tct state new ip daddr . tcp dport @salida4 accept\n")
 	b.WriteString("\t\tct state new ip6 daddr . tcp dport @salida6 accept\n")
+	if udp {
+		b.WriteString("\t\tct state new ip daddr . udp dport @salida4u accept\n")
+		b.WriteString("\t\tct state new ip6 daddr . udp dport @salida6u accept\n")
+	}
 	b.WriteString("\t\tct state new meta l4proto tcp reject with tcp reset\n")
 	b.WriteString("\t\tct state new reject with icmpx type admin-prohibited\n")
 }

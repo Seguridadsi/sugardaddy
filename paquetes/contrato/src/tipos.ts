@@ -214,6 +214,8 @@ export type CargaContenedor = {
 	red?: RedTrampa;
 };
 export type CargaManual = { lenguaje: 'powershell' | 'sh' | 'ninguno'; pasos: Paso[] };
+/* graph@1 (D3): a qué servicios de Microsoft 365 sube el fichero. */
+export type CargaGraph = { servicios: ('sharepoint' | 'onedrive')[] };
 
 export interface Via {
 	id: Slug;

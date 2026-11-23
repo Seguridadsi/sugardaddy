@@ -1,0 +1,51 @@
+{
+	"descripcion": "Huellas de los sitios propios de una baliza de web clonada (rele/clon.go y paquetes/canal/src/clon-web.ts).",
+	"propios": ["ejemplo.com", "portal.otra-empresa.es"],
+	"huellas": {
+		"ejemplo.com": "926vZLxQNn8",
+		"portal.otra-empresa.es": "TPoWCP0OvIU"
+	},
+	"segmento": "/p/926vZLxQNn8.TPoWCP0OvIU",
+	"casos": [
+		{
+			"referer": "https://ejemplo.com/acceso",
+			"propia": true
+		},
+		{
+			"referer": "https://www.ejemplo.com:8443/x?y=1",
+			"propia": true
+		},
+		{
+			"referer": "https://EJEMPLO.COM./",
+			"propia": true
+		},
+		{
+			"referer": "https://portal.otra-empresa.es/",
+			"propia": true
+		},
+		{
+			"referer": "https://otra-empresa.es/",
+			"propia": false
+		},
+		{
+			"referer": "",
+			"propia": true
+		},
+		{
+			"referer": "https://ejemplo.com.clon.example/",
+			"propia": false
+		},
+		{
+			"referer": "https://ejemplo-com.example/",
+			"propia": false
+		},
+		{
+			"referer": "https://clon-de-prueba.example/",
+			"propia": false
+		},
+		{
+			"referer": "no es una url",
+			"propia": true
+		}
+	]
+}

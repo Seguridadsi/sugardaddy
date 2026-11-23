@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+	clavesDistintas,
+	firmantesDistintos,
 	firmaValida,
 	firmarDelegacion,
 	firmarLicencia,
@@ -155,6 +157,21 @@ describe('confianza, catálogo y commit en la versión', () => {
 			expect(firmada(releaseCloud({ catalogo })).ok).toBe(false);
 		expect(firmada(releaseCloud({ commit: 'main' })).ok).toBe(false);
 	});
+
+	it('valida la forma de las listas seccomp por trampa', () => {
+		expect(
+			firmada(releaseCloud({ seccomp: { redis: { amd64: ['read', 'epoll_pwait'] } } })).ok
+		).toBe(true);
+		for (const seccomp of [
+			{ redis: {} },
+			{ redis: { amd64: [] } },
+			{ redis: { riscv64: ['read'] } },
+			{ redis: { amd64: ['Read'] } },
+			{ '../x': { amd64: ['read'] } },
+			[]
+		] as never[])
+			expect(firmada(releaseCloud({ seccomp })).ok).toBe(false);
+	});
 });
 
 describe('licencias y delegaciones con claves por uso', () => {
@@ -256,5 +273,26 @@ describe('claves ECDSA P-256 como las del Key Vault (vectores/confianza-ec.json)
 			.publicKey.export({ format: 'der', type: 'spki' })
 			.toString('base64');
 		expect(motivoClaves(`cloud:${p384}`)).toMatch(/not an Ed25519 or ECDSA P-256/);
+	});
+});
+
+describe('umbral de dos firmas (como umbral.go)', () => {
+	const c = leerConfianza(
+		lista(['cloud', cloud], ['cloud', cloudReserva], ['delegaciones', delegaciones]),
+		legado.publica
+	);
+	const contar = (f: { release: string; firma: string; firmas?: unknown }) =>
+		firmantesDistintos(c, f.release, f.firma, f.firmas).length;
+
+	it('cuenta claves distintas de confianza, de cualquier uso, y la misma dos veces es una', () => {
+		expect(clavesDistintas(c)).toBe(4);
+		expect(clavesDistintas(leerConfianza('', legado.publica))).toBe(1);
+		expect(contar(firmarRelease(legado.privada, releaseCloud(), [cloud]))).toBe(2);
+		expect(contar(firmarRelease(cloud.privada, releaseCloud()))).toBe(1);
+		expect(contar(firmarRelease(cloud.privada, releaseCloud(), [cloud]))).toBe(1);
+		/* Key Vault perdido y sin legado: la de reserva y la de delegaciones siguen sumando dos. */
+		expect(contar(firmarRelease(cloudReserva.privada, releaseCloud(), [delegaciones]))).toBe(2);
+		/* Una clave que no es de confianza no suma. */
+		expect(contar(firmarRelease(cloud.privada, releaseCloud(), [generarClaves()]))).toBe(1);
 	});
 });

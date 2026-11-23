@@ -5,6 +5,7 @@
 	import { page } from '$app/state';
 	import EstadoTrampa from '$lib/components/EstadoTrampa.svelte';
 	import FormularioParametros from '$lib/components/FormularioParametros.svelte';
+	import TablaColocaciones from '$lib/components/TablaColocaciones.svelte';
 	import ListaPasos from '$lib/components/ListaPasos.svelte';
 	import { ENTORNOS, ENTORNO_ETIQUETA, ENTORNO_EXPLICACION } from '$lib/entorno';
 	import { fechaHoraLarga, horaCorta } from '$lib/fechas-pantalla';
@@ -25,10 +26,15 @@
 					{ id: 'settings', texto: 'Settings' },
 					{ id: 'placement', texto: 'Placement' }
 				]
-			: [
-					{ id: 'status', texto: 'Status and steps' },
-					{ id: 'placement', texto: 'Placement' }
-				]),
+			: data.tipo === 'conector'
+				? [
+						{ id: 'status', texto: 'Status' },
+						{ id: 'placement', texto: 'Placement' }
+					]
+				: [
+						{ id: 'status', texto: 'Status and steps' },
+						{ id: 'placement', texto: 'Placement' }
+					]),
 		/* Sin salidas de avisos en esta edición, no hay pestaña. */
 		...(data.alcance ? [{ id: 'alerts', texto: 'Alerts' }] : [])
 	]);
@@ -71,7 +77,16 @@
 
 <a class="volver" href={resolve('/decoys')}>← Honeypots</a>
 
-{#if data.tipo === 'manual'}
+{#if data.tipo === 'conector'}
+	<div class="cabecera">
+		<p class="eyebrow">SharePoint or OneDrive · {data.trampa.modulo}</p>
+		<h1>{data.trampa.nombre}</h1>
+		<p class="desc">
+			Sugardaddy places it in <b>{data.ruta ?? 'its folder'}</b> through the Microsoft 365
+			connection of <b>{data.destino?.nombre ?? 'its tenant'}</b>, and removes it the same way.
+		</p>
+	</div>
+{:else if data.tipo === 'manual'}
 	{@const p = data.pasos}
 	{@const destino = data.destino?.nombre ?? p?.destino ?? 'its target'}
 	<div class="cabecera">
@@ -95,7 +110,7 @@
 	</div>
 {/if}
 
-{#if data.tipo === 'manual' && data.fueraDelCatalogo}
+{#if data.tipo !== 'contenedor' && data.fueraDelCatalogo}
 	<p class="error" role="alert">
 		This honeypot's module is no longer in the catalog and its signals are no longer processed.
 		{#if data.trampa.colocacion === 'retirando'}
@@ -139,6 +154,53 @@
 </div>
 
 <div hidden={pestana !== 'placement'}>
+	<!-- Lo sembrado de esta trampa (D7): su caducidad, su rotación y cada copia que se ha puesto. -->
+	{#if data.tipo !== 'contenedor'}
+		{#if opera && data.trampa.colocacion !== 'retirando'}
+			<section class="panel entornobloque" aria-label="Expiry and rotation">
+				<h2>Expiry and rotation</h2>
+				<p class="ayuda">
+					{#if data.tipo === 'conector'}
+						On its expiry date Sugardaddy removes it from SharePoint or OneDrive. Rotation mints the
+						document again with today's template and replaces the file in place.
+					{:else}
+						On its expiry date it moves to "Being removed" with its removal steps: the console does
+						not reach your machines. A rotation due is shown here and under Placements: remove it
+						and deploy a new one.
+					{/if}
+				</p>
+				<form method="POST" action="?/politica" use:enhance class="politica">
+					<label
+						>Expires on <input
+							type="date"
+							name="caduca"
+							value={data.politica.caduca ?? ''}
+						/></label
+					>
+					<label
+						>Rotate every <input
+							type="number"
+							name="rotarDias"
+							min="1"
+							max="3650"
+							inputmode="numeric"
+							value={data.politica.rotarDias ?? ''}
+						/> days</label
+					>
+					<button class="boton">Save</button>
+				</form>
+				<p class="ayuda">Leave a field empty for no expiry or no rotation.</p>
+			</section>
+		{/if}
+		<section class="panel bloque" aria-label="Placements">
+			<h2>Placements</h2>
+			{#if data.colocaciones.length}
+				<div class="tabla"><TablaColocaciones filas={data.colocaciones} conTrampa={false} /></div>
+			{:else}
+				<p class="ayuda">It has no placements recorded.</p>
+			{/if}
+		</section>
+	{/if}
 	<!--
 	Cambiar de sitio una trampa a mano sin retirarla: en qué destino está. Por
 	colocar, sus pasos se generan otra vez para el nuevo; puesta, solo cambia el
@@ -358,7 +420,56 @@
 	{/if}
 </div>
 
-{#if data.tipo === 'manual'}
+{#if data.tipo === 'conector'}
+	{@const colocacion = data.trampa.colocacion}
+	<div hidden={pestana !== 'status'}>
+		<section class="panel ahora" aria-label="What to do now">
+			{#if colocacion === 'retirando'}
+				<h2>Removing it from SharePoint or OneDrive</h2>
+				{#if e?.codigo === 'conector.cambiada'}
+					<p>
+						Someone changed the file after it was placed, so Sugardaddy will not delete it. Delete
+						it yourself from <span class="mono">{data.ruta}</span> and click "I have removed it".
+					</p>
+				{:else}
+					<p>Sugardaddy deletes the file it placed (it goes to the site's recycle bin).</p>
+				{/if}
+			{:else if colocacion === 'por-colocar'}
+				<h2>Placing it in SharePoint or OneDrive</h2>
+				<p>
+					Sugardaddy uploads the document to <span class="mono">{data.ruta}</span>. It never
+					overwrites a file of yours or creates folders.
+				</p>
+			{:else}
+				<h2>It is placed</h2>
+				<p>
+					To take it down, click "Remove": Sugardaddy deletes the file it placed, only if nobody has
+					changed it.
+				</p>
+			{/if}
+			{#if opera}
+				<div class="botones">
+					{#if colocacion === 'por-colocar' && e?.codigo === 'conector.fallo'}
+						<form method="POST" action="?/reintentar" use:enhance>
+							<button class="boton principal">Try again now</button>
+						</form>
+					{/if}
+					{#if colocacion === 'retirando'}
+						{#if e?.codigo === 'conector.cambiada'}
+							<form method="POST" action="?/quitado" use:enhance>
+								<button class="boton principal">I have removed it</button>
+							</form>
+						{/if}
+					{:else}
+						<form method="POST" action="?/retirar" use:enhance>
+							<button class="boton peligro">Remove</button>
+						</form>
+					{/if}
+				</div>
+			{/if}
+		</section>
+	</div>
+{:else if data.tipo === 'manual'}
 	{@const p = data.pasos}
 	{@const destino = data.destino?.nombre ?? p?.destino ?? 'its target'}
 	{@const colocacion = data.trampa.colocacion}
@@ -871,6 +982,26 @@
 
 	.entornobloque select {
 		max-width: 320px;
+	}
+
+	.politica {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 12px;
+	}
+
+	.politica input {
+		width: auto;
+		margin: 0 4px;
+	}
+
+	.politica input[type='number'] {
+		width: 6em;
+	}
+
+	.tabla {
+		overflow-x: auto;
 	}
 
 	.sitio {

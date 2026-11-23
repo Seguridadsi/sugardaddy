@@ -4,6 +4,7 @@ import { volverSeguro } from '@sugardaddy/entra';
 import { descubrir } from '@sugardaddy/entra/oidc';
 import { configActiva } from '$lib/server/auth/entra-propio';
 import { oidcActivo } from '$lib/server/auth/oidc-propio';
+import { samlActivo } from '$lib/server/auth/saml-propio';
 import { loginLocalHabilitado, verificar } from '$lib/server/auth/local';
 import { despuesDeLaClave } from '$lib/server/auth/segundo-factor';
 import { INACTIVIDAD_MS, MAXIMO_MS } from '$lib/server/auth/sesion';
@@ -55,9 +56,13 @@ async function salidaDelProveedor() {
 export const load = async ({ url, locals }) => {
 	if (locals.usuario) redirect(303, '/');
 	const oidc = await oidcActivo();
+	const saml = await samlActivo();
 	return {
 		configurado: !!(await configActiva()),
 		oidc: oidc ? { nombre: oidc.guardado.nombre } : null,
+		saml: saml ? { nombre: saml.guardado.nombre } : null,
+		/* Tras salir de una sesión de SAML: la del proveedor sigue abierta (sin cierre único). */
+		salidaSaml: url.searchParams.get('salida') === 'saml' && saml ? saml.guardado.nombre : null,
 		salidaProveedor: url.searchParams.get('salida') === 'oidc' ? await salidaDelProveedor() : null,
 		local: loginLocalHabilitado(),
 		volverA: url.searchParams.get('volverA') ?? '/',

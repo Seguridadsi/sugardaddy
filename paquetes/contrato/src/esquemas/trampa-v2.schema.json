@@ -522,6 +522,22 @@
 				}
 			}
 		},
+		"cargaGraph": {
+			"description": "graph@1 (D3): dónde sube el fichero. sharepoint = una biblioteca de un sitio; onedrive = el OneDrive de una persona (también un sitio, el personal).",
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["servicios"],
+			"properties": {
+				"servicios": {
+					"type": "array",
+					"minItems": 1,
+					"uniqueItems": true,
+					"items": {
+						"enum": ["sharepoint", "onedrive"]
+					}
+				}
+			}
+		},
 		"cargaManual": {
 			"description": "La de manual@1: los pasos que genera la consola para ese destino. ninguno es para pasos de panel (NAS, consola de nube): solo texto.",
 			"type": "object",
@@ -709,6 +725,22 @@
 						"properties": {
 							"carga": {
 								"$ref": "#/$defs/cargaManual"
+							}
+						}
+					}
+				},
+				{
+					"if": {
+						"properties": {
+							"ejecutor": {
+								"const": "graph@1"
+							}
+						}
+					},
+					"then": {
+						"properties": {
+							"carga": {
+								"$ref": "#/$defs/cargaGraph"
 							}
 						}
 					}

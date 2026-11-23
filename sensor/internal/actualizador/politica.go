@@ -2,6 +2,7 @@ package actualizador
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -23,7 +24,7 @@ import (
 //
 // El retardo se cuenta desde «publicada», que va dentro de lo firmado: el panel no puede
 // adelantarlo. Una versión marcada «urgente» en lo firmado (un arreglo de seguridad) se salta
-// el retardo, pero no la aprobación.
+// el retardo, pero no la aprobación ni la ventana horaria.
 
 const (
 	PoliticaAutomatica = "automatica"
@@ -37,6 +38,26 @@ const (
 type Politica struct {
 	Modo         string `json:"modo"`
 	RetardoHoras int    `json:"retardoHoras"`
+	// Ventanas en que puede empezar una instalación (ventana.go): basta con que esté abierta
+	// una. Sin ninguna, a cualquier hora. Las consolas anteriores no lo mandan.
+	Ventanas []Ventana `json:"ventanas,omitempty"`
+	// grupos: lo que deja MasEstricta al combinar dos políticas con ventana. Hace falta que
+	// cada grupo tenga alguna abierta (la intersección de las dos fuentes).
+	grupos [][]Ventana
+}
+
+// gruposDe: todas las listas de ventanas que tienen que estar abiertas a la vez.
+func gruposDe(p Politica) [][]Ventana {
+	g := slices.Clone(p.grupos)
+	if len(p.Ventanas) > 0 {
+		v := p.Ventanas
+		if len(v) > MaxVentanas {
+			// Una lista absurda (de una consola) se queda en su principio: nunca abre más.
+			v = v[:MaxVentanas]
+		}
+		g = append(g, v)
+	}
+	return g
 }
 
 // Aprobacion es la de una persona de la consola para una versión concreta.
@@ -64,6 +85,12 @@ func PoliticaDelEntorno(get func(string) string) Politica {
 			p.RetardoHoras = n
 		}
 	}
+	if v, err := LeerVentanas(get("ACTUALIZACION_VENTANA")); err != nil {
+		// Ilegible: una ventana que nunca abre (lo más estricto). Se ve en la espera.
+		p.Ventanas = []Ventana{{}}
+	} else {
+		p.Ventanas = v
+	}
 	return p
 }
 
@@ -76,13 +103,14 @@ func MasEstricta(a, b Politica) Politica {
 	if p.RetardoHoras > RetardoMaximoHoras {
 		p.RetardoHoras = RetardoMaximoHoras
 	}
+	p.grupos = append(gruposDe(a), gruposDe(b)...)
 	return p
 }
 
 // Espera explica por qué una versión aún no se instala. Vacía: se puede instalar.
 type Espera struct {
-	Motivo string    // "aprobacion" o "retardo"
-	Hasta  time.Time // con "retardo": desde cuándo se puede
+	Motivo string    // "aprobacion", "retardo" o "ventana"
+	Hasta  time.Time // con "retardo" o "ventana": desde cuándo se puede (cero: no se sabe)
 }
 
 func (e Espera) String() string {
@@ -91,6 +119,11 @@ func (e Espera) String() string {
 		return "waiting for approval in the console (manual update policy)"
 	case "retardo":
 		return fmt.Sprintf("waiting for the minimum delay of the update policy (until %s)", e.Hasta.UTC().Format(time.RFC3339))
+	case "ventana":
+		if e.Hasta.IsZero() {
+			return "waiting for the update window, which does not open in the next 8 days (check ACTUALIZACION_VENTANA in .env and the window in the console)"
+		}
+		return fmt.Sprintf("waiting for the update window (opens at %s)", e.Hasta.UTC().Format(time.RFC3339))
 	}
 	return ""
 }
@@ -110,6 +143,15 @@ func ComprobarPolitica(r Release, p Politica, a *Aprobacion, exigirAprobacion bo
 		}
 		if hasta := pub.Add(time.Duration(p.RetardoHoras) * time.Hour); ahora.Before(hasta) {
 			return Espera{Motivo: "retardo", Hasta: hasta}
+		}
+	}
+	// La ventana, también para una urgente: el banco decide a qué hora se toca su máquina, y
+	// la ventana más larga que se puede poner la deja esperando como mucho una semana.
+	if g := gruposDe(p); len(g) > 0 {
+		for _, x := range g {
+			if !grupoAbierto(x, ahora) {
+				return Espera{Motivo: "ventana", Hasta: siguienteApertura(g, ahora)}
+			}
 		}
 	}
 	return Espera{}

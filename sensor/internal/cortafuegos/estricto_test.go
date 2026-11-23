@@ -26,7 +26,7 @@ func casosEstricto() map[string]Estricto {
 			Publicados: []Publicado{{"tcp", 22}, {"udp", 53}, {"tcp", 445}, {"tcp", 22}, {"tcp", 443}, {"udp", 123}},
 			SSH:        SSHEstricto{Puerto: 2222, Redes: []string{"192.0.2.0/24", "2001:db8:1::/48"}},
 			Salida: SalidaEstricta{Restringida: true, Destinos: []Destino{
-				{"20.1.2.3", 443}, {"2603:1000::1", 443}, {"20.1.2.3", 443}, {"52.0.0.9", 8080},
+				{"20.1.2.3", 443, ""}, {"2603:1000::1", 443, ""}, {"20.1.2.3", 443, ""}, {"52.0.0.9", 8080, ""},
 			}},
 		},
 		// Un sensor remoto: sin consola en la máquina, solo sus trampas, el SSH de
@@ -35,7 +35,14 @@ func casosEstricto() map[string]Estricto {
 			Publicados: []Publicado{{"tcp", 21}, {"tcp", 443}, {"udp", 161}},
 			SSH:        SSHEstricto{Puerto: 22, Redes: []string{"10.20.0.0/16"}},
 			Salida: SalidaEstricta{Restringida: true, Destinos: []Destino{
-				{"10.0.0.5", 443}, {"20.1.2.3", 443},
+				{"10.0.0.5", 443, ""}, {"20.1.2.3", 443, ""},
+			}},
+		},
+		// Una salida syslog por UDP a un SIEM del cliente: sus propios conjuntos.
+		"udp": {
+			Consola: ConsolaEstricta{Puerto: 443, Redes: []string{"192.0.2.10"}},
+			Salida: SalidaEstricta{Restringida: true, Destinos: []Destino{
+				{"20.1.2.3", 443, ""}, {"10.0.0.9", 514, "udp"}, {"2001:db8::9", 514, "udp"}, {"10.0.0.9", 514, ""},
 			}},
 		},
 		"abierta": {
@@ -102,8 +109,9 @@ func TestEstrictoRechaza(t *testing.T) {
 			e.Publicados = []Publicado{{"tcp", 22}}
 		},
 		"ssh para todos":          func(e *Estricto) { e.SSH = SSHEstricto{22, []string{"::/0"}} },
-		"destino sin ip":          func(e *Estricto) { e.Salida = SalidaEstricta{true, []Destino{{"panel.example", 443}}} },
-		"destino sin especificar": func(e *Estricto) { e.Salida = SalidaEstricta{true, []Destino{{"0.0.0.0", 443}}} },
+		"destino sin ip":          func(e *Estricto) { e.Salida = SalidaEstricta{true, []Destino{{"panel.example", 443, ""}}} },
+		"destino protocolo raro":  func(e *Estricto) { e.Salida = SalidaEstricta{true, []Destino{{"10.0.0.1", 514, "sctp"}}} },
+		"destino sin especificar": func(e *Estricto) { e.Salida = SalidaEstricta{true, []Destino{{"0.0.0.0", 443, ""}}} },
 	}
 	for nombre, cambiar := range casos {
 		e := base()

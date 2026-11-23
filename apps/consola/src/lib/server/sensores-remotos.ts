@@ -19,6 +19,7 @@ import type { Entorno } from '$lib/entorno';
 import { crearSensor, prepararToken, reactivarSensor } from './gestion';
 import { PROXY_SH } from './proxy-sh';
 import { AISLAMIENTO_SH } from './aislamiento-sh';
+import { POLITICA_SH } from './politica-sh';
 import { normalizarIp } from './pruebas';
 import { comprobarArquitectura } from './arquitectura-sh';
 import { detectarRed } from './red-sh';
@@ -479,6 +480,9 @@ if [[ -n $SD_FIJA ]]; then
 	SD_RESOLVER=(--resolve "$SD_DOMINIO:$SD_PUERTO:$SD_FIJA")
 fi
 echo "==> Installing Sugardaddy sensor $SD_SENSOR"
+${POLITICA_SH}
+# El suelo de la política de cambios: sudo ACTUALIZACION_RETARDO_HORAS=72 bash (y las otras dos).
+sd_politica_comprobar
 ${comprobarArquitectura('this sensor', LINEA_GASTADA)}
 DIR=${CARPETA}
 ${PROXY_SH}
@@ -514,7 +518,11 @@ PASO="prepare the folder"
 mkdir -p "$DIR/datos"
 chmod 700 "$DIR/datos"
 umask 077
+# Al reinstalar, el suelo de la política de cambios que ya tenía la máquina se queda.
+SD_POLITICA_ANTES="$(grep -E '^ACTUALIZACION_(POLITICA|RETARDO_HORAS|VENTANA)=' "$DIR/.env" 2>/dev/null || true)"
 cp "$SD_DATOS/env" "$DIR/.env"
+[[ -z "$SD_POLITICA_ANTES" ]] || printf '%s\n' "$SD_POLITICA_ANTES" >> "$DIR/.env"
+sd_politica_env "$DIR/.env"
 umask 022
 cp "$SD_DATOS/versiones.env" "$DIR/versiones.env"
 cp "$SD_DATOS/compose.yml" "$DIR/compose.yml"

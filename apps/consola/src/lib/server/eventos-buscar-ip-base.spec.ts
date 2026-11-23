@@ -38,7 +38,9 @@ const ORIGENES: (string | null)[] = [
 	'no-es-una-ip',
 	null,
 	/* Otro origen cuyo comando nombra la IP buscada: no viene de ella. */
-	'203.0.113.9'
+	'203.0.113.9',
+	/* Una IPv4 de un servidor de doble pila, guardada así antes de la 0.33. */
+	'::ffff:198.51.100.90'
 ];
 
 function evento(n: number, ip: string | null) {
@@ -93,6 +95,8 @@ describe.skipIf(!hayBase)('una IP en el buscador de Events', () => {
 
 	it('una IPv4 entera: los eventos que vienen de ella, no los que la nombran', async () => {
 		expect(await mios('198.51.100.77')).toEqual([1]);
+		expect(await mios('198.51.100.90')).toEqual([8]);
+		expect(await mios('::ffff:198.51.100.90')).toEqual([8]);
 		expect(await mios('  198.51.100.77 ')).toEqual([1]);
 		expect(await mios('::ffff:198.51.100.77')).toEqual([1]);
 	});
@@ -100,14 +104,15 @@ describe.skipIf(!hayBase)('una IP en el buscador de Events', () => {
 	it('media IP sigue siendo texto: casa dentro de la línea', async () => {
 		expect(await mios('198.51.100.7/')).toEqual([]);
 		expect(await mios('//198.51.100.77')).toEqual([7]);
-		expect(await mios('198.51.100.')).toEqual([1, 2, 7]);
+		expect(await mios('198.51.100.')).toEqual([1, 2, 7, 8]);
 	});
 
 	it('un prefijo CIDR, alineado a octeto o no', async () => {
-		expect(await mios('198.51.100.0/24')).toEqual([1, 2]);
+		expect(await mios('198.51.100.0/24')).toEqual([1, 2, 8]);
+		expect(await mios('198.51.100.64/26')).toEqual([1, 8]);
 		expect(await mios('198.51.100.128/25')).toEqual([2]);
 		expect(await mios('198.51.98.0/23')).toEqual([3]);
-		expect(await mios('198.0.0.0/7')).toEqual([1, 2, 3]);
+		expect(await mios('198.0.0.0/7')).toEqual([1, 2, 3, 8]);
 		expect(await mios('198.51.100.77/32')).toEqual([1]);
 	});
 
@@ -122,7 +127,21 @@ describe.skipIf(!hayBase)('una IP en el buscador de Events', () => {
 		const filas = await eventosPlanos({ q: '198.51.100.0/24', trampa: TRAMPA });
 		expect(filas.map((f: { ip: string | null }) => f.ip).sort()).toEqual([
 			'198.51.100.200',
-			'198.51.100.77'
+			'198.51.100.77',
+			'::ffff:198.51.100.90'
 		]);
+	});
+
+	it('el campo «Source IP»: una IP o red como el buscador, y si no, por cómo empieza', async () => {
+		const origen = async (o: string) =>
+			(await eventos({ origen: o, trampa: TRAMPA }))
+				.map((e) => Number(e.id.slice(-4)))
+				.sort((a, b) => a - b);
+		expect(await origen('198.51.100.90')).toEqual([8]);
+		expect(await origen('198.51.100.0/24')).toEqual([1, 2, 8]);
+		expect(await origen('198.51.100.')).toEqual([1, 2, 8]);
+		/* Una IP entera es esa IP, no las que empiezan igual. */
+		expect(await origen('198.51.100.7')).toEqual([]);
+		expect(await origen('2001:db8:aa::5')).toEqual([4]);
 	});
 });

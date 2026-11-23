@@ -42,6 +42,7 @@ import {
 	type ReleaseFirmada
 } from '@sugardaddy/canal';
 import { recibirBalizasRele, type BalizaRele } from './balizas-rele';
+import { clavesParaElPanel, guardarReleSellado } from './balizas-sello';
 import { juntarRevocaciones, revocacionesGuardadas } from './candado';
 import { cuentaActivas } from './colocacion';
 import {
@@ -417,7 +418,9 @@ async function guardarMarcaDelPanel(m: MarcaFirmada | null) {
 			m.marca.length > 64 * 1024)
 	)
 		return;
-	await guardarAjuste('marca-panel', m);
+	/* null: el panel no tiene marca que repartir. «ajustes.valor» no admite nulos: se olvida la que hubiera. */
+	if (m === null) await db.delete(s.ajustes).where(eq(s.ajustes.clave, 'marca-panel'));
+	else await guardarAjuste('marca-panel', m);
 }
 
 export async function marcaDelPanel(): Promise<MarcaFirmada | null> {
@@ -957,6 +960,7 @@ export async function latir() {
 			falloRele ??= e;
 		};
 		await guardarDireccionRele(v.estado.rele, c.nodo, v.estado.releFirmado).catch(apuntarFallo);
+		await guardarReleSellado(v.estado.releSellado).catch(apuntarFallo);
 		await publicarBalizasRele(c).catch(apuntarFallo);
 		if (v.estado.releBalizas) await drenarBalizasRele(c).catch(apuntarFallo);
 		await considerar(v.estado, c.nodo);
@@ -1192,13 +1196,21 @@ export async function guardarDireccionRele(
  */
 async function publicarBalizasRele(c: Canal) {
 	const filas = await db.select({ token: s.balizas.token }).from(s.balizas);
-	const tokens = filas.map((f) => f.token).sort();
-	const huella = createHash('sha256').update(JSON.stringify(tokens)).digest('hex');
+	/* De los sellados, solo la ruta: el panel no llega a conocer el token (balizas-sello.ts). */
+	const { tokens, rutas } = clavesParaElPanel(filas.map((f) => f.token).sort());
+	/* Sin sellados, la misma huella que antes: un nodo que se pone al día no republica. */
+	const huella = createHash('sha256')
+		.update(JSON.stringify(rutas.length ? { tokens, rutas } : tokens))
+		.digest('hex');
 	const [f] = await db.select().from(s.ajustes).where(eq(s.ajustes.clave, 'balizas-rele-huella'));
 	const previa = (f?.valor as { huella?: string } | undefined)?.huella ?? null;
 	if (huella === previa) return;
-	if (!tokens.length && previa === null) return; // nunca tuvo balizas: nada que registrar aún
-	const r = await enviar(c, '/api/nodo/balizas', JSON.stringify({ tokens }));
+	if (!tokens.length && !rutas.length && previa === null) return; // nunca tuvo balizas: nada que registrar aún
+	const r = await enviar(
+		c,
+		'/api/nodo/balizas',
+		JSON.stringify(rutas.length ? { tokens, rutas } : { tokens })
+	);
 	if (!r.ok) throw new Error(`Central did not accept the beacon tokens: ${r.status}`);
 	await db
 		.insert(s.ajustes)

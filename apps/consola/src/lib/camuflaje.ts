@@ -315,30 +315,26 @@ const APELLIDOS = [
 /*
  * Títulos creíbles por familia de documento, para que dc:title (y /Title en el
  * PDF) no sea el mismo en todos los clientes. Son genéricos de oficina, sin
- * marcas ni datos personales.
+ * marcas ni datos personales. En inglés, como las plantillas (lo que ve el
+ * atacante va en inglés desde el 2026-11-19).
  */
 const TITULOS: Readonly<Record<string, string[]>> = {
 	word: [
-		'Nota interna',
-		'Comunicación interna',
-		'Memorando interno',
-		'Documento interno',
-		'Nota de servicio'
+		'Internal memo',
+		'Internal communication',
+		'Memorandum',
+		'Internal document',
+		'Staff notice'
 	],
 	excel: [
-		'Nóminas 2026',
-		'Retribuciones 2026',
-		'Resumen de nóminas',
-		'Control de nóminas 2026',
-		'Nóminas'
+		'Payroll 2026',
+		'Compensation 2026',
+		'Payroll summary',
+		'Payroll tracker 2026',
+		'Payroll'
 	],
-	pptx: [
-		'Plan comercial 2026',
-		'Plan de ventas 2026',
-		'Estrategia comercial 2026',
-		'Plan comercial'
-	],
-	pdf: ['Nota interna', 'Documento interno', 'Comunicación interna', 'Nota de servicio']
+	pptx: ['Sales plan 2026', 'Sales targets 2026', 'Go-to-market strategy 2026', 'Sales plan'],
+	pdf: ['Internal memo', 'Internal document', 'Internal communication', 'Staff notice']
 };
 
 /* La empresa para docProps/Company: el prefijo del dominio con mayúscula inicial. */

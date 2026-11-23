@@ -92,6 +92,7 @@ describe('la revisión trimestral', () => {
 	it('el origen de la cuenta por su oid', () => {
 		expect(origenCuenta('local:1')).toBe('local');
 		expect(origenCuenta('oidc:https://idp:sub')).toBe('oidc');
+		expect(origenCuenta('saml:1a2b3c4d:u-1')).toBe('saml');
 		expect(origenCuenta('0000-1111')).toBe('entra');
 	});
 });

@@ -46,6 +46,11 @@ vi.mock('./db', () => {
 						}
 					};
 				}
+			}),
+			delete: () => ({
+				where: async (c: { clave: string }) => {
+					bd.ajustes.delete(c.clave);
+				}
 			})
 		}
 	};
@@ -70,7 +75,8 @@ vi.mock('./consultas', () => ({
 
 const { autorizados, porQueNo } = await import('./catalogo');
 const { coberturaLicencia, modulosDeRegistro } = await import('./candado');
-const { activar, avisarContacto, estadoRegistro, renovar } = await import('./registro');
+const { activar, avisarContacto, canjear, estadoRegistro, pedirRegistro, renovar } =
+	await import('./registro');
 const canal = await import('./canal');
 
 const AHORA = Date.parse('2026-11-05T10:00:00Z');
@@ -381,5 +387,93 @@ describe('Cloud no cambia', () => {
 	it('el registro no autoriza nada en un nodo de Cloud', async () => {
 		bd.ajustes.set('licencia', firmada());
 		expect(await autorizados()).toEqual([]);
+	});
+});
+
+describe('el código del correo, sin enlace', () => {
+	const respuesta = (status: number, cuerpo: unknown = {}) =>
+		vi.fn(async () => new Response(JSON.stringify(cuerpo), { status }));
+	const pedir = async () => {
+		const f = respuesta(202, { resultado: 'enviado' });
+		vi.stubGlobal('fetch', f);
+		expect(await pedirRegistro('ana@ejemplo.es', AHORA)).toBe('enviado');
+		return f;
+	};
+
+	it('pide el código corto y lo deja pendiente para ese correo', async () => {
+		const f = await pedir();
+		const [url, init] = f.mock.calls[0] as unknown as [string, RequestInit];
+		expect(url).toMatch(/\/api\/registro$/);
+		expect(JSON.parse(init.body as string)).toMatchObject({
+			correo: 'ana@ejemplo.es',
+			origen: 'consola',
+			entrega: 'codigo'
+		});
+		expect((await estadoRegistro(AHORA)).pendiente).toBe('ana@ejemplo.es');
+		/* Pasado un día, el código del correo ya no vale y no se ofrece. */
+		expect((await estadoRegistro(AHORA + 25 * 3600_000)).pendiente).toBeNull();
+	});
+
+	it('canjea el código, activa como si se pegara y borra lo pendiente', async () => {
+		await pedir();
+		const f = respuesta(200, { resultado: 'activado', codigo: codigo() });
+		vi.stubGlobal('fetch', f);
+		const r = await canjear(
+			'admin@n.es',
+			{ codigo: 'abcde-fghjk', condiciones: true, novedades: true },
+			AHORA
+		);
+		expect(r.ok).toBe(true);
+		const [url, init] = f.mock.calls[0] as unknown as [string, RequestInit];
+		expect(url).toMatch(/\/api\/registro\/canjear$/);
+		expect(JSON.parse(init.body as string)).toEqual({
+			correo: 'ana@ejemplo.es',
+			codigo: 'abcde-fghjk',
+			condiciones: true,
+			novedades: true
+		});
+		const e = await estadoRegistro(AHORA);
+		expect(e.estado).toBe('vigente');
+		expect(e.pendiente).toBeNull();
+	});
+
+	it('sin aceptar las condiciones no manda nada', async () => {
+		await pedir();
+		const f = respuesta(200, {});
+		vi.stubGlobal('fetch', f);
+		const r = await canjear('a@b.c', { codigo: 'X', condiciones: false, novedades: false }, AHORA);
+		expect(r.ok).toBe(false);
+		expect(f).not.toHaveBeenCalled();
+	});
+
+	it('lo que devuelva el panel se verifica igual: una licencia falsa no activa', async () => {
+		await pedir();
+		const falsa = firmarLicenciaDelegada(otro.privada, licencia(), certificado());
+		vi.stubGlobal(
+			'fetch',
+			respuesta(200, {
+				codigo: codificarCodigo({ licencia: falsa, token: TOKEN, correo: 'ana@ejemplo.es' })
+			})
+		);
+		const r = await canjear('a@b.c', { codigo: 'X', condiciones: true, novedades: false }, AHORA);
+		expect(r.ok).toBe(false);
+		expect((await estadoRegistro(AHORA)).estado).toBe('sin');
+		expect((await estadoRegistro(AHORA)).pendiente).toBe('ana@ejemplo.es');
+	});
+
+	it('un código mal escrito, sin pedido o sin red lo dice sin lanzar', async () => {
+		vi.stubGlobal('fetch', respuesta(410, { resultado: 'codigo' }));
+		const sin = await canjear('a@b.c', { codigo: 'X', condiciones: true, novedades: false }, AHORA);
+		expect(sin.ok).toBe(false);
+		await pedir();
+		vi.stubGlobal('fetch', respuesta(410, { resultado: 'codigo' }));
+		const mal = await canjear('a@b.c', { codigo: 'X', condiciones: true, novedades: false }, AHORA);
+		expect(mal).toMatchObject({ ok: false, error: expect.stringMatching(/not valid/) });
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => Promise.reject(new Error('sin red')))
+		);
+		const red = await canjear('a@b.c', { codigo: 'X', condiciones: true, novedades: false }, AHORA);
+		expect(red).toMatchObject({ ok: false, error: expect.stringMatching(/Could not reach/) });
 	});
 });

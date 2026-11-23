@@ -84,3 +84,23 @@ func TestVerificarUrgente(t *testing.T) {
 		t.Fatal("urgente que no es booleano no debería pasar")
 	}
 }
+
+func TestValidarSeccomp(t *testing.T) {
+	if err := validarSeccomp(map[string]map[string][]string{"redis": {"amd64": {"read", "epoll_pwait"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := validarSeccomp(nil); err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range []map[string]map[string][]string{
+		{"redis": {}},
+		{"redis": {"amd64": {}}},
+		{"redis": {"riscv64": {"read"}}},
+		{"redis": {"amd64": {"Read"}}},
+		{"../x": {"amd64": {"read"}}},
+	} {
+		if validarSeccomp(s) == nil {
+			t.Errorf("%v tendría que fallar", s)
+		}
+	}
+}

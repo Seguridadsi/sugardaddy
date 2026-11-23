@@ -22,6 +22,12 @@ import {
 	guardarCredencialNube,
 	quitarCredencialNube
 } from '$lib/server/cortafuegos-ficha';
+import {
+	conexionDeDestino,
+	guardarConexion,
+	probarConexion,
+	quitarConexion
+} from '$lib/server/conector-ficheros';
 
 export const load = async ({ params, url }) => {
 	const destino = await fichaDestino(params.id);
@@ -35,7 +41,9 @@ export const load = async ({ params, url }) => {
 		/* Por qué salidas avisa lo de este sensor (lib/alcance.ts); sin sensor, no hay qué decir. */
 		alcance: destino.sensor ? await alcanceDeFicha('sensor', destino.sensor.id) : null,
 		/* El cortafuegos de su nube, si esta edición sabe abrirlo (cortafuegos-ficha.ts). */
-		cortafuegos: destino.sensor ? await cortafuegosDeFicha(destino.sensor.id) : null
+		cortafuegos: destino.sensor ? await cortafuegosDeFicha(destino.sensor.id) : null,
+		/* La conexión de Microsoft 365 de un tenant (D3), si esta edición la tiene. */
+		m365: await conexionDeDestino(params.id)
 	};
 };
 
@@ -87,7 +95,11 @@ export const actions = {
 		const f = await request.formData();
 		if (f.get('quitar') === 'si') {
 			await quitarCredencialNube(u.correo);
-			return { accion: 'credencialNube' as const, mensaje: 'Azure credential removed.' };
+			return {
+				accion: 'credencialNube' as const,
+				mensaje:
+					'Azure credential removed. The honeypot rules it had opened were removed from the security groups (see the audit log).'
+			};
 		}
 		const tenant = String(f.get('tenant') ?? '');
 		const aplicacion = String(f.get('aplicacion') ?? '');
@@ -99,6 +111,43 @@ export const actions = {
 		if (mal)
 			return fail(400, { accion: 'credencialNube' as const, error: mal, tenant, aplicacion });
 		return { accion: 'credencialNube' as const, mensaje: 'Azure credential saved.' };
+	},
+
+	/* La conexión de Microsoft 365 de un tenant (D3): guardarla, probarla o quitarla. */
+	m365: async ({ params, request, locals }) => {
+		const u = exigir(locals, 'ajustes');
+		const f = await request.formData();
+		if (f.get('quitar') === 'si') {
+			await quitarConexion(u.correo, params.id);
+			return { accion: 'm365' as const, mensaje: 'Microsoft 365 connection removed.' };
+		}
+		const r = await guardarConexion(u.correo, params.id, f);
+		if (!r.ok) return fail(400, { accion: 'm365' as const, error: r.error });
+		const p = await probarConexion(u.correo, params.id);
+		return p.ok
+			? {
+					accion: 'm365' as const,
+					mensaje: 'Saved and tested: the connection works.',
+					avisos: p.avisos
+				}
+			: fail(400, {
+					accion: 'm365' as const,
+					error: `Saved, but the test failed: ${p.error}`,
+					avisos: p.avisos
+				});
+	},
+	m365Probar: async ({ params, request, locals }) => {
+		const u = exigir(locals, 'ajustes');
+		const carpeta = String((await request.formData()).get('carpeta') ?? '').trim();
+		const p = await probarConexion(u.correo, params.id, carpeta || undefined);
+		if (!p.ok) return fail(400, { accion: 'm365' as const, error: p.error, avisos: p.avisos });
+		return {
+			accion: 'm365' as const,
+			mensaje: p.carpeta
+				? `It works, and the application can reach ${p.carpeta.web}.`
+				: 'It works: the application has Sites.Selected.',
+			avisos: p.avisos
+		};
 	},
 
 	/*

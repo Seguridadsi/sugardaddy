@@ -15,8 +15,10 @@
 		"test": "vitest --run"
 	},
 	"dependencies": {
+		"@node-saml/node-saml": "5.2.0",
 		"@peculiar/x509": "^2.1.0",
 		"@simplewebauthn/server": "^14.0.3",
+		"@xmldom/xmldom": "0.8.15",
 		"drizzle-orm": "^0.45.4",
 		"maxmind": "^5.0.7",
 		"nodemailer": "10.1.4",
@@ -44,6 +46,8 @@
 		"typescript": "^6.0.3",
 		"vite": "^8.0.16",
 		"vitest": "^4.1.11",
-		"world-atlas": "^2.0.2"
+		"world-atlas": "^2.0.2",
+		"xml-crypto": "6.4.0",
+		"xml-encryption": "3.1.0"
 	}
 }

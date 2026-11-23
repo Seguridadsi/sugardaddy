@@ -36,6 +36,7 @@ import { db, schema as s } from './db';
 import { clavesCredencial, guardable, preparar } from './credenciales';
 import { enmascararLinea } from './credenciales-protegidas';
 import { anotarPrueba, pruebasAbiertas, pruebasDe } from './pruebas';
+import { normalizarIp } from './buscar-ip';
 import { aplicarTriajeAuto } from './triaje-auto';
 
 export const LIMITE_LINEAS = 500;
@@ -790,7 +791,8 @@ async function guardarEntrega(
 										tipo: evento.trampa.tipo,
 										accion: evento.accion,
 										severidad: c.severidad,
-										ip: evento.origen.ip ?? null,
+										/* Normalizada (::ffff:1.2.3.4 → 1.2.3.4, IPv6 abreviada): así casa al buscar. La línea, tal cual. */
+										ip: normalizarIp(evento.origen.ip) ?? evento.origen.ip ?? null,
 										usuario: evento.origen.usuario ? sinNulos(evento.origen.usuario) : null,
 										conexionEstablecida: evento.conexionEstablecida,
 										alerta: c.alerta ? sinNulos(c.alerta) : null,

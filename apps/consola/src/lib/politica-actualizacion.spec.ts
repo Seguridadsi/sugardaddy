@@ -2,11 +2,22 @@ import { describe, expect, it } from 'vitest';
 import {
 	POLITICA_BANCA,
 	RETARDO_MAXIMO_HORAS,
+	combinar,
 	datosDeRelease,
+	describirVentana,
 	esBanca,
 	esperaDe,
+	leerPlantilla,
 	leerPolitica,
-	politicaDelFormulario
+	leerVentanas,
+	lineasEnv,
+	plantillaDe,
+	politicaDelEntorno,
+	politicaDelFormulario,
+	sueloActivo,
+	textoVentanas,
+	ventanaAbierta,
+	ventanaDelFormulario
 } from './politica-actualizacion';
 
 const H = 3_600_000;
@@ -73,5 +84,123 @@ describe('política de cambios', () => {
 		);
 		expect(datosDeRelease('no es json')).toBeNull();
 		expect(datosDeRelease(null)).toBeNull();
+	});
+});
+
+describe('ventana horaria (como ventana.go)', () => {
+	const laborables = {
+		dias: [1, 2, 3, 4, 5],
+		desde: '02:00',
+		hasta: '05:00',
+		zona: 'Europe/Madrid'
+	};
+	/* Miércoles 18 de noviembre de 2026; Madrid está en UTC+1. */
+	const madrid = (d: number, h: number, m = 0) => Date.UTC(2026, 10, d, h - 1, m);
+
+	it('abre y cierra en su zona, cruza la medianoche y dura 24 h con desde = hasta', () => {
+		expect(ventanaAbierta(laborables, madrid(18, 2))).toBe(true);
+		expect(ventanaAbierta(laborables, madrid(18, 4, 59))).toBe(true);
+		expect(ventanaAbierta(laborables, madrid(18, 5))).toBe(false);
+		expect(ventanaAbierta(laborables, madrid(21, 3))).toBe(false);
+		expect(ventanaAbierta({ dias: [3], desde: '02:00', hasta: '03:00' }, madrid(18, 3, 30))).toBe(
+			true
+		);
+		const viernes = { dias: [5], desde: '22:00', hasta: '02:00', zona: 'Europe/Madrid' };
+		expect(ventanaAbierta(viernes, madrid(20, 23))).toBe(true);
+		expect(ventanaAbierta(viernes, madrid(21, 1, 30))).toBe(true);
+		expect(ventanaAbierta(viernes, madrid(20, 1, 30))).toBe(false);
+		const domingo = { dias: [7], desde: '00:00', hasta: '00:00', zona: 'Europe/Madrid' };
+		expect(ventanaAbierta(domingo, madrid(22, 23, 59))).toBe(true);
+		expect(ventanaAbierta(domingo, madrid(23, 0))).toBe(false);
+		expect(ventanaAbierta({ dias: [], desde: '', hasta: '' }, madrid(18, 3))).toBe(false);
+	});
+
+	it('lee ACTUALIZACION_VENTANA como Go y rechaza lo mismo', () => {
+		const v = leerVentanas('1-5 02:00-05:00 Europe/Madrid; 6,7 00:00-00:00');
+		expect(v).toHaveLength(2);
+		expect(textoVentanas(v!)).toBe('1,2,3,4,5 02:00-05:00 Europe/Madrid; 6,7 00:00-00:00');
+		expect(leerVentanas('')).toEqual([]);
+		for (const malo of [
+			'1-5',
+			'0 02:00-03:00',
+			'1-8 02:00-03:00',
+			'5-1 02:00-03:00',
+			'1 2:00-03:00',
+			'1 24:00-03:00',
+			'1 02:00-03:00 Marte/Olimpo',
+			'1 02:00-03:00 ../../etc/passwd',
+			'1 02:00 03:00 x y'
+		])
+			expect(leerVentanas(malo), malo).toBeNull();
+	});
+
+	it('cuenta la ventana como el actualizador: urgente no se la salta y el .env no se ensancha', () => {
+		const noche = [{ dias: [1, 2, 3, 4, 5, 6, 7], desde: '02:00', hasta: '04:00' }];
+		const mediodia = Date.parse('2026-11-18T12:00:00Z');
+		expect(
+			esperaDe(v, { modo: 'automatica', retardoHoras: 0, ventanas: noche }, null, mediodia)
+		).toEqual({ motivo: 'ventana', hasta: '2026-11-19T02:00:00.000Z' });
+		expect(
+			esperaDe(
+				{ ...v, urgente: true },
+				{ modo: 'automatica', retardoHoras: 720, ventanas: noche },
+				null,
+				mediodia
+			).motivo
+		).toBe('ventana');
+		const suelo = politicaDelEntorno((k) => ({ ACTUALIZACION_VENTANA: '1-7 02:00-04:00' })[k]);
+		const todoElDia = {
+			modo: 'automatica' as const,
+			retardoHoras: 0,
+			ventanas: [{ dias: [1, 2, 3, 4, 5, 6, 7], desde: '00:00', hasta: '00:00' }]
+		};
+		expect(esperaDe(v, combinar(suelo, todoElDia), null, mediodia).motivo).toBe('ventana');
+		const tarde = {
+			...todoElDia,
+			ventanas: [{ ...todoElDia.ventanas[0], desde: '03:00', hasta: '05:00' }]
+		};
+		expect(esperaDe(v, combinar(suelo, tarde), null, Date.parse('2026-11-19T02:30:00Z'))).toEqual({
+			motivo: 'ventana',
+			hasta: '2026-11-19T03:00:00.000Z'
+		});
+		const mala = politicaDelEntorno((k) => ({ ACTUALIZACION_VENTANA: 'laborables' })[k]);
+		expect(mala.ventanaIlegible).toBe(true);
+		expect(esperaDe(v, mala, null, mediodia)).toEqual({ motivo: 'ventana', hasta: null });
+	});
+
+	it('el suelo del .env: lo que no se entiende es lo más estricto', () => {
+		const de = (e: Record<string, string>) => politicaDelEntorno((k) => e[k]);
+		expect(de({})).toMatchObject({ modo: 'automatica', retardoHoras: 0 });
+		expect(de({ ACTUALIZACION_POLITICA: 'manul' }).modo).toBe('manual');
+		expect(de({ ACTUALIZACION_RETARDO_HORAS: 'x' }).retardoHoras).toBe(RETARDO_MAXIMO_HORAS);
+		expect(de({ ACTUALIZACION_RETARDO_HORAS: '-5' }).retardoHoras).toBe(0);
+		expect(sueloActivo(de({}))).toBe(false);
+		expect(sueloActivo(de({ ACTUALIZACION_RETARDO_HORAS: '1' }))).toBe(true);
+	});
+
+	it('formulario, plantilla y líneas del .env', () => {
+		expect(ventanaDelFormulario(false, [], '', '', '')).toEqual({ ventanas: [] });
+		expect(ventanaDelFormulario(true, ['5', '1', '1'], '02:00', '05:00', 'UTC')).toEqual({
+			ventanas: [{ dias: [1, 5], desde: '02:00', hasta: '05:00' }]
+		});
+		expect(ventanaDelFormulario(true, [], '02:00', '05:00', '')).toHaveProperty('error');
+		expect(ventanaDelFormulario(true, ['1'], '02:00', '05:00', 'Marte/Olimpo')).toHaveProperty(
+			'error'
+		);
+		const p = { modo: 'manual' as const, retardoHoras: 72, ventanas: [laborables] };
+		expect(leerPlantilla(JSON.parse(JSON.stringify(plantillaDe(p))))).toEqual(p);
+		expect(leerPlantilla({ ...plantillaDe(p), formato: 'otra' })).toBeNull();
+		expect(leerPlantilla({ ...plantillaDe(p), retardoHoras: 9999 })).toBeNull();
+		expect(leerPlantilla({ ...plantillaDe(p), ventanas: [{ dias: [9] }] })).toBeNull();
+		expect(lineasEnv(p)).toEqual([
+			'ACTUALIZACION_POLITICA=manual',
+			'ACTUALIZACION_RETARDO_HORAS=72',
+			'ACTUALIZACION_VENTANA="1,2,3,4,5 02:00-05:00 Europe/Madrid"'
+		]);
+		expect(describirVentana(laborables)).toBe('Monday to Friday, 02:00–05:00 (Europe/Madrid)');
+		/* Lo guardado que no vale se queda como ventana que nunca abre. */
+		expect(leerPolitica({ modo: 'automatica', ventanas: [{ dias: [9] }] }).ventanas).toEqual([
+			{ dias: [], desde: '', hasta: '' }
+		]);
 	});
 });

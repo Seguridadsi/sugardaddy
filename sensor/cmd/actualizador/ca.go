@@ -52,7 +52,7 @@ func caAuxiliar() int {
 	defer parar()
 	ctx, cancelar := context.WithTimeout(ctx, actualizador.EsperaCambioCA)
 	defer cancelar()
-	d := docker.Nuevo("/var/run/docker.sock")
+	d := docker.Nuevo("/var/run/docker.sock").ConUsernsAnfitrion()
 	c := &actualizador.CambioCA{
 		Dir:      os.Getenv("CA_DIR"),
 		Datos:    actualizador.DatosCaddyEnAuxiliar,
@@ -82,7 +82,7 @@ func caSensoresAuxiliar() int {
 	c := &actualizador.CambioCA{
 		Dir:      os.Getenv("CA_DIR"),
 		Proyecto: os.Getenv("CA_PROYECTO"),
-		Docker:   docker.Nuevo("/var/run/docker.sock"),
+		Docker:   docker.Nuevo("/var/run/docker.sock").ConUsernsAnfitrion(),
 		Binario:  "/docker-compose",
 		Log:      func(m string, args ...any) { slog.Info(m, args...) },
 	}

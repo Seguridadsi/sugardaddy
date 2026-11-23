@@ -43,8 +43,11 @@ const CON_GESTOR: Record<string, string[]> = {
 	/* El código del segundo factor al entrar (el de la app o uno de recuperación): one-time-code. */
 	'apps/consola/src/routes/sign-in/second-factor/+page.svelte': ['codigo', 'codigo'],
 	'apps/consola/src/routes/users/+page.svelte': ['usuario', 'correo', 'clave', 'clave'],
-	/* El correo de quien administra, para avisos y registro: lo rellena su navegador. */
-	'apps/consola/src/routes/settings/+page.svelte': ['correo'],
+	/*
+	 * El correo de quien administra, para avisos y registro: lo rellena su navegador. Y el
+	 * código del registro que llega por correo (one-time-code: el navegador lo ofrece del correo).
+	 */
+	'apps/consola/src/routes/settings/+page.svelte': ['correo', 'codigo'],
 	/* Quien atiende un aviso escribe su nombre. */
 	'apps/consola/src/routes/alert/[enlace]/+page.svelte': ['nombre'],
 	/*
@@ -188,6 +191,17 @@ describe('los campos de la consola y del panel', () => {
 			Object.entries(CON_GESTOR).filter(([f]) => existsSync(join(repo, f)))
 		);
 		expect(conGestor).toEqual(esperado);
+	});
+
+	it('LastPass, que no respeta las marcas: su icono se esconde donde no hay campo para el gestor', () => {
+		const css = readFileSync(join(repo, 'paquetes/estilo/app.css'), 'utf8').replace(/\s+/g, ' ');
+		/* La excepción es la misma que la de decidir(): data-con-gestor o un autocomplete que lo pide. */
+		expect(css).toContain(
+			"body:not( :has( input[data-con-gestor], input[autocomplete]:not([autocomplete='off'], [autocomplete='new-password']) ) )"
+		);
+		expect(css).toMatch(/\[data-lastpass-icon-root\][^{]*\{ display: none !important; \}/);
+		/* Un campo con gestor en un +layout estaría en todas las páginas y el icono no se escondería nunca. */
+		expect(Object.keys(CON_GESTOR).filter((f) => f.endsWith('+layout.svelte'))).toEqual([]);
 	});
 
 	it('un campo de contraseña dice siempre qué es: de entrar (en la lista) o un secreto', () => {

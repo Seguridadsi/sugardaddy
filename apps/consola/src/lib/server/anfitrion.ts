@@ -192,23 +192,29 @@ export const DESTINOS_APPLIANCE = [
 export async function destinosEfectivos(
 	a: AjusteAnfitrion,
 	e: Record<string, string | undefined> = env
-): Promise<{ destinos: string[]; comprobar: string[]; deSalidas: string[] }> {
+): Promise<{ destinos: string[]; comprobar: string[]; deSalidas: string[]; udp: string[] }> {
 	const proxy = destinoDeProxy(e.HTTPS_PROXY || e.https_proxy);
 	const propios = destinosSalida(await urlPanel(), e).map((d) => {
 		const u = new URL(d.url);
 		return `${u.hostname}:${u.port || (u.protocol === 'https:' ? '443' : '80')}`;
 	});
 	const comprobar = proxy ? [proxy] : propios.slice(0, 1);
-	const deSalidas = proxy ? [] : await destinosDeSalidas(destinoValido);
+	/*
+	 * Con proxy, de las salidas solo lo que no pasa por él (syslog, SMTP: abren su propio
+	 * enchufe); antes no entraban y se quedaban sin salir. Por UDP (syslog sin cifrar), en
+	 * su propia lista: el actualizador le pone su conjunto.
+	 */
+	const deSalidas = await destinosDeSalidas(destinoValido, proxy ? 'directas' : 'tcp');
+	const udp = (await destinosDeSalidas(destinoValido, 'udp')).slice(0, MAX_DESTINOS);
 	const todos = proxy
-		? [proxy, ...a.salida.destinos]
+		? [proxy, ...deSalidas, ...a.salida.destinos]
 		: [
 				...propios,
 				...((await hechosAnfitrion())?.appliance ? DESTINOS_APPLIANCE : []),
 				...deSalidas,
 				...a.salida.destinos
 			];
-	return { destinos: [...new Set(todos)].slice(0, MAX_DESTINOS * 2), comprobar, deSalidas };
+	return { destinos: [...new Set(todos)].slice(0, MAX_DESTINOS * 2), comprobar, deSalidas, udp };
 }
 
 /* Lo que contesta GET /api/actualizador/anfitrion. */
@@ -217,10 +223,16 @@ export async function paraElActualizador(e: Record<string, string | undefined> =
 	const { activo } = await estrictoEfectivo(a);
 	const consola = await paraElCortafuegos();
 	const acceso = await leerAcceso();
-	let salida = { restringida: false, destinos: [] as string[], comprobar: [] as string[] };
+	let salida = {
+		restringida: false,
+		destinos: [] as string[],
+		comprobar: [] as string[],
+		destinosUdp: [] as string[]
+	};
 	if (a.salida.restringida) {
-		const { destinos, comprobar } = await destinosEfectivos(a, e);
-		salida = { restringida: true, destinos, comprobar };
+		const { destinos, comprobar, udp } = await destinosEfectivos(a, e);
+		/* destinosUdp, aparte: un actualizador de antes no lo conoce y lo ignora. */
+		salida = { restringida: true, destinos, comprobar, destinosUdp: udp };
 	}
 	return {
 		estricto: activo,

@@ -14,6 +14,12 @@ export default defineConfig({
 			},
 			adapter: adapter(),
 			/*
+			 * La comprobación de origen de los formularios la hace hooks.server.ts
+			 * (lib/server/csrf.ts), igual que SvelteKit salvo el ACS de SAML, que
+			 * recibe el POST del proveedor de identidad desde su dominio.
+			 */
+			csrf: { trustedOrigins: ['*'] },
+			/*
 			 * Esta consola pinta texto que escribe el atacante (usuarios, comandos,
 			 * URLs). Svelte lo escapa, nunca se usa {@html}, y si aun así se colara
 			 * un script, la política no lo deja ejecutarse ni llamar a ningún sitio.

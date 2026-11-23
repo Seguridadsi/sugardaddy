@@ -70,7 +70,14 @@
 	{#each visibles as m (m.id)}
 		<article class="panel modulo" class:fuera={!m.disponible} class:en-uso={m.instaladas > 0}>
 			<header>
-				<span class="tag on">{nombreTipo[m.tipo]}</span>
+				<span class="etiquetas">
+					<span class="tag on">{nombreTipo[m.tipo]}</span>
+					{#if m.madurez}
+						<span class="madurez {m.madurez.nivel}" title={m.madurez.explicacion}
+							>{m.madurez.etiqueta}</span
+						>
+					{/if}
+				</span>
 				{#if m.instaladas > 0}
 					<span
 						class="instalada"
@@ -88,6 +95,15 @@
 				<h3>{m.nombre}</h3>
 			</div>
 			<p class="desc">{m.resumen}</p>
+			{#if m.instaladas > 0}
+				<p class="uso" class:parada={m.enMarcha < m.instaladas}>
+					{m.enMarcha === m.instaladas
+						? m.instaladas === 1
+							? 'Running'
+							: `All ${m.instaladas} running`
+						: `${m.enMarcha} of ${m.instaladas} running`}
+				</p>
+			{/if}
 			<div class="acciones-modulo">
 				<a class="boton" href={resolve('/decoys/catalog/[modulo]', { modulo: m.id })}
 					>View details</a
@@ -217,6 +233,44 @@
 
 	.modulo.fuera {
 		opacity: 0.75;
+	}
+
+	.etiquetas {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 6px;
+	}
+
+	/* La madurez firmada (D11): verde lo soportado, neutro lo demás. */
+	.madurez {
+		padding: 1px 7px;
+		border: 1px solid var(--line);
+		border-radius: 999px;
+		font-size: 11px;
+		font-weight: 600;
+		color: var(--ink-3);
+		white-space: nowrap;
+	}
+
+	.madurez.soportada {
+		border-color: color-mix(in oklab, var(--ok) 55%, var(--line));
+		color: var(--ok);
+	}
+
+	.madurez.probada {
+		color: var(--ink-2);
+	}
+
+	.uso {
+		margin: -6px 0 10px;
+		font-size: 12.5px;
+		font-weight: 600;
+		color: var(--ok);
+	}
+
+	.uso.parada {
+		color: var(--warn);
 	}
 
 	.incluida,

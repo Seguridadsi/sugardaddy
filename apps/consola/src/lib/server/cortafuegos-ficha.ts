@@ -15,6 +15,7 @@ export type CortafuegosDeSensor = {
 	} | null;
 	ilegible: string | null;
 	script: string;
+	ordenes: string | null;
 };
 export type PasoHecho = {
 	regla: string;

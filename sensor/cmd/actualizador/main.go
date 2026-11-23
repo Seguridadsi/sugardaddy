@@ -136,7 +136,7 @@ func main() {
 
 	ctx, parar := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer parar()
-	d := docker.Nuevo(*socket)
+	d := docker.Nuevo(*socket).ConUsernsAnfitrion()
 	// Imágenes privadas: credencial de solo lectura (REGISTRO_USUARIO/REGISTRO_TOKEN) para el registro de las versiones.
 	if t := os.Getenv("REGISTRO_TOKEN"); t != "" {
 		d.ConCredencial(envO("REGISTRO", "ghcr.io"), docker.Credencial{Usuario: os.Getenv("REGISTRO_USUARIO"), Token: t})
@@ -463,6 +463,16 @@ func vuelta(ctx context.Context, c *http.Client, base string, ru rutas, token st
 			return final(ctx, c, base, ru, token, r.Version, "fallida", d), errors.New(d)
 		}
 	}
+	// Umbral de dos firmas (docs/diseno/politica-cambios.md): si la versión cambia las claves en
+	// las que confía este nodo o su configuración, tiene que traer dos firmas de claves de
+	// confianza distintas. Solo cuando la configuración se va a aplicar de verdad (cfg.puede):
+	// sin carpeta, solo se cambian imágenes.
+	if cfg.puede(r) {
+		if err := cfg.comprobarUmbral(clavesRetiradas(cfg.local, clave), r, p.Release); err != nil {
+			d := err.Error()
+			return final(ctx, c, base, ru, token, r.Version, "fallida", d), err
+		}
+	}
 	// La política de cambios del cliente: la decide este actualizador, no la consola ni el
 	// panel. Esperar no es fallar: no se informa nada y se vuelve a mirar en la vuelta siguiente.
 	politica := cfg.politicaLocal()
@@ -587,6 +597,20 @@ func (c configDeAuxiliar) politicaLocal() actualizador.Politica {
 		actualizador.PoliticaDelEntorno(os.Getenv))
 }
 
+// comprobarUmbral compara la versión con la carpeta del nodo (sus ficheros y su .env) y pide
+// dos firmas si cambia algo sensible.
+func (c configDeAuxiliar) comprobarUmbral(conf actualizador.Confianza, r actualizador.Release, f actualizador.ReleaseFirmada) error {
+	env, err := actualizador.LeerEnv(filepath.Join(c.local, ".env"))
+	if err != nil {
+		return fmt.Errorf("cannot read .env to check the signatures: %w", err)
+	}
+	leer := func(nombre string) (string, bool) {
+		b, err := os.ReadFile(filepath.Join(c.local, nombre))
+		return string(b), err == nil
+	}
+	return actualizador.ComprobarUmbral(conf, r, f, actualizador.CambiosSensibles(r, c.modo, env, leer))
+}
+
 // puede: la versión trae configuración para este modo y este actualizador sabe dónde está la carpeta.
 func (c configDeAuxiliar) puede(r actualizador.Release) bool {
 	conf := r.Nodo
@@ -657,7 +681,7 @@ func aplicar() int {
 		slog.Error("cannot read .env", "err", err)
 		return 2
 	}
-	d := docker.Nuevo("/var/run/docker.sock")
+	d := docker.Nuevo("/var/run/docker.sock").ConUsernsAnfitrion()
 	if t := env["REGISTRO_TOKEN"]; t != "" {
 		d.ConCredencial(env["REGISTRO"], docker.Credencial{Usuario: env["REGISTRO_USUARIO"], Token: t})
 	}

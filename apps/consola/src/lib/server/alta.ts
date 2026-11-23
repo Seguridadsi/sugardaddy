@@ -54,6 +54,8 @@ import {
 	type Tx
 } from './destinos';
 import { DONDE_MANUAL, generarPasos, objetivosDe, opcionesDeObjetivo } from './pasos';
+import { abrirColocacion, actualizarPendiente, ubicacionDe } from './colocaciones';
+import { colocarPorConector } from './conector-ficheros';
 import { sellarPasos } from './sello-pasos';
 
 type Fila = {
@@ -450,7 +452,9 @@ export async function darDeAlta(
 	const pedida = v.via === undefined ? undefined : viaDe(h, v.via);
 	if (v.via !== undefined && !pedida)
 		return fallo(['That deployment method does not exist in this module.']);
-	return db.transaction(async (tx) => {
+	/* Una de conector (graph@1) se sube enseguida, ya fuera de la transacción. */
+	let porConector = false;
+	const r = await db.transaction(async (tx): Promise<'creada' | 'con-pasos' | FalloAlta> => {
 		await bloquear(tx, { destino: v.destino, objetivos: objetivosDe(h, v.parametros) });
 		const f = await leerDestino(tx, v.destino);
 		if (!f) return fallo(['Target: that target no longer exists; choose another.']);
@@ -491,6 +495,12 @@ export async function darDeAlta(
 			const x = await conPasos(tx, h, via, d, { id: v.id, nombre: v.nombre }, v.parametros, null);
 			if ('errores' in x) return x;
 			if (!(await crearTrampa(quien, { ...fila, ...x }, tx))) return repetida;
+			await abrirColocacion(tx, {
+				trampa: { ...fila, nombre: v.nombre },
+				destino: { id: d.id, nombre: d.nombre },
+				honeycosa: h,
+				ubicacion: ubicacionDe(v.parametros)
+			});
 			return 'con-pasos';
 		}
 		/* contenedor@1: la despliega el sensor del destino (sin él, el elector ya da agente.falta). */
@@ -499,6 +509,9 @@ export async function darDeAlta(
 		const escucha = v.escucha?.trim() || null;
 		return (await crearTrampa(quien, { ...fila, sensor, escucha }, tx)) ? 'creada' : repetida;
 	});
+	/* Si falla, queda por colocar con su motivo y vigilarConectores lo reintenta. */
+	if (porConector) await colocarPorConector(v.id).catch(() => undefined);
+	return r;
 }
 
 /*
@@ -623,6 +636,14 @@ export async function regenerarPasos(
 				manual: x.manual
 			})
 			.where(eq(s.trampas.id, id));
+		const [doc] = await tx
+			.select({ nombre: s.balizas.nombre })
+			.from(s.balizas)
+			.where(eq(s.balizas.trampa, id));
+		await actualizarPendiente(tx, id, {
+			nombre: v.nombre,
+			ubicacion: ubicacionDe(v.parametros, doc?.nombre)
+		});
 		await tx.insert(s.auditoria).values({
 			quien,
 			accion: 'steps regenerated',
@@ -696,6 +717,7 @@ export async function cambiarSitio(
 					manual: x.manual
 				})
 				.where(eq(s.trampas.id, id));
+			await actualizarPendiente(tx, id, { destino: { id: nuevo, nombre: f.destino.nombre } });
 			await tx.insert(s.auditoria).values({
 				quien,
 				accion: 'decoy moved',
@@ -709,6 +731,7 @@ export async function cambiarSitio(
 			return 'movida';
 		}
 		await tx.update(s.trampas).set({ destino: nuevo }).where(eq(s.trampas.id, id));
+		await actualizarPendiente(tx, id, { destino: { id: nuevo, nombre: f.destino.nombre } });
 		await tx.insert(s.auditoria).values({ quien, accion: 'decoy moved', detalle });
 		return 'movida';
 	});

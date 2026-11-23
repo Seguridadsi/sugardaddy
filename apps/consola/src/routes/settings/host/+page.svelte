@@ -275,6 +275,9 @@
 				{#if data.salida.deSalidas.length}
 					<p class="ayuda">From your outputs: {data.salida.deSalidas.join(', ')}.</p>
 				{/if}
+				{#if data.salida.udp.length}
+					<p class="ayuda">Syslog over UDP: {data.salida.udp.join(', ')}.</p>
+				{/if}
 				<p class="ayuda">Allowed now: {data.salida.destinos.join(', ') || 'none'}.</p>
 			{/if}
 			<button class="boton principal">Save</button>

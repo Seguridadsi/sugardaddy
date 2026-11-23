@@ -78,7 +78,18 @@ export async function estadoBanca() {
 export async function aplicarPerfilBanca(quien: string) {
 	const antes = await estadoBanca();
 	const cambios: string[] = [];
-	if (!antes.politica && (await guardarPoliticaActualizacion(quien, POLITICA_BANCA)))
+	/* La ventana horaria que tuviera se queda: el perfil fija el modo y el retardo. */
+	if (
+		!antes.politica &&
+		(await (async () => {
+			const ahora = await politicaActualizacion();
+			return guardarPoliticaActualizacion(quien, {
+				...ahora,
+				modo: POLITICA_BANCA.modo,
+				retardoHoras: Math.max(POLITICA_BANCA.retardoHoras, ahora.retardoHoras)
+			});
+		})())
+	)
 		cambios.push('update policy');
 	if (await fijarPosturaSoporte(quien, 'banca')) cambios.push('support access');
 	if (await fijarSeparacion(quien, true)) cambios.push('credential role separation');

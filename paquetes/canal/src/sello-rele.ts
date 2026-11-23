@@ -1,8 +1,9 @@
 /*
  * El sello de una señal del relé hacia la clave de su cliente (docs/diseno/rele-balizas.md,
- * «Señales selladas»). AÚN NO SE USA: es el formato, el mismo que sella el relé
- * (rele/sello.go) y probado contra el mismo vector (vectores/sello-rele.json), para
- * conectarlo sin tocar los cebos que ya hay.
+ * «Señales selladas»): el mismo formato que sella el relé (rele/sello.go), probado
+ * contra el mismo vector (vectores/sello-rele.json). Lo usan el panel (encamina por la
+ * ruta: rele-cola-seguidor.ts), el nodo (acuña los tokens y abre los sellos:
+ * balizas-sello.ts) y el banco.
  *
  * - El nodo tiene una clave X25519 de balizas; la privada no sale de él.
  * - Un token sellado lleva la pública: "k" + base64url(pública ‖ 16 bytes al azar).
@@ -55,7 +56,7 @@ export function tokenSellado(publica: Uint8Array, azar: Uint8Array = randomBytes
 }
 
 /* La clave pública que lleva un token sellado; null si es de los de antes. */
-export function claveDeToken(token: string): Buffer | null {
+export function claveDeTokenRele(token: string): Buffer | null {
 	if (token.length !== LARGO || !token.startsWith(PREFIJO)) return null;
 	const b = Buffer.from(token.slice(PREFIJO.length), 'base64url');
 	return b.length === 48 && b.toString('base64url') === token.slice(PREFIJO.length)
@@ -63,8 +64,35 @@ export function claveDeToken(token: string): Buffer | null {
 		: null;
 }
 
+/* Si un token es sellado (lleva una clave). */
+export const esTokenSellado = (token: string): boolean => claveDeTokenRele(token) !== null;
+
+const B64URL = /^[A-Za-z0-9_-]+$/;
+
+/*
+ * Si algo tiene la forma de una línea sellada: la versión, una ruta de 22 caracteres,
+ * una efímera de 43 y un cifrado. No dice que se pueda abrir: eso solo lo sabe el nodo.
+ */
+export function esSellada(x: unknown): x is Sellada {
+	if (!x || typeof x !== 'object' || Array.isArray(x)) return false;
+	const o = x as Record<string, unknown>;
+	return (
+		o.v === 1 &&
+		typeof o.r === 'string' &&
+		o.r.length === 22 &&
+		B64URL.test(o.r) &&
+		typeof o.e === 'string' &&
+		o.e.length === 43 &&
+		B64URL.test(o.e) &&
+		typeof o.c === 'string' &&
+		o.c.length >= 22 &&
+		o.c.length <= 12_000 &&
+		B64URL.test(o.c)
+	);
+}
+
 /* Lo que el panel ve de un token sellado: 16 bytes de su SHA-256, en base64url. */
-export function rutaDeToken(token: string): string {
+export function rutaRele(token: string): string {
 	return createHash('sha256')
 		.update(INFO_RUTA + token)
 		.digest()
@@ -82,13 +110,13 @@ function llave(secreto: Buffer, efimera: Buffer, destino: Buffer): Buffer {
  * Sella una línea hacia la clave del token. Lo hace el relé; aquí sirve para las
  * pruebas y para el banco. `efimera` solo la eligen las pruebas.
  */
-export function sellar(token: string, linea: Uint8Array, efimera?: Uint8Array): Sellada {
-	const destino = claveDeToken(token);
+export function sellarRele(token: string, linea: Uint8Array, efimera?: Uint8Array): Sellada {
+	const destino = claveDeTokenRele(token);
 	if (!destino) throw new Error('el token no es sellado');
 	const priv = efimera ? privadaDe(efimera) : generateKeyPairSync('x25519').privateKey;
 	const pub = cruda(createPublicKey(priv));
 	const secreto = diffieHellman({ privateKey: priv, publicKey: publicaDe(destino) });
-	const ruta = rutaDeToken(token);
+	const ruta = rutaRele(token);
 	const c = createCipheriv('aes-256-gcm', llave(secreto, pub, destino), Buffer.alloc(12));
 	c.setAAD(Buffer.from(ruta));
 	const cifrado = Buffer.concat([c.update(linea), c.final(), c.getAuthTag()]);
@@ -99,7 +127,7 @@ export function sellar(token: string, linea: Uint8Array, efimera?: Uint8Array): 
  * Abre un sello con la clave privada del nodo. null si no es para esa clave, se ha
  * tocado, o se ha pasado a otra ruta.
  */
-export function abrir(s: Sellada, privada: Uint8Array): Buffer | null {
+export function abrirRele(s: Sellada, privada: Uint8Array): Buffer | null {
 	try {
 		if (s.v !== 1 || typeof s.r !== 'string' || typeof s.e !== 'string') return null;
 		const priv = privadaDe(privada);

@@ -47,8 +47,11 @@ func HuellaDeTexto(texto []byte) (string, error) {
 
 // Catalogo son las huellas permitidas por módulo y la versión de la que salen.
 type Catalogo struct {
-	Version  string
-	Modulos  map[string][]string
+	Version string
+	Modulos map[string][]string
+	// Seccomp: las listas de llamadas por módulo y arquitectura de la misma versión
+	// firmada (puede ser nil: entonces todas van con el perfil común).
+	Seccomp  map[string]map[string][]string
 	leido    time.Time
 	modifica time.Time
 	tamano   int64
@@ -134,8 +137,16 @@ func (c *Catalogo) cargar(ruta string, conf actualizador.Confianza, edicion stri
 	if err != nil {
 		return fmt.Errorf("the signed version does not verify: %w", err)
 	}
-	c.Version, c.Modulos = r.Version, r.Catalogo
+	c.Version, c.Modulos, c.Seccomp = r.Version, r.Catalogo, r.Seccomp
 	return nil
+}
+
+// Llamadas: la lista seccomp firmada de un módulo para una arquitectura (nil si no hay).
+func (c *Catalogo) Llamadas(modulo, arq string) []string {
+	if c == nil {
+		return nil
+	}
+	return c.Seccomp[modulo][arq]
 }
 
 // Motivo dice por qué no se puede arrancar esa trampa ("" si se puede). Con el catálogo

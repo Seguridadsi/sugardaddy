@@ -76,6 +76,13 @@
 					{/if}
 				</dd>
 			</dl>
+			<p class="nota">
+				The firewall connects like a browser: it has to reach this console over HTTPS, trust its
+				certificate (if the console uses this node's own certificate authority, import the
+				<a href={resolve('/ca-raiz.crt')} download>root certificate</a> into the firewall) and, if
+				access to the console is limited, be in
+				<a href={resolve('/settings/access')}>Settings → Access</a>.
+			</p>
 		{/if}
 	</section>
 {:else if data.lista === 'tor'}

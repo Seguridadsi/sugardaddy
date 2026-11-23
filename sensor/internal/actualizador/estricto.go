@@ -70,11 +70,17 @@ type ConfigEstricto struct {
 	} `json:"ssh"`
 	Salida struct {
 		Restringida bool     `json:"restringida"`
-		Destinos    []string `json:"destinos"`  // host:puerto
+		Destinos    []string `json:"destinos"` // host:puerto
+		// DestinosUDP: host:puerto de las salidas syslog por UDP (docs/diseno/cortafuegos-anfitrion.md
+		// §1). Aparte: un actualizador de antes no lo conoce y sigue con lo demás.
+		DestinosUDP []string `json:"destinosUdp,omitempty"`
 		Comprobar   []string `json:"comprobar"` // host:puerto que tiene que responder para confirmar
 	} `json:"salida"`
 	Plazo int `json:"plazo"` // segundos; 0, el de serie
 }
+
+// prefijoUDP marca, dentro de la lista que se resuelve, un destino UDP.
+const prefijoUDP = "udp/"
 
 // RutaAnfitrionNodo es donde pregunta y cuenta el actualizador del nodo;
 // RutaAnfitrionSensor, el de un sensor remoto (con el token del sensor). Debajo
@@ -225,6 +231,9 @@ func (e *EstrictoNodo) aplicar(ctx context.Context, env map[string]string, cfg C
 		lista := append(append([]string{}, cfg.Salida.Destinos...), e.Propios...)
 		if e.Proxy != "" {
 			lista = append(lista, e.Proxy)
+		}
+		for _, d := range cfg.Salida.DestinosUDP {
+			lista = append(lista, prefijoUDP+strings.TrimSpace(d))
 		}
 		ds, err := e.destinos(ctx, unicos(lista))
 		if err != nil {
@@ -412,14 +421,19 @@ func (e *EstrictoNodo) destinos(ctx context.Context, lista []string) ([]cortafue
 	vivos := map[string]bool{}
 	var r []cortafuegos.Destino
 	for _, d := range lista {
-		host, ps, err := net.SplitHostPort(strings.TrimSpace(d))
+		proto := ""
+		hp := strings.TrimSpace(d)
+		if rest, ok := strings.CutPrefix(hp, prefijoUDP); ok {
+			proto, hp = "udp", rest
+		}
+		host, ps, err := net.SplitHostPort(hp)
 		p, errP := strconv.Atoi(ps)
 		if err != nil || errP != nil || p < 1 || p > 65535 || host == "" {
 			return nil, fmt.Errorf("invalid outbound destination %q", d)
 		}
 		vivos[d] = true
 		if a, err := netip.ParseAddr(host); err == nil {
-			r = append(r, cortafuegos.Destino{IP: a.Unmap().String(), Puerto: p})
+			r = append(r, cortafuegos.Destino{IP: a.Unmap().String(), Puerto: p, Proto: proto})
 			continue
 		}
 		if res[d] == nil {
@@ -442,7 +456,7 @@ func (e *EstrictoNodo) destinos(ctx context.Context, lista []string) ([]cortafue
 				delete(res[d], ip)
 				continue
 			}
-			r = append(r, cortafuegos.Destino{IP: ip, Puerto: p})
+			r = append(r, cortafuegos.Destino{IP: ip, Puerto: p, Proto: proto})
 		}
 	}
 	for d := range res {

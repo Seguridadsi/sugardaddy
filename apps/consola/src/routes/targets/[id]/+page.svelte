@@ -20,6 +20,8 @@
 		{ id: 'overview', texto: 'Overview' },
 		/* Los puertos de sus honeypots y quién los abre: solo donde hay sensor. */
 		...(data.destino.sensor ? [{ id: 'firewall', texto: 'Firewall' }] : []),
+		/* La conexión de Microsoft 365 de un tenant (D3): solo si esta edición la tiene. */
+		...(data.m365 ? [{ id: 'm365', texto: 'Microsoft 365' }] : []),
 		{ id: 'settings', texto: 'Settings' },
 		...(data.alcance ? [{ id: 'alerts', texto: 'Alerts' }] : [])
 	]);
@@ -150,6 +152,138 @@
 	</div>
 {/if}
 
+{#if data.m365}
+	{@const c = data.m365.conexion}
+	<!-- Ficheros cebo en SharePoint y OneDrive (D3, docs/diseno/sharepoint-onedrive.md). -->
+	<div class="cortafuegos" hidden={pestana !== 'm365'}>
+		<section class="panel bloque">
+			<h2>Microsoft 365 connection</h2>
+			<p class="ayuda">
+				With it, Sugardaddy places decoy documents (Word, Excel, PDF) in SharePoint and OneDrive
+				folders of this tenant, and removes them when you remove the honeypot or it expires. It uses
+				an Entra application of yours with only <span class="mono">Sites.Selected</span>: it sees no
+				site until you grant it one, site by site.
+			</p>
+			{#if c}
+				<p class="ayuda">
+					Application <span class="mono">{c.aplicacion}</span> in tenant
+					<span class="mono">{c.tenant}</span>.
+					{#if c.estado === 'activa'}<b class="ok-texto">Working</b
+						>{:else if c.estado === 'fallo'}<b class="mal-texto">Not working</b>{:else}<b
+							>Not tested</b
+						>{/if}{#if c.comprobada}, tested {haceCuanto(c.comprobada)}{/if}.
+				</p>
+				{#if c.error}<p class="errores" role="alert">{c.error}</p>{/if}
+			{:else}
+				<p class="ayuda">Not set up yet.</p>
+			{/if}
+			{#if form?.accion === 'm365' && 'error' in form && form.error}
+				<p class="errores" role="alert">{form.error}</p>
+			{:else if form?.accion === 'm365' && 'mensaje' in form}
+				<p class="hecho" role="status">{form.mensaje}</p>
+			{/if}
+			{#if form?.accion === 'm365' && 'avisos' in form && form.avisos?.length}
+				<ul class="errores" role="alert">
+					{#each form.avisos as a (a)}<li>{a}</li>{/each}
+				</ul>
+			{/if}
+			{#if admin}
+				<form method="POST" action="?/m365&tab=m365" use:enhance>
+					<label for="m365-tenant">Tenant ID</label>
+					<input
+						id="m365-tenant"
+						name="tenant"
+						class="mono"
+						autocomplete="off"
+						required
+						value={c?.tenant ?? ''}
+					/>
+					<label for="m365-app">Application (client) ID</label>
+					<input
+						id="m365-app"
+						name="aplicacion"
+						class="mono"
+						autocomplete="off"
+						required
+						value={c?.aplicacion ?? ''}
+					/>
+					<label for="m365-secreto">Client secret</label>
+					<input
+						id="m365-secreto"
+						name="secreto"
+						type="password"
+						class="mono"
+						autocomplete="off"
+						placeholder={c?.conSecreto ? 'Saved: leave empty to keep it' : 'The secret value'}
+					/>
+					<button class="boton principal">Save and test</button>
+				</form>
+				{#if c}
+					<form method="POST" action="?/m365Probar&tab=m365" use:enhance>
+						<label for="m365-carpeta">Test access to a folder (optional)</label>
+						<input
+							id="m365-carpeta"
+							name="carpeta"
+							class="mono"
+							autocomplete="off"
+							placeholder="https://contoso.sharepoint.com/sites/Finance/Shared Documents/Payroll"
+						/>
+						<button class="boton">Test</button>
+					</form>
+					<form method="POST" action="?/m365&tab=m365" use:enhance>
+						<input type="hidden" name="quitar" value="si" />
+						<button class="boton peligro">Remove the connection</button>
+					</form>
+				{/if}
+			{/if}
+		</section>
+
+		<section class="panel bloque">
+			<h2>How to set it up</h2>
+			<ol class="guia">
+				<li>
+					In the Entra admin center, go to <b>App registrations → New registration</b>. Name it, for
+					example, "Sugardaddy decoys"; single tenant; no redirect URI.
+				</li>
+				<li>
+					In <b>API permissions → Add a permission → Microsoft Graph → Application permissions</b>,
+					add only <span class="mono">Sites.Selected</span>, and click
+					<b>Grant admin consent</b>. Do not add Sites.ReadWrite.All or Files.ReadWrite.All: with
+					them the application would see the whole tenant.
+				</li>
+				<li>
+					In <b>Certificates &amp; secrets → New client secret</b>, create a secret and copy its
+					value (shown once). Paste the tenant ID, the application ID and the secret above.
+				</li>
+				<li>
+					Give the application <b>write</b> access to each site where you want decoys. A SharePoint
+					administrator does it once per site, for example with PnP PowerShell:
+					<pre
+						class="mono codigo">Connect-PnPOnline -Url https://contoso-admin.sharepoint.com -Interactive -ClientId &lt;your PnP app ID&gt;
+Grant-PnPAzureADAppSitePermission -AppId &lt;application ID&gt; -DisplayName "Sugardaddy decoys" -Site https://contoso.sharepoint.com/sites/Finance -Permissions Write</pre>
+					or with Microsoft Graph (as an administrator with Sites.FullControl.All):
+					<pre
+						class="mono codigo">POST https://graph.microsoft.com/v1.0/sites/contoso.sharepoint.com:/sites/Finance:/permissions
+{'{'} "roles": ["write"], "grantedToIdentities": [{'{'} "application": {'{'} "id": "&lt;application ID&gt;", "displayName": "Sugardaddy decoys" {'}'} {'}'}] {'}'}</pre>
+					A person's OneDrive is a site too:
+					<span class="mono">https://contoso-my.sharepoint.com/personal/jdoe_contoso_com</span>.
+				</li>
+				<li>
+					Test access to a folder above. Then deploy a Word, Excel or PDF decoy on this target and
+					choose "SharePoint or OneDrive": its path is the folder address as the browser shows it.
+					Sugardaddy never overwrites a file or creates folders, and it only deletes the file it
+					placed, if nobody has changed it.
+				</li>
+			</ol>
+			<p class="ayuda">
+				The document alerts when someone opens it in the Word, Excel or Acrobat desktop app and it
+				loads remote content. Office for the web may not load it, so a preview in the browser may
+				not alert.
+			</p>
+		</section>
+	</div>
+{/if}
+
 {#if d.sensor}
 	<div class="cortafuegos" hidden={pestana !== 'firewall'}>
 		<section class="panel bloque" id="firewall">
@@ -210,7 +344,8 @@
 					</p>
 				{:else}
 					<p class="ayuda">
-						Not set up yet: until it is, nothing is opened in Azure. Open the ports above by hand.
+						Not set up yet. You can still open the ports without it: enter the security group below
+						and the console gives you the commands to paste into Azure Cloud Shell.
 					</p>
 				{/if}
 				{#if nube.ilegible}
@@ -315,6 +450,25 @@
 					<p class="ayuda">
 						An administrator has not entered the security group of this sensor yet.
 					</p>
+				{/if}
+
+				{#if nube.ordenes}
+					<!-- Sin credencial: lo mismo que el botón, pegado por el cliente en Cloud Shell. -->
+					<h3>Open them yourself in Azure Cloud Shell</h3>
+					<p class="ayuda">
+						Without the Azure credential, run these commands in <a
+							href="https://shell.azure.com"
+							target="_blank"
+							rel="noreferrer">Azure Cloud Shell</a
+						>
+						(Bash), signed in with an account that can edit this security group. They leave the group
+						exactly as "Open these ports in Azure" would: the same
+						<span class="mono">trampa-…</span> rules and priorities, and the rules of honeypots that are
+						gone removed. Nothing else in the group is touched. Run them again after you add or remove
+						honeypots on this machine: the commands on this page always match its honeypots.
+					</p>
+					<pre class="ordenes mono">{nube.ordenes}</pre>
+					<p><CopiarTexto texto={nube.ordenes} etiqueta="Copy the commands" /></p>
 				{/if}
 
 				{#if admin && nube.nsg && nube.credencial}
@@ -687,6 +841,15 @@
 </div>
 
 <style>
+	.ordenes {
+		max-height: 24rem;
+		overflow: auto;
+		padding: 0.75rem;
+		font-size: 0.8rem;
+		white-space: pre;
+		background: var(--sunk);
+		border-radius: var(--r-sm);
+	}
 	.abrir-nube {
 		display: flex;
 		flex-wrap: wrap;
@@ -872,6 +1035,29 @@
 	.bloque h2 {
 		font-size: 15px;
 		font-weight: 600;
+	}
+
+	.guia li {
+		margin-bottom: 10px;
+		font-size: 13.5px;
+	}
+
+	.codigo {
+		white-space: pre-wrap;
+		word-break: break-all;
+		font-size: 12px;
+		background: var(--bg-2, var(--line));
+		padding: 8px 10px;
+		border-radius: 6px;
+		margin: 6px 0;
+	}
+
+	.ok-texto {
+		color: var(--ok);
+	}
+
+	.mal-texto {
+		color: var(--warn);
 	}
 
 	.ayuda {

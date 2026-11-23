@@ -23,11 +23,11 @@ import { env } from '$env/dynamic/private';
 import { avisosSensor } from '$lib/capacidades';
 import { entornoDe, type Entorno } from '$lib/entorno';
 import { redYVlan } from '$lib/red';
-import { ipBuscada } from './buscar-ip';
+import { ipBuscada, type IpBuscada } from './buscar-ip';
 import { db, schema as s } from './db';
 import { CREDENCIAL_CADUCADA } from './credenciales-protegidas';
 import { honeycosas, traductorDeTrampa } from './catalogo';
-import { estadosVisibles, type EstadoVisible } from './colocacion';
+import { estadosVisibles, recibe, type EstadoVisible } from './colocacion';
 import type { Tx } from './destinos';
 import { geo, type Geo } from './geo';
 import { descifrar } from './secretos';
@@ -159,13 +159,38 @@ const sinComodines = (t: string) => t.replace(/[%_\\]/g, '\\$&');
 function condicionBusqueda(q: string | undefined) {
 	if (!q) return undefined;
 	const ip = ipBuscada(q);
-	if (!ip) return ilike(s.eventos.linea, `%${sinComodines(q)}%`);
-	/* IPv6 se guarda como llega del honeypot: se compara por valor, no por escritura. */
+	return ip ? condicionIp(ip) : ilike(s.eventos.linea, `%${sinComodines(q)}%`);
+}
+
+/*
+ * Los eventos que vienen de una IP o de una red. Desde la 0.33 la consola guarda
+ * el origen ya normalizado (normalizarIp al recibir), pero los de antes están como
+ * los mandó el honeypot: una IPv4 de un servidor de doble pila llega como
+ * «::ffff:1.2.3.4» y una IPv6, sin abreviar o en mayúsculas. Por eso la IPv4 busca
+ * también su forma mapeada y la IPv6 se compara por valor, no por escritura.
+ */
+function condicionIp(ip: IpBuscada) {
 	if (ip.clase === 'ip')
 		return ip.ip.includes(':')
 			? sql`${s.eventos.ip} like '%:%' and ${dentroDe(ip.ip)}`
-			: eq(s.eventos.ip, ip.ip);
-	return ip.comun ? and(like(s.eventos.ip, `${ip.comun}%`), dentroDe(ip.cidr)) : dentroDe(ip.cidr);
+			: inArray(s.eventos.ip, [ip.ip, `::ffff:${ip.ip}`]);
+	const v4 = ip.comun
+		? or(like(s.eventos.ip, `${ip.comun}%`), like(s.eventos.ip, `::ffff:${ip.comun}%`))
+		: undefined;
+	const red = or(dentroDe(ip.cidr), mapeadaDentroDe(ip.cidr));
+	return v4 ? and(v4, red) : red;
+}
+
+/*
+ * El campo «Source IP»: una IP entera o una red, como en el buscador; cualquier
+ * otra cosa («10.30.»), por cómo empieza, también en su forma mapeada.
+ */
+function condicionOrigen(origen: string | undefined) {
+	if (!origen) return undefined;
+	const ip = ipBuscada(origen);
+	if (ip) return condicionIp(ip);
+	const p = origen.replace(/[%_\\]/g, '');
+	return or(like(s.eventos.ip, `${p}%`), like(s.eventos.ip, `::ffff:${p}%`));
 }
 /*
  * `ip` es texto y puede traer algo que no sea una dirección: el CASE garantiza
@@ -173,6 +198,11 @@ function condicionBusqueda(q: string | undefined) {
  */
 const dentroDe = (red: string) =>
 	sql`case when pg_input_is_valid(${s.eventos.ip}, 'inet') then ${s.eventos.ip}::inet <<= ${red}::inet else false end`;
+/* Una IPv4 guardada como «::ffff:a.b.c.d» (eventos de antes de la 0.33) dentro de una red IPv4. */
+const mapeadaDentroDe = (red: string) =>
+	red.includes(':')
+		? undefined
+		: sql`case when ${s.eventos.ip} like '::ffff:%' and pg_input_is_valid(substr(${s.eventos.ip}, 8), 'inet') then substr(${s.eventos.ip}, 8)::inet <<= ${red}::inet else false end`;
 
 export async function eventos(
 	filtro: {
@@ -198,7 +228,7 @@ export async function eventos(
 			and(
 				inArray(s.eventos.severidad, SEVERIDADES.slice(desde)),
 				filtro.trampa ? eq(s.eventos.trampa, filtro.trampa) : undefined,
-				filtro.origen ? like(s.eventos.ip, `${filtro.origen.replace(/[%_\\]/g, '')}%`) : undefined,
+				condicionOrigen(filtro.origen),
 				filtro.usuario ? eq(s.eventos.usuario, filtro.usuario) : undefined,
 				condicionBusqueda(q),
 				condicionEscaner(filtro.escaner),
@@ -606,7 +636,7 @@ export async function eventosPlanos(
 			and(
 				inArray(s.eventos.severidad, SEVERIDADES.slice(desde)),
 				filtro.trampa ? eq(s.eventos.trampa, filtro.trampa) : undefined,
-				filtro.origen ? like(s.eventos.ip, `${filtro.origen.replace(/[%_\\]/g, '')}%`) : undefined,
+				condicionOrigen(filtro.origen),
 				filtro.usuario ? eq(s.eventos.usuario, filtro.usuario) : undefined,
 				condicionBusqueda(q),
 				condicionEscaner(filtro.escaner),
@@ -767,8 +797,10 @@ export async function trampasConEventos() {
 		 * recibe su señal.
 		 */
 		const aMano = EJECUTORES[f.ejecutor]?.corre === 'consola';
+		/* La pone la consola por la conexión del tenant (graph@1): tampoco es de un sensor. */
+		const conector = EJECUTORES[f.ejecutor]?.clase === 'conector';
 		const pausable = EJECUTORES[f.ejecutor]?.pausable ?? false;
-		return estado ? [{ ...f, estado, aMano, pausable }] : [];
+		return estado ? [{ ...f, estado, aMano, conector, pausable }] : [];
 	});
 }
 
@@ -779,6 +811,23 @@ export async function contarTrampasDe(modulo: string) {
 		.from(s.trampas)
 		.where(eq(s.trampas.modulo, modulo));
 	return f?.n ?? 0;
+}
+
+/*
+ * De cada módulo, cuántas trampas hay puestas y cuántas están en marcha: activas y recibiendo
+ * su señal (recibe, el mismo criterio que el resto de la consola). El catálogo lo enseña (D11).
+ */
+export async function usoDeModulos(): Promise<
+	Map<string, { instaladas: number; enMarcha: number }>
+> {
+	const uso = new Map<string, { instaladas: number; enMarcha: number }>();
+	for (const t of await trampasConEventos()) {
+		const u = uso.get(t.modulo) ?? { instaladas: 0, enMarcha: 0 };
+		u.instaladas++;
+		if (t.activo && recibe(t.estado)) u.enMarcha++;
+		uso.set(t.modulo, u);
+	}
+	return uso;
 }
 
 export async function existeTrampa(id: string) {

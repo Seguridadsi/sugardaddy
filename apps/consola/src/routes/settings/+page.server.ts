@@ -14,6 +14,7 @@ import { sesionActual } from '$lib/server/auth/sesion';
 import { listar as usuariosLocales, loginLocalHabilitado } from '$lib/server/auth/local';
 import { estadoExigencia, fijarExigido, resumenPorUsuario } from '$lib/server/auth/segundo-factor';
 import { estadoOidc, guardarOidc, quitarOidc } from '$lib/server/auth/oidc-propio';
+import { estadoSaml, guardarSaml, quitarSaml } from '$lib/server/auth/saml-propio';
 import { ROLES } from '$lib/server/auth/permisos';
 import { configuradoEnEntorno } from '$lib/server/auth/entra';
 import { equipoB2B, estadoB2B, retirarB2B } from '$lib/server/auth/b2b';
@@ -59,6 +60,7 @@ import { cifrar, estadoClave, final } from '$lib/server/secretos';
 import { comprobarVersiones, gestionado } from '$lib/server/actualizaciones';
 import {
 	activar,
+	canjear,
 	estadoRegistro,
 	pedirRegistro,
 	puedeRegistrarse,
@@ -106,9 +108,16 @@ import {
 	aprobarActualizacion,
 	esperaActual,
 	guardarPoliticaActualizacion,
-	politicaActualizacion
+	politicaActualizacion,
+	politicaEfectiva,
+	sueloActualizacion
 } from '$lib/server/politica-actualizacion';
-import { datosDeRelease, politicaDelFormulario } from '$lib/politica-actualizacion';
+import {
+	datosDeRelease,
+	leerPlantilla,
+	politicaDelFormulario,
+	ventanaDelFormulario
+} from '$lib/politica-actualizacion';
 
 const DIA_MS = 86_400_000;
 
@@ -161,6 +170,10 @@ export const load = async ({ locals, url }) => {
 		actualizacion: { estado: a.estado, version: a.version, detalle: a.detalle },
 		/* La política de cambios y por qué espera la pendiente (docs/diseno/politica-cambios.md). */
 		politica: await politicaActualizacion(),
+		/* El suelo del .env de la máquina y lo que se aplica al combinarlo con lo de aquí. */
+		sueloPolitica: sueloActualizacion(),
+		politicaEfectiva: await politicaEfectiva(),
+		zonasHorarias: Intl.supportedValuesOf('timeZone'),
 		espera: await esperaActual(a),
 		aprobacion: await (async () => {
 			const ap = await aprobacionActualizacion();
@@ -227,6 +240,13 @@ export const load = async ({ locals, url }) => {
 			roles: ROLES,
 			retorno: `${url.origin}/auth/oidc/callback`
 		},
+		saml: {
+			estado: await estadoSaml(),
+			roles: ROLES,
+			/* Lo que se fijará al guardar la primera vez (después, lo guardado). */
+			spEntidad: `${url.origin}/auth/saml/metadata`,
+			acs: `${url.origin}/auth/saml/acs`
+		},
 		entra: {
 			propio: await estadoEntraPropio(),
 			seguridadsi: configuradoEnEntorno(),
@@ -287,7 +307,7 @@ export const actions = {
 		const r = await pedirRegistro(correo);
 		if (r === 'enviado')
 			return {
-				mensaje: `If the address is correct, you will receive a confirmation link at ${correo}. Once you confirm, you will get the activation code.`,
+				mensaje: `If the address is correct, you will receive a code at ${correo} within a few minutes. Enter it below.`,
 				correoRegistro: correo
 			};
 		const textos = {
@@ -299,6 +319,17 @@ export const actions = {
 				'Could not reach the SeguridadSI Central. Check that the node has internet access.'
 		} as const;
 		return fail(400, { error: textos[r], correoRegistro: correo });
+	},
+	canjearRegistro: async ({ request, locals }) => {
+		const u = exigir(locals, 'ajustes');
+		const f = await request.formData();
+		const r = await canjear(u.correo, {
+			codigo: String(f.get('codigo') ?? ''),
+			condiciones: f.get('condiciones') === 'on',
+			novedades: f.get('novedades') === 'on'
+		});
+		if (!r.ok) return fail(400, { error: r.error });
+		return { mensaje: 'Registration activated. You can now deploy the registration honeypots.' };
 	},
 	activarRegistro: async ({ request, locals }) => {
 		const u = exigir(locals, 'ajustes');
@@ -340,16 +371,57 @@ export const actions = {
 	politicaActualizacion: async ({ request, locals }) => {
 		const u = exigir(locals, 'ajustes');
 		const f = await request.formData();
-		const p =
-			f.get('preset') === 'banca'
-				? { modo: 'manual' as const, retardoHoras: 72 }
-				: politicaDelFormulario(f.get('modo'), f.get('retardo'));
+		const antes = await politicaActualizacion();
+		/* El perfil de banca toca el modo y el retardo; la ventana que hubiera se queda. */
+		if (f.get('preset') === 'banca') {
+			const cambiada = await guardarPoliticaActualizacion(u.correo, {
+				...antes,
+				modo: 'manual',
+				retardoHoras: Math.max(72, antes.retardoHoras)
+			});
+			return { mensaje: cambiada ? 'Update policy saved.' : 'The update policy has not changed.' };
+		}
+		const p = politicaDelFormulario(f.get('modo'), f.get('retardo'));
 		if (!p)
 			return fail(400, {
 				error: 'Choose automatic or manual approval and a delay between 0 and 720 hours.'
 			});
-		const cambiada = await guardarPoliticaActualizacion(u.correo, p);
+		const v = ventanaDelFormulario(
+			f.get('ventana') === 'on',
+			f.getAll('dia'),
+			f.get('desde'),
+			f.get('hasta'),
+			f.get('zona')
+		);
+		if ('error' in v) return fail(400, { error: v.error });
+		const cambiada = await guardarPoliticaActualizacion(u.correo, {
+			...p,
+			...(v.ventanas.length ? { ventanas: v.ventanas } : {})
+		});
 		return { mensaje: cambiada ? 'Update policy saved.' : 'The update policy has not changed.' };
+	},
+	/* Una plantilla de política exportada de otra consola (docs/diseno/politica-cambios.md). */
+	importarPoliticaActualizacion: async ({ request, locals }) => {
+		const u = exigir(locals, 'ajustes');
+		const fichero = (await request.formData()).get('plantilla');
+		if (!(fichero instanceof File) || fichero.size === 0 || fichero.size > 16_384)
+			return fail(400, { error: 'Choose an update policy template file exported from a console.' });
+		let p = null;
+		try {
+			p = leerPlantilla(JSON.parse(await fichero.text()));
+		} catch {
+			p = null;
+		}
+		if (!p)
+			return fail(400, {
+				error: 'That file is not a valid update policy template: nothing was changed.'
+			});
+		const cambiada = await guardarPoliticaActualizacion(u.correo, p);
+		return {
+			mensaje: cambiada
+				? 'Update policy imported from the template.'
+				: 'The template is the same as the current update policy.'
+		};
 	},
 	aprobarActualizacion: async ({ request, locals }) => {
 		const u = exigir(locals, 'ajustes');
@@ -554,6 +626,38 @@ export const actions = {
 		const r = await quitarOidc(u.correo);
 		if (!r.ok) return fail(400, { oidcError: r.error });
 		redirect(303, '/settings?tab=access#oidc');
+	},
+	/* Guarda el SAML propio, pendiente; la prueba es un enlace, como en OIDC. */
+	samlGuardar: async ({ locals, request, url }) => {
+		const u = exigir(locals, 'ajustes');
+		const f = await request.formData();
+		const datos = {
+			metadatos: String(f.get('metadatos') ?? '').slice(0, 600_000),
+			entidad: String(f.get('entidad') ?? ''),
+			sso: String(f.get('sso') ?? ''),
+			cert: String(f.get('cert') ?? '').slice(0, 50_000),
+			nombre: String(f.get('nombre') ?? ''),
+			atributoRoles: String(f.get('atributoRoles') ?? ''),
+			atributoCorreo: String(f.get('atributoCorreo') ?? ''),
+			roles: Object.fromEntries(ROLES.map((r) => [r, String(f.get(`rol-${r}`) ?? '')])),
+			exigirMfa: f.get('exigirMfa') === 'si',
+			contextos: String(f.get('contextos') ?? ''),
+			pedirContexto: f.get('pedirContexto') === 'si',
+			exigirCifrado: f.get('exigirCifrado') === 'si'
+		};
+		const r = await guardarSaml(u.correo, url.origin, datos);
+		if (!r.ok) {
+			const { metadatos, ...valores } = datos;
+			void metadatos;
+			return fail(400, { samlError: r.error, samlValores: valores });
+		}
+		redirect(303, '/settings?tab=access&saml=guardado#saml');
+	},
+	samlQuitar: async ({ locals, cookies }) => {
+		const u = exigir(locals, 'ajustes');
+		const r = await quitarSaml(u.correo, sesionActual(cookies));
+		if (!r.ok) return fail(400, { samlError: r.error });
+		redirect(303, '/settings?tab=access#saml');
 	},
 	/* Guarda el Entra propio, pendiente, y se va a probarlo con Microsoft. */
 	entraGuardar: async ({ locals, request }) => {

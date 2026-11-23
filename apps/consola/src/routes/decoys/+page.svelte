@@ -7,6 +7,7 @@
 	import { enhance } from '$app/forms';
 	import { page } from '$app/state';
 	import EstadoTrampa from '$lib/components/EstadoTrampa.svelte';
+	import TablaColocaciones from '$lib/components/TablaColocaciones.svelte';
 	import LogoTrampa from '$lib/components/LogoTrampa.svelte';
 	import { dondeVisible, estaPuesta, nombreTipo } from '$lib/formato';
 	import { alternar, ordenar, type Clave } from '$lib/orden-tabla';
@@ -31,7 +32,8 @@
 	type Fila = (typeof data.desplegados)[number];
 	/* Lo que enseña la tabla en «Sensor» y en «Location»: con eso se filtra y se ordena. */
 	const MANUAL = 'Manual';
-	const sensorDe = (s: Fila) => (s.aMano ? MANUAL : s.sensorNombre);
+	const CONECTOR = 'Microsoft 365';
+	const sensorDe = (s: Fila) => (s.conector ? CONECTOR : s.aMano ? MANUAL : s.sensorNombre);
 	const dondeDe = (s: Fila) =>
 		s.aMano
 			? `on ${s.destinoNombre ?? 'its target'}`
@@ -48,7 +50,8 @@
 	/* «Manual» al final: no es un sensor. */
 	const sensores = $derived([
 		...distintos(deGrupo.filter((s) => !s.aMano).map((s) => s.sensorNombre)),
-		...(deGrupo.some((s) => s.aMano) ? [MANUAL] : [])
+		...(deGrupo.some((s) => s.aMano && !s.conector) ? [MANUAL] : []),
+		...(deGrupo.some((s) => s.conector) ? [CONECTOR] : [])
 	]);
 	const tipos = $derived(distintos(deGrupo.map((s) => s.tipo)));
 	const estados = $derived(distintos(deGrupo.map((s) => s.estado.etiqueta)));
@@ -112,6 +115,7 @@
 	/* Lo desplegado por un lado y cuánto ruido hace por otro. */
 	const PESTANAS = [
 		{ id: 'honeypots', texto: 'Honeypots' },
+		{ id: 'placements', texto: 'Placements' },
 		{ id: 'noise', texto: 'Noise' }
 	] as const;
 	const pestana = $derived(pestanaDe(page.url, PESTANAS));
@@ -414,7 +418,7 @@
 						{#if opera}
 							<td class="acciones">
 								<a class="boton" href={resolve('/decoys/[id]', { id: s.id })}
-									>{s.aMano ? 'Steps' : 'Settings'}</a
+									>{s.conector ? 'Details' : s.aMano ? 'Steps' : 'Settings'}</a
 								>
 								<!-- Activa y sin comprobar: «Probar» es lo siguiente (§8.3). La ficha dice cómo. -->
 								{#if s.estado.estado === 'colocada'}
@@ -449,6 +453,23 @@
 		</table>
 	</section>
 </div>
+
+{#if pestana === 'placements' && data.colocaciones}
+	<!-- El inventario de colocaciones (D7): dónde está cada copia de cada cebo, y lo que hubo. -->
+	<section class="panel">
+		<h2>Placements</h2>
+		<p class="ayuda">
+			Every copy of a decoy placed somewhere: its exact location, the template version it was minted
+			with, when it was placed, when it expires, its rotation and how it was removed. Removed
+			placements stay here as history. Set expiry and rotation on each honeypot, under "Placement".
+		</p>
+		{#if data.colocaciones.length}
+			<TablaColocaciones filas={data.colocaciones} />
+		{:else}
+			<p class="ayuda">Nothing has been placed yet. Honeypots on a sensor are not listed here.</p>
+		{/if}
+	</section>
+{/if}
 
 {#if pestana === 'noise' && data.ruido}
 	{@const porMil = ruidoPorMil(ruidosas, data.ruido.dias)}

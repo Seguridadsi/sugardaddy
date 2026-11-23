@@ -10,12 +10,38 @@
 	import { haceCuanto } from '$lib/formato';
 	import EntraPropio from '$lib/components/EntraPropio.svelte';
 	import OidcPropio from '$lib/components/OidcPropio.svelte';
+	import SamlPropio from '$lib/components/SamlPropio.svelte';
 	import SoporteAcceso from '$lib/components/SoporteAcceso.svelte';
 	import MigrarEntra from '$lib/components/MigrarEntra.svelte';
 	import MenuAjustes from '$lib/components/MenuAjustes.svelte';
 	import { GRUPOS_AJUSTES, type GrupoAjustes } from '$lib/ajustes-menu';
+	import {
+		describirVentana,
+		lineasEnv,
+		nombreDia,
+		plantillaDe,
+		sueloActivo,
+		zonaDelNavegador
+	} from '$lib/politica-actualizacion';
 
 	let { data, form } = $props();
+	/* La ventana horaria del formulario de la política de cambios (una como mucho). */
+	const ventanaGuardada = $derived(data.politica.ventanas?.[0] ?? null);
+	let ventanaActiva = $state(false);
+	$effect.pre(() => {
+		ventanaActiva = !!ventanaGuardada;
+	});
+	/* Sin zona guardada, la del navegador de quien la pone. */
+	const zonaNavegador = zonaDelNavegador();
+	const plantillaPolitica = $derived(JSON.stringify(plantillaDe(data.politica), null, 2));
+	const descargarPlantilla = () => {
+		const url = URL.createObjectURL(new Blob([plantillaPolitica], { type: 'application/json' }));
+		const a = document.createElement('a');
+		a.href = url;
+		a.download = 'sugardaddy-update-policy.json';
+		a.click();
+		URL.revokeObjectURL(url);
+	};
 	const c = $derived(data.canal);
 
 	/* Tamaños en unidades legibles (base 1000, como los discos). */
@@ -52,6 +78,7 @@
 		certificado: 'access',
 		entra: 'access',
 		oidc: 'access',
+		saml: 'access',
 		'segundo-factor': 'access',
 		'recuperacion-panel': 'recovery',
 		central: 'central',
@@ -70,7 +97,9 @@
 		const pedido = page.url.searchParams.get('tab');
 		if (esGrupo(pedido)) return pedido;
 		if (porAncla) return porAncla;
-		return page.url.searchParams.has('entra') || page.url.searchParams.has('oidc')
+		return page.url.searchParams.has('entra') ||
+			page.url.searchParams.has('oidc') ||
+			page.url.searchParams.has('saml')
 			? 'access'
 			: 'general';
 	});
@@ -282,11 +311,45 @@
 			</form>
 			<p class="ayuda">
 				Your email and the name and version of this node are sent to SeguridadSI. You will receive a
-				link to confirm the email; once confirmed, you will get the activation code.
+				code by email to enter here.
 			</p>
+			{#if reg.pendiente}
+				<form method="POST" action="?/canjearRegistro" use:enhance class="codigo-registro">
+					<label>
+						Code sent to {reg.pendiente}
+						<input
+							name="codigo"
+							required
+							maxlength="40"
+							class="mono"
+							spellcheck="false"
+							autocomplete="one-time-code"
+							placeholder="XXXXX-XXXXX"
+						/>
+					</label>
+					<p class="ayuda">
+						SeguridadSI will store your email and the name and version of this node, to activate and
+						renew your registration and to notify you of anything that affects how it works. While
+						automatic updates are on, this node also reports the version it runs each time it checks
+						for a new one; you can turn that off here.
+					</p>
+					<label class="casilla">
+						<input type="checkbox" name="condiciones" required />
+						<span>I accept these terms to use the registration honeypots.</span>
+					</label>
+					<label class="casilla">
+						<input type="checkbox" name="novedades" />
+						<span>
+							I also want to receive product news by email. This is optional, and you can
+							unsubscribe at any time.
+						</span>
+					</label>
+					<button class="boton principal">Activate</button>
+				</form>
+			{/if}
 			<form method="POST" action="?/activarRegistro" use:enhance class="codigo-registro">
 				<label>
-					Activation code
+					Activation code from the website
 
 					<textarea
 						name="codigo"
@@ -313,6 +376,10 @@
 		{:else if data.actualizacion.estado === 'pendiente' && data.espera.motivo === 'retardo'}
 			· <b class="mono aviso">{data.actualizacion.version}</b> is signed and verified, waiting for
 			the minimum delay{#if data.espera.hasta}&nbsp;(until {fechaHora(data.espera.hasta)}){/if}
+		{:else if data.actualizacion.estado === 'pendiente' && data.espera.motivo === 'ventana'}
+			· <b class="mono aviso">{data.actualizacion.version}</b> is signed and verified, waiting for
+			the update window{#if data.espera.hasta}&nbsp;(opens {fechaHora(data.espera.hasta)}){:else},
+				which does not open in the next 8 days{/if}
 		{:else if data.actualizacion.estado === 'pendiente'}
 			· <b class="mono aviso">{data.actualizacion.version}</b> is signed and verified, waiting for the
 			updater
@@ -329,7 +396,7 @@
 		{#if c?.estado?.despliegueEnPausa}· rollout paused{/if}
 	</p>
 
-	{#if data.actualizacion.estado === 'pendiente' && data.politica.modo === 'manual'}
+	{#if data.actualizacion.estado === 'pendiente' && data.politicaEfectiva.modo === 'manual'}
 		<div class="aprobar-version">
 			<p>
 				Version <b class="mono">{data.actualizacion.version}</b>
@@ -401,12 +468,33 @@
 	</p>
 	<p>
 		Now: <b
-			>{data.politica.modo === 'manual'
+			>{data.politicaEfectiva.modo === 'manual'
 				? 'an administrator approves each version'
 				: 'versions install automatically'}</b
-		>{#if data.politica.retardoHoras > 0}, no earlier than <b>{data.politica.retardoHoras} hours</b>
-			after they are published{/if}.
+		>{#if data.politicaEfectiva.retardoHoras > 0}, no earlier than <b
+				>{data.politicaEfectiva.retardoHoras} hours</b
+			>
+			after they are published{/if}{#each data.politicaEfectiva.grupos as grupo, i (i)}{i === 0
+				? ', starting only'
+				: ', and'}
+			<b>{grupo.map(describirVentana).join(' or ')}</b>{/each}.
 	</p>
+	{#if sueloActivo(data.sueloPolitica)}
+		<p class="ayuda suelo">
+			<b>Set on this machine:</b>
+			{data.sueloPolitica.modo === 'manual'
+				? 'manual approval'
+				: 'automatic'}{#if data.sueloPolitica.retardoHoras > 0},
+				{data.sueloPolitica.retardoHoras} hours of minimum delay{/if}{#each data.sueloPolitica.ventanas ?? [] as v, i (i)},
+				{describirVentana(v)}{/each}. It is in the node's <span class="mono">.env</span> file: this
+			page can make the policy stricter, never more lenient.
+			{#if data.sueloPolitica.ventanaIlegible}
+				<b class="mal"
+					>ACTUALIZACION_VENTANA cannot be read, so no version is installed until it is fixed.</b
+				>
+			{/if}
+		</p>
+	{/if}
 	<form method="POST" action="?/politicaActualizacion" use:enhance={sinVaciar} class="politica">
 		<fieldset>
 			<legend>Installation</legend>
@@ -439,9 +527,61 @@
 			/>
 			<label for="retardo">hours of minimum delay after a version is published (0 for none)</label>
 		</div>
+		<fieldset>
+			<legend>Update window</legend>
+			<label class="interruptor">
+				<input type="checkbox" name="ventana" bind:checked={ventanaActiva} />
+				<span><b>Start installations only inside a window</b></span>
+			</label>
+			{#if ventanaActiva}
+				<div class="dias">
+					{#each [1, 2, 3, 4, 5, 6, 7] as d (d)}
+						<label>
+							<input
+								type="checkbox"
+								name="dia"
+								value={d}
+								checked={ventanaGuardada ? ventanaGuardada.dias.includes(d) : d <= 5}
+							/>
+							{nombreDia(d).slice(0, 3)}
+						</label>
+					{/each}
+				</div>
+				<div class="horas">
+					<label
+						>From <input
+							type="time"
+							name="desde"
+							value={ventanaGuardada?.desde ?? '02:00'}
+						/></label
+					>
+					<label
+						>to <input type="time" name="hasta" value={ventanaGuardada?.hasta ?? '05:00'} /></label
+					>
+					<label
+						>time zone
+						<input
+							name="zona"
+							list="zonas-horarias"
+							autocomplete="off"
+							spellcheck="false"
+							value={ventanaGuardada ? ventanaGuardada.zona || 'UTC' : zonaNavegador}
+						/>
+					</label>
+					<datalist id="zonas-horarias">
+						{#each data.zonasHorarias as z (z)}<option value={z}></option>{/each}
+					</datalist>
+				</div>
+				<p class="ayuda">
+					If the end is earlier than the start, the window runs past midnight and the day is the one
+					it starts on. The same start and end means 24 hours. An installation that starts inside
+					the window is not interrupted when it closes.
+				</p>
+			{/if}
+		</fieldset>
 		<p class="ayuda">
 			A version signed as an urgent security fix skips the delay, but still needs approval when
-			approval is manual.
+			approval is manual, and still waits for the window.
 		</p>
 		<div class="acciones">
 			<button class="boton principal">Save</button>
@@ -450,6 +590,27 @@
 			>
 		</div>
 	</form>
+	<h3 class="titulo-plantilla">Template</h3>
+	<p class="ayuda">
+		Apply the same policy on your other nodes: import this template in each console, or set it on
+		the machine so that no console can lower it. To set it when installing, put these lines before
+		the install command (<span class="mono">sudo env ACTUALIZACION_POLITICA=… bash …</span>); on a
+		node already installed, add them to its <span class="mono">.env</span> file.
+	</p>
+	<pre class="mono plantilla">{lineasEnv(data.politica).join('\n')}</pre>
+	<div class="acciones-plantilla">
+		<button class="boton" type="button" onclick={descargarPlantilla}>Download the template</button>
+		<form
+			method="POST"
+			action="?/importarPoliticaActualizacion"
+			enctype="multipart/form-data"
+			use:enhance={sinVaciar}
+			class="importar"
+		>
+			<input type="file" name="plantilla" accept="application/json,.json" required />
+			<button class="boton">Import a template</button>
+		</form>
+	</div>
 </section>
 
 <form class="panel bloque" method="POST" action="?/palabras" use:enhance hidden={oculto('events')}>
@@ -653,6 +814,7 @@
 		error={form?.oidcError}
 		valores={form?.oidcValores}
 	/>
+	<SamlPropio {...data.saml} error={form?.samlError} valores={form?.samlValores} />
 	{#if data.entra.b2b === 'activo'}
 		<MigrarEntra propio={data.entra.propio} equipo={data.equipoB2B} error={form?.migrarError} />
 	{/if}
@@ -1035,6 +1197,24 @@
 		width: 100%;
 	}
 
+	.codigo-registro input[name='codigo'] {
+		display: block;
+		max-width: 16ch;
+		margin-top: 6px;
+		letter-spacing: 0.08em;
+	}
+
+	.codigo-registro .casilla {
+		display: flex;
+		gap: 10px;
+		align-items: flex-start;
+	}
+
+	.codigo-registro .casilla input {
+		margin: 3px 0 0;
+		flex: none;
+	}
+
 	.interruptor {
 		display: flex;
 		gap: 10px;
@@ -1073,6 +1253,33 @@
 		margin: 0.75rem 0;
 		padding: 0.75rem 1rem;
 		border-left: 3px solid var(--warn);
+	}
+	.politica .dias,
+	.politica .horas {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.5rem 1rem;
+		margin: 0.5rem 0;
+	}
+	.politica .horas input[name='zona'] {
+		width: 14rem;
+	}
+	.titulo-plantilla {
+		margin-top: 2rem;
+	}
+	.plantilla {
+		white-space: pre-wrap;
+		word-break: break-all;
+	}
+	.acciones-plantilla,
+	.importar {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.75rem;
+		align-items: center;
+	}
+	.importar input[type='file'] {
+		max-width: 22rem;
 	}
 	.politica fieldset {
 		border: 0;

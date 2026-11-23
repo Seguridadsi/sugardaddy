@@ -1734,8 +1734,18 @@ describe('elector: lo demás', () => {
 });
 
 describe('ejecutores', () => {
-	it('contenedor@1 y manual@1, como dicen §6.2 y §6.3', () => {
-		expect(Object.keys(EJECUTORES).sort()).toEqual(['contenedor@1', 'manual@1']);
+	it('contenedor@1, manual@1 y graph@1, como dicen §6.2, §6.3 y §6.4', () => {
+		expect(Object.keys(EJECUTORES).sort()).toEqual(['contenedor@1', 'graph@1', 'manual@1']);
+		/* graph@1 (D3): conector que corre en la consola, solo en un tenant con la conexión activa. */
+		expect(EJECUTORES['graph@1']).toMatchObject({
+			clase: 'conector',
+			corre: 'consola',
+			destinos: ['tenant'],
+			fuentes: ['rele', 'conector'],
+			pausable: false,
+			retirada: 'automatica'
+		});
+		expect(EJECUTORES['graph@1'].requisitos.map((r) => r.hecho)).toEqual(['conexion.graph.estado']);
 		for (const [id, e] of Object.entries(EJECUTORES)) expect(e.id).toBe(id);
 		expect(EJECUTORES['contenedor@1']).toMatchObject({
 			clase: 'agente',

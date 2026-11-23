@@ -1,7 +1,8 @@
 import { tipoEvento } from '@sugardaddy/contrato';
 import { tipoDeServicio } from '@sugardaddy/estilo/pictogramas';
 import { catalogoConSuscripcion, desplegable, porQueNo } from '$lib/server/catalogo';
-import { trampasConEventos } from '$lib/server/consultas';
+import { usoDeModulos } from '$lib/server/consultas';
+import { madurezDelNodo, vistaDeMadurez } from '$lib/server/madurez';
 import { plantillasDisponibles } from '$lib/server/plantillas';
 
 /*
@@ -12,10 +13,12 @@ import { plantillasDisponibles } from '$lib/server/plantillas';
  * son de pago, en la licencia) y, dentro de cada grupo, por nombre.
  */
 export const load = async () => {
-	const catalogo = await catalogoConSuscripcion();
-	const desplegados = await trampasConEventos();
-	const instaladas = new Map<string, number>();
-	for (const t of desplegados) instaladas.set(t.modulo, (instaladas.get(t.modulo) ?? 0) + 1);
+	const [catalogo, uso, madurez] = await Promise.all([
+		catalogoConSuscripcion(),
+		usoDeModulos(),
+		madurezDelNodo()
+	]);
+	const instaladas = new Map([...uso].map(([modulo, u]) => [modulo, u.instaladas]));
 	return {
 		/* Las plantillas son de Cloud: en Community no se ofrecen. */
 		conPlantillas: plantillasDisponibles(),
@@ -32,6 +35,11 @@ export const load = async () => {
 				tipo: tipoEvento(m),
 				disponible: m.disponible,
 				instaladas: instaladas.get(m.id) ?? 0,
+				enMarcha: uso.get(m.id)?.enMarcha ?? 0,
+				/* La madurez firmada con la versión del nodo (D11): el nivel y sus textos, o null. */
+				madurez: ((v) => v && { nivel: v.nivel, etiqueta: v.etiqueta, explicacion: v.explicacion })(
+					vistaDeMadurez(madurez, m)
+				),
 				porQueNo: porQueNo(m),
 				activarConRegistro: !m.disponible && m.conRegistro,
 				registroCaducado: m.licencia === 'registro.caducado',

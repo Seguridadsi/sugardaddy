@@ -43,6 +43,12 @@ type Servidor struct {
 	AppArmor string
 	// Discos atiende la petición de discos (nil: esta máquina no los da así).
 	Discos *Discos
+	// Llamadas da la lista seccomp firmada de un módulo (nil: el perfil común).
+	Llamadas func(modulo string) []string
+	// Observar: solo en el banco. Las trampas apuntan cada llamada en el registro
+	// del núcleo (PerfilObservacion), con runc. Vistas: las ya apuntadas.
+	Observar bool
+	Vistas   []string
 
 	cliente *http.Client
 	proxy   *httputil.ReverseProxy
@@ -230,13 +236,18 @@ func (s *Servidor) crear(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
+	usernsDeSonda(tipo, cfg)
 	if tipo == TipoTrampa {
 		a, err := s.Aislamiento(r.Context())
 		if err != nil {
 			return err
 		}
-		con := a.Endurecer(cfg, man.Red != nil)
-		slog.Info("sd-motor: decoy created", "trampa", etiquetas(cfg)[EtiquetaTrampa], "aislamiento", con)
+		perfil, seccomp := s.perfil(man.ID)
+		con := a.EndurecerCon(cfg, man.Red != nil, perfil)
+		if con == AislamientoRunsc {
+			seccomp = "-"
+		}
+		slog.Info("sd-motor: decoy created", "trampa", etiquetas(cfg)[EtiquetaTrampa], "aislamiento", con, "seccomp", seccomp)
 	}
 	b, _ := json.Marshal(cfg)
 	r.Body = io.NopCloser(bytes.NewReader(b))
@@ -244,6 +255,34 @@ func (s *Servidor) crear(w http.ResponseWriter, r *http.Request) error {
 	r.Header.Set("Content-Length", fmt.Sprint(len(b)))
 	s.proxy.ServeHTTP(w, r)
 	return nil
+}
+
+// usernsDeSonda: las sondas con la red de la máquina (puerta-enlace, puertos-anfitrion)
+// van en su espacio de usuarios: con userns-remap en el daemon (§4d), Docker no deja la
+// red del anfitrión sin él. Sin remap no cambia nada. Las trampas y el acompañante,
+// nunca: con remap, su root no es el de la máquina.
+func usernsDeSonda(tipo Tipo, cfg map[string]any) {
+	if tipo != TipoSonda {
+		return
+	}
+	if h, _ := cfg["HostConfig"].(map[string]any); h != nil && h["NetworkMode"] == "host" {
+		h["UsernsMode"] = "host"
+	}
+}
+
+// perfil: el seccomp de una trampa y cuál es (propio, comun u observar).
+func (s *Servidor) perfil(modulo string) (string, string) {
+	if s.Observar {
+		return PerfilObservacion(s.Vistas), "observar"
+	}
+	var l []string
+	if s.Llamadas != nil {
+		l = s.Llamadas(modulo)
+	}
+	if p, propio := PerfilSeccompPara(l); propio {
+		return p, "propio"
+	}
+	return PerfilSeccomp(), "comun"
 }
 
 // leerJSON lee el cuerpo (con tope) y lo deja otra vez para reenviarlo.

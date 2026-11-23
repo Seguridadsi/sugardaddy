@@ -50,7 +50,8 @@ export function ipDeLaMaquina(direcciones: unknown, red: string | null): string 
  * sensor bloquea su campo en el formulario, y este se tiene que poder corregir.
  */
 export function hechosDe(
-	destino: Pick<typeof s.destinos.$inferSelect, 'descripcion'>,
+	destino: Pick<typeof s.destinos.$inferSelect, 'descripcion'> &
+		Partial<Pick<typeof s.destinos.$inferSelect, 'conexion'>>,
 	sensor: SensorDeHechos | null
 ): Hechos {
 	const hechos = fusionar(
@@ -58,6 +59,12 @@ export function hechosDe(
 		hechosDeConsola(sensor),
 		hechosDeSensor(sensor?.capacidades)
 	);
+	/*
+	 * La conexión de un tenant con su nube (D3): lo que vio su última prueba. La exige la
+	 * vía graph@1 (activa). La pone la consola, nunca un sensor ni el formulario.
+	 */
+	if (destino.conexion?.tipo === 'graph')
+		hechos['conexion.graph.estado'] = { valor: destino.conexion.estado, fuente: 'consola' };
 	if (!sensor || Object.hasOwn(hechos, 'destino.direccion')) return hechos;
 	const contadas = hechos['red.direcciones'];
 	const ip = ipDeLaMaquina(contadas?.valor, sensor.red);

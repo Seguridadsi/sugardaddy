@@ -244,6 +244,30 @@ func TestRotadoBorradoAvisa(t *testing.T) {
 	}
 }
 
+// Un rotado ilegible (una imagen vieja lo dejó 0640 y el sensor no es root) se
+// salta con aviso y el activo se sigue leyendo (KEBAPS, 0.32.3: mysql y
+// receptor-balizas seguían mudas por el rotado del día anterior).
+func TestRotadoIlegibleNoCallaAlActivo(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root lo lee todo")
+	}
+	ruta := filepath.Join(t.TempDir(), "mysql.json")
+	escribir(t, ruta, "a1\n")
+	fecha(t, ruta, hace(2*time.Hour))
+	_, p, _ := seguir(t, ruta, Posicion{})
+	escribir(t, ruta, "a2\n")
+	rotar(t, ruta, ruta+".2026_11_18", hace(time.Hour))
+	if err := os.Chmod(ruta+".2026_11_18", 0o200); err != nil {
+		t.Fatal(err)
+	}
+	escribir(t, ruta, "b1\n")
+	lineas, _, aviso := seguir(t, ruta, p)
+	iguales(t, lineas, "b1")
+	if !strings.Contains(aviso, avisoIlegible) {
+		t.Fatalf("aviso=%q", aviso)
+	}
+}
+
 func TestLineaGiganteNoAtasca(t *testing.T) {
 	ruta := filepath.Join(t.TempDir(), "cowrie.json")
 	escribir(t, ruta, "a\n"+strings.Repeat("x", maxLectura+maxLectura/4)+"\nb\n")

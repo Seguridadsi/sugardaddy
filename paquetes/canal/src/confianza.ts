@@ -221,6 +221,39 @@ export function firmadoPor(
 	return null;
 }
 
+/*
+ * Umbral de dos firmas (docs/diseno/politica-cambios.md; gemelo de umbral.go): las huellas,
+ * sin repetir, de las claves de confianza que firmaron el texto. Cuentan todas las de la
+ * lista, de cualquier uso, y la de legado: la verificación ya exige que una sea de la edición,
+ * y así la segunda puede ser la de reserva de otro uso.
+ */
+const candidatasUmbral = (c: Confianza) => [
+	...(c.legado ? [c.legado] : []),
+	...c.claves.map((k) => k.publica)
+];
+
+export function firmantesDistintos(
+	c: Confianza,
+	texto: string,
+	firma: unknown,
+	firmas?: unknown
+): string[] {
+	const candidatas = candidatasUmbral(c);
+	const r = new Set<string>();
+	if (typeof firma === 'string')
+		for (const p of candidatas) if (valida(p, texto, firma)) r.add(huellaDe(p));
+	if (Array.isArray(firmas))
+		for (const f of firmas.slice(0, 8) as Partial<Firma>[]) {
+			if (!f || typeof f.clave !== 'string' || typeof f.firma !== 'string') continue;
+			for (const p of candidatas)
+				if (huellaDe(p) === f.clave && valida(p, texto, f.firma)) r.add(huellaDe(p));
+		}
+	return [...r];
+}
+
+/* Cuántas claves distintas cuentan: con una sola, no se pueden pedir dos firmas. */
+export const clavesDistintas = (c: Confianza) => new Set(candidatasUmbral(c).map(huellaDe)).size;
+
 /* Las firmas que se añaden a `firmas` con las claves nuevas (privada pkcs8 y su pública). */
 export function firmasExtra(
 	texto: string,

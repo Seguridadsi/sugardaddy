@@ -100,12 +100,12 @@ parametros:
       type: string
       title: Shared resources
       description: >-
-        Believable resource names, comma-separated (Finanzas, RRHH, Backups).
+        Believable resource names, comma-separated (Finance, HR, Backups).
         They make the decoy more believable and appear in the log; the decoy
         accepts the connection to any resource and never serves real data.
       pattern: '^[^\x00]{0,256}$'
       maxLength: 256
-      default: 'Finanzas,RRHH,Backups,IT$'
+      default: 'Finance,HR,Backups,IT$'
 
 eventos:
   fuente: { tipo: fichero, ruta: smb.json }

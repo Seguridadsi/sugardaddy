@@ -4,15 +4,19 @@
  * leer, guardar y auditar (auditoria.actualizacion: las acciones empiezan por «update »).
  *
  * El panel no puede tocar nada de esto: el estado deseado no trae ajustes de la consola. Y aun
- * así, quien decide es el actualizador con su propio suelo (.env).
+ * así, quien decide es el actualizador con su propio suelo (.env), que aquí solo se lee para
+ * enseñarlo y contar igual que él.
  */
 import { eq } from 'drizzle-orm';
+import { env } from '$env/dynamic/private';
 import { db, schema as s } from './db';
 import { auditar } from './consultas';
 import {
+	combinar,
 	datosDeRelease,
 	esperaDe,
 	leerPolitica,
+	politicaDelEntorno,
 	type AprobacionActualizacion,
 	type Espera,
 	type PoliticaActualizacion
@@ -44,9 +48,25 @@ export async function politicaActualizacion(): Promise<PoliticaActualizacion> {
 	return leerPolitica(await leerAjuste(CLAVE_POLITICA));
 }
 
+/*
+ * El suelo del .env de esta máquina, que compose pasa a la consola: solo para enseñarlo y para
+ * contar igual que el actualizador, que lo lee él mismo del .env (la consola no lo puede bajar).
+ */
+export const sueloActualizacion = () => politicaDelEntorno((k) => env[k]);
+
+/* Lo que se aplica de verdad: lo más estricto del suelo y de lo elegido aquí. */
+export async function politicaEfectiva() {
+	return combinar(sueloActualizacion(), await politicaActualizacion());
+}
+
+const igual = (a: PoliticaActualizacion, b: PoliticaActualizacion) =>
+	a.modo === b.modo &&
+	a.retardoHoras === b.retardoHoras &&
+	JSON.stringify(a.ventanas ?? []) === JSON.stringify(b.ventanas ?? []);
+
 export async function guardarPoliticaActualizacion(quien: string, p: PoliticaActualizacion) {
 	const antes = await politicaActualizacion();
-	if (antes.modo === p.modo && antes.retardoHoras === p.retardoHoras) return false;
+	if (igual(antes, p)) return false;
 	await guardarAjuste(CLAVE_POLITICA, p);
 	await auditar(quien, 'update policy changed', { antes, ahora: p });
 	return true;
@@ -79,7 +99,8 @@ export async function aprobarActualizacion(
 		version,
 		publicada: datos?.publicada ?? null,
 		urgente: datos?.urgente ?? false,
-		politica: await politicaActualizacion()
+		politica: await politicaActualizacion(),
+		suelo: sueloActualizacion()
 	});
 	return 'aprobada';
 }
@@ -89,5 +110,5 @@ export async function esperaActual(a: Pendiente, ahora = Date.now()): Promise<Es
 	if (a.estado !== 'pendiente' || !a.release) return { motivo: null };
 	const datos = datosDeRelease(a.release.release);
 	if (!datos) return { motivo: null };
-	return esperaDe(datos, await politicaActualizacion(), await aprobacionActualizacion(), ahora);
+	return esperaDe(datos, await politicaEfectiva(), await aprobacionActualizacion(), ahora);
 }

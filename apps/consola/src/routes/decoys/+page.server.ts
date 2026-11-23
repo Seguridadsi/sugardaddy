@@ -8,6 +8,8 @@ import { noSeParaPor, recibeSenalDe } from '$lib/formato';
 import { nombresDePlantillas, plantillasDisponibles } from '$lib/server/plantillas';
 import { silenciosPorObjeto } from '$lib/server/alcance-ficha';
 import { DIAS_RUIDO, ruidoPorTrampa } from '$lib/server/ruido';
+import { inventario } from '$lib/server/colocaciones';
+import { retirarPorConector } from '$lib/server/conector-ficheros';
 
 /*
  * Las trampas ya puestas. El catálogo para añadir nuevas vive en /decoys/catalog.
@@ -43,6 +45,8 @@ export const load = async ({ url }) => {
 			url.searchParams.get('tab') === 'noise'
 				? { dias: DIAS_RUIDO, trampas: await ruidoPorTrampa() }
 				: null,
+		/* El inventario de colocaciones (D7): solo en su pestaña. */
+		colocaciones: url.searchParams.get('tab') === 'placements' ? await inventario() : null,
 		creado: url.searchParams.get('creado'),
 		cambiado: url.searchParams.get('cambiado'),
 		quitada: url.searchParams.get('quitada'),
@@ -71,8 +75,19 @@ export const actions = {
 	},
 	retirar: async ({ request, locals }) => {
 		const u = exigir(locals, 'desplegar');
-		const r = await retirarTrampa(u.correo, String((await request.formData()).get('id')));
+		const id = String((await request.formData()).get('id'));
+		const r = await retirarTrampa(u.correo, id);
 		if (r === 'retirada') return { mensaje: 'Honeypot removed. Its events are kept.' };
+		if (r === 'retirando-conector') {
+			/* La de un conector se quita enseguida; si falla, se reintenta sola. */
+			const x = await retirarPorConector(id, u.correo).catch(() => 'fallo');
+			return {
+				mensaje:
+					x === 'retirada'
+						? 'Honeypot removed from SharePoint or OneDrive. Its events are kept.'
+						: 'Sugardaddy is removing it through the tenant connection: its status says how it goes.'
+			};
+		}
 		if (r === 'retirando')
 			return {
 				mensaje:
@@ -121,11 +136,15 @@ async function retirarVarias(
 ): Promise<string> {
 	let retiradas = 0;
 	let aMano = 0;
+	let conector = 0;
 	const quedan: string[] = [];
 	for (const t of trampas.toSorted((a, b) => Number(b.aMano) - Number(a.aMano))) {
 		const r = await retirarTrampa(quien, t.id);
 		if (r === 'retirada') retiradas++;
-		else if (r === 'retirando') aMano++;
+		else if (r === 'retirando-conector') {
+			if ((await retirarPorConector(t.id, quien).catch(() => 'fallo')) === 'retirada') retiradas++;
+			else conector++;
+		} else if (r === 'retirando') aMano++;
 		else if (r !== 'no-existe') quedan.push(t.nombre);
 	}
 	const partes = [
@@ -133,6 +152,11 @@ async function retirarVarias(
 		...(aMano
 			? [
 					`${aMano} must now be removed from ${aMano === 1 ? 'its target' : 'their targets'}: the removal instructions are under "Steps" on each one.`
+				]
+			: []),
+		...(conector
+			? [
+					`${conector} ${conector === 1 ? 'is' : 'are'} being removed through the tenant connection; Sugardaddy retries on its own.`
 				]
 			: []),
 		...(quedan.length

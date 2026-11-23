@@ -113,6 +113,35 @@ type Cliente struct {
 
 	mu        sync.Mutex
 	negociado Negociado
+	// usernsAnfitrion: todo lo que crea este cliente va en el espacio de usuarios de la
+	// máquina (ConUsernsAnfitrion).
+	usernsAnfitrion bool
+}
+
+// ConUsernsAnfitrion hace que cada contenedor que crea este cliente lleve
+// UsernsMode=host. Es el del actualizador: lo suyo es la propia máquina (el socket, la
+// carpeta del nodo, la red o el PID del anfitrión), nunca una trampa. Con userns-remap en
+// el daemon (docs/diseno/aislamiento-trampas.md §4d) sin esto no podría; sin remap no
+// cambia nada.
+func (c *Cliente) ConUsernsAnfitrion() *Cliente {
+	c.usernsAnfitrion = true
+	return c
+}
+
+// usernsDelAnfitrion añade UsernsMode=host a una creación si el cliente lo pide y la
+// creación no dice otro.
+func (c *Cliente) usernsDelAnfitrion(config map[string]any) {
+	if !c.usernsAnfitrion {
+		return
+	}
+	h, _ := config["HostConfig"].(map[string]any)
+	if h == nil {
+		h = map[string]any{}
+		config["HostConfig"] = h
+	}
+	if _, ok := h["UsernsMode"]; !ok {
+		h["UsernsMode"] = "host"
+	}
 }
 
 type Credencial struct{ Usuario, Token string }
@@ -711,6 +740,7 @@ func (c *Cliente) Crear(ctx context.Context, nombre string, config map[string]an
 	var r struct {
 		ID string `json:"Id"`
 	}
+	c.usernsDelAnfitrion(config)
 	err := c.llamar(ctx, http.MethodPost, "/containers/create?name="+url.QueryEscape(nombre), config, &r)
 	return r.ID, err
 }

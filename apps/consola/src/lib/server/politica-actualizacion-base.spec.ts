@@ -16,6 +16,9 @@ try {
 	/* Sin .env: vale el DATABASE_URL del entorno, si lo hay. */
 }
 const hayBase = !!process.env.DATABASE_URL;
+/* El suelo del .env de la máquina cambiaría las cuentas: aquí se prueba sin él. */
+for (const k of ['ACTUALIZACION_POLITICA', 'ACTUALIZACION_RETARDO_HORAS', 'ACTUALIZACION_VENTANA'])
+	delete process.env[k];
 
 vi.mock('$env/dynamic/private', () => ({ env: process.env }));
 vi.mock('$app/environment', () => ({ building: false, dev: true }));
@@ -96,5 +99,34 @@ describe.skipIf(!hayBase)('política de cambios (base de datos)', () => {
 			.from(s.ajustes)
 			.where(eq(s.ajustes.clave, 'aprobacion-actualizacion'));
 		expect((f.valor as { quien: string }).quien).toBe(`${P}-ana`);
+	});
+
+	it('guarda la ventana, cuenta el suelo del .env y no lo deja bajar', async () => {
+		await pol.guardarPoliticaActualizacion(`${P}-admin`, { modo: 'automatica', retardoHoras: 0 });
+		const noche = [{ dias: [1, 2, 3, 4, 5, 6, 7], desde: '02:00', hasta: '04:00' }];
+		expect(
+			await pol.guardarPoliticaActualizacion(`${P}-admin`, {
+				modo: 'automatica',
+				retardoHoras: 0,
+				ventanas: noche
+			})
+		).toBe(true);
+		expect((await pol.politicaActualizacion()).ventanas).toEqual(noche);
+		/* Las 12:00 UTC: fuera de la ventana; abre a las 2 del día siguiente. */
+		expect(await pol.esperaActual(pendiente('9.2.0', 1), ahora)).toEqual({
+			motivo: 'ventana',
+			hasta: '2026-11-16T02:00:00.000Z'
+		});
+		/* El suelo del .env manda aunque la consola diga automática y sin ventana. */
+		await pol.guardarPoliticaActualizacion(`${P}-admin`, { modo: 'automatica', retardoHoras: 0 });
+		process.env.ACTUALIZACION_POLITICA = 'manual';
+		try {
+			expect(pol.sueloActualizacion().modo).toBe('manual');
+			expect((await pol.politicaEfectiva()).modo).toBe('manual');
+			expect((await pol.esperaActual(pendiente('9.2.0', 1), ahora)).motivo).toBe('aprobacion');
+		} finally {
+			delete process.env.ACTUALIZACION_POLITICA;
+		}
+		expect((await pol.esperaActual(pendiente('9.2.0', 1), ahora)).motivo).toBeNull();
 	});
 });

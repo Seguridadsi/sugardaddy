@@ -295,7 +295,10 @@ export async function quitarEntraPropio(
 	/* El OIDC propio activo (oidc-propio.ts, ajuste «oidc_propio») también es una entrada. */
 	const [oidc] = await db.select().from(s.ajustes).where(eq(s.ajustes.clave, 'oidc_propio'));
 	const oidcActivo = !!(oidc?.valor as { activo?: boolean } | undefined)?.activo;
-	if (g.activo && !loginLocalHabilitado() && !b2b && !oidcActivo)
+	/* Y el SAML propio (saml-propio.ts, ajuste «saml_propio»). */
+	const [saml] = await db.select().from(s.ajustes).where(eq(s.ajustes.clave, 'saml_propio'));
+	const samlActivo = !!(saml?.valor as { activo?: boolean } | undefined)?.activo;
+	if (g.activo && !loginLocalHabilitado() && !b2b && !oidcActivo && !samlActivo)
 		return {
 			ok: false,
 			error:
@@ -318,6 +321,7 @@ export async function quitarEntraPropio(
 					notLike(s.sesiones.oid, 'local:%'),
 					notLike(s.sesiones.oid, 'emergencia:%'),
 					notLike(s.sesiones.oid, 'oidc:%'),
+					notLike(s.sesiones.oid, 'saml:%'),
 					...(salvo ? [ne(s.sesiones.id, salvo)] : [])
 				)
 			);

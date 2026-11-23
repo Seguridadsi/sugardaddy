@@ -44,6 +44,24 @@ const creado = () => timestamp('creado', { withTimezone: true }).notNull().defau
 
 export type CortafuegosNube = { proveedor: 'azure'; nsg: string };
 
+/*
+ * La conexión de un destino de tipo tenant con su nube (D3): hoy solo Microsoft
+ * Graph, para colocar ficheros cebo en SharePoint y OneDrive con Sites.Selected
+ * (lib/server/conectores/graph.ts). El secreto va cifrado con la clave del nodo
+ * (secretos.ts, contexto «conexion:<destino>»), nunca en claro. «estado» es lo
+ * que vio la última prueba: de él sale el hecho conexion.graph.estado del
+ * destino, que exige la vía graph@1.
+ */
+export type ConexionDestino = {
+	tipo: 'graph';
+	tenant: string;
+	aplicacion: string;
+	secreto: string;
+	estado: 'activa' | 'fallo' | 'sin-probar';
+	error?: string;
+	comprobada?: string;
+};
+
 export const sensores = pgTable('sensores', {
 	id: text('id').primaryKey(),
 	nombre: text('nombre').notNull(),
@@ -184,6 +202,11 @@ export const destinos = pgTable(
 		sensor: text('sensor').references(() => sensores.id, { onDelete: 'set null' }),
 		/* Las respuestas del formulario corto (DescripcionDestino). */
 		descripcion: jsonb('descripcion').$type<DescripcionDestino>().notNull().default({}),
+		/*
+		 * La conexión con su nube (un tenant): nula en todos los demás y en los de antes.
+		 * Una consola anterior ni la lee: sus INSERT no la mencionan.
+		 */
+		conexion: jsonb('conexion').$type<ConexionDestino>(),
 		activo: boolean('activo').notNull().default(true),
 		creado: creado()
 	},
@@ -308,9 +331,18 @@ export const trampas = pgTable(
 		 * base, y una propia borrada deja sus trampas puestas con su grupo.
 		 */
 		plantilla: text('plantilla'),
+		/*
+		 * La política de lo sembrado (D7, inventario de colocaciones): cuándo caduca
+		 * (se retira sola) y cada cuántos días se rota (se vuelve a acuñar y a colocar
+		 * con la plantilla de hoy). Nulas = ni caduca ni rota, que es lo de antes.
+		 * Cada copia colocada se apunta en «colocaciones».
+		 */
+		caduca: timestamp('caduca', { withTimezone: true }),
+		rotarDias: integer('rotar_dias'),
 		creado: creado()
 	},
 	(t) => [
+		check('trampas_rotar_dias', sql`${t.rotarDias} IS NULL OR ${t.rotarDias} BETWEEN 1 AND 3650`),
 		check(
 			'trampas_colocacion',
 			sql`${t.colocacion} IN ('por-colocar','colocada','comprobada','degradada','retirando')`
@@ -573,6 +605,83 @@ export const balizas = pgTable(
 		creado: creado()
 	},
 	(t) => [uniqueIndex('balizas_trampa').on(t.trampa), index('balizas_sensor').on(t.sensor)]
+);
+
+export const ESTADOS_COLOCACION = [
+	'pendiente',
+	'colocada',
+	'retirando',
+	'retirada',
+	'sustituida',
+	'perdida'
+] as const;
+export type EstadoColocacion = (typeof ESTADOS_COLOCACION)[number];
+
+/* Lo que identifica la copia en el sistema donde está (hoy, un driveItem de Graph). */
+export type ReferenciaColocacion = {
+	sitio?: string;
+	unidad?: string;
+	elemento?: string;
+	/* El cTag con que se subió: retirar o rotar solo si el contenido sigue siendo el nuestro. */
+	ctag?: string;
+	web?: string;
+};
+
+/*
+ * El inventario de colocaciones (D7): una fila por cada copia de un cebo que se
+ * ha puesto en algún sitio —un documento en una carpeta, en SharePoint o en
+ * OneDrive, una credencial en un servidor—, con su ruta exacta, la versión de la
+ * plantilla con que se acuñó, cuándo se sembró, su estado y su retirada.
+ *
+ * Es historia: sobrevive a su trampa (ON DELETE SET NULL) y guarda copia del
+ * nombre, el módulo y el destino para seguir diciendo qué hubo y dónde. Rotar
+ * deja la fila vieja «sustituida» y abre otra que la nombra en «sustituye».
+ * La política (caduca, rotar_dias) es de la trampa: aquí van los hechos.
+ *
+ * Tabla nueva: la consola anterior, tras una vuelta atrás, ni la ve; al borrar
+ * una trampa sus filas se quedan con trampa nula, que se enseña como retirada.
+ */
+export const colocaciones = pgTable(
+	'colocaciones',
+	{
+		/* placement_id: «col-» y 16 caracteres base32. */
+		id: text('id').primaryKey(),
+		trampa: text('trampa').references(() => trampas.id, { onDelete: 'set null' }),
+		trampaNombre: text('trampa_nombre').notNull(),
+		modulo: text('modulo').notNull(),
+		destino: text('destino').references(() => destinos.id, { onDelete: 'set null' }),
+		destinoNombre: text('destino_nombre'),
+		/* El token de su baliza, si lleva (sin clave: la baliza se va con la trampa). */
+		baliza: text('baliza'),
+		via: text('via').notNull(),
+		ejecutor: text('ejecutor').notNull(),
+		/* La ruta exacta: la carpeta y el nombre, o la URL del fichero en SharePoint. */
+		ubicacion: text('ubicacion').notNull(),
+		referencia: jsonb('referencia').$type<ReferenciaColocacion>(),
+		/* «modulo@versionModulo» con que se acuñó; nula en las de antes del inventario. */
+		plantillaVersion: text('plantilla_version'),
+		/* El sha256 de lo colocado (el documento acuñado), si se sabe. */
+		sha256: text('sha256'),
+		estado: text('estado', { enum: ESTADOS_COLOCACION }).notNull().default('pendiente'),
+		/* Por qué está como está (código, como colocacion_motivo). */
+		motivo: text('motivo'),
+		sembrada: timestamp('sembrada', { withTimezone: true }),
+		/* La última vez que se comprobó que seguía ahí (por inventario, en las de conector). */
+		vista: timestamp('vista', { withTimezone: true }),
+		sustituye: text('sustituye'),
+		retirada: timestamp('retirada', { withTimezone: true }),
+		/* manual, caducada, rotada, trampa-retirada. */
+		retiradaPor: text('retirada_por'),
+		creado: creado()
+	},
+	(t) => [
+		check(
+			'colocaciones_estado',
+			sql`${t.estado} IN ('pendiente','colocada','retirando','retirada','sustituida','perdida')`
+		),
+		index('colocaciones_trampa').on(t.trampa),
+		index('colocaciones_destino').on(t.destino)
+	]
 );
 
 /*

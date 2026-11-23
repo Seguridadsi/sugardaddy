@@ -261,6 +261,11 @@ func config(o Opciones, sensor, licenciaRuta string, s plan.TrampaPlan, conDisco
 	rellenar := func(t string) string {
 		return hueco.ReplaceAllStringFunc(t, func(h string) string {
 			nombre := h[2 : len(h)-1]
+			if nombre == "sd.desplazamiento" {
+				// Lo que el nodo suma a los puertos fijos: la trampa que anuncia uno (el
+				// modo pasivo del FTP) tiene que anunciar el que de verdad se publica.
+				return strconv.Itoa(o.Desplazar)
+			}
 			if nombre == "sd.ipsAnfitrion" {
 				// La que anuncia es por la que le llegan: la suya, si tiene una.
 				if escucha != "" {

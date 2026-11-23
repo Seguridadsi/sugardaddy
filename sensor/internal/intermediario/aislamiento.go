@@ -1,7 +1,6 @@
 package intermediario
 
 import (
-	"encoding/json"
 	"slices"
 )
 
@@ -57,13 +56,20 @@ func Decidir(runtimes []string, usarRunsc bool, apparmor string) Aislamiento {
 // espacio de red, que en gVisor es el del propio sandbox), y si no el seccomp de
 // Sugardaddy y su perfil AppArmor. Devuelve con qué ha quedado.
 func (a Aislamiento) Endurecer(cfg map[string]any, enlace bool) string {
+	return a.EndurecerCon(cfg, enlace, PerfilSeccomp())
+}
+
+// EndurecerCon es Endurecer con un perfil seccomp dado (el de la trampa, de
+// PerfilSeccompPara, o el de observar en el banco). Con gVisor no se pone ninguno
+// (decisión A, docs/diseno/aislamiento-trampas.md §4).
+func (a Aislamiento) EndurecerCon(cfg map[string]any, enlace bool, perfil string) string {
 	h := cfg["HostConfig"].(map[string]any)
 	if a.Runsc && !enlace {
 		h["Runtime"] = "runsc"
 		return AislamientoRunsc
 	}
 	opts := lista(h["SecurityOpt"])
-	opts = append(opts, "seccomp="+PerfilSeccomp())
+	opts = append(opts, "seccomp="+perfil)
 	valor := AislamientoSeccomp
 	if a.AppArmor != "" {
 		opts = append(opts, "apparmor="+a.AppArmor)
@@ -129,37 +135,8 @@ const banderasNamespace = 0x7E020000
 // afPacket: AF_PACKET (linux/socket.h).
 const afPacket = 17
 
-// PerfilSeccomp es el perfil de las trampas en el formato de Docker, en JSON.
+// PerfilSeccomp es el perfil común de las trampas en el formato de Docker, en
+// JSON: el respaldo de las que no traen lista propia en la versión firmada.
 func PerfilSeccomp() string {
-	type arg struct {
-		Index    int    `json:"index"`
-		Value    uint64 `json:"value"`
-		ValueTwo uint64 `json:"valueTwo"`
-		Op       string `json:"op"`
-	}
-	type regla struct {
-		Names    []string `json:"names"`
-		Action   string   `json:"action"`
-		Args     []arg    `json:"args,omitempty"`
-		ErrnoRet *int     `json:"errnoRet,omitempty"`
-	}
-	enosys := 38
-	perfil := map[string]any{
-		"defaultAction":   "SCMP_ACT_ERRNO",
-		"defaultErrnoRet": 1,
-		// Solo la arquitectura nativa: ni binarios de 32 bits ni socketcall, que
-		// se saltarían el filtro de socket.
-		"archMap": []map[string]any{
-			{"architecture": "SCMP_ARCH_X86_64"},
-			{"architecture": "SCMP_ARCH_AARCH64"},
-		},
-		"syscalls": []regla{
-			{Names: llamadasPermitidas, Action: "SCMP_ACT_ALLOW"},
-			{Names: []string{"clone"}, Action: "SCMP_ACT_ALLOW", Args: []arg{{Index: 0, Value: banderasNamespace, ValueTwo: 0, Op: "SCMP_CMP_MASKED_EQ"}}},
-			{Names: []string{"socket"}, Action: "SCMP_ACT_ALLOW", Args: []arg{{Index: 0, Value: afPacket, Op: "SCMP_CMP_NE"}}},
-			{Names: []string{"clone3"}, Action: "SCMP_ACT_ERRNO", ErrnoRet: &enosys},
-		},
-	}
-	b, _ := json.Marshal(perfil)
-	return string(b)
+	return perfil(llamadasPermitidas, true, true, nil)
 }

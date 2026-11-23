@@ -16,7 +16,7 @@
  * se rechaza con un mensaje que explica qué hay que configurar allí. Se puede
  * apagar, y queda en la auditoría.
  *
- * SAML 2.0 todavía no: ver docs/diseno/auth-login.md (siguiente paso).
+ * SAML 2.0: saml-propio.ts, con el mismo patrón.
  */
 import { createHash } from 'node:crypto';
 import { eq } from 'drizzle-orm';
@@ -257,8 +257,11 @@ export async function quitarOidc(
 	if (!g) return { ok: true };
 	const [entra] = await db.select().from(s.ajustes).where(eq(s.ajustes.clave, 'entra_propio'));
 	const entraActivo = !!(entra?.valor as { activo?: boolean } | undefined)?.activo;
+	/* El SAML propio (saml-propio.ts) activo también es una entrada. */
+	const [saml] = await db.select().from(s.ajustes).where(eq(s.ajustes.clave, 'saml_propio'));
+	const samlActivo = !!(saml?.valor as { activo?: boolean } | undefined)?.activo;
 	const b2b = configuradoEnEntorno() && !(await retiradaB2B());
-	if (g.activo && !loginLocalHabilitado() && !entraActivo && !b2b)
+	if (g.activo && !loginLocalHabilitado() && !entraActivo && !b2b && !samlActivo)
 		return {
 			ok: false,
 			error:

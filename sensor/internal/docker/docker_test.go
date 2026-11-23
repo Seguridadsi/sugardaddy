@@ -410,3 +410,24 @@ func TestRedDeTrampasConNombreDePuente(t *testing.T) {
 		}
 	}
 }
+
+func TestConUsernsAnfitrion(t *testing.T) {
+	c := (&Cliente{}).ConUsernsAnfitrion()
+	cfg := map[string]any{"Image": "x"}
+	c.usernsDelAnfitrion(cfg)
+	if cfg["HostConfig"].(map[string]any)["UsernsMode"] != "host" {
+		t.Fatal("tendría que ir con UsernsMode=host")
+	}
+	// Lo que diga la creación manda.
+	cfg = map[string]any{"HostConfig": map[string]any{"UsernsMode": ""}}
+	c.usernsDelAnfitrion(cfg)
+	if cfg["HostConfig"].(map[string]any)["UsernsMode"] != "" {
+		t.Fatal("no se cambia lo que ya dice")
+	}
+	sin := &Cliente{}
+	cfg = map[string]any{}
+	sin.usernsDelAnfitrion(cfg)
+	if _, ok := cfg["HostConfig"]; ok {
+		t.Fatal("sin pedirlo, nada")
+	}
+}

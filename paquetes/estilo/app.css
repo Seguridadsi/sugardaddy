@@ -650,3 +650,24 @@ main.contenido {
 		animation: none !important;
 	}
 }
+
+/*
+ * El icono de LastPass. Las marcas de sin-gestor.js (data-lpignore, autocomplete="off")
+ * callan a 1Password, Bitwarden, Dashlane y al navegador, pero LastPass pone igual su
+ * icono en un campo que se llama «Name» o lleva una IP (alta de un sensor, 2026-11-12).
+ * Lo único que lo calla en el campo es type="search", que un lector de pantalla anuncia
+ * como buscador: no se usa. En su lugar se esconde lo que LastPass mete en la página
+ * (su raíz con el icono, la de su desplegable y las de su versión anterior), y solo en
+ * las páginas sin ningún campo que pida el gestor: los mismos que deja sin-gestor.js,
+ * con data-con-gestor o con un autocomplete que dice de quién es el dato. En entrar,
+ * cambiar la contraseña o dar de alta un usuario LastPass sigue funcionando.
+ */
+body:not(
+		:has(
+			input[data-con-gestor],
+			input[autocomplete]:not([autocomplete='off'], [autocomplete='new-password'])
+		)
+	)
+	:is([data-lastpass-icon-root], [data-lastpass-root], img[id^='__lpform_'], div[id^='__lpform_']) {
+	display: none !important;
+}

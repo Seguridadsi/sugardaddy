@@ -55,7 +55,17 @@ export const MOTIVOS_COLOCACION = {
 		'The honeypots on this machine can see each other: the container engine does not enforce isolation between them.',
 	'red.ip-oculta': 'The honeypots on this machine do not see the IP of whoever connects.',
 	'retirada.pendiente':
-		'It still has to be removed from the target using its removal steps, and marked as removed here.'
+		'It still has to be removed from the target using its removal steps, and marked as removed here.',
+	/* Las de un conector (graph@1, D3): las coloca y las retira la consola por la conexión del tenant. */
+	'conector.fallo':
+		'The tenant connection could not place it. Sugardaddy retries every few minutes.',
+	'conector.retirando': 'Sugardaddy is removing it through the tenant connection.',
+	'conector.retirada-fallo':
+		'The tenant connection could not remove it yet. Sugardaddy retries every few minutes.',
+	'conector.perdida':
+		'The file is no longer where it was placed: someone moved or deleted it outside Sugardaddy.',
+	'conector.cambiada':
+		'Someone changed the file after it was placed, so Sugardaddy will not delete it. Delete it yourself and click "I have removed it".'
 } as const;
 export type CodigoColocacion = keyof typeof MOTIVOS_COLOCACION;
 
@@ -553,9 +563,11 @@ export function estadoVisible(
 				});
 			return visible('por-colocar', {
 				motivo:
-					EJECUTORES[t.ejecutor]?.corre === 'consola'
-						? 'It has not been marked as deployed yet.'
-						: 'Its sensor is deploying it.',
+					EJECUTORES[t.ejecutor]?.clase === 'conector'
+						? 'Sugardaddy is placing it through the tenant connection.'
+						: EJECUTORES[t.ejecutor]?.corre === 'consola'
+							? 'It has not been marked as deployed yet.'
+							: 'Its sensor is deploying it.',
 				avisos
 			});
 		}

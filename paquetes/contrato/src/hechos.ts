@@ -129,7 +129,8 @@ export const HECHOS: Record<string, { tipo: TipoHecho; fuentes: FuenteHecho[] }>
 	'canal.receptor': { tipo: 'booleano', fuentes: ['consola'] },
 	/*
 	 * La consola sabe distinguir por el Referer una visita del dominio del cliente de la
-	 * de un clon. Hoy no sabe, y nada lo pone: web-clonada-cebo sale sin vía, con su motivo.
+	 * de un clon (la clase de baliza «clon», 2026-11-19). La pone hechosNodo; en una
+	 * consola anterior falta y web-clonada-cebo sale sin vía, con su motivo.
 	 */
 	'canal.clonWeb': { tipo: 'booleano', fuentes: ['consola'] },
 	/*

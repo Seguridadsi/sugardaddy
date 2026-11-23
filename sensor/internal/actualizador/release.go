@@ -34,6 +34,10 @@ type Release struct {
 	Confianza *ConfianzaNueva     `json:"confianza,omitempty"`
 	Catalogo  map[string][]string `json:"catalogo,omitempty"`
 	Commit    string              `json:"commit,omitempty"`
+	// Seccomp: por módulo y arquitectura (amd64, arm64), las llamadas al sistema que se
+	// le vieron a la trampa en el banco (docs/diseno/aislamiento-trampas.md §4c). sd-motor
+	// las cruza con el perfil común; sin entrada, el común. Los nodos de antes lo ignoran.
+	Seccomp map[string]map[string][]string `json:"seccomp,omitempty"`
 	// Urgente: un arreglo de seguridad que se salta el retardo mínimo de la política de
 	// cambios del cliente, pero no su aprobación (politica.go). Va firmado: el panel no
 	// puede marcar urgente una versión que no lo es.
@@ -242,6 +246,9 @@ func validarNovedades(r Release, uso string) error {
 	if r.Commit != "" && !commitRelease.MatchString(r.Commit) {
 		return errors.New("malformed commit")
 	}
+	if err := validarSeccomp(r.Seccomp); err != nil {
+		return err
+	}
 	return ValidarMotor(r.Motor)
 }
 
@@ -252,11 +259,40 @@ func clavesExactas(texto string) error {
 	if err := json.Unmarshal([]byte(texto), &m); err != nil {
 		return errors.New("the version is not signed by SeguridadSI")
 	}
-	conocidas := []string{"version", "publicada", "notas", "servicios", "actualizador", "nodo", "sensorRemoto", "confianza", "catalogo", "commit", "urgente", "motor"}
+	conocidas := []string{"version", "publicada", "notas", "servicios", "actualizador", "nodo", "sensorRemoto", "confianza", "catalogo", "commit", "urgente", "motor", "seccomp"}
 	for k := range m {
 		for _, c := range conocidas {
 			if k != c && strings.EqualFold(k, c) {
 				return fmt.Errorf("unexpected field %q in the version", k)
+			}
+		}
+	}
+	return nil
+}
+
+var (
+	arquitecturaSeccomp = []string{"amd64", "arm64"}
+	llamadaSeccomp      = regexp.MustCompile(`^[a-z0-9_]{1,40}$`)
+)
+
+// validarSeccomp: la forma de las listas por trampa. Lo que dicen no hace falta
+// creerlo: sd-motor solo se queda con lo que también deja el perfil común.
+func validarSeccomp(s map[string]map[string][]string) error {
+	if len(s) > 500 {
+		return errors.New("the seccomp lists are too large")
+	}
+	for m, porArq := range s {
+		if !moduloCatalogo.MatchString(m) || len(porArq) == 0 {
+			return fmt.Errorf("malformed seccomp entry (%.64s)", m)
+		}
+		for arq, ls := range porArq {
+			if !slices.Contains(arquitecturaSeccomp, arq) || len(ls) == 0 || len(ls) > 400 {
+				return fmt.Errorf("malformed seccomp entry (%.64s)", m)
+			}
+			for _, l := range ls {
+				if !llamadaSeccomp.MatchString(l) {
+					return fmt.Errorf("malformed seccomp entry (%.64s)", m)
+				}
 			}
 		}
 	}

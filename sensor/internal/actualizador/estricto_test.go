@@ -3,11 +3,13 @@ package actualizador
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -285,5 +287,43 @@ func TestConfigCortafuegosAnfitrion(t *testing.T) {
 	hc := c["HostConfig"].(map[string]any)
 	if hc["NetworkMode"] != "host" || hc["Privileged"] != nil || hc["Binds"].([]string)[0] != "/opt/sugardaddy/cortafuegos-anfitrion:/confirmar:ro" {
 		t.Fatalf("%v", c)
+	}
+}
+
+// Una salida syslog por UDP llega aparte (destinosUdp) y sale con su protocolo.
+func TestEstrictoDestinosUDP(t *testing.T) {
+	c := &consolaEstricta{}
+	c.cfg.Estricto = true
+	c.cfg.Consola.Estado = "restringida"
+	c.cfg.Consola.Redes = []string{"192.0.2.0/24"}
+	c.cfg.Salida.Restringida = true
+	c.cfg.Salida.Destinos = []string{"registro.example:443"}
+	c.cfg.Salida.DestinosUDP = []string{"siem.example:514", "10.0.0.9:514"}
+	c.cfg.Salida.Comprobar = []string{"registro.example:443"}
+	e, lanzados, _ := nodoEstricto(t, c)
+	e.Marcar = func(context.Context, string) error { return nil }
+	e.Resolver = func(_ context.Context, h string) ([]netip.Addr, error) {
+		return []netip.Addr{netip.MustParseAddr("20.0.0.1")}, nil
+	}
+	if err := e.Vuelta(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(*lanzados) != 1 {
+		t.Fatalf("%s %v", e.Estado(), *lanzados)
+	}
+	var est cortafuegos.Estricto
+	_ = json.Unmarshal([]byte(strings.TrimPrefix(strings.Fields((*lanzados)[0])[0], "ESTRICTO=")), &est)
+	var udp, tcp []string
+	for _, d := range est.Salida.Destinos {
+		x := fmt.Sprintf("%s:%d", d.IP, d.Puerto)
+		if d.Proto == "udp" {
+			udp = append(udp, x)
+		} else {
+			tcp = append(tcp, x)
+		}
+	}
+	slices.Sort(udp)
+	if !slices.Equal(udp, []string{"10.0.0.9:514", "20.0.0.1:514"}) || !slices.Contains(tcp, "20.0.0.1:443") || slices.Contains(tcp, "10.0.0.9:514") {
+		t.Fatalf("udp %v tcp %v", udp, tcp)
 	}
 }

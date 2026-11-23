@@ -317,7 +317,7 @@ func probar(rutaM, rutaP, imagen, atacante, socket, motorSeguro, datos, licencia
 			}
 			faltan := faltantes(p.Espera, vistos)
 			if len(faltan) == 0 {
-				return pos, nil
+				return pos, legiblesPorTodos(ruta)
 			}
 			if time.Now().After(fin) {
 				b, _ := json.Marshal(faltan)
@@ -404,6 +404,32 @@ func atacar(ctx context.Context, d *docker.Cliente, imagen string, orden []strin
 		}
 	}
 	return codigo, err
+}
+
+// legiblesPorTodos comprueba que el registro y todo lo que el sensor tomaría por
+// un rotado suyo (lo que empieza por su nombre) se puede leer sin ser su dueño.
+// En un nodo el sensor no es root ni el usuario de la trampa: un 0640 o un 0600
+// ahí deja la trampa sin eventos, y este banco, que lee como su dueño, no lo veía
+// (mysql, receptor-balizas y router-upnp callados en la 0.32.1).
+func legiblesPorTodos(ruta string) error {
+	dir, base := filepath.Dir(ruta), filepath.Base(ruta)
+	entradas, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	for _, e := range entradas {
+		if !strings.HasPrefix(e.Name(), base) || !e.Type().IsRegular() {
+			continue
+		}
+		fi, err := e.Info()
+		if err != nil {
+			continue
+		}
+		if fi.Mode().Perm()&0o004 == 0 {
+			return fmt.Errorf("%s tiene permisos %v: el sensor, sin root, no lo puede leer (el registro y lo que empieza por su nombre van 0644)", e.Name(), fi.Mode().Perm())
+		}
+	}
+	return nil
 }
 
 func faltantes(espera []Esperado, vistos []evento.Evento) []Esperado {

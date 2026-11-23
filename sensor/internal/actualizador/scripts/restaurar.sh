@@ -38,7 +38,11 @@ done
 COPIA="${1:?$USO}"
 [[ -f "$COPIA" ]] || { echo "$COPIA does not exist"; exit 1; }
 
-TMP="$(mktemp -d)"
+# Lo descifrado (la base entera, el .env con los secretos y la CA) se queda en la
+# carpeta del nodo, que solo lee su dueño, y no en /tmp, que es de todos y puede
+# acabar en otro disco o sobrevivir a un corte (auditoría del 2026-11-14, §5).
+TMP="$(mktemp -d "$PWD/.restaurar.XXXXXX")"
+chmod 700 "$TMP"
 trap 'rm -rf "$TMP"' EXIT
 CABECERA="$(head -c 21 "$COPIA" | tr -d '\0')"
 if [[ "$CABECERA" == "age-encryption.org/v1" ]]; then
@@ -115,6 +119,28 @@ dc up -d --wait postgres
 trap 'rm -rf "$TMP"; dc up -d >/dev/null 2>&1 || true' EXIT
 dc stop consola sensor actualizador >/dev/null 2>&1 || true
 dc exec -T postgres pg_restore -U sugardaddy -d consola --clean --if-exists --no-owner < "$TMP/c/consola.dump"
+# La copia es de antes: devolvería sesiones abiertas y tokens de API que se cerraron o
+# revocaron después. Se cierran todas y se revocan todos; quien los necesite entra otra
+# vez o crea un token nuevo (auditoría del 2026-11-14, §5). Una copia de una versión sin
+# alguna de las tablas se salta esa parte.
+if ! dc exec -T postgres psql -U sugardaddy -d consola -v ON_ERROR_STOP=1 -q <<'SQL'
+DO $$
+BEGIN
+	IF to_regclass('public.sesiones') IS NOT NULL THEN
+		UPDATE sesiones SET cerrada = now() WHERE cerrada IS NULL;
+	END IF;
+	IF to_regclass('public.tokens_api') IS NOT NULL THEN
+		UPDATE tokens_api SET revocado = now(), revocado_por = 'restore' WHERE revocado IS NULL;
+	END IF;
+END $$;
+SQL
+then
+	echo "The console sessions and API tokens from the backup could not be closed: the console stays stopped."
+	echo "Fix it and run the restore again, or close them in the database before starting it."
+	trap 'rm -rf "$TMP"' EXIT
+	exit 1
+fi
+echo "Sessions from the backup closed and its API tokens revoked: sign in again and create new tokens if you need them."
 if [[ -d "$TMP/c/caddy" ]]; then
 	dc stop https >/dev/null 2>&1 || true
 	dc cp "$TMP/c/caddy/." https:/data

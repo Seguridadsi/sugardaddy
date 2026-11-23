@@ -3,6 +3,8 @@ package main
 import (
 	"net"
 	"net/netip"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -30,5 +32,24 @@ func TestElBancoSeNiegaSiLaSubredEsDelAnfitrion(t *testing.T) {
 	}
 	if err := subredSin(subred, fuera); err != nil {
 		t.Fatalf("el banco se negó con el anfitrión fuera de su subred: %v", err)
+	}
+}
+
+func TestLegiblesPorTodos(t *testing.T) {
+	d := t.TempDir()
+	reg := filepath.Join(d, "trampa.json")
+	os.WriteFile(reg, []byte("{}\n"), 0o644)
+	os.WriteFile(filepath.Join(d, ".semilla-trampa"), []byte("x"), 0o600) // no empieza como el registro
+	if err := legiblesPorTodos(reg); err != nil {
+		t.Fatalf("legibles y semilla aparte: %v", err)
+	}
+	os.WriteFile(reg+".semilla", []byte("x"), 0o600)
+	if legiblesPorTodos(reg) == nil {
+		t.Fatal("una semilla 0600 con el nombre del registro tiene que fallar")
+	}
+	os.Remove(reg + ".semilla")
+	os.Chmod(reg, 0o640)
+	if legiblesPorTodos(reg) == nil {
+		t.Fatal("un registro 0640 tiene que fallar")
 	}
 }

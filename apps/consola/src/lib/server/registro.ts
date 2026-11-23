@@ -2,8 +2,11 @@
  * El registro gratuito de un nodo Community (docs/diseno/registro-community.md).
  *
  * Un solo correo y un solo registro: al confirmarlo, el nodo tiene las trampas de
- * registro y las actualizaciones automáticas. La persona pide el código desde
- * aquí o desde la web, lo recibe tras confirmar su correo y lo pega en Ajustes.
+ * registro y las actualizaciones automáticas. Pedido desde aquí, al correo llega un
+ * código corto, sin enlace ni la dirección del panel: la persona lo escribe en
+ * Ajustes, acepta allí las condiciones y la consola recoge sola el código de
+ * activación (canjear). Pedido desde la web, el código de activación sale en la web
+ * y se pega en Ajustes (activar).
  * El código se verifica aquí contra la clave de publicación: el panel no decide,
  * y sin una licencia auténtica no se desbloquea nada.
  *
@@ -58,7 +61,30 @@ export type EstadoRegistro = {
 	fallo: string | null;
 	/* La clave de publicación está: sin ella ningún código puede verificarse. */
 	verificable: boolean;
+	/* El correo al que se mandó un código hace menos de un día, para escribirlo aquí. */
+	pendiente: string | null;
 };
+
+/* Lo pedido desde aquí: a qué correo y cuándo. El código del correo vale un día. */
+type Pedido = { correo: string; pedido: string };
+const HORAS_PEDIDO = 24;
+
+async function pedido(ahora = Date.now()): Promise<Pedido | null> {
+	const [f] = await db.select().from(s.ajustes).where(eq(s.ajustes.clave, 'registro-pedido'));
+	const p = f?.valor as Pedido | undefined;
+	return p && ahora - Date.parse(p.pedido) < HORAS_PEDIDO * 3600_000 ? p : null;
+}
+
+async function apuntarPedido(valor: Pedido | null) {
+	if (!valor) {
+		await db.delete(s.ajustes).where(eq(s.ajustes.clave, 'registro-pedido'));
+		return;
+	}
+	await db
+		.insert(s.ajustes)
+		.values({ clave: 'registro-pedido', valor })
+		.onConflictDoUpdate({ target: s.ajustes.clave, set: { valor } });
+}
 
 async function guardado(): Promise<Guardado | null> {
 	const [f] = await db.select().from(s.ajustes).where(eq(s.ajustes.clave, 'registro'));
@@ -88,7 +114,8 @@ export async function estadoRegistro(ahora = Date.now()): Promise<EstadoRegistro
 		correo: r?.correo ?? null,
 		renovada: r?.renovada ?? null,
 		fallo: r?.fallo ?? null,
-		verificable: !!clave
+		verificable: !!clave,
+		pendiente: (await pedido(ahora))?.correo ?? null
 	};
 	const lic = r ? await licenciaGuardada() : null;
 	if (!r || !lic) return { ...base, estado: 'sin', caduca: null, funcionaHasta: null };
@@ -104,9 +131,14 @@ export async function estadoRegistro(ahora = Date.now()): Promise<EstadoRegistro
 	};
 }
 
-/* Solo el correo: la casilla de novedades y las condiciones se aceptan al confirmarlo. */
+/*
+ * Solo el correo: la casilla de novedades y las condiciones se aceptan al escribir el
+ * código. «entrega: codigo» pide el código corto en lugar del enlace (un panel
+ * anterior lo ignora y manda el enlace, que sigue sirviendo).
+ */
 export async function pedirRegistro(
-	correo: string
+	correo: string,
+	ahora = Date.now()
 ): Promise<'enviado' | 'no-disponible' | 'demasiados' | 'correo-invalido' | 'sin-conexion'> {
 	if (!urlPanelValida(PANEL)) return 'no-disponible';
 	const { nombre, nodo, version } = (await cabecera()).cliente;
@@ -114,10 +146,13 @@ export async function pedirRegistro(
 		const res = await fetch(`${PANEL}/api/registro`, {
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify({ correo, nombre, nodo, version, origen: 'consola' }),
+			body: JSON.stringify({ correo, nombre, nodo, version, origen: 'consola', entrega: 'codigo' }),
 			signal: AbortSignal.timeout(10_000)
 		});
-		if (res.ok) return 'enviado';
+		if (res.ok) {
+			await apuntarPedido({ correo, pedido: new Date(ahora).toISOString() });
+			return 'enviado';
+		}
 		if (res.status === 503) return 'no-disponible';
 		if (res.status === 429) return 'demasiados';
 		if (res.status === 400) return 'correo-invalido';
@@ -182,6 +217,59 @@ export async function activar(
 	});
 	await auditar(quien, 'registration activated', { hasta: v.licencia.caduca });
 	return { ok: true, caduca: v.licencia.caduca };
+}
+
+/*
+ * Escribir el código del correo: el panel lo cambia por el código de activación, que
+ * se activa como si se hubiera pegado (se verifica aquí igual). Las condiciones las
+ * acepta la persona en este formulario; sin eso no se manda nada.
+ */
+export async function canjear(
+	quien: string,
+	datos: { codigo: string; condiciones: boolean; novedades: boolean },
+	ahora = Date.now()
+): Promise<Activacion> {
+	if (!(await puedeRegistrarse()))
+		return { ok: false, error: 'This node does not need registration.' };
+	if (!datos.condiciones)
+		return { ok: false, error: 'To activate your registration you must accept the terms.' };
+	const p = await pedido(ahora);
+	if (!p) return { ok: false, error: 'The code has expired. Request a new one with your email.' };
+	if (!urlPanelValida(PANEL))
+		return { ok: false, error: 'Registration is not available right now.' };
+	let res: Response;
+	try {
+		res = await fetch(`${PANEL}/api/registro/canjear`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({
+				correo: p.correo,
+				codigo: datos.codigo,
+				condiciones: true,
+				novedades: datos.novedades
+			}),
+			signal: AbortSignal.timeout(10_000)
+		});
+	} catch {
+		return {
+			ok: false,
+			error: 'Could not reach the SeguridadSI Central. Check that the node has internet access.'
+		};
+	}
+	const cuerpo = (await res.json().catch(() => null)) as { codigo?: unknown } | null;
+	if (res.ok && typeof cuerpo?.codigo === 'string') {
+		const r = await activar(quien, cuerpo.codigo, ahora);
+		if (r.ok) await apuntarPedido(null);
+		return r;
+	}
+	if (res.status === 410)
+		return {
+			ok: false,
+			error:
+				'That code is not valid. Check it against the email; after several wrong attempts, request a new one.'
+		};
+	if (res.status === 429) return { ok: false, error: 'Too many attempts. Try again in a while.' };
+	return { ok: false, error: 'Registration is not available right now.' };
 }
 
 /* Toca renovar en el último tercio de su vida, o si ya ha caducado. */

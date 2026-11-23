@@ -32,8 +32,8 @@ procedencia:
   licencia: Código propio (SeguridadSI); biblioteca estándar de Go, BSD-3-Clause
 
 contenedor:
-  imagen: ghcr.io/seguridadsi/sugardaddy-registro-retencion-ssh:0.2.5@sha256:6e02880e668edc43240e2c9290066af7179e5579882f745e2aeb641fe1635116
-  imagenPublica: ghcr.io/seguridadsi/sugardaddy-registro-retencion-ssh:0.2.5@sha256:6e02880e668edc43240e2c9290066af7179e5579882f745e2aeb641fe1635116
+  imagen: ghcr.io/seguridadsi/sugardaddy-registro-retencion-ssh:0.2.6@sha256:3f637aa645bd205d5695af6a9d2e6762ebdd9bddaaa1de9dcfe9ca1a24c8d009
+  imagenPublica: ghcr.io/seguridadsi/sugardaddy-registro-retencion-ssh:0.2.6@sha256:3f637aa645bd205d5695af6a9d2e6762ebdd9bddaaa1de9dcfe9ca1a24c8d009
   puertos:
     - { interno: 2222, expuesto: '${puerto}', protocolo: tcp }
   entorno:

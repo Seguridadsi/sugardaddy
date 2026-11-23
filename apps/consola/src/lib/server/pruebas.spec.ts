@@ -280,6 +280,24 @@ describe('pruebasDe', () => {
 		/* Sin objetivo (lo retiró una consola anterior), nada. */
 		expect(de(cowrie('svc_sql4k7', 'sdpruebaabcd1234'), T, [{ ...a[0], de: null }])).toEqual([]);
 	});
+
+	it('si la prueba y la señal miran el mismo campo, manda la prueba (KEBAPS 2026-11-19: mcp, cookie, dns)', () => {
+		const a = [
+			abierta({
+				id: 'p3',
+				trampa: 'mcp-cebo',
+				de: 'mcp-1',
+				senal: { campo: 'detalle.password', igual: 'svc_mcpc7qoi4s1' },
+				marca: { campo: 'detalle.password', igual: 'sdpruebaabcd1234' }
+			})
+		];
+		const mcp = (password: string) =>
+			evento({ trampa: { id: 'mcp-1', modulo: 'mcp', tipo: 'contenedor' }, detalle: { password } });
+		expect(de(mcp('sdpruebaabcd1234'), T, a)).toEqual(['p3']);
+		/* La clave sembrada es la señal, no la prueba; otra cualquiera, nada. */
+		expect(de(mcp('svc_mcpc7qoi4s1'), T, a)).toEqual([]);
+		expect(de(mcp('otra'), T, a)).toEqual([]);
+	});
 });
 
 describe('IP y nonce', () => {

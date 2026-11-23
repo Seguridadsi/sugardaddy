@@ -72,8 +72,25 @@
 		</a>
 	{/if}
 
-	{#if data.configurado}
+	{#if data.salidaSaml}
+		<p class="ayuda-salida">
+			You may still be signed in to {data.salidaSaml}. Close the browser to sign out there too.
+		</p>
+	{/if}
+
+	{#if data.saml}
 		{#if data.local || data.oidc}<p class="o">or</p>{/if}
+		<a
+			class="boton principal"
+			data-sveltekit-reload
+			href="/auth/saml/login?volverA={encodeURIComponent(data.volverA)}"
+		>
+			Sign in with {data.saml.nombre}
+		</a>
+	{/if}
+
+	{#if data.configurado}
+		{#if data.local || data.oidc || data.saml}<p class="o">or</p>{/if}
 		<a
 			class="boton principal"
 			data-sveltekit-reload
@@ -81,7 +98,7 @@
 		>
 			Sign in with Microsoft
 		</a>
-	{:else if !data.local && !data.oidc}
+	{:else if !data.local && !data.oidc && !data.saml}
 		<p class="error">No sign-in method is configured for this console.</p>
 	{/if}
 

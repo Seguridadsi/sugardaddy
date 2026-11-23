@@ -116,6 +116,67 @@
 	</div>
 
 	<aside class="panel ficha">
+		<h2>Status</h2>
+		<p class="eyebrow">In your organization</p>
+		<ul class="comprobaciones">
+			<li class:si={m.incluida}>
+				{m.incluida ? 'Included in your plan' : (m.porQueNo ?? 'Not included in your plan')}
+			</li>
+			{#if m.dePago && m.incluida}
+				<li class:si={m.licenciaCubierta}>
+					{m.licenciaCubierta ? 'Covered by your license' : (m.porQueNo ?? 'Needs a license')}
+				</li>
+			{/if}
+			<li class:si={m.instaladas > 0}>
+				{m.instaladas === 0
+					? 'Not deployed'
+					: m.instaladas === 1
+						? 'One deployed'
+						: `${m.instaladas} deployed`}
+			</li>
+			{#if m.instaladas > 0}
+				<li class:si={m.enMarcha === m.instaladas} class:aviso={m.enMarcha < m.instaladas}>
+					{m.enMarcha === m.instaladas
+						? m.instaladas === 1
+							? 'Running'
+							: 'All running'
+						: `${m.enMarcha} of ${m.instaladas} running`}
+				</li>
+			{/if}
+		</ul>
+		<p class="eyebrow">Maturity</p>
+		{#if m.madurez}
+			<p class="nivel {m.madurez.nivel}">{m.madurez.etiqueta}</p>
+			<p class="explicacion">{m.madurez.explicacion}</p>
+			<ul class="comprobaciones">
+				<li class:si={m.madurez.hecha}>Built</li>
+				<li class:si={m.madurez.probada}>
+					{#if m.madurez.probada}
+						Tested on {m.madurez.probadaEl}
+					{:else if m.madurez.publicada && !m.madurez.banco}
+						No test bench: checked on real systems only
+					{:else}
+						Not tested for this version
+					{/if}
+				</li>
+				<li class:si={m.madurez.publicada}>
+					{m.madurez.publicada
+						? `Released in Sugardaddy ${m.madurez.versionNodo}${m.madurez.versionModulo ? ` (module v${m.madurez.versionModulo})` : ''}`
+						: `Not in Sugardaddy ${m.madurez.versionNodo}`}
+				</li>
+				<li class:si={m.madurez.soportada}>
+					{m.madurez.soportada ? 'Supported' : 'Not supported'}
+				</li>
+			</ul>
+		{:else if m.dePartner}
+			<p class="explicacion">Its maturity is up to {data.operador}, who develops it.</p>
+		{:else}
+			<p class="explicacion">
+				Unknown: this node does not have the signed release that states it. It is checked again in a
+				few minutes.
+			</p>
+		{/if}
+
 		<h2>Technical details</h2>
 		{#if m.ajustes.length}
 			<p class="eyebrow">Configurable</p>
@@ -282,6 +343,57 @@
 	.ficha .credito {
 		margin-top: 6px;
 		font-size: 12px;
+		color: var(--ink-3);
+	}
+
+	.ficha h2:not(:first-child) {
+		margin-top: 22px;
+	}
+
+	.comprobaciones {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		font-size: 13px;
+	}
+
+	.comprobaciones li {
+		position: relative;
+		padding-left: 20px;
+		margin: 3px 0;
+		color: var(--ink-3);
+	}
+
+	.comprobaciones li::before {
+		content: '–';
+		position: absolute;
+		left: 2px;
+	}
+
+	.comprobaciones li.si {
+		color: var(--ink-1);
+	}
+
+	.comprobaciones li.si::before {
+		content: '✓';
+		color: var(--ok);
+	}
+
+	.comprobaciones li.aviso {
+		color: var(--warn);
+	}
+
+	.nivel {
+		font-weight: 700;
+	}
+
+	.nivel.soportada {
+		color: var(--ok);
+	}
+
+	.ficha .explicacion {
+		margin: 2px 0 8px;
+		font-size: 12.5px;
 		color: var(--ink-3);
 	}
 

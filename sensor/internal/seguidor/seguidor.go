@@ -32,7 +32,10 @@ const (
 const (
 	avisoPerdido      = "the previous log is gone: anything unread in it may be missing"
 	avisoDesaparecido = "a rotated log disappeared before it was finished: anything in it may be missing"
-	avisoSalto        = "%s: skipping %d bytes without a line break from byte %d (giant line or sparse file)"
+	// Un rotado que el sensor no puede abrir (permisos de una imagen vieja) se salta:
+	// sin esto, uno solo dejaba sin leer también el activo, y la trampa, muda.
+	avisoIlegible = "a rotated log is not readable and was skipped: anything in it is missing"
+	avisoSalto    = "%s: skipping %d bytes without a line break from byte %d (giant line or sparse file)"
 )
 
 // comprimidos: lo que deja logrotate con compress no es texto y no se lee.
@@ -254,6 +257,10 @@ func (l *lector) rotado(c candidato, desde int64) (bool, error) {
 	f, err := abrirRegistro(c.ruta)
 	if errors.Is(err, os.ErrNotExist) {
 		l.avisar(avisoDesaparecido)
+		return true, nil
+	}
+	if errors.Is(err, os.ErrPermission) {
+		l.avisar(avisoIlegible)
 		return true, nil
 	}
 	if err != nil {

@@ -25,6 +25,7 @@ import {
 	type KeyObject
 } from 'node:crypto';
 import type { LicenciaFirmada } from './licencia.ts';
+import type { Madurez } from './madurez.ts';
 import type { RevocacionFirmada } from './revocacion.ts';
 import type { MarcaFirmada } from './marca.ts';
 import type { OrdenFirmada } from './ordenes.ts';
@@ -283,6 +284,15 @@ export type EstadoDeseado = {
 	 */
 	rele?: string | null;
 	/*
+	 * El relé que reparte este panel sella las señales (docs/diseno/rele-balizas.md,
+	 * «Señales selladas»): el nodo puede acuñar tokens sellados, cuyas señales solo
+	 * abre él. Sale del ajuste SD_RELE_SELLA del panel, que se pone al desplegar un relé
+	 * que sella. true: acuña sellados; false: deja de acuñarlos (los ya sembrados siguen
+	 * valiendo, porque el panel los encamina igual); ausente, panel anterior: no toca
+	 * nada. Opcional: los nodos anteriores lo ignoran.
+	 */
+	releSellado?: boolean;
+	/*
 	 * Código para recuperar una contraseña que SeguridadSI ha mandado desde su
 	 * panel al correo de contacto del cliente. Aquí solo viaja su hash: el código
 	 * va por correo, nunca por el canal. El nodo lo guarda para ese usuario local y
@@ -524,6 +534,12 @@ export type Release = {
 	catalogo?: Record<string, string[]>;
 	commit?: string;
 	/*
+	 * Seccomp por trampa (docs/diseno/aislamiento-trampas.md §4c): por módulo y arquitectura
+	 * (amd64, arm64), las llamadas al sistema que se le vieron en el banco. sd-motor las cruza
+	 * con el perfil común; sin entrada, el común. Los nodos anteriores lo ignoran.
+	 */
+	seccomp?: Record<string, Partial<Record<'amd64' | 'arm64', string[]>>>;
+	/*
 	 * Con qué se instala esta versión desde cero (instalador.ts, SUP-7): la primera etapa,
 	 * estática y firmada, los guiones del nodo y la huella de cada pieza. Los nodos y los
 	 * paneles anteriores lo ignoran.
@@ -552,6 +568,12 @@ export type Release = {
 	 * puede marcar urgente una versión que no lo es. Los nodos anteriores lo ignoran.
 	 */
 	urgente?: boolean;
+	/*
+	 * La madurez de cada trampa al publicar (madurez.ts, D11): hecha y probada, del inventario
+	 * del commit publicado. La consola y el panel la enseñan en el catálogo. Los nodos y los
+	 * paneles anteriores lo ignoran.
+	 */
+	madurez?: Madurez;
 };
 
 /*
@@ -647,6 +669,37 @@ export function firmarRelease(
 const MODULO_CATALOGO = /^[a-z0-9][a-z0-9-]{0,62}$/;
 const HUELLA_MANIFIESTO = /^[0-9a-f]{64}$/;
 
+const LLAMADA_SECCOMP = /^[a-z0-9_]{1,40}$/;
+
+/* Como validarSeccomp en Go: solo la forma; sd-motor no abre nada que el perfil común cierre. */
+function motivoSeccomp(s: unknown): string | null {
+	if (!s || typeof s !== 'object' || Array.isArray(s)) return 'malformed seccomp lists';
+	const entradas = Object.entries(s as Record<string, unknown>);
+	if (entradas.length > 500) return 'the seccomp lists are too large';
+	for (const [modulo, porArq] of entradas) {
+		const mal = `malformed seccomp entry (${modulo.slice(0, 64)})`;
+		if (
+			!MODULO_CATALOGO.test(modulo) ||
+			!porArq ||
+			typeof porArq !== 'object' ||
+			Array.isArray(porArq)
+		)
+			return mal;
+		const arqs = Object.entries(porArq as Record<string, unknown>);
+		if (arqs.length === 0) return mal;
+		for (const [arq, l] of arqs)
+			if (
+				!['amd64', 'arm64'].includes(arq) ||
+				!Array.isArray(l) ||
+				l.length === 0 ||
+				l.length > 400 ||
+				l.some((n) => typeof n !== 'string' || !LLAMADA_SECCOMP.test(n))
+			)
+				return mal;
+	}
+	return null;
+}
+
 /* Qué falla en las piezas de la 0.25 de una versión (confianza, catálogo, commit), o null. */
 function motivoNovedades(r: Release, uso: ReturnType<typeof edicionDeRelease>): string | null {
 	if (r.confianza !== undefined) {
@@ -688,6 +741,10 @@ function motivoNovedades(r: Release, uso: ReturnType<typeof edicionDeRelease>): 
 				huellas.some((h) => typeof h !== 'string' || !HUELLA_MANIFIESTO.test(h))
 			)
 				return `malformed decoy catalog entry (${modulo.slice(0, 64)})`;
+	}
+	if (r.seccomp !== undefined) {
+		const m = motivoSeccomp(r.seccomp);
+		if (m) return m;
 	}
 	if (r.clavesPanel !== undefined) {
 		const m = motivoClavesPanel(r.clavesPanel);
@@ -775,12 +832,12 @@ export type Latido = {
 		estado: 'al-dia' | 'pendiente' | 'aplicando' | 'fallida';
 		version: string | null;
 		/*
-		 * Una pendiente que espera por la política de cambios del cliente: su aprobación o el
-		 * retardo mínimo (docs/diseno/politica-cambios.md). Es decisión suya: no dice nada de la
+		 * Una pendiente que espera por la política de cambios del cliente: su aprobación, el
+		 * retardo mínimo o su ventana horaria (docs/diseno/politica-cambios.md). Es decisión suya: no dice nada de la
 		 * versión y el panel no la cuenta para los anillos. Opcional: los nodos anteriores no lo
 		 * mandan y los paneles anteriores lo ignoran.
 		 */
-		espera?: 'aprobacion' | 'retardo';
+		espera?: 'aprobacion' | 'retardo' | 'ventana';
 	};
 	/* Qué ha decidido el cliente sobre el acceso de soporte, y a qué petición responde. */
 	soporte: {
@@ -992,6 +1049,7 @@ export * from './planes.ts';
 export * from './registro.ts';
 export * from './confianza.ts';
 export * from './raiz.ts';
+export * from './madurez.ts';
 export * from './marca.ts';
 export * from './transparencia.ts';
 export * from './sello-auditoria.ts';
@@ -1000,4 +1058,6 @@ export * from './panel.ts';
 export * from './rangos-nubes.ts';
 export * from './ordenes.ts';
 export * from './rele-minimo.ts';
+export * from './sello-rele.ts';
+export * from './clon-web.ts';
 export * from './disco-latido.ts';

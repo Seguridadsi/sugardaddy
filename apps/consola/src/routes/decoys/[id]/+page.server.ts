@@ -27,6 +27,20 @@ import {
 } from '$lib/server/gestion';
 import { fichaDePasos, opcionesDeObjetivo } from '$lib/server/pasos';
 import { abrirPrueba, normalizarIp, pruebaDeTrampa } from '$lib/server/pruebas';
+import { fijarPolitica, inventario, leerPolitica } from '$lib/server/colocaciones';
+import { colocarPorConector, retirarPorConector } from '$lib/server/conector-ficheros';
+import { EJECUTORES_CONECTOR } from '$lib/server/ejecutores-conector';
+
+/* Lo sembrado de una trampa (D7): su política y sus colocaciones, de la más nueva a la más vieja. */
+async function colocacionesDe(t: { id: string; caduca: Date | null; rotarDias: number | null }) {
+	return {
+		politica: {
+			caduca: t.caduca?.toISOString().slice(0, 10) ?? null,
+			rotarDias: t.rotarDias
+		},
+		colocaciones: await inventario({ trampa: t.id, historia: 20 })
+	};
+}
 
 /*
  * Una trampa. Las de contenedor@1 son sus ajustes: el manifiesto v1 de su vía,
@@ -82,6 +96,25 @@ export const load = async ({ params, getClientAddress }) => {
 		sensor: null,
 		efectivo: null
 	};
+	if ((EJECUTORES_CONECTOR as readonly string[]).includes(t.ejecutor)) {
+		/*
+		 * Puesta por un conector (graph@1, D3): la consola la sube y la retira por la conexión
+		 * del tenant; no hay pasos. Se prueba abriendo el documento, como cualquier baliza.
+		 */
+		const destino = await destinoDeTrampa(t);
+		return {
+			alcance: await alcanceDeFicha('trampa', t.id, t.sensor),
+			tipo: 'conector' as const,
+			trampa: { id: t.id, nombre: t.nombre, colocacion: t.colocacion, modulo: t.modulo },
+			fueraDelCatalogo: !honeycosas().some((x) => x.id === t.modulo),
+			estado,
+			prueba,
+			entorno,
+			destino: destino && { id: destino.id, nombre: destino.nombre },
+			ruta: typeof t.parametros.ruta === 'string' ? t.parametros.ruta : null,
+			...(await colocacionesDe(t))
+		};
+	}
 	if (t.ejecutor === 'manual@1') {
 		const destino = await destinoDeTrampa(t);
 		const objetivo = t.senalTrampa ? await trampa(t.senalTrampa) : null;
@@ -111,6 +144,7 @@ export const load = async ({ params, getClientAddress }) => {
 			sitios: await sitiosPara(t, h, destino?.id),
 			objetivo: objetivo && { id: objetivo.id, nombre: objetivo.nombre },
 			pasos: t.manual ? fichaDePasos(t.manual) : null,
+			...(await colocacionesDe(t)),
 			cambiar:
 				cambiable && h
 					? {
@@ -320,11 +354,46 @@ export const actions = {
 		const r = await retirarTrampa(u.correo, params.id);
 		if (r === 'no-existe') error(404, 'That honeypot does not exist.');
 		if (r === 'retirada') redirect(303, '/decoys');
+		if (r === 'retirando-conector') {
+			/* Se quita enseguida; si falla, lo dice su estado y se reintenta solo. */
+			const x = await retirarPorConector(params.id, u.correo).catch(() => 'fallo' as const);
+			if (x === 'retirada') redirect(303, '/decoys');
+			return {
+				hecho:
+					x === 'cambiada'
+						? 'Someone changed the file after it was placed, so Sugardaddy did not delete it. Delete it yourself and click "I have removed it".'
+						: 'Sugardaddy is removing it through the tenant connection. It retries on its own if it fails.'
+			};
+		}
 		if (r === 'retirando')
 			return {
 				hecho: 'Follow the steps to remove it and, when nothing is left, click "I have removed it".'
 			};
 		return fail(400, { aviso: recibeSenalDe(r.dependientes) });
+	},
+
+	/* Volver a intentar ya la subida de una de conector que falló (sin esperar al reintento). */
+	reintentar: async ({ params, locals }) => {
+		exigir(locals, 'desplegar');
+		const r = await colocarPorConector(params.id).catch(() => 'fallo' as const);
+		if (r === 'colocada')
+			return { hecho: 'Placed. It will be verified by the first event that arrives.' };
+		if (r === 'nada') return fail(400, { aviso: 'It is not waiting to be placed.' });
+		return fail(400, { aviso: 'It could not be placed yet: the reason is under its status.' });
+	},
+
+	/* La caducidad y la rotación de lo sembrado (D7). */
+	politica: async ({ params, request, locals }) => {
+		const u = exigir(locals, 'desplegar');
+		const p = leerPolitica(await request.formData());
+		if (!p.ok) return fail(400, { aviso: p.error });
+		const r = await fijarPolitica(u.correo, params.id, p);
+		if (r === 'no-existe') error(404, 'That honeypot does not exist.');
+		if (r === 'contenedor')
+			return fail(400, {
+				aviso: 'A honeypot on a sensor is not a placed decoy: it has no expiry.'
+			});
+		return { hecho: 'Expiry and rotation saved.' };
 	},
 
 	/* «Ya lo he quitado»: después de los pasos de retirada, se borra. */

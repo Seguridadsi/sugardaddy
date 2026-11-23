@@ -477,6 +477,20 @@
       "when": 1794920540651,
       "tag": "0067_ventanas_mantenimiento",
       "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1795084633940,
+      "tag": "0068_contrato_webhook_antiguo",
+      "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1795104718603,
+      "tag": "0069_inventario_colocaciones",
+      "breakpoints": true
     }
   ]
 }

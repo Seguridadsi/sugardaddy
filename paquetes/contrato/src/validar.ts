@@ -57,7 +57,7 @@ function huecos(texto: string): string[] {
  *    (LOCATION de SSDP, XAddrs de WS-Discovery): dentro del contenedor solo ve
  *    la IP interna de Docker, que la delataría.
  */
-export const HUECOS_DEL_SENSOR = ['sd.ipsAnfitrion'] as const;
+export const HUECOS_DEL_SENSOR = ['sd.ipsAnfitrion', 'sd.desplazamiento'] as const;
 
 function huecosSinParametro(
 	textos: string[],
@@ -585,6 +585,14 @@ function reglasDeVia(
 				(e) => `carga: ${e}`
 			)
 		);
+	} else if (v.ejecutor === 'graph@1') {
+		/* Regla 11 (D3): sube un fichero acuñado y lo quita él mismo. */
+		if (m.siembra.clase !== 'fichero')
+			fallos.push('graph@1 solo vale con siembra.clase fichero (sube el documento acuñado)');
+		if (fuente && fuente.tipo !== 'rele' && fuente.tipo !== 'conector')
+			fallos.push('graph@1 exige la fuente rele o conector (nadie lee un fichero en el tenant)');
+		if (v.retirada.tipo !== 'automatica')
+			fallos.push('graph@1 exige retirada automatica (borra lo que subió)');
 	} else if (new TextEncoder().encode(JSON.stringify(v.carga)).length > 65536) {
 		/* Un ejecutor que esta consola no conoce: su carga se guarda opaca. */
 		fallos.push(`la carga de ${v.ejecutor} pasa de 64 KB`);

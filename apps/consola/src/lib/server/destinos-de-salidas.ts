@@ -3,7 +3,8 @@
  * la salida restringida del cortafuegos estricto no tiene nada que añadir de ellas.
  */
 export async function destinosDeSalidas(
-	_normalizar: (destino: string) => string | null
+	_normalizar: (destino: string) => string | null,
+	_que?: 'tcp' | 'directas' | 'udp'
 ): Promise<string[]> {
 	return [];
 }

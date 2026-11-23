@@ -21,8 +21,10 @@ import {
 } from '$lib/server/acceso';
 import { normalizarIp } from '$lib/server/pruebas';
 import { ponerCabeceras } from '$lib/server/cabeceras';
+import { csrfRechaza } from '$lib/server/csrf';
 import { vigilarSoporte } from '$lib/server/soporte';
 import { vigilarMantenimiento } from '$lib/server/mantenimiento';
+import { vigilarColocaciones } from '$lib/server/colocaciones-vigia';
 import { grabar } from '$lib/server/soporte-registro';
 import { desactivarInactivas } from '$lib/server/revision-accesos';
 import { separacionCredenciales } from '$lib/server/banca';
@@ -89,6 +91,16 @@ export const init: ServerInit = () => {
 	if (w.__webhook) clearInterval(w.__webhook);
 	w.__webhook = setInterval(enviarWebhook, 30_000);
 	w.__webhook.unref?.();
+	/*
+	 * Inventario de colocaciones (D7): cada minuto, retirar lo caducado y, con un conector
+	 * (SharePoint y OneDrive, D3), colocar, retirar, rotar y comprobar lo suyo.
+	 */
+	const colocaciones = () =>
+		void vigilarColocaciones().catch((e) => console.error('[colocaciones]', e));
+	const col = globalThis as { __colocaciones?: ReturnType<typeof setInterval> };
+	if (col.__colocaciones) clearInterval(col.__colocaciones);
+	col.__colocaciones = setInterval(colocaciones, 60_000);
+	col.__colocaciones.unref?.();
 	/* Ventanas de mantenimiento: cada minuto, el aviso de las que empiezan y el resumen de las que acaban. */
 	const mant = () => void vigilarMantenimiento().catch((e) => console.error('[mantenimiento]', e));
 	const mt = globalThis as { __mantenimiento?: ReturnType<typeof setInterval> };
@@ -135,6 +147,20 @@ export const handle: Handle = async ({ event, resolve }) => {
 			const confirmado = cortafuegosConfirma(acceso, await cortafuegosReciente().catch(() => null));
 			if (!puedeEntrar(ip, acceso, confirmado)) return new Response(null, { status: 404 });
 		}
+	}
+
+	/*
+	 * Formularios de otro origen (CSRF): lo que hacía SvelteKit, aquí para dejar
+	 * pasar solo el ACS de SAML (csrf.ts). Como SvelteKit, no en desarrollo.
+	 */
+	if (!dev && csrfRechaza(event.request, event.url)) {
+		const message = `Cross-site ${event.request.method} form submissions are forbidden`;
+		return event.request.headers.get('accept') === 'application/json'
+			? new Response(JSON.stringify({ message }), {
+					status: 403,
+					headers: { 'content-type': 'application/json' }
+				})
+			: new Response(message, { status: 403 });
 	}
 
 	/*

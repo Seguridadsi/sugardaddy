@@ -14,8 +14,8 @@
  * la prueba.
  */
 import { randomInt } from 'node:crypto';
-import { isIP } from 'node:net';
 import { and, desc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
+import { normalizarIp } from './buscar-ip';
 import {
 	EJECUTORES,
 	bloqueDeVariables,
@@ -69,23 +69,8 @@ export function nuevoNonce(): string {
 	return n;
 }
 
-/*
- * Una IP escrita como la escribe el sensor: en minúsculas, sin corchetes, una
- * IPv4 dentro de IPv6 (::ffff:10.0.0.5, como la da un servidor de doble pila)
- * como IPv4 y una IPv6 abreviada. null si no es una IP.
- */
-export function normalizarIp(ip: string | null | undefined): string | null {
-	if (!ip) return null;
-	let t = ip
-		.trim()
-		.toLowerCase()
-		.replace(/^\[(.*)\]$/, '$1');
-	t = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/.exec(t)?.[1] ?? t;
-	const v = isIP(t);
-	if (v === 4) return t;
-	if (v === 6) return new URL(`http://[${t}]`).hostname.slice(1, -1);
-	return null;
-}
+/* Vive en buscar-ip.ts (sin base); se reexporta para quien ya lo importa de aquí. */
+export { normalizarIp };
 
 /* ---------------------------------------------------------------------------
  * Qué da «Probar» en una trampa
@@ -620,6 +605,18 @@ export async function trampasQueRegistranSiempre(sensor: string): Promise<string
 }
 
 /*
+ * Si un evento de la trampa objetivo activa la señal de un cebo, para su prueba. Si la
+ * marca de la prueba mira el MISMO campo que la señal, manda la de la prueba: el guion
+ * pone allí su valor con el nonce en lugar del sembrado (la clave Bearer de
+ * configuracion-mcp, la cookie de cookie-sesion, el nombre de nombre-dns) y las dos a la
+ * vez no se pueden cumplir. En campos distintos hacen falta las dos (el usuario sembrado
+ * y la contraseña de la prueba, en credencial-ssh).
+ */
+function activaSenal(e: Evento, senal: Marca, marca: Marca | null): boolean {
+	return (marca !== null && marca.campo === senal.campo) || cumpleMarca(e, senal);
+}
+
+/*
  * Las pruebas de las que es un evento recibido a esa hora (§8.3): de su
  * trampa (o de la que recibe su señal, si la activa), dentro de la ventana
  * más el margen, y con la marca de la prueba o, si no tiene, desde una de sus
@@ -631,7 +628,7 @@ export function pruebasDe(e: Evento, recibido: Date, abiertas: PruebaAbierta[]):
 	return abiertas.filter(
 		(p) =>
 			p.de === e.trampa.id &&
-			(p.de === p.trampa || (p.senal !== null && cumpleMarca(e, p.senal))) &&
+			(p.de === p.trampa || (p.senal !== null && activaSenal(e, p.senal, p.marca))) &&
 			cuando >= p.desde.getTime() &&
 			cuando <= p.hasta.getTime() + MARGEN_MS &&
 			(p.marca ? cumpleMarca(e, p.marca) : ip !== null && p.ips.some((x) => normalizarIp(x) === ip))

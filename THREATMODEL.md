@@ -107,6 +107,12 @@ steals a signing key.
   - Separate keys per use (versions, catalog, licenses, withdrawn list). The set of valid keys
     travels inside the signed version, so a key can be rotated or retired by publishing.
   - The updater refuses to go back to an older version than the one installed.
+  - A version that changes the node's configuration (compose file, web server, new environment
+    variables) or the keys it trusts needs signatures from **two different trusted keys**: a single
+    stolen key can swap images, which the next version undoes, but not take over the node.
+  - The customer decides when a version is installed (automatic, manual approval, minimum delay
+    and an update window in their time zone), enforced by the updater on their machine, with a
+    floor in its `.env` that neither the console nor the Central can lower.
   - A signed list of withdrawn images, published in this repository, stops a known-bad image from
     being installed or kept running.
   - The installer is verified with keys embedded in it and a checksum published outside the

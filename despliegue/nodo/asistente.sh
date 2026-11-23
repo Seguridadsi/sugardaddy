@@ -239,6 +239,16 @@ pregunta_proxy() {
 	fi
 }
 
+# El suelo de la política de cambios en el .env (docs/diseno/politica-cambios.md). Solo al
+# instalar, y si no se dio ya por entorno (ACTUALIZACION_POLITICA y las otras dos).
+BANCA=""
+pregunta_politica() {
+	[[ -z "$YA" && -z "${ACTUALIZACION_POLITICA:-}${ACTUALIZACION_RETARDO_HORAS:-}${ACTUALIZACION_VENTANA:-}" ]] || return 0
+	if confirmar "Update policy of this machine. Banking: an administrator approves each new version in the console, no earlier than 72 hours after it is published, and no console can lower this. Automatic: versions install when they arrive, and you can change it later in the console." "Banking" "Automatic"; then
+		BANCA=1
+	fi
+}
+
 preguntas() {
 	local propuesta
 
@@ -300,6 +310,7 @@ preguntas() {
 	fi
 
 	pregunta_proxy
+	pregunta_politica
 }
 
 resumen() {
@@ -312,6 +323,7 @@ resumen() {
 		texto+="  Console access:  ${ACCESO:-the network of this machine and the address you install from}"$'\n'
 	fi
 	texto+="  Outbound proxy:  $([[ -n "$PROXY" ]] && printf '%s' "$PROXY" | sed -E 's#//[^@]*@#//***@#' || echo "none (direct)")${PROXY_CA:+, with its CA}"$'\n'
+	[[ -z "$BANCA" ]] || texto+="  Update policy:   banking (manual approval, 72 hours), set on this machine"$'\n'
 	if [[ -n "$CONSTRUIR" ]]; then
 		texto+=$'\n'"The node images are built from source on this machine first. It takes a while the first time (10 to 20 minutes)."$'\n'
 	fi
@@ -353,6 +365,7 @@ export CONSOLA_PUERTO="$PUERTO"
 export SUGARDADDY_PROXY="${PROXY:-none}" SUGARDADDY_NO_PROXY="${PROXY_NO:-none}"
 [[ -z "$PROXY_CA" ]] || export SUGARDADDY_PROXY_CA="$PROXY_CA"
 [[ -z "$ACCESO" ]] || export CONSOLA_ACCESO="$ACCESO"
+[[ -z "$BANCA" ]] || export ACTUALIZACION_POLITICA=manual ACTUALIZACION_RETARDO_HORAS=72
 # Sin Entra configurado, la entrada es con usuario y contraseña: si no, no habría cómo entrar.
 [[ -n "${ENTRA_TENANT_ID:-}" || -n "${LOGIN_LOCAL:-}" ]] || export LOGIN_LOCAL=1
 

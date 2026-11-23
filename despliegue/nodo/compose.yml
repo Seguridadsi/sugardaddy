@@ -15,6 +15,11 @@ x-proxy: &proxy
   SSL_CERT_DIR: ${PROXY_CA:+/proxy}
 
 x-endurecido: &endurecido
+  # El espacio de usuarios de la máquina: con userns-remap en el daemon (el appliance,
+  # docs/diseno/aislamiento-trampas.md §4d) solo las trampas, sondas y acompañantes van
+  # remapeados; los servicios del nodo siguen como siempre (el socket de Docker, la
+  # carpeta del nodo y la del sensor son de la máquina). Sin remap no cambia nada.
+  userns_mode: host
   read_only: true
   cap_drop: [ALL]
   security_opt: [no-new-privileges:true]
@@ -106,6 +111,12 @@ services:
       # (docs/diseno/claves-y-catalogo.md): las renueva una versión firmada.
       PUBLICACION_CLAVES: ${PUBLICACION_CLAVES:-}
       PUBLICACION_CLAVE_PUBLICA: ${PUBLICACION_CLAVE_PUBLICA:-}
+      # El suelo de la política de cambios (docs/diseno/politica-cambios.md): la consola
+      # solo lo enseña y cuenta igual; quien lo hace cumplir es el actualizador, que lo lee
+      # él mismo del .env.
+      ACTUALIZACION_POLITICA: ${ACTUALIZACION_POLITICA:-}
+      ACTUALIZACION_RETARDO_HORAS: ${ACTUALIZACION_RETARDO_HORAS:-}
+      ACTUALIZACION_VENTANA: ${ACTUALIZACION_VENTANA:-}
       # Cifra los secretos que el cliente pone en su consola (avisos y SIEM).
       # La generan instalar.sh y, en un nodo de antes, el actualizador
       # (entorno.json); vacía, la consola no guarda secretos.
@@ -175,6 +186,21 @@ services:
     depends_on: [consola]
     # Escuchar en el 443 necesita esta capacidad, y ninguna más.
     cap_add: [NET_BIND_SERVICE]
+    # Sin CA_NODO=nodo (un nodo de antes de la CA propia, o una línea perdida del .env)
+    # Caddy firma con su CA «local» y, si no existe, crea una nueva sin límite de
+    # nombres. Si en ca-nodo/ ya está la propia y la local ya no existe (se destruyó al
+    # cambiar), firma con la propia: nunca nace una CA local nueva junto a ella
+    # (auditoría del 2026-11-14, §5). Antes del cambio, con la local aún en su sitio,
+    # sigue con ella hasta que el administrador confirme la raíz nueva.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        if [ "$$CADDY_CA" = local ] && [ -s /ca-nodo/raiz.crt ] && [ ! -e /data/caddy/pki/authorities/local ]; then
+          echo "CA_NODO is missing from .env but the node CA exists and Caddy's local CA does not: signing with the node CA" >&2
+          export CADDY_CA=nodo
+        fi
+        exec caddy run --config /etc/caddy/Caddyfile --adapter caddyfile
     mem_limit: ${HTTPS_MEMORIA:-256m}
     pids_limit: ${HTTPS_PROCESOS:-256}
     cpus: ${HTTPS_CPUS:-0}

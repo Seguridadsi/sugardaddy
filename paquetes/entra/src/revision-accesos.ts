@@ -83,8 +83,9 @@ export const revisionVencida = (ultima: Date | null, primeraCuenta: Date | null,
 };
 
 /* De dónde viene la cuenta, por su oid. */
-export function origenCuenta(oid: string): 'local' | 'oidc' | 'entra' {
+export function origenCuenta(oid: string): 'local' | 'oidc' | 'saml' | 'entra' {
 	if (oid.startsWith('local:')) return 'local';
 	if (oid.startsWith('oidc:')) return 'oidc';
+	if (oid.startsWith('saml:')) return 'saml';
 	return 'entra';
 }

@@ -206,7 +206,7 @@ func (c *CambioCA) Aplicar(ctx context.Context) ResultadoCA {
 		cambiada = true
 		c.log("switching the console HTTPS to the node CA", "huella", huella)
 		if out, err := c.recrearHttps(ctx); err != nil {
-			return c.volver(ctx, huella, fmt.Sprintf("%v\n%s", err, cola(out, 10)))
+			return c.volver(ctx, huella, fmt.Sprintf("%v\n%s", err, cola(out, 10)), hayVieja)
 		}
 	}
 	comprobar := c.Comprobar
@@ -215,7 +215,7 @@ func (c *CambioCA) Aplicar(ctx context.Context) ResultadoCA {
 	}
 	if err := comprobar(ctx, ca.Raiz, direccion); err != nil {
 		if cambiada || hayVieja {
-			return c.volver(ctx, huella, "the console did not answer with a certificate from the new root: "+err.Error())
+			return c.volver(ctx, huella, "the console did not answer with a certificate from the new root: "+err.Error(), hayVieja)
 		}
 		return c.resultado(CAFallida, "the console does not answer with a certificate from the node root: "+err.Error(), huella, nada)
 	}
@@ -258,12 +258,20 @@ func (c *CambioCA) Aplicar(ctx context.Context) ResultadoCA {
 	return c.resultado(CAAplicada, detalle, huella, copias)
 }
 
-// volver deja Caddy con la CA de antes, que aún no se ha destruido.
-func (c *CambioCA) volver(ctx context.Context, huella, motivo string) ResultadoCA {
-	c.log("going back to the previous CA", "motivo", motivo)
+// volver deja Caddy con la CA de antes, si aún no se ha destruido. Si ya no está
+// en el volumen de Caddy, no se vuelve: con CA_NODO vacío Caddy crearía otra CA
+// «local», nueva y sin límite de nombres, en la que no confía ningún equipo
+// (auditoría del 2026-11-14, §5). El nodo se queda con la propia y el cambio,
+// pendiente: el siguiente auxiliar lo remata.
+func (c *CambioCA) volver(ctx context.Context, huella, motivo string, hayVieja bool) ResultadoCA {
 	if c.Docker != nil && c.Red != "" {
 		_ = c.Docker.Desconectar(context.WithoutCancel(ctx), c.Red, NombreAuxiliarCA(c.Proyecto))
 	}
+	if !hayVieja {
+		c.log("the previous CA no longer exists: staying on the node CA", "motivo", motivo)
+		return c.resultado(CAFallida, motivo+"\nThe previous root no longer exists on this node, so it stays on the node root: the change will be retried.", huella, ResultadoCopias{})
+	}
+	c.log("going back to the previous CA", "motivo", motivo)
 	detalle := motivo + "\nThe node went back to the previous root: nothing changed on the computers."
 	if err := fijarEnv(c.ruta(".env"), "CA_NODO", ""); err != nil {
 		detalle += "\n.env could not be restored: " + err.Error()

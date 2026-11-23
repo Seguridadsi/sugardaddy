@@ -176,6 +176,34 @@ func TestCambioCAVuelveSiCaddyNoArranca(t *testing.T) {
 	}
 }
 
+// Sin la CA vieja en el volumen de Caddy no se vuelve: con CA_NODO vacío Caddy
+// crearía otra «local», nueva y sin límite de nombres (auditoría del 2026-11-14, §5).
+func TestCambioCANoVuelveAUnaCAQueYaNoExiste(t *testing.T) {
+	for _, caddyCae := range []bool{false, true} {
+		dir, datos, ca := nodoConCAVieja(t)
+		_ = os.RemoveAll(filepath.Join(datos, "caddy/pki/authorities/local"))
+		if caddyCae {
+			_ = os.WriteFile(filepath.Join(dir, "CAE"), nil, 0o600)
+		}
+		c := cambioDePrueba(t, dir, datos, ca.Huella(), func(context.Context, *x509.Certificate, string) error {
+			return errors.New("x509: certificate signed by unknown authority")
+		})
+		r := c.Aplicar(context.Background())
+		if r.Estado != CAFallida || !strings.Contains(r.Detalle, "stays on the node root") || strings.Contains(r.Detalle, "went back") {
+			t.Fatalf("%v: %+v", caddyCae, r)
+		}
+		if env, _ := LeerEnv(filepath.Join(dir, ".env")); env["CA_NODO"] != "nodo" {
+			t.Fatalf("%v: it must stay on the node CA: %v", caddyCae, env)
+		}
+		if strings.Count(llamadas(t, dir), "--force-recreate") != 1 {
+			t.Fatalf("%v: https must not be recreated with an empty CA_NODO:\n%s", caddyCae, llamadas(t, dir))
+		}
+		if !existe(filepath.Join(dir, FicheroCambioCA)) {
+			t.Fatalf("%v: the switch stays pending for the next helper", caddyCae)
+		}
+	}
+}
+
 func TestCambioCARemataUnoCortado(t *testing.T) {
 	dir, datos, ca := nodoConCAVieja(t)
 	_ = fijarEnv(filepath.Join(dir, ".env"), "CA_NODO", "nodo")

@@ -95,3 +95,44 @@ func TestComprobarPolitica(t *testing.T) {
 		t.Fatalf("sin fecha: %v", e)
 	}
 }
+
+func TestVentanaEnLaPolitica(t *testing.T) {
+	pub := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
+	r := Release{Version: "0.30.0", Publicada: pub.Format(time.RFC3339)}
+	noche := []Ventana{{Dias: []int{1, 2, 3, 4, 5, 6, 7}, Desde: "02:00", Hasta: "04:00"}}
+	p := Politica{Modo: PoliticaAutomatica, Ventanas: noche}
+	mediodia := time.Date(2026, 11, 18, 12, 0, 0, 0, time.UTC)
+	e := ComprobarPolitica(r, p, nil, true, mediodia)
+	if e.Motivo != "ventana" || !e.Hasta.Equal(time.Date(2026, 11, 19, 2, 0, 0, 0, time.UTC)) {
+		t.Fatalf("fuera de la ventana: %+v", e)
+	}
+	if e := ComprobarPolitica(r, p, nil, true, time.Date(2026, 11, 19, 3, 0, 0, 0, time.UTC)); e.Motivo != "" {
+		t.Fatalf("dentro de la ventana: %+v", e)
+	}
+	// Urgente: se salta el retardo, no la ventana.
+	ru := r
+	ru.Urgente = true
+	if e := ComprobarPolitica(ru, Politica{Modo: PoliticaAutomatica, RetardoHoras: 720, Ventanas: noche}, nil, true, mediodia); e.Motivo != "ventana" {
+		t.Fatalf("urgente fuera de la ventana: %+v", e)
+	}
+	// La del .env y la de la consola tienen que estar abiertas las dos: la consola no la ensancha.
+	env := PoliticaDelEntorno(entorno(map[string]string{"ACTUALIZACION_VENTANA": "1-7 02:00-04:00"}))
+	consola := Politica{Modo: PoliticaAutomatica, Ventanas: []Ventana{{Dias: []int{1, 2, 3, 4, 5, 6, 7}, Desde: "00:00", Hasta: "00:00"}}}
+	if e := ComprobarPolitica(r, MasEstricta(env, consola), nil, true, mediodia); e.Motivo != "ventana" {
+		t.Fatalf("la consola no puede abrir lo que cierra el .env: %+v", e)
+	}
+	consola.Ventanas = []Ventana{{Dias: []int{1, 2, 3, 4, 5, 6, 7}, Desde: "03:00", Hasta: "05:00"}}
+	e = ComprobarPolitica(r, MasEstricta(env, consola), nil, true, time.Date(2026, 11, 19, 2, 30, 0, 0, time.UTC))
+	if e.Motivo != "ventana" || !e.Hasta.Equal(time.Date(2026, 11, 19, 3, 0, 0, 0, time.UTC)) {
+		t.Fatalf("la intersección abre a las 3: %+v", e)
+	}
+	// Ilegible en el .env: nunca abre (lo más estricto) y se dice.
+	mala := PoliticaDelEntorno(entorno(map[string]string{"ACTUALIZACION_VENTANA": "laborables de 2 a 5"}))
+	if e := ComprobarPolitica(r, mala, nil, true, mediodia); e.Motivo != "ventana" || !e.Hasta.IsZero() || e.String() == "" {
+		t.Fatalf("ventana ilegible: %+v", e)
+	}
+	// Una ventana inválida de la consola tampoco abre.
+	if e := ComprobarPolitica(r, Politica{Ventanas: []Ventana{{Dias: []int{9}, Desde: "x"}}}, nil, true, mediodia); e.Motivo != "ventana" {
+		t.Fatalf("ventana inválida de la consola: %+v", e)
+	}
+}

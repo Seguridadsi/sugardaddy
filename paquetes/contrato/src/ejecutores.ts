@@ -226,5 +226,32 @@ export const EJECUTORES: Readonly<Record<string, Ejecutor>> = congelar({
 		requisitos: [],
 		pausable: false,
 		retirada: 'confirmada'
+	},
+	/*
+	 * Microsoft Graph (D3, docs/diseno/sharepoint-onedrive.md): la consola sube el fichero
+	 * cebo acuñado a una carpeta de SharePoint o de OneDrive con la aplicación de Entra del
+	 * cliente, que solo tiene Sites.Selected (acceso a los sitios que él le da, uno a uno).
+	 * Corre en la consola, que es la que tiene la conexión del destino tenant; la señal
+	 * vuelve por la baliza del documento (relé o receptor). Retira ella misma, y solo lo
+	 * que puso: borra el elemento que subió si su contenido sigue siendo el suyo.
+	 */
+	'graph@1': {
+		id: 'graph@1',
+		nombre: 'Microsoft 365 connection',
+		clase: 'conector',
+		corre: 'consola',
+		destinos: ['tenant'],
+		fuentes: ['rele', 'conector'],
+		requisitos: [
+			{
+				hecho: 'conexion.graph.estado',
+				igual: 'activa',
+				siFalta: 'descarta',
+				motivo: 'This tenant has no working Microsoft 365 connection.',
+				remedio: 'Open the target under Targets, set up its Microsoft 365 connection and test it.'
+			}
+		],
+		pausable: false,
+		retirada: 'automatica'
 	}
 } satisfies Record<string, Ejecutor>);

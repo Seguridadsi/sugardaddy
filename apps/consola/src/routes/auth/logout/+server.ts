@@ -21,6 +21,8 @@ export const POST = async ({ url, cookies, locals }) => {
 	 * hasta Microsoft. La entrada enseña el enlace para salir también allí.
 	 */
 	if (oid?.startsWith('oidc:')) redirect(303, '/sign-in?salida=oidc');
+	/* SAML: sin cierre único (SLO) por ahora; la entrada recuerda que el proveedor sigue abierto. */
+	if (oid?.startsWith('saml:')) redirect(303, '/sign-in?salida=saml');
 	const federada = !!oid && !oid.startsWith('local:') && !oid.startsWith('emergencia:');
 	const activa = federada ? await configActiva() : null;
 	redirect(303, activa ? urlDeCierre(activa.config, `${url.origin}/auth/callback`) : '/sign-in');
