@@ -12,3 +12,4 @@
 {"n":11,"tipo":"version","huella":"f93f15a949fe1ebd558dfd70b265448151cc0d1366516691bae675bfd64b8346","clave":"b2c569556db2104c","etiqueta":"0.32.4 cloud","cuando":"2026-11-19T17:17:34.358Z"}
 {"n":12,"tipo":"version","huella":"af6b2d8b1cb1e18bd49b28aa4382556506f579d4651490865e4a991157a56c8f","clave":"b2c569556db2104c","etiqueta":"0.33.0 cloud","cuando":"2026-11-23T12:09:18.410Z"}
 {"n":13,"tipo":"version","huella":"d513fbfe4c3ede18a767b995d730f9b23df5dfb531767433260f048d915c723c","clave":"b2c569556db2104c","etiqueta":"0.33.0 cloud","cuando":"2026-11-23T12:09:19.909Z"}
+{"n":14,"tipo":"version","huella":"eedd7ffd6fda0ab4555839b7fe8ff0f572e8a2595017b2420c64840f5fd151b3","clave":"b2c569556db2104c","etiqueta":"0.33.0 community","cuando":"2026-11-23T15:38:50.194Z"}
