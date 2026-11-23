@@ -680,6 +680,9 @@ async function guardarEntrega(
 		const nuevos: Evento[] = [];
 		let anterior = fila.ultimoHash;
 		let aceptadas = 0;
+		/* Una vez por entrega, solo si algo va a la cuarentena: lee el catálogo entero del disco. */
+		let claves: string[] | undefined;
+		const clavesDeLaEntrega = () => (claves ??= clavesCredencial());
 
 		for (const linea of lineas) {
 			aceptadas++;
@@ -869,7 +872,7 @@ async function guardarEntrega(
 					hash,
 					hashAnterior: e?.hashAnterior ?? null,
 					/* Tal cual llegó salvo las credenciales: enmascaradas, como en los eventos (B-09). */
-					linea: sinNulos(enmascararLinea(linea.slice(0, LIMITE_LINEA), clavesCredencial())),
+					linea: sinNulos(enmascararLinea(linea.slice(0, LIMITE_LINEA), clavesDeLaEntrega())),
 					motivo: sinNulos(motivo)
 				};
 				/*

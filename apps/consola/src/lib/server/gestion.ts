@@ -639,12 +639,13 @@ export async function ultimaCuarentena(limite = 30) {
 		.from(s.cuarentena)
 		.orderBy(desc(s.cuarentena.recibido))
 		.limit(limite);
+	const claves = clavesCredencial();
 	return filas.map((f) => ({
 		id: f.id,
 		sensor: f.sensor,
 		motivo: f.motivo,
 		/* Lo guardado antes de enmascarar la cuarentena (B-09) se enmascara al leerlo. */
-		linea: enmascararLinea(f.linea, clavesCredencial()).slice(0, 4000),
+		linea: enmascararLinea(f.linea, claves).slice(0, 4000),
 		recibido: f.recibido.toISOString()
 	}));
 }

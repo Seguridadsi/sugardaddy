@@ -28,20 +28,24 @@ const PREFIJO = 'k';
 const LARGO = 65;
 const INFO_SELLO = 'sugardaddy rele sello v1';
 const INFO_RUTA = 'sugardaddy rele ruta v1|';
-/* Cabeceras DER para una clave X25519 en bruto (RFC 8410). */
-const PKCS8 = Buffer.from('302e020100300506032b656e04220420', 'hex');
-const SPKI = Buffer.from('302a300506032b656e032100', 'hex');
+/*
+ * Cabeceras DER para una clave X25519 en bruto (RFC 8410). Se construyen al usarlas, no al
+ * cargar el módulo: @sugardaddy/canal también lo importa código del navegador (el panel,
+ * atencion-flota.ts) y allí no existe Buffer; un Buffer.from suelto aquí rompía la página.
+ */
+const PKCS8 = () => Buffer.from('302e020100300506032b656e04220420', 'hex');
+const SPKI = () => Buffer.from('302a300506032b656e032100', 'hex');
 
 export type Sellada = { v: 1; r: string; e: string; c: string };
 
 const privadaDe = (cruda: Uint8Array) =>
-	createPrivateKey({ key: Buffer.concat([PKCS8, cruda]), format: 'der', type: 'pkcs8' });
+	createPrivateKey({ key: Buffer.concat([PKCS8(), cruda]), format: 'der', type: 'pkcs8' });
 const publicaDe = (cruda: Uint8Array) =>
-	createPublicKey({ key: Buffer.concat([SPKI, cruda]), format: 'der', type: 'spki' });
+	createPublicKey({ key: Buffer.concat([SPKI(), cruda]), format: 'der', type: 'spki' });
 const cruda = (k: KeyObject) =>
 	k.type === 'private'
-		? k.export({ format: 'der', type: 'pkcs8' }).subarray(PKCS8.length)
-		: k.export({ format: 'der', type: 'spki' }).subarray(SPKI.length);
+		? k.export({ format: 'der', type: 'pkcs8' }).subarray(PKCS8().length)
+		: k.export({ format: 'der', type: 'spki' }).subarray(SPKI().length);
 
 /* Una clave de balizas nueva para el nodo: las dos mitades en bruto (32 bytes). */
 export function nuevaClaveSello(): { publica: Buffer; privada: Buffer } {
