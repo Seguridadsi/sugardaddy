@@ -21,3 +21,5 @@
 {"n":20,"tipo":"version","huella":"3e69b2278a2d8aef18b95e322c37ca558721635511594765ff18b135c31463b9","clave":"b2c569556db2104c","etiqueta":"0.33.2 community","cuando":"2026-11-24T17:38:00.829Z"}
 {"n":21,"tipo":"version","huella":"11bdcd5b3d690697d37c92fd195f6639050e22a501f1491409a7d863df566de0","clave":"b2c569556db2104c","etiqueta":"0.33.3 cloud","cuando":"2026-11-24T17:54:59.221Z"}
 {"n":22,"tipo":"version","huella":"138268b28894ec353ae0405cce9dea48ccf8d3111b7deaa240b98f9d59a39d49","clave":"b2c569556db2104c","etiqueta":"0.33.3 cloud","cuando":"2026-11-24T17:55:00.085Z"}
+{"n":23,"tipo":"version","huella":"7a4b66d946e368d1ce12a041a06875f5eca6dd41abc05fcf33efc888bea7b26c","clave":"b2c569556db2104c","etiqueta":"0.33.4 cloud","cuando":"2026-11-24T19:27:15.878Z"}
+{"n":24,"tipo":"version","huella":"c9494b79c43d5e688e8a01b87f8565fd7faa07ad8d222af02e02773d83ab2308","clave":"b2c569556db2104c","etiqueta":"0.33.4 cloud","cuando":"2026-11-24T19:27:17.325Z"}
