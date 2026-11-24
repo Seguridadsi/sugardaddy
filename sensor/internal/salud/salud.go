@@ -34,6 +34,19 @@ type Muestra struct {
 	// nodo normal. Libre: lo que puede usar cualquiera, sin la reserva de root.
 	Disco   *Capacidad `json:"disco,omitempty"`
 	Trampas []Trampa   `json:"trampas"`
+	// La cola de salida hacia la consola (la tubería): lo que falta por
+	// entregar y desde cuándo. Cuando lo trae, la consola compara además
+	// Cuando con su reloj.
+	Cola *Cola `json:"cola,omitempty"`
+}
+
+// Cola: bytes por entregar, su tope, segundos que lleva sin quedar al día
+// (0 si lo está) y si está descartando eventos porque no caben.
+type Cola struct {
+	Pendiente   int64 `json:"pendiente"`
+	Tope        int64 `json:"tope"`
+	SinEntregar int64 `json:"sinEntregar"`
+	Descartando bool  `json:"descartando"`
 }
 
 // Capacidad: total y lo que queda, en bytes.

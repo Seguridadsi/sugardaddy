@@ -454,15 +454,30 @@ export async function crear(
  * dejen de valer mientras siga así): si mañana vuelve a ser administrador o
  * recupera su contraseña, sus tokens de antes no resucitan. La tabla viaja con
  * el esquema compartido; en Community no tiene filas y esto no hace nada.
+ *
+ * Y las cuentas de servicio de las que es PROPIETARIO (lib/server/api/tokens.ts):
+ * las que creó, salvo que otro administrador las haya rotado desde entonces
+ * (rotar es hacerse cargo: pasan a depender de ese). Así una cuenta de servicio
+ * no sirve para que quien ya no debe entrar se quede dentro por la API.
  */
 export async function revocarTokensApiDe(quien: string, id: string, motivo: string) {
+	const oid = `local:${id}`;
 	const revocados = await db
 		.update(s.tokensApi)
-		.set({ revocado: new Date(), revocadoPor: quien })
-		.where(and(eq(s.tokensApi.creadorOid, `local:${id}`), isNull(s.tokensApi.revocado)))
-		.returning({ id: s.tokensApi.id, nombre: s.tokensApi.nombre });
+		.set({ revocado: new Date(), revocadoPor: quien, anteriorHash: null, anteriorHasta: null })
+		.where(
+			and(
+				isNull(s.tokensApi.revocado),
+				sql`(case when ${s.tokensApi.tipo} = 'servicio' then coalesce(${s.tokensApi.propietarioOid}, ${s.tokensApi.creadorOid}) else ${s.tokensApi.creadorOid} end) = ${oid}`
+			)
+		)
+		.returning({ id: s.tokensApi.id, nombre: s.tokensApi.nombre, tipo: s.tokensApi.tipo });
 	for (const t of revocados)
-		await auditar(quien, 'API token revoked', { id: t.id, nombre: t.nombre, motivo });
+		await auditar(
+			quien,
+			t.tipo === 'servicio' ? 'API service account revoked' : 'API token revoked',
+			{ id: t.id, nombre: t.nombre, motivo }
+		);
 	return revocados.length;
 }
 

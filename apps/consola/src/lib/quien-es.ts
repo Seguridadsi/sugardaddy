@@ -67,7 +67,7 @@ const IA: Regla[] = [
 	[/Diffbot/i, 'Diffbot'],
 	[/Manus-User/i, 'Manus'],
 	[/browser-use|Stagehand|AgentQL/i, 'AI browser agent'],
-	/* Datadog lo vio en ataques reales contra AWS: artex-pentest/1.0, Mozilla/5.0 ARTeX… */
+	/* Datadog lo vio en ataques reales contra AWS: artex-pentest/1.0, Mozilla/5.0 ARTeX…; Dragos (19-nov-2026): artex-agent, artex-judge-r121. */
 	[/\bart[e3]x\b/i, 'ARTEX'],
 	/* Elastic lo vio en ataques de ARTEX (13-nov-2026): norma/0.4. */
 	[/^norma\/\d/i, 'ARTEX'],

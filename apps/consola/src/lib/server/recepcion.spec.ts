@@ -21,8 +21,10 @@ vi.mock('$app/environment', () => ({ building: false, dev: true }));
 
 const { hashEvento, GENESIS } = await import('@sugardaddy/contrato');
 const { db, schema: s } = hayBase ? await import('./db') : ({} as never);
-const { recibirEventos } = hayBase ? await import('./sensor') : ({} as never);
-const { eq, inArray } = await import('drizzle-orm');
+const { recibirEventos, MOTIVO_DUPLICADO, MOTIVO_REPETIDO } = hayBase
+	? await import('./sensor')
+	: ({} as never);
+const { eq, inArray, sql } = await import('drizzle-orm');
 
 const SENSOR = 'zz-prueba-recepcion';
 const OTRO = 'zz-prueba-otro';
@@ -143,7 +145,108 @@ describe.skipIf(!hayBase)('recepción de eventos: nunca se queda parada', () => 
 			.from(s.cuarentena)
 			.where(eq(s.cuarentena.hash, hashEvento(l)));
 		expect(q.motivo).toBe('repeats an event already received');
+		/* Con otro contenido sí cuenta: puede ser una línea cambiada. */
+		expect(q.duplicado).toBe(false);
 		ultimo = hashEvento(l);
+	});
+
+	/*
+	 * Los sensores de internet de KEBAPS (0.33.1), tras cada actualización: el sensor
+	 * volvía a leer el registro de una trampa y mandaba el mismo evento encadenado en
+	 * otro punto. Se guarda (es un eslabón), pero no es una anomalía.
+	 */
+	it('el mismo evento leído otra vez (solo cambia hashAnterior) es un duplicado: se guarda y no cuenta', async () => {
+		const guardados = await db
+			.select()
+			.from(s.eventos)
+			.where(eq(s.eventos.sensor, SENSOR))
+			.orderBy(s.eventos.cuando);
+		const eventosAntes = guardados.length;
+		const rupturasAntes = await cuantos(s.rupturas);
+		const otraVez = (fila: { linea: string }, anterior: string) =>
+			JSON.stringify({ ...JSON.parse(fila.linea), hashAnterior: anterior });
+		const a = otraVez(guardados[1], ultimo);
+		const b = otraVez(guardados[2], hashEvento(a));
+		const sigue = linea(hashEvento(b));
+		const r = await recibirEventos(SENSOR, [a, b, sigue]);
+		expect(r).toEqual({ ok: true, aceptadas: 3, ultimoHash: hashEvento(sigue) });
+		const q = await db
+			.select()
+			.from(s.cuarentena)
+			.where(inArray(s.cuarentena.hash, [hashEvento(a), hashEvento(b)]));
+		expect(q).toHaveLength(2);
+		for (const x of q) {
+			expect(x).toMatchObject({ duplicado: true, motivo: MOTIVO_DUPLICADO });
+			/* Con su eslabón, para verificar la cadena juntando eventos y cuarentena. */
+			expect(x.hashAnterior).toBe(JSON.parse(x.linea).hashAnterior);
+		}
+		expect(await cuantos(s.eventos)).toBe(eventosAntes + 1);
+		expect(await cuantos(s.rupturas)).toBe(rupturasAntes);
+		ultimo = hashEvento(sigue);
+	});
+
+	it('un duplicado que además rompe la cadena deja la ruptura anotada', async () => {
+		const [fila] = await db
+			.select()
+			.from(s.eventos)
+			.where(eq(s.eventos.sensor, SENSOR))
+			.orderBy(s.eventos.cuando)
+			.limit(1);
+		const rupturasAntes = await cuantos(s.rupturas);
+		const l = JSON.stringify({ ...JSON.parse(fila.linea), hashAnterior: 'e'.repeat(64) });
+		const r = await recibirEventos(SENSOR, [l]);
+		expect(r.ultimoHash).toBe(hashEvento(l));
+		const [q] = await db
+			.select()
+			.from(s.cuarentena)
+			.where(eq(s.cuarentena.hash, hashEvento(l)));
+		expect(q.duplicado).toBe(true);
+		expect(await cuantos(s.rupturas)).toBe(rupturasAntes + 1);
+		ultimo = hashEvento(l);
+	});
+
+	it('la migración 0072 pasa a duplicado lo que ya estaba apartado como repetido, sin borrar nada', async () => {
+		const [fila] = await db
+			.select()
+			.from(s.eventos)
+			.where(eq(s.eventos.sensor, SENSOR))
+			.orderBy(s.eventos.cuando)
+			.limit(1);
+		const igual = JSON.stringify({ ...JSON.parse(fila.linea), hashAnterior: 'a'.repeat(64) });
+		const distinto = JSON.stringify({
+			...JSON.parse(fila.linea),
+			hashAnterior: 'b'.repeat(64),
+			severidad: 'critica'
+		});
+		const filas = [igual, distinto, '{roto'].map((l) => ({
+			sensor: SENSOR,
+			hash: hashEvento(l),
+			hashAnterior: null,
+			linea: l,
+			motivo: MOTIVO_REPETIDO
+		}));
+		await db.insert(s.cuarentena).values(filas);
+		const total = await cuantos(s.cuarentena);
+		const migracion = readFileSync('drizzle/0072_cuarentena_duplicados.sql', 'utf8')
+			.split('--> statement-breakpoint')
+			.slice(1);
+		await db.transaction(async (tx) => {
+			for (const sentencia of migracion) await tx.execute(sql.raw(sentencia));
+		});
+		const q = await db
+			.select()
+			.from(s.cuarentena)
+			.where(
+				inArray(
+					s.cuarentena.hash,
+					filas.map((f) => f.hash)
+				)
+			);
+		const por = new Map(q.map((x) => [x.linea, x]));
+		expect(por.get(igual)).toMatchObject({ duplicado: true, motivo: MOTIVO_DUPLICADO });
+		expect(por.get(distinto)).toMatchObject({ duplicado: false, motivo: MOTIVO_REPETIDO });
+		expect(por.get('{roto')).toMatchObject({ duplicado: false, motivo: MOTIVO_REPETIDO });
+		expect(await cuantos(s.cuarentena)).toBe(total);
 	});
 
 	it('una línea con bytes nulos (corte de luz) va a cuarentena sin tumbar la entrega', async () => {
@@ -163,9 +266,11 @@ describe.skipIf(!hayBase)('recepción de eventos: nunca se queda parada', () => 
 		const c = cadena('f'.repeat(64), 2);
 		const r = await recibirEventos(SENSOR, c.lineas);
 		expect(r).toEqual({ ok: true, aceptadas: 2, ultimoHash: c.ultimo });
-		const rot = await db.select().from(s.rupturas).where(eq(s.rupturas.sensor, SENSOR));
+		const rot = (await db.select().from(s.rupturas).where(eq(s.rupturas.sensor, SENSOR))).filter(
+			(x) => x.recibido === 'f'.repeat(64)
+		);
 		expect(rot).toHaveLength(1);
 		expect(rot[0]).toMatchObject({ esperado: ultimo, recibido: 'f'.repeat(64) });
-		expect(await cuantos(s.eventos)).toBe(7);
+		expect(await cuantos(s.eventos)).toBe(8);
 	});
 });

@@ -53,6 +53,14 @@ describe('listas de ThreatDefence en el nodo', () => {
 		expect(informeDe('__proto__')).toBeNull();
 	});
 
+	it('una IP dentro de una red de un informe también cuenta', () => {
+		const dia = new Date('2026-11-24T00:00:00Z');
+		expect(informeDe('92.255.57.200', dia)).toMatchObject({ agentes: ['ARTEX'] });
+		expect(informeDe('92.255.58.1', dia)).toBeNull();
+		expect(informeDe('92.255.57.200', new Date('2027-06-01T00:00:00Z'))).toBeNull();
+		expect(informeDe('no-es-una-ip', dia)).toBeNull();
+	});
+
 	it('la pista sale de la lista propia sin preguntar a la central', () => {
 		const preguntar = vi.fn(async () => ({}));
 		_probar(preguntar);

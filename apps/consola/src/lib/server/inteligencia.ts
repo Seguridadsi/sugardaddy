@@ -87,6 +87,10 @@ async function blancas(ahora = new Date()) {
 }
 
 /* Lo que se subiría ahora: agrupado por IP, sin nada más que la IP, el tipo y los módulos de trampa, el recuento y el agente de IA reconocido. */
+/* Que el evento no esté apartado por el triaje (lo de arriba en indicadoresPendientes); aparte para probarlo. */
+export const noApartadoDeInteligencia = () =>
+	sql`not exists (select 1 from ${s.triaje} t where t.evento = ${s.eventos.id} and (t.quien in ('modo pentest', 'origen conocido') or (t.estado = 'falso-positivo' and t.via <> 'api')))`;
+
 export async function indicadoresPendientes() {
 	const desde = await marca();
 	/*
@@ -119,9 +123,12 @@ export async function indicadoresPendientes() {
 		/*
 		 * Ni lo que se apartó por un pentest o un origen conocido, ni lo que alguien
 		 * marcó como falso positivo: una empresa de pentest trabaja para varios clientes
-		 * y llegaba así al umbral de la lista común, que la bloqueaba en todos.
+		 * y llegaba así al umbral de la lista común, que la bloqueaba en todos. El falso
+		 * positivo solo cuenta si lo puso una persona en la consola: uno puesto con un
+		 * token de la API (via «api») no saca a nadie de la inteligencia, o un token
+		 * robado podría blanquear al atacante para todos los clientes.
 		 */
-		sql`not exists (select 1 from ${s.triaje} t where t.evento = ${s.eventos.id} and (t.quien in ('modo pentest', 'origen conocido') or t.estado = 'falso-positivo'))`
+		noApartadoDeInteligencia()
 	);
 	const filas = await db
 		.select({

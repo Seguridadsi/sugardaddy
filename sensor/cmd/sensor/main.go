@@ -303,6 +303,8 @@ func main() {
 		slog.Error("outgoing queue", "err", err)
 		os.Exit(1)
 	}
+	// Con la cola ya recortada: sus ids cuentan como encolados (ver emitidos.go).
+	s.losEmitidos()
 	if *salud != "" {
 		go s.servirSalud(*salud)
 	}
@@ -345,6 +347,9 @@ type sensor struct {
 	lote int
 	// Eventos por trampa y minuto (ver ritmo.go).
 	ritmo ritmo
+	// Los ids de lo que ya entró en la cola: lo que se vuelve a leer no se repite
+	// (ver emitidos.go).
+	emitidos *emitidos
 	// Lo descartado con la cola de salida llena, aún sin resumir (ver cola.go).
 	descartes descartes
 	// La cabeza de la cola con la que la consola falla (ver atasco.go).
@@ -878,6 +883,14 @@ func (s *sensor) leer() {
 	}
 	posiciones := map[string]seguidor.Posicion{}
 	leyendo := map[string]bool{}
+	// Lo que ya entró en la cola (o entra en esta vuelta) no se vuelve a encadenar: un
+	// registro leído otra vez daría el mismo evento en otro punto de la cadena, que la
+	// consola aparta como repetido (ver emitidos.go).
+	emitidos := s.losEmitidos()
+	// Las posiciones que se han mudado a la otra carpeta de su trampa en esta vuelta.
+	mudadas := map[string]bool{}
+	enEstaVuelta := map[string]bool{}
+	repetidas := 0
 	for _, sp := range s.plan.Trampas {
 		// El registro, siempre dentro de la carpeta de la trampa: una ruta con «..» o
 		// absoluta no se lee (auditoría 2026-11-14, §5 h07).
@@ -885,17 +898,49 @@ func (s *sensor) leer() {
 			slog.Warn("log path outside the decoy folder", "trampa", sp.ID)
 			continue
 		}
-		ruta := filepath.Join(despliegue.Registros(s.opc, sp.ID), sp.Manifiesto.Eventos.Fuente.Ruta)
-		antes := seguidor.Posicion{Inodo: s.estado.Inodos[sp.ID], Offset: s.estado.Leido[sp.ID], Huella: s.estado.Huellas[sp.ID], Modif: s.estado.Modifs[sp.ID]}
-		lineas, pos, aviso, err := seguidor.Seguir(ruta, antes)
-		if err != nil {
-			slog.Warn("unreadable log", "trampa", sp.ID, "err", err)
-			continue
+		// Las dos carpetas donde puede escribir la trampa (la de su disco y la de la
+		// máquina), cada una con su posición: la que dejó de usar se acaba de leer y la
+		// de ahora sigue por donde iba (ver despliegue.CarpetasRegistros).
+		var lineas [][]byte
+		carpetas := despliegue.CarpetasRegistros(s.opc, sp.ID)
+		for i, c := range carpetas {
+			ruta := filepath.Join(c.Dir, sp.Manifiesto.Eventos.Fuente.Ruta)
+			clave := claveRegistro(sp.ID, c.EnDisco)
+			antes := s.posicion(clave)
+			if antes == (seguidor.Posicion{}) && len(carpetas) > 1 {
+				// La primera vez que se lee esta carpeta, con su registro y sin el de la
+				// otra: es el de la otra que ha cambiado de sitio (el auxiliar pasa al
+				// disco nuevo lo que la trampa tenía y vacía la carpeta de la máquina), o
+				// un estado de antes, con una sola posición por trampa (la de la clave de
+				// la máquina). La posición se muda: el seguidor reconoce el registro por
+				// su huella y sigue por donde iba.
+				otra := claveRegistro(sp.ID, !c.EnDisco)
+				rutaOtra := filepath.Join(carpetas[1-i].Dir, sp.Manifiesto.Eventos.Fuente.Ruta)
+				_, errEsta := os.Lstat(ruta)
+				_, errOtra := os.Lstat(rutaOtra)
+				if errEsta == nil && errors.Is(errOtra, os.ErrNotExist) && s.posicion(otra) != (seguidor.Posicion{}) {
+					// Solo si es su registro: si el seguidor no lo reconoce (otro fichero,
+					// la trampa empezó uno nuevo aquí), esta carpeta se lee desde el
+					// principio y la posición de la otra se queda para cuando vuelva.
+					if _, _, aviso, err := seguidor.Seguir(ruta, s.posicion(otra)); err == nil && aviso == "" {
+						antes = s.posicion(otra)
+						mudadas[otra] = true
+					}
+				}
+			}
+			ls, pos, aviso, err := seguidor.Seguir(ruta, antes)
+			if err != nil {
+				slog.Warn("unreadable log", "trampa", sp.ID, "disco", c.EnDisco, "err", err)
+				continue
+			}
+			if aviso != "" {
+				slog.Warn(aviso, "trampa", sp.ID, "disco", c.EnDisco)
+			}
+			if pos != (seguidor.Posicion{}) && !mudadas[clave] {
+				posiciones[clave] = pos
+			}
+			lineas = append(lineas, ls...)
 		}
-		if aviso != "" {
-			slog.Warn(aviso, "trampa", sp.ID)
-		}
-		posiciones[sp.ID] = pos
 		leyendo[sp.ID] = len(lineas) > 0
 		for _, l := range lineas {
 			e, err := adaptador.Adaptar(s.plan.Sensor, sp, l)
@@ -906,6 +951,11 @@ func (s *sensor) leer() {
 				slog.Warn("line cannot be translated", "trampa", sp.ID, "err", err)
 				continue
 			}
+			if emitidos.visto(e.ID) || enEstaVuelta[e.ID] {
+				repetidas++
+				continue
+			}
+			enEstaVuelta[e.ID] = true
 			s.origen(&e)
 			if s.ignorarPropio(sp, e) {
 				retenidos = s.retener(retenidos, sp, e)
@@ -946,7 +996,17 @@ func (s *sensor) leer() {
 			}
 		} else {
 			slog.Info("new events", "n", len(nuevas))
+			ids := make([]string, 0, len(encolados))
+			for _, x := range encolados {
+				ids = append(ids, x.e.ID)
+			}
+			if err := emitidos.apuntar(ids); err != nil {
+				slog.Warn("could not save the ids of the queued events; after a restart a log read again may repeat them", "err", err)
+			}
 		}
+	}
+	if repetidas > 0 {
+		slog.Warn("log lines read again were already in the queue; they are not sent twice", "n", repetidas)
 	}
 	if len(resumidas) > 0 {
 		slog.Info("summary of what was discarded while the queue was full, now in the queue", "trampas", resumidas)
@@ -975,6 +1035,12 @@ func (s *sensor) leer() {
 	// rotado o saltado un trozo.
 	for id, p := range posiciones {
 		s.estado.Leido[id], s.estado.Inodos[id], s.estado.Huellas[id], s.estado.Modifs[id] = p.Offset, p.Inodo, p.Huella, p.Modif
+	}
+	for clave := range mudadas {
+		delete(s.estado.Leido, clave)
+		delete(s.estado.Inodos, clave)
+		delete(s.estado.Huellas, clave)
+		delete(s.estado.Modifs, clave)
 	}
 	s.estado.UltimoHash = cadena.Ultimo()
 	s.guardar()
@@ -1132,10 +1198,7 @@ func (s *sensor) podar(ahora time.Time) {
 			}
 			if err := borrar(dir); err == nil {
 				slog.Info("folder of a removed decoy deleted", "carpeta", dir)
-				delete(s.estado.Leido, e.Name())
-				delete(s.estado.Inodos, e.Name())
-				delete(s.estado.Huellas, e.Name())
-				delete(s.estado.Modifs, e.Name())
+				s.olvidarPosiciones(e.Name())
 			}
 		}
 	}
@@ -1148,13 +1211,14 @@ func (s *sensor) podar(ahora time.Time) {
 // la trampa (ver cuota.go). Devuelve lo que ocupa la carpeta al acabar.
 func (s *sensor) podarTrampa(sp plan.TrampaPlan, ahora time.Time) int64 {
 	dir := despliegue.Registros(s.opc, sp.ID)
+	clave := s.claveActual(sp.ID)
 	base := filepath.Base(sp.Manifiesto.Eventos.Fuente.Ruta)
 	entradas, _ := os.ReadDir(dir)
 	// El sensor puede ir por un rotado a medias (estuvo parado): solo los
 	// rotados más antiguos que el que se está leyendo están ya leídos.
 	leyendo := time.Time{}
 	for _, e := range entradas {
-		if fi, err := e.Info(); err == nil && seguidor.InodoDe(fi) == s.estado.Inodos[sp.ID] {
+		if fi, err := e.Info(); err == nil && seguidor.InodoDe(fi) == s.estado.Inodos[clave] {
 			leyendo = fi.ModTime()
 		}
 	}
@@ -1172,7 +1236,7 @@ func (s *sensor) podarTrampa(sp plan.TrampaPlan, ahora time.Time) int64 {
 			continue
 		}
 		total += ocupado(fi)
-		if e.Name() == base || !strings.HasPrefix(e.Name(), base) || seguidor.InodoDe(fi) == s.estado.Inodos[sp.ID] ||
+		if e.Name() == base || !strings.HasPrefix(e.Name(), base) || seguidor.InodoDe(fi) == s.estado.Inodos[clave] ||
 			leyendo.IsZero() || !fi.ModTime().Before(leyendo) {
 			continue
 		}
@@ -1216,9 +1280,9 @@ func (s *sensor) podarTrampa(sp plan.TrampaPlan, ahora time.Time) int64 {
 	// se puede, la trampa se para antes de que llene el disco (ver cuota.go).
 	activo := filepath.Join(dir, base)
 	fi, err := os.Lstat(activo)
-	if err == nil && fi.Mode().IsRegular() && seguidor.InodoDe(fi) == s.estado.Inodos[sp.ID] {
+	if err == nil && fi.Mode().IsRegular() && seguidor.InodoDe(fi) == s.estado.Inodos[clave] {
 		antes := ocupado(fi)
-		if err := perforar(activo, s.estado.Leido[sp.ID]); err != nil {
+		if err := perforar(activo, s.estado.Leido[clave]); err != nil {
 			s.pararPorCuota(sp, err)
 			return total
 		}
@@ -1302,6 +1366,37 @@ func ultimaEscritura(dir string) time.Time {
 		return nil
 	})
 	return ultima
+}
+
+// sufijoDisco: la posición de lectura de la carpeta de registros del disco de una
+// trampa va con el id de la trampa y esto detrás (no cabe en un id); la de la carpeta
+// de la máquina, con el id tal cual (como antes de haber discos).
+const sufijoDisco = "@disco"
+
+func claveRegistro(id string, enDisco bool) string {
+	if enDisco {
+		return id + sufijoDisco
+	}
+	return id
+}
+
+// claveActual: la posición de la carpeta donde escribe ahora la trampa.
+func (s *sensor) claveActual(id string) string {
+	return claveRegistro(id, s.opc.Discos != nil && s.opc.Discos.Usa(id))
+}
+
+func (s *sensor) posicion(clave string) seguidor.Posicion {
+	return seguidor.Posicion{Inodo: s.estado.Inodos[clave], Offset: s.estado.Leido[clave], Huella: s.estado.Huellas[clave], Modif: s.estado.Modifs[clave]}
+}
+
+// olvidarPosiciones quita las posiciones de una trampa, las de sus dos carpetas.
+func (s *sensor) olvidarPosiciones(id string) {
+	for _, c := range []string{claveRegistro(id, false), claveRegistro(id, true)} {
+		delete(s.estado.Leido, c)
+		delete(s.estado.Inodos, c)
+		delete(s.estado.Huellas, c)
+		delete(s.estado.Modifs, c)
+	}
 }
 
 func (s *sensor) guardar() {

@@ -335,6 +335,70 @@ export async function direccionesDeDestino(
 }
 
 /*
+ * Una dirección por trampa: lo que hace la consola al desplegar una plantilla
+ * en una máquina con varias direcciones, y lo mismo el MCP guiado al armar un
+ * borrador o al guardar una petición (api/guiado.ts). Una sola función para
+ * los dos: así un agente no despliega en todas las direcciones lo que la
+ * consola habría puesto en una.
+ *
+ * En un destino cuya máquina tiene varias direcciones para ese módulo, cada
+ * «equipo» (una pieza de plantilla o una pieza del borrador) va a una distinta:
+ * la que ya se le dio a su equipo en esta tanda si tiene; si no, primero las que
+ * no usa ninguna trampa ni se han dado en esta tanda, y después las ya usadas.
+ * `probar` intenta (o simula) el alta en una dirección; se pasa a la siguiente
+ * si choca con el puerto de otra trampa. «reparto» guarda lo dado en la tanda.
+ *
+ * Devuelve varias: false si ahí no hay nada que elegir (una dirección, otra vía),
+ * y entonces el llamante sigue como siempre; si no, la dirección que cuajó (null
+ * si todas chocaban) y el último resultado de `probar`.
+ */
+export type RepartoDirecciones = Map<
+	string,
+	{ porEquipo: Map<string, string>; dadas: Set<string> }
+>;
+
+export async function enSuDireccion<R>(
+	h: Honeycosa,
+	destino: string,
+	equipo: string,
+	reparto: RepartoDirecciones,
+	probar: (escucha: string) => Promise<R>,
+	choca: (r: R) => boolean,
+	vale: (r: R) => boolean
+): Promise<{ varias: false } | { varias: true; elegida: string | null; r: R | null }> {
+	const { direcciones, usadas } = await direccionesDeDestino(h, destino);
+	if (direcciones.length <= 1) return { varias: false };
+	const rep = reparto.get(destino) ?? { porEquipo: new Map(), dadas: new Set<string>() };
+	reparto.set(destino, rep);
+	const suya = rep.porEquipo.get(equipo);
+	const libres = direcciones.filter((d) => !rep.dadas.has(d) && !usadas.includes(d));
+	const resto = direcciones.filter((d) => !rep.dadas.has(d) && usadas.includes(d));
+	let r: R | null = null;
+	for (const d of suya ? [suya] : [...libres, ...resto]) {
+		r = await probar(d);
+		if (choca(r)) continue;
+		if (vale(r)) {
+			rep.porEquipo.set(equipo, d);
+			rep.dadas.add(d);
+		}
+		return { varias: true, elegida: d, r };
+	}
+	return { varias: true, elegida: null, r };
+}
+
+/* Si una dirección ya la usa otra trampa activa de ese destino (para avisar al aprobar). */
+export async function direccionEnUso(destino: string, escucha: string): Promise<boolean> {
+	const [f] = await db
+		.select({ id: s.trampas.id })
+		.from(s.trampas)
+		.where(
+			sql`${s.trampas.destino} = ${destino} and ${s.trampas.activo} and ${s.trampas.escucha} = ${escucha}`
+		)
+		.limit(1);
+	return !!f;
+}
+
+/*
  * Para la ficha de una trampa de contenedor: dónde escucha hoy (null, en todas)
  * y las direcciones de su máquina entre las que se puede cambiar. null si ahí
  * no hay nada que elegir (una sola dirección y escuchando en todas, otra vía,

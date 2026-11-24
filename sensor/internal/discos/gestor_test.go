@@ -147,7 +147,8 @@ func TestAsegurar(t *testing.T) {
 		t.Fatal("un disco sin sitio no dice nada de la máquina")
 	}
 
-	// Montado en la máquina pero el sensor no lo ve: su carpeta no recibe montajes.
+	// Montado en la máquina pero el sensor no ve ninguno: su carpeta no recibe montajes.
+	delete(f.montados, Dir(f.g.Datos, "t1"))
 	f.responde = func(p Pedido) (Resultado, error) { return Resultado{Discos: map[string]Estado{"t3": {}}}, nil }
 	r = f.g.Asegurar(ctx, "s1", []Montaje{{ID: "t3"}}, nil)
 	if r["t3"].Codigo != CodigoSinPropagacion || f.g.Maquina(ctx, "s1", true) != CodigoSinPropagacion {
@@ -311,5 +312,48 @@ func TestLeerResultado(t *testing.T) {
 	}
 	if _, err := deLaMaquina(errors.New("No such image")); err == nil {
 		t.Fatal("lo demás es pasajero")
+	}
+}
+
+// KEBAPS (0.33.1), sensor-2 tras actualizarse: «each decoy gets its own fixed-size disk»
+// y, nueve segundos después, «decoys cannot have their own fixed-size disk… the disk was
+// mounted but the sensor does not see it»: un disco que el sensor aún no veía pasaba la
+// máquina entera a sin propagación, y sus trampas se rehacían sin disco.
+func TestUnDiscoQueAunNoSeVeNoCambiaLaMaquina(t *testing.T) {
+	ctx := context.Background()
+	f := nuevoGestor(t)
+	f.g.Maquina(ctx, "s1", true)
+	if r := f.g.Asegurar(ctx, "s1", []Montaje{{ID: "t1"}}, nil); r["t1"].Codigo != "" {
+		t.Fatalf("%+v", r)
+	}
+	// t2 se monta en la máquina, pero el sensor no lo ve (y sí ve t1).
+	f.responde = func(p Pedido) (Resultado, error) {
+		_ = os.MkdirAll(Registros(p.Datos, "t2"), 0o755)
+		return Resultado{Discos: map[string]Estado{"t2": {}}}, nil
+	}
+	for i := 1; i < maxNoVisto; i++ {
+		r := f.g.Asegurar(ctx, "s1", []Montaje{{ID: "t2"}}, nil)
+		if r["t2"].Codigo != CodigoError || f.g.Fallo("t2") != "" {
+			t.Fatalf("intento %d: se espera, sin darlo por fallido: %+v %q", i, r, f.g.Fallo("t2"))
+		}
+		if c := f.g.Maquina(ctx, "s1", true); c != CodigoFijo {
+			t.Fatalf("intento %d: la máquina sigue con discos, no %s", i, c)
+		}
+	}
+	// Si al final lo ve, va con su disco.
+	f.montados[Dir(f.g.Datos, "t2")] = true
+	if r := f.g.Asegurar(ctx, "s1", []Montaje{{ID: "t2"}}, nil); r["t2"].Codigo != "" || f.g.Fallo("t2") != "" {
+		t.Fatalf("visto, montado: %+v", r)
+	}
+	// Uno que no llega a verse nunca: solo esa trampa va sin disco.
+	f.responde = func(p Pedido) (Resultado, error) {
+		_ = os.MkdirAll(Registros(p.Datos, "t3"), 0o755)
+		return Resultado{Discos: map[string]Estado{"t3": {}}}, nil
+	}
+	for i := 0; i < maxNoVisto; i++ {
+		f.g.Asegurar(ctx, "s1", []Montaje{{ID: "t3"}}, nil)
+	}
+	if f.g.Fallo("t3") == "" || f.g.Maquina(ctx, "s1", true) != CodigoFijo {
+		t.Fatalf("tras %d intentos, t3 sin disco y la máquina igual: %q %s", maxNoVisto, f.g.Fallo("t3"), f.g.Maquina(ctx, "s1", true))
 	}
 }

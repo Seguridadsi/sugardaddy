@@ -26,6 +26,11 @@ const esperaReintento = time.Minute
 // Un disco que no se ha podido retirar no se reintenta hasta pasado esto.
 const esperaRetirada = time.Hour
 
+// Un disco montado en la máquina que el sensor aún no ve, con otros que sí ve (la
+// propagación funciona), se espera: no es la máquina. Tras tantos intentos seguidos
+// (uno por plan, cada 10 s), esa trampa va sin disco; la máquina sigue con discos.
+const maxNoVisto = 6
+
 // Gestor de los discos de las trampas de un sensor.
 type Gestor struct {
 	// Datos: la carpeta del sensor (la misma ruta en la máquina).
@@ -48,6 +53,7 @@ type Gestor struct {
 	fallos    map[string]string    // por trampa, mientras siga en marcha el sensor
 	usa       map[string]bool      // trampas cuyo contenedor va con disco
 	retiradas map[string]time.Time // retiradas que han fallado, y cuándo
+	noVisto   map[string]int       // intentos seguidos con su disco montado y sin verlo
 }
 
 func (g *Gestor) ahora() time.Time {
@@ -236,6 +242,11 @@ func (g *Gestor) Olvidar(quedan map[string]bool) {
 			delete(g.fallos, id)
 		}
 	}
+	for id := range g.noVisto {
+		if !quedan[id] {
+			delete(g.noVisto, id)
+		}
+	}
 }
 
 // Estado para el hecho disco.trampas: si cada trampa tiene su disco y por qué.
@@ -332,21 +343,43 @@ func (g *Gestor) Asegurar(ctx context.Context, sensor string, montar []Montaje, 
 			delete(g.retiradas, id)
 		}
 	}
+	if g.noVisto == nil {
+		g.noVisto = map[string]int{}
+	}
 	for _, m := range montar {
 		e, ok := res.Discos[m.ID]
+		pasajero := false
 		switch {
 		case !ok && res.Codigo == "":
 			e = Estado{Codigo: CodigoError, Detalle: "the disk helper said nothing about this disk"}
 		case !ok:
 			e = Estado{Codigo: res.Codigo, Detalle: res.Detalle}
+		case e.Codigo == "" && !g.Montado(m.ID) && g.algunoMontado():
+			// Montado en la máquina y el sensor no lo ve, pero ve otros: la propagación
+			// funciona. No es la máquina (KEBAPS, 0.33.1: al arrancar, un disco así
+			// pasaba la máquina entera a «sin propagación», sus trampas se rehacían sin
+			// disco y se leían de otra carpeta). Se espera unos intentos; después, solo
+			// esta trampa va sin disco.
+			g.noVisto[m.ID]++
+			if g.noVisto[m.ID] < maxNoVisto {
+				pasajero = true
+				e = Estado{Codigo: CodigoError, Detalle: "the disk is mounted but the sensor does not see it yet; retrying"}
+			} else {
+				e = Estado{Codigo: CodigoError, Detalle: "the disk is mounted but the sensor does not see it, though it sees other disks"}
+			}
 		case e.Codigo == "" && !g.Montado(m.ID):
-			// Montado en la máquina y el sensor no lo ve: su carpeta no recibe los montajes.
+			// Montado en la máquina y el sensor no ve ninguno: su carpeta no recibe los montajes.
 			e = Estado{Codigo: CodigoSinPropagacion, Detalle: "the disk was mounted but the sensor does not see it"}
 		case e.Codigo == "" && !g.Listo(m):
 			e = Estado{Codigo: CodigoError, Detalle: "the disk was mounted without all its folders"}
 		}
+		if e.Codigo == "" {
+			delete(g.noVisto, m.ID)
+		}
 		r[m.ID] = e
 		switch {
+		case pasajero:
+			slog.Warn("decoy disk mounted but not yet seen by the sensor; waiting", "trampa", m.ID, "intento", g.noVisto[m.ID])
 		case e.Codigo == "":
 		case DeLaMaquina(e.Codigo):
 			g.fijarMaquina(e.Codigo, e.Detalle)

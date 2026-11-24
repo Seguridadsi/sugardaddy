@@ -201,23 +201,24 @@ func (s *sensor) conAjenos(sp plan.TrampaPlan) bool {
 // lee desde el principio. Devuelve lo que ocupaba.
 func (s *sensor) quitarLeido(sp plan.TrampaPlan) int64 {
 	activo := filepath.Join(despliegue.Registros(s.opc, sp.ID), filepath.Base(sp.Manifiesto.Eventos.Fuente.Ruta))
+	clave := s.claveActual(sp.ID)
 	fi, err := os.Lstat(activo)
-	if err != nil || !fi.Mode().IsRegular() || seguidor.InodoDe(fi) != s.estado.Inodos[sp.ID] {
+	if err != nil || !fi.Mode().IsRegular() || seguidor.InodoDe(fi) != s.estado.Inodos[clave] {
 		return 0
 	}
 	// Lo que quede detrás del último salto de línea no se acabará de escribir
 	// nunca (la trampa está parada): no cuenta como pendiente.
-	if pendientes, _, err := seguidor.Leer(activo, s.estado.Leido[sp.ID]); err != nil || len(pendientes) > 0 {
+	if pendientes, _, err := seguidor.Leer(activo, s.estado.Leido[clave]); err != nil || len(pendientes) > 0 {
 		return 0
 	}
 	if err := os.Remove(activo); err != nil {
 		slog.Warn("could not remove the already-read log of the stopped decoy", "trampa", sp.ID, "err", err)
 		return 0
 	}
-	delete(s.estado.Leido, sp.ID)
-	delete(s.estado.Inodos, sp.ID)
-	delete(s.estado.Huellas, sp.ID)
-	delete(s.estado.Modifs, sp.ID)
+	delete(s.estado.Leido, clave)
+	delete(s.estado.Inodos, clave)
+	delete(s.estado.Huellas, clave)
+	delete(s.estado.Modifs, clave)
 	s.guardar()
 	slog.Info("log of the stopped decoy removed: it had been read completely", "trampa", sp.ID, "bytes", ocupado(fi))
 	return ocupado(fi)

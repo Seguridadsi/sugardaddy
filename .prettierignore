@@ -20,6 +20,8 @@ apps/consola/src/lib/mapa/espana.json
 apps/consola/src/lib/server/agentes-ataque/listas.json
 apps/consola/src/lib/server/agentes-ataque/informes-mmd.json
 apps/consola/src/lib/server/agentes-ataque/informes-talos.json
+# La escribe herramientas/sentinel/paquete.py.
+apps/consola/src/lib/server/salidas/canales/sentinel-paquete/azuredeploy.json
 .publicacion/
 # La escribe una prueba de Go (sensor/internal/despliegue/privilegios_test.go).
 docs/seguridad/privilegios-creados.json

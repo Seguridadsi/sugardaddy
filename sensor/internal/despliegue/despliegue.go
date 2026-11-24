@@ -204,6 +204,29 @@ func Registros(o Opciones, id string) string {
 	return registrosAnfitrion(o, id)
 }
 
+// CarpetaRegistros es una de las carpetas donde puede haber registros de una trampa.
+type CarpetaRegistros struct {
+	Dir     string
+	EnDisco bool
+}
+
+// CarpetasRegistros da todas las carpetas donde puede haber registros de la trampa:
+// la de la máquina y, si el sensor da discos, la de su disco; la que usa ahora su
+// contenedor, la última. El sensor lee las dos, cada una desde su posición: cuando la
+// trampa pasa de una a otra (se rehace con disco o sin él), lo que quedaba por leer en
+// la de antes no se pierde y la de ahora no se vuelve a leer desde el principio.
+func CarpetasRegistros(o Opciones, id string) []CarpetaRegistros {
+	anfitrion := CarpetaRegistros{Dir: registrosAnfitrion(o, id)}
+	if o.Discos == nil {
+		return []CarpetaRegistros{anfitrion}
+	}
+	disco := CarpetaRegistros{Dir: discos.Registros(o.Datos, id), EnDisco: true}
+	if o.Discos.Usa(id) {
+		return []CarpetaRegistros{anfitrion, disco}
+	}
+	return []CarpetaRegistros{disco, anfitrion}
+}
+
 // registrosAnfitrion: la carpeta de registros de una trampa sin disco.
 func registrosAnfitrion(o Opciones, id string) string {
 	return filepath.Join(o.Datos, "registros", id)
@@ -265,6 +288,19 @@ func config(o Opciones, sensor, licenciaRuta string, s plan.TrampaPlan, conDisco
 				// Lo que el nodo suma a los puertos fijos: la trampa que anuncia uno (el
 				// modo pasivo del FTP) tiene que anunciar el que de verdad se publica.
 				return strconv.Itoa(o.Desplazar)
+			}
+			if nombre == "sd.marca" {
+				// Solo hex: lo que no lo sea no llega al entorno de la trampa.
+				if esHex64(s.Marca) {
+					return s.Marca
+				}
+				return ""
+			}
+			if nombre == "sd.migas" {
+				if esMigas(s.Migas) {
+					return s.Migas
+				}
+				return ""
 			}
 			if nombre == "sd.ipsAnfitrion" {
 				// La que anuncia es por la que le llegan: la suya, si tiene una.
@@ -1576,6 +1612,46 @@ func prepararRegistros(o Opciones, id string) error {
 	// Con el bit pegajoso: nadie más que su dueño puede apartar o cambiar los
 	// ficheros del honeypot (por ejemplo, poner un FIFO en su lugar).
 	return os.Chmod(dir, 0o777|os.ModeSticky)
+}
+
+// reMigas: «modulo,direccion,puerto», hasta 12, separadas por «;». La dirección
+// se comprueba aparte como IP.
+var reMigas = regexp.MustCompile(`^[a-z0-9-]{1,40},[0-9A-Fa-f.:]{2,45},[0-9]{1,5}$`)
+
+// esMigas: lo que manda la consola en Migas tiene la forma cerrada de siempre;
+// lo que no, no llega al entorno de la trampa.
+func esMigas(v string) bool {
+	if v == "" || len(v) > 12*96 {
+		return false
+	}
+	partes := strings.Split(v, ";")
+	if len(partes) > 12 {
+		return false
+	}
+	for _, p := range partes {
+		if !reMigas.MatchString(p) {
+			return false
+		}
+		c := strings.Split(p, ",")
+		n, err := strconv.Atoi(c[2])
+		if net.ParseIP(c[1]) == nil || err != nil || n < 1 || n > 65535 {
+			return false
+		}
+	}
+	return true
+}
+
+// esHex64: una clave de marca bien formada (32 bytes en hex en minúscula).
+func esHex64(v string) bool {
+	if len(v) != 64 {
+		return false
+	}
+	for _, c := range v {
+		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 // ipsAnfitrion rellena ${sd.ipsAnfitrion} (contrato: HUECOS_DEL_SENSOR): las IP

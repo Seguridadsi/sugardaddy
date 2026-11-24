@@ -537,9 +537,14 @@ if [[ -s "$SD_DATOS/cliente.pem" ]]; then
 	mv -f "$DIR/tls/cliente.pem.nuevo" "$DIR/tls/cliente.pem"
 fi
 # La versión firmada de la que se instala: su catálogo es lo único que este sensor arranca.
+# Legible para el sensor (uid 65532) aunque el instalador corra con umask 077, como en el nodo.
 mkdir -p "$DIR/firmado"
-cp "$SD_DATOS/version.json" "$DIR/firmado/version.json"
-if [[ -e "$SD_DATOS/exigir" ]]; then echo 1 > "$DIR/firmado/exigir"; fi
+chmod 755 "$DIR/firmado"
+install -m 0644 "$SD_DATOS/version.json" "$DIR/firmado/version.json"
+if [[ -e "$SD_DATOS/exigir" ]]; then
+	echo 1 > "$DIR/firmado/exigir"
+	chmod 644 "$DIR/firmado/exigir"
+fi
 cd "$DIR"
 sd_proxy_env .env
 sd_proxy_guion "$DIR"

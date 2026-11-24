@@ -7,6 +7,12 @@ latest version yourself, run `despliegue/nodo/verificar-version.sh`.
 Fixes go into the latest version only (see [SECURITY.md](SECURITY.md)): keep the updater on, or
 update by hand as described in [docs/INSTALL.md](docs/INSTALL.md#update).
 
+## 0.33.5 — 2026-11-24
+
+New Health tab under Sensors: CPU, memory and disk of each sensor's machine over 24 hours or 7
+days, the state and restarts of each honeypot, and each sensor's outgoing queue and clock. Events
+from a repeated test no longer count as an attack, and Cowrie keeps what attackers download.
+
 ## 0.33.2 — 2026-11-24
 
 Recognises ten more AI attack agents (Cybermes, FORANG, ycode, cyber-harness, T3MP3ST, Pensar

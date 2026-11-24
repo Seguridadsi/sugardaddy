@@ -301,6 +301,12 @@
 										{x.rupturas === 1 ? 'time' : 'times'}{/if}
 								</small>
 							{/if}
+							{#if x.duplicados}
+								<small
+									title="Events this sensor sent again after reading its honeypot logs a second time. They are kept with the chain as evidence; they are not a fault."
+									>{x.duplicados} repeated (harmless)</small
+								>
+							{/if}
 						</td>
 						{#if admin}
 							<td class="acciones">

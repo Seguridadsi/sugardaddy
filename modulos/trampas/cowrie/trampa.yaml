@@ -41,8 +41,8 @@ contenedor:
   # sin JA4H ni el resto de JA4+ con licencia FoxIO 1.1 (no comercial), y con
   # tope en lo que apunta del atacante (ver COWRIE_OUTPUT_JSONLOG_MAX_BYTES_DAY).
   # La construye y deja aquí su digest herramientas/publicar-trampa.sh cowrie.
-  imagen: ghcr.io/seguridadsi/sugardaddy-trampa-cowrie:3.1.2-sd13@sha256:3c80b4f6cd3c9935f96ed0e4aa45ae1428746134bfca1da5cb8bd6abe4925d14
-  imagenPublica: ghcr.io/seguridadsi/sugardaddy-trampa-cowrie:3.1.2-sd13@sha256:3c80b4f6cd3c9935f96ed0e4aa45ae1428746134bfca1da5cb8bd6abe4925d14
+  imagen: ghcr.io/seguridadsi/sugardaddy-trampa-cowrie:3.1.2-sd14@sha256:0000000000000000000000000000000000000000000000000000000000000000
+  imagenPublica: ghcr.io/seguridadsi/sugardaddy-trampa-cowrie:3.1.2-sd14@sha256:0000000000000000000000000000000000000000000000000000000000000000
   # Sin imagen pública: la de Docker Hub (cowrie/cowrie) lleva JA4+ con
   # licencia FoxIO 1.1 y no tiene el tope de cowrie.json. A un sensor sin
   # credencial del registro (anterior a la 0.12.1, o sin relevo) la consola
@@ -58,11 +58,12 @@ contenedor:
     COWRIE_HONEYPOT_ETC_PATH: /cowrie/sd-etc
     # Tope por fichero de lo que el atacante descarga: si no, podría llenar el disco del cliente.
     COWRIE_HONEYPOT_DOWNLOAD_LIMIT_SIZE: '10485760'
-    # Lo que sube o descarga el atacante va al /tmp del contenedor (tmpfs de 16 MB
-    # que pone el sensor), no al volumen: subiendo en bucle no llena el disco del
-    # cliente. Tiene que ser /tmp tal cual: Cowrie no crea la carpeta. Con el tmpfs
-    # lleno las subidas se siguen registrando, con el SHA-256 de lo que cupo.
-    COWRIE_HONEYPOT_DOWNLOAD_PATH: /tmp
+    # Lo que sube o descarga el atacante va a su volumen, no al /tmp: el sensor
+    # no puede leer un tmpfs (la API de archivo de Docker lo da vacío) y sin
+    # leerlo no hay copia del binario. Para no llenar el disco del cliente, la
+    # imagen borra cada fichero a los 15 minutos y no deja pasar de 64 MB en
+    # total (podar_descargas; docs/diseno/espacio-trampas.md).
+    COWRIE_HONEYPOT_DOWNLOAD_PATH: /cowrie/cowrie-git/var/lib/cowrie/downloads
     # Sin ttylog: nadie lo lee, y con el tmpfs lleno Cowrie no abre la shell ni
     # ejecuta comandos si tiene que escribirlo. Si se enciende, que sea en /tmp.
     COWRIE_HONEYPOT_TTYLOG: 'false'
@@ -135,7 +136,7 @@ contenedor:
   ficheros:
     # Formato de Cowrie: usuario:x:contraseña, con * para cualquiera y ! para rechazar.
     - { destino: /cowrie/sd-etc/userdb.txt, contenido: '${accesos}' }
-  # Claves SSH y estado de Cowrie. Lo que sube o descarga el atacante va a /tmp.
+  # Claves SSH, estado de Cowrie y lo que sube o descarga el atacante (downloads).
   escribibles: [/cowrie/cowrie-git/var/lib/cowrie]
   registros: /cowrie/cowrie-git/var/log/cowrie
 
@@ -265,6 +266,8 @@ eventos:
   conexionEstablecida: true
   # La contraseña se recoge completa (decisión de SeguridadSI, 2026-10-14): si
   # un empleado se equivoca de servidor y teclea la suya, quedará en la consola.
+  # Lo que costó al atacante (tiempo retenido en la sesión, en segundos), para sumarlo por incidente.
+  coste: { tiempo: duration }
   detalle:
     - eventid
     - session

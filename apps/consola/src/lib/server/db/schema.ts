@@ -418,7 +418,15 @@ export const eventos = pgTable(
 		 * salidas, no entra en los recuentos del perfil de esa IP y no se comparte. La línea
 		 * firmada no se toca. La consola anterior no la escribe: null.
 		 */
-		escaner: text('escaner')
+		escaner: text('escaner'),
+		/*
+		 * Lo que esta trampa le costó al atacante en este evento, según los campos que
+		 * declara su manifiesto (eventos.coste; coste.ts): el tiempo que le retuvo en
+		 * una sesión entera y los bytes que le mandó. Se suman por incidente. La
+		 * consola anterior no lo escribe: null.
+		 */
+		retenidoMs: bigint('retenido_ms', { mode: 'number' }),
+		bytesEnviados: bigint('bytes_enviados', { mode: 'number' })
 	},
 	(t) => [
 		uniqueIndex('eventos_hash').on(t.hash),
@@ -749,6 +757,13 @@ export const cuarentena = pgTable(
 		hashAnterior: text('hash_anterior'),
 		linea: text('linea').notNull(),
 		motivo: text('motivo').notNull(),
+		/*
+		 * Un evento ya recibido que vuelve igual salvo su sitio en la cadena (otro
+		 * hashAnterior): el sensor volvió a leer una línea de su trampa (sensor.ts,
+		 * mismoSalvoCadena). Se guarda como lo demás, porque es un eslabón de la
+		 * cadena, pero no es una anomalía: no deja al sensor degradado.
+		 */
+		duplicado: boolean('duplicado').notNull().default(false),
 		recibido: timestamp('recibido', { withTimezone: true }).notNull().defaultNow()
 	},
 	(t) => [
@@ -1155,7 +1170,16 @@ export const saludMuestras = pgTable(
 		memoriaLibre: bigint('memoria_libre', { mode: 'number' }),
 		discoTotal: bigint('disco_total', { mode: 'number' }),
 		discoLibre: bigint('disco_libre', { mode: 'number' }),
-		trampas: jsonb('trampas').$type<SaludTrampaMuestra[]>().notNull().default([])
+		trampas: jsonb('trampas').$type<SaludTrampaMuestra[]>().notNull().default([]),
+		/*
+		 * La tubería: bytes por entregar de su cola de salida, segundos sin
+		 * quedar al día y si descarta por no caber; y cuánto va adelantado (+) o atrasado (−)
+		 * su reloj frente al de la consola, en segundos.
+		 */
+		colaPendiente: bigint('cola_pendiente', { mode: 'number' }),
+		colaSinEntregar: integer('cola_sin_entregar'),
+		colaDescartando: boolean('cola_descartando'),
+		reloj: integer('reloj')
 	},
 	(t) => [index('salud_muestras_sensor_cuando').on(t.sensor, t.cuando)]
 );
@@ -1184,6 +1208,23 @@ export const enriquecimientoIp = pgTable('enriquecimiento_ip', {
 	fuentes: jsonb('fuentes').$type<string[]>().notNull().default([]),
 	crudo: jsonb('crudo').$type<Record<string, unknown>>().notNull().default({}),
 	cuando: timestamp('cuando', { withTimezone: true }).notNull().defaultNow()
+});
+
+/*
+ * La caza en Microsoft Defender XDR (enriquecimiento-defender.ts, Cloud): cuántas veces aparece
+ * una IP pública que tocó una trampa en los registros reales del cliente (advanced hunting por
+ * Microsoft Graph), por tabla de Defender, en las `horas` anteriores a `cuando`. Una fila con
+ * total 0 también vale: se buscó y no está. Es una caché: se rehace pasado su plazo y se borra
+ * a los 7 días.
+ */
+export const cazaDefender = pgTable('caza_defender', {
+	ip: text('ip').primaryKey(),
+	cuando: timestamp('cuando', { withTimezone: true }).notNull().defaultNow(),
+	horas: integer('horas').notNull(),
+	total: integer('total').notNull().default(0),
+	tablas: jsonb('tablas').$type<Record<string, number>>().notNull().default({}),
+	primero: timestamp('primero', { withTimezone: true }),
+	ultimo: timestamp('ultimo', { withTimezone: true })
 });
 
 /*
@@ -1230,7 +1271,16 @@ export const triaje = pgTable(
 		}).notNull(),
 		nota: text('nota'),
 		quien: text('quien').notNull(),
-		cuando: timestamp('cuando', { withTimezone: true }).notNull().defaultNow()
+		cuando: timestamp('cuando', { withTimezone: true }).notNull().defaultNow(),
+		/*
+		 * Por dónde se puso (0071): «consola» (una persona con su sesión, o el propio
+		 * nodo) o «api» (un token de escritura). Un falso positivo puesto por la API
+		 * no aparta el evento de la inteligencia compartida (inteligencia.ts): eso
+		 * solo lo decide una persona. La consola anterior escribe «consola».
+		 */
+		via: text('via', { enum: ['consola', 'api'] })
+			.notNull()
+			.default('consola')
 	},
 	(t) => [index('triaje_estado').on(t.estado)]
 );
@@ -1651,6 +1701,31 @@ export const incidentesAbiertos = pgTable(
 );
 
 /*
+ * Las notas de un incidente (incidentes-motor.ts, anotarIncidente): las pone
+ * quien lo trabaja, desde la consola o con un token de escritura de la API.
+ * Solo se añaden, nunca se editan ni se borran a mano; se van con el
+ * incidente (FK ON DELETE CASCADE). Tabla nueva (0071): la consola anterior ni
+ * la ve.
+ */
+export const notasIncidente = pgTable(
+	'notas_incidente',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		incidente: uuid('incidente')
+			.notNull()
+			.references(() => incidentesAbiertos.id, { onDelete: 'cascade' }),
+		texto: text('texto').notNull(),
+		quien: text('quien').notNull(),
+		/* «consola» o «api»: lo escrito por la API puede venir de un agente y se marca. */
+		via: text('via', { enum: ['consola', 'api'] })
+			.notNull()
+			.default('consola'),
+		creado: creado()
+	},
+	(t) => [index('notas_incidente_incidente').on(t.incidente, t.creado)]
+);
+
+/*
  * Orígenes conocidos (origenes.ts): lo tuyo que toca las trampas —un escáner,
  * la monitorización, un administrador—. Junta lo que antes eran la lista
  * blanca de IP y redes, silenciar ruido y las reglas de triaje por IP: sus
@@ -1813,9 +1888,17 @@ export const plantillas = pgTable('plantillas', {
  * falta un hash lento, y quien lea la base no puede usarlo. «prefijo» son sus
  * primeros caracteres, para reconocerlo en la lista sin poder reconstruirlo.
  *
- * Vale lo que valga quien lo creó: «creadorOid» es su identidad (`local:<id>` o
- * la de Entra), y en cada petición se mira que esa persona siga existiendo y
- * siga siendo administradora. Revocar no borra la fila: la auditoría la nombra.
+ * Un token «personal» vale lo que valga quien lo creó: «creadorOid» es su
+ * identidad (`local:<id>` o la de Entra), y en cada petición se mira que esa
+ * persona siga existiendo y siga siendo administradora. Una «cuenta de
+ * servicio» (tipo «servicio», para un SIEM o un SOAR) no depende de nadie:
+ * caduca siempre, puede ir atada a unas redes de origen y la revoca o rota
+ * cualquier administrador. Revocar no borra la fila: la auditoría la nombra.
+ *
+ * Columnas nuevas (0071) con valor por defecto o nulas: la consola anterior
+ * sigue leyendo y escribiendo la tabla como antes, y para ella todo token es
+ * personal (una cuenta de servicio vuelve a depender de su creador: falla
+ * cerrado, nunca abierto).
  */
 export const tokensApi = pgTable(
 	'tokens_api',
@@ -1834,9 +1917,38 @@ export const tokensApi = pgTable(
 		caduca: timestamp('caduca', { withTimezone: true }),
 		ultimoUso: timestamp('ultimo_uso', { withTimezone: true }),
 		revocado: timestamp('revocado', { withTimezone: true }),
-		revocadoPor: text('revocado_por')
+		revocadoPor: text('revocado_por'),
+		tipo: text('tipo', { enum: ['personal', 'servicio'] })
+			.notNull()
+			.default('personal'),
+		/* Solo cuentas de servicio: las IP o redes (CIDR) desde las que vale. Nula: desde cualquiera. */
+		redes: jsonb('redes').$type<string[]>(),
+		/* La IP de su último uso, para la lista. */
+		ultimaIp: text('ultima_ip'),
+		/*
+		 * Al rotar una cuenta de servicio, el secreto de antes sigue valiendo hasta
+		 * «anteriorHasta» (el plazo de gracia que se elige), para cambiarlo en el
+		 * SIEM sin cortar. Nulos: no hay secreto anterior que valga.
+		 */
+		anteriorHash: text('anterior_hash'),
+		anteriorHasta: timestamp('anterior_hasta', { withTimezone: true }),
+		rotado: timestamp('rotado', { withTimezone: true }),
+		rotadoPor: text('rotado_por'),
+		/*
+		 * De quién depende una cuenta de servicio: su creador hasta que otro
+		 * administrador la rota, y desde entonces ese. Si a esa persona (usuario
+		 * local) se la borra, se le quita el rol de administrador o se le
+		 * restablece o recupera la contraseña, la cuenta se revoca
+		 * (auth/local.ts, revocarTokensApiDe). Nulo: su creador.
+		 */
+		propietarioOid: text('propietario_oid'),
+		propietarioNombre: text('propietario_nombre'),
+		propietarioCorreo: text('propietario_correo')
 	},
-	(t) => [uniqueIndex('tokens_api_hash').on(t.hash)]
+	(t) => [
+		uniqueIndex('tokens_api_hash').on(t.hash),
+		index('tokens_api_anterior').on(t.anteriorHash)
+	]
 );
 
 /*

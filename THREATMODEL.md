@@ -118,14 +118,15 @@ steals a signing key.
   - The installer is verified with keys embedded in it and a checksum published outside the
     update channel.
   - Community images are built from this repository by a public GitHub Action, with provenance.
-- **Partial:**
   - **Anti-freeze timestamp** (a short-lived signed statement of the latest version, so nobody can
-    keep a node on an old, vulnerable release) and a **transparency log** of everything signed
-    (the node checks an inclusion proof): the node verifies both; the signing service that issues
-    them is being rolled out.
-  - **Offline root** (two hardware keys, with a threshold, that sign which working keys are
-    valid): the format is in the code; the keys are not yet in use.
+    keep a node on an old, vulnerable release) and a **transparency log** of everything signed:
+    both are published in this repository (`transparencia/`), and a node refuses a version that is
+    not in the log and warns when the timestamp expires or the latest version does not reach it.
+- **Partial:**
+  - The timestamp is issued with every version and refreshed by hand between versions; refreshing
+    it automatically is not in place yet.
 - **Accepted:** builds are not bit-for-bit reproducible (see Risk-05).
+- **Accepted:** there is no offline root above the working keys (see Risk-07).
 
 ### T2: Escape from a decoy to the host
 
@@ -317,6 +318,14 @@ applies signed versions and receives nothing from the decoys. Getting root throu
 a decoy escape, then the sensor (which has neither root nor the socket), then a flaw in `sd-motor`'s
 filter. Rootless Docker would not remove root from the machine (the decoy firewall, AppArmor and
 disk setup still need it), so we do not plan it.
+
+### Risk-07: No offline root above the signing keys
+
+The working signing keys live in a cloud HSM, split by use, with a backup key per use held
+offline. There is no further root kept on hardware keys that would sign which working keys are
+valid. Whoever steals a working key can sign for its use until we rotate it; a version that
+changes a node's configuration or trusted keys still needs two different keys (see T1), and
+everything signed is in the public transparency log, where a forged version would show.
 
 ---
 

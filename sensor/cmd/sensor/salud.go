@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/kinomakino/sugardaddy/sensor/internal/consola"
@@ -24,6 +26,30 @@ const (
 type saludSensor struct {
 	medidor medirsalud.Medidor
 	proxima time.Time
+	// La última vez que la cola de salida estaba entregada entera.
+	alDia time.Time
+}
+
+// colaParaSalud: cuánto falta por entregar a la consola y desde cuándo.
+func (s *sensor) colaParaSalud(ahora time.Time) *medirsalud.Cola {
+	var tam int64
+	if fi, err := os.Stat(s.salida); err == nil {
+		tam = fi.Size()
+	}
+	libre, conocido := espacioLibre(filepath.Dir(s.salida))
+	pendiente := max(0, tam-s.estado.Entregado)
+	if pendiente == 0 || s.muestras.alDia.IsZero() {
+		s.muestras.alDia = ahora
+	}
+	c := &medirsalud.Cola{
+		Pendiente:   pendiente,
+		Tope:        topeCola(libre, tam, conocido),
+		Descartando: len(s.descartes) > 0,
+	}
+	if pendiente > 0 {
+		c.SinEntregar = int64(ahora.Sub(s.muestras.alDia).Seconds())
+	}
+	return c
 }
 
 // informarSalud mide la máquina y las trampas y lo manda a la consola. Nunca
@@ -43,6 +69,7 @@ func (s *sensor) informarSalud(ctx context.Context, ahora time.Time) {
 	s.muestras.medidor.Datos = s.opc.Datos
 	m := medirsalud.Muestra{Trampas: []medirsalud.Trampa{}}
 	s.muestras.medidor.Maquina(&m, ahora)
+	m.Cola = s.colaParaSalud(ahora)
 	c, cancelar := context.WithTimeout(ctx, 20*time.Second)
 	defer cancelar()
 	if t, err := despliegue.SaludTrampas(c, s.docker, id); err == nil {

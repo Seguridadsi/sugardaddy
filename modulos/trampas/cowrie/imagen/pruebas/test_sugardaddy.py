@@ -933,6 +933,17 @@ class PodaDescargasTests(unittest.TestCase):
         self.assertIn("tmpencurso", os.listdir(self.dir))
         self.assertIn("e" * 64, os.listdir(self.dir))
 
+    def test_pasado_el_tope_total_borra_los_terminados_mas_antiguos(self) -> None:
+        self.fichero("f" * 64, 600, 40)
+        self.fichero("g" * 64, 500, 40)
+        self.fichero("h" * 64, 400, 40)
+        self.fichero("tmpencurso", 10, 40)
+        self.fichero("i" * 64, 30, 40)  # recién llegado: el sensor aún no lo ha sacado
+        borrados = sd.podar_descargas(self.dir, conservar=900, maximo_total=120, reloj=lambda: DIA)
+        # 200 bytes: hay que quitar 80, de los terminados y del más antiguo al más nuevo.
+        self.assertEqual(borrados, ["f" * 64, "g" * 64])
+        self.assertEqual(sorted(os.listdir(self.dir)), sorted(["h" * 64, "i" * 64, "tmpencurso"]))
+
     def test_no_sigue_enlaces_ni_entra_en_carpetas(self) -> None:
         fuera = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, fuera)

@@ -102,6 +102,7 @@ eventos:
       tope: alta
   conexionEstablecida: true
   sesion: id
+  coste: { tiempo: duration }
   detalle:
     - phase
     - method

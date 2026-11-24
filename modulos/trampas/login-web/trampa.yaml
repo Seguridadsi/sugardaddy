@@ -201,6 +201,7 @@ eventos:
       web.session.connect: baja
       web.session.closed: baja
   conexionEstablecida: true
+  coste: { tiempo: duration }
   detalle:
     - eventid
     - usuario

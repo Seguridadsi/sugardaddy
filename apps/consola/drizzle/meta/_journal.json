@@ -498,6 +498,41 @@
       "when": 1795512406237,
       "tag": "0070_salud_muestras",
       "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1795515323297,
+      "tag": "0071_api_escritura_servicio",
+      "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1795515360269,
+      "tag": "0072_cuarentena_duplicados",
+      "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1795541153241,
+      "tag": "0073_coste_atacante",
+      "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1795544250692,
+      "tag": "0074_caza_defender",
+      "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1795547427360,
+      "tag": "0075_salud_tuberia",
+      "breakpoints": true
     }
   ]
 }

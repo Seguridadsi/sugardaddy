@@ -669,5 +669,15 @@ body:not(
 		)
 	)
 	:is([data-lastpass-icon-root], [data-lastpass-root], img[id^='__lpform_'], div[id^='__lpform_']) {
-	display: none !important;
+	/*
+	 * Sin display: LastPass escribe en el propio elemento «display: initial !important», y un
+	 * estilo en línea con !important gana a cualquier hoja (visto en KEBAPS el 2026-11-24 con
+	 * la extensión de verdad). Lo que sigue no lo fija LastPass: recorte total, invisible y
+	 * sin ratón, para su raíz y lo que cuelga de ella (también su shadow DOM).
+	 */
+	visibility: hidden !important;
+	opacity: 0 !important;
+	pointer-events: none !important;
+	overflow: hidden !important;
+	clip-path: inset(50%) !important;
 }

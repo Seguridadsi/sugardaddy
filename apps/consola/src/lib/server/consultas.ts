@@ -255,7 +255,9 @@ export async function fijarTriaje(
 	quien: string,
 	evento: string,
 	estado: EstadoTriaje,
-	nota: string | null
+	nota: string | null,
+	/* «api»: lo pone un token de escritura (lib/server/api/escritura.ts); no aparta de la inteligencia. */
+	via: 'consola' | 'api' = 'consola'
 ): Promise<boolean> {
 	const limpia = nota?.trim() ? nota.trim().slice(0, 2000) : null;
 	return db.transaction(async (tx) => {
@@ -266,14 +268,14 @@ export async function fijarTriaje(
 		if (!ev) return false;
 		await tx
 			.insert(s.triaje)
-			.values({ evento, estado, nota: limpia, quien })
+			.values({ evento, estado, nota: limpia, quien, via })
 			.onConflictDoUpdate({
 				target: s.triaje.evento,
-				set: { estado, nota: limpia, quien, cuando: new Date() }
+				set: { estado, nota: limpia, quien, via, cuando: new Date() }
 			});
 		await tx
 			.insert(s.auditoria)
-			.values({ quien, accion: 'event triage', detalle: { evento, estado } });
+			.values({ quien, accion: 'event triage', detalle: { evento, estado, via } });
 		return true;
 	});
 }

@@ -21,7 +21,10 @@
 		'salud.memoria': 'Sensor out of memory',
 		'salud.cpu': 'Sensor at full CPU',
 		'salud.trampa-reinicios': 'Honeypot restarting',
-		'salud.trampa-callada': 'Honeypot gone quiet'
+		'salud.trampa-callada': 'Honeypot gone quiet',
+		'salud.cola-atascada': 'Sensor events not reaching the console',
+		'salud.cola-descartando': 'Sensor discarding events',
+		'salud.reloj': 'Sensor clock wrong'
 	};
 </script>
 

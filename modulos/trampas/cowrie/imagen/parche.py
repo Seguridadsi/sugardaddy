@@ -79,6 +79,17 @@ def quitar_bloques_http(ruta: str, esperados: int) -> None:
     p.write_text("\n".join(salida))
 
 
+# La subida por scp apunta en outfile solo el hash; SFTP y wget, la ruta entera.
+# El sensor saca la copia del contenedor por esa ruta (docs/diseno/captura-artefactos.md).
+cambiar(
+    "src/cowrie/commands/scp.py",
+    """                url=fname,
+                outfile=shasum,
+""",
+    """                url=fname,
+                outfile=hash_path,
+""",
+)
 FP = "src/cowrie/core/fingerprint.py"
 cambiar(
     FP,
@@ -236,6 +247,7 @@ import cowrie.python.logfile
 from cowrie.core.config import CowrieConfig
 """,
     """import json
+import os
 
 from twisted.internet import task
 from twisted.logger import Logger
@@ -277,17 +289,22 @@ cambiar(
         # El resumen de lo que se calla sale aunque no lleguen más eventos.
         self.resumen = task.LoopingCall(self.outfile.tick)
         self.resumen.start(5, now=False)
-        # La carpeta de descargas (tmpfs de 16 MB) no se llena nunca: Cowrie no
+        # La carpeta de descargas no se llena nunca: Cowrie no
         # borra lo que guarda y, llena, toda descarga falla y la sesión se
         # cuelga (cowrie.core.sugardaddy.podar_descargas).
         self.descargas = CowrieConfig.get("honeypot", "download_path", fallback="")
         self.minimo_libre = CowrieConfig.getint("honeypot", "download_limit_size", fallback=0)
+        # Tope de todo lo guardado: la carpeta está en el volumen de la trampa.
+        self.maximo_total = CowrieConfig.getint("honeypot", "sd_download_total", fallback=64 << 20)
+        if self.descargas:
+            # En un volumen nuevo (o en el disco propio de la trampa) puede no estar.
+            os.makedirs(self.descargas, exist_ok=True)
         self.poda = task.LoopingCall(self._sd_podar)
-        self.poda.start(60, now=True)
+        self.poda.start(10, now=True)
 
     def _sd_podar(self):
         if self.descargas:
-            podar_descargas(self.descargas, minimo_libre=self.minimo_libre)
+            podar_descargas(self.descargas, minimo_libre=self.minimo_libre, maximo_total=self.maximo_total)
 
     def stop(self):
         if self.resumen.running:

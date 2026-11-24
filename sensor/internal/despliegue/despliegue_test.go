@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/kinomakino/sugardaddy/sensor/internal/plan"
@@ -244,6 +245,71 @@ func TestHuecoIPsAnfitrion(t *testing.T) {
 		}
 		if env := cfg["Env"].([]string); len(env) != 1 || env[0] != caso.quiero {
 			t.Fatalf("con %+v: %v, quiero %s", caso.o, env, caso.quiero)
+		}
+	}
+}
+
+// ${sd.marca} es la clave de marca que manda la consola para esa trampa
+// (plan.TrampaPlan.Marca). Lo que no sea 64 hex en minúscula no llega al
+// entorno: una consola rara no puede colar nada por ahí.
+func TestHuecoMarca(t *testing.T) {
+	var c plan.Contenedor
+	if err := json.Unmarshal([]byte(`{
+		"imagen": "x@sha256:1", "registros": "/log",
+		"entorno": {"MARCA": "${sd.marca}"}
+	}`), &c); err != nil {
+		t.Fatal(err)
+	}
+	buena := strings.Repeat("0a", 32)
+	for _, caso := range []struct{ marca, quiero string }{
+		{buena, "MARCA=" + buena},
+		{"", "MARCA="},
+		{strings.ToUpper(buena), "MARCA="},
+		{buena[:62] + "\nX=1", "MARCA="},
+	} {
+		s := plan.TrampaPlan{
+			ID: "portal", Marca: caso.marca,
+			Manifiesto: plan.Manifiesto{Contenedor: &c, Aislamiento: &plan.Aislamiento{CPU: 0.25, MemoriaMb: 128}},
+		}
+		cfg, _, err := config(Opciones{Datos: t.TempDir()}, "local", "", s, false, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if env := cfg["Env"].([]string); len(env) != 1 || env[0] != caso.quiero {
+			t.Fatalf("con %q: %v, quiero %s", caso.marca, env, caso.quiero)
+		}
+	}
+}
+
+// ${sd.migas}: solo la forma cerrada «modulo,ip,puerto;…» llega a la trampa.
+func TestHuecoMigas(t *testing.T) {
+	var c plan.Contenedor
+	if err := json.Unmarshal([]byte(`{
+		"imagen": "x@sha256:1", "registros": "/log",
+		"entorno": {"MIGAS": "${sd.migas}"}
+	}`), &c); err != nil {
+		t.Fatal(err)
+	}
+	for _, caso := range []struct{ migas, quiero string }{
+		{"cowrie,10.0.0.4,2222;smb,10.0.0.4,445", "MIGAS=cowrie,10.0.0.4,2222;smb,10.0.0.4,445"},
+		{"mysql,2001:db8::1,3306", "MIGAS=mysql,2001:db8::1,3306"},
+		{"", "MIGAS="},
+		{"cowrie,10.0.0.4,99999", "MIGAS="},
+		{"cowrie,no-es-ip,22", "MIGAS="},
+		{"Cowrie,10.0.0.4,22", "MIGAS="},
+		{"cowrie,10.0.0.4,22\nX=1", "MIGAS="},
+		{"cowrie,10.0.0.4,22;", "MIGAS="},
+	} {
+		s := plan.TrampaPlan{
+			ID: "portal", Migas: caso.migas,
+			Manifiesto: plan.Manifiesto{Contenedor: &c, Aislamiento: &plan.Aislamiento{CPU: 0.25, MemoriaMb: 128}},
+		}
+		cfg, _, err := config(Opciones{Datos: t.TempDir()}, "local", "", s, false, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if env := cfg["Env"].([]string); len(env) != 1 || env[0] != caso.quiero {
+			t.Fatalf("con %q: %v, quiero %s", caso.migas, env, caso.quiero)
 		}
 	}
 }

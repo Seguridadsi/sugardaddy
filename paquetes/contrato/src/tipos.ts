@@ -122,6 +122,8 @@ export interface ManifiestoTrampa {
 		contrasena?: string;
 		/* Campo de detalle que agrupa los eventos de una misma visita del atacante. */
 		sesion?: string;
+		/* Qué campos dicen lo que la trampa le costó al atacante: tiempo retenido y bytes. */
+		coste?: { tiempo?: string; bytes?: string };
 		/* Los campos de detalle que caben en la fila de la lista; el resto se ve al desplegarla. */
 		resumen?: string[];
 		/* Cómo se llaman en la consola los campos de detalle y los valores nativos de la acción. */

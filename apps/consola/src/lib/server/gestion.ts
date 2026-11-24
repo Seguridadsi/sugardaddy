@@ -56,7 +56,9 @@ export async function sensores() {
 			 * subconsulta sería el id de la otra tabla.
 			 */
 			trampas: sql<number>`(select count(*)::int from ${s.trampas} x where x.sensor = "sensores"."id")`,
-			cuarentena: sql<number>`(select count(*)::int from ${s.cuarentena} q where q.sensor = "sensores"."id")`,
+			/* Lo apartado que es una anomalía; los duplicados (el mismo evento leído otra vez) aparte. */
+			cuarentena: sql<number>`(select count(*)::int from ${s.cuarentena} q where q.sensor = "sensores"."id" and not q.duplicado)`,
+			duplicados: sql<number>`(select count(*)::int from ${s.cuarentena} q where q.sensor = "sensores"."id" and q.duplicado)`,
 			rupturas: sql<number>`(select count(*)::int from ${s.rupturas} r where r.sensor = "sensores"."id")`
 		})
 		.from(s.sensores)

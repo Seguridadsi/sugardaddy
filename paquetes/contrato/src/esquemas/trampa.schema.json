@@ -623,6 +623,15 @@
 					"type": "string",
 					"pattern": "^[A-Za-z0-9_.-]{1,64}$"
 				},
+				"coste": {
+					"description": "Lo que la trampa le ha costado al atacante, para sumarlo por incidente: tiempo, el campo de detalle con el tiempo que le retuvo en una sesión entera (segundos, o con «ms» detrás), solo en el evento de cierre; bytes, el de los bytes que le mandó. No la latencia de una petición.",
+					"type": "object",
+					"additionalProperties": false,
+					"properties": {
+						"tiempo": { "type": "string", "pattern": "^[A-Za-z0-9_.-]{1,64}$" },
+						"bytes": { "type": "string", "pattern": "^[A-Za-z0-9_.-]{1,64}$" }
+					}
+				},
 				"resumen": {
 					"description": "Campos de detalle que se enseñan en la fila de la lista; el resto, al desplegarla.",
 					"type": "array",

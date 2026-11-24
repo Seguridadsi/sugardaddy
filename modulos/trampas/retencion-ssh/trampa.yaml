@@ -133,6 +133,7 @@ eventos:
       tope: alta
   conexionEstablecida: true
   sesion: id
+  coste: { tiempo: duracion_s, bytes: bytes }
   detalle:
     - evento
     - modo

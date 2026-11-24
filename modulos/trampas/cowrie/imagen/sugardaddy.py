@@ -915,10 +915,11 @@ def podar_descargas(
     *,
     conservar: float = 900.0,
     minimo_libre: int = 0,
+    maximo_total: int = 0,
     gracia: float = 120.0,
     reloj: Callable[[], float] = time.time,
 ) -> list[str]:
-    """Deja sitio en la carpeta de descargas (el /tmp de 16 MB del contenedor).
+    """Deja sitio en la carpeta de descargas (en el volumen de la trampa).
 
     Cowrie guarda ahí cada fichero que el atacante sube o manda traer y nunca
     lo borra: con dos subidas grandes la carpeta se llena y desde entonces
@@ -931,12 +932,15 @@ def podar_descargas(
       más antiguos ya terminados (ni los ``tmp*``, descargas en curso, ni los de
       menos de ``gracia`` segundos, que el sensor aún no ha podido sacar) hasta
       que haya sitio: mejor perder una copia que la trampa.
+    * Lo mismo si entre todos pasan de ``maximo_total`` bytes: la carpeta está
+      en el volumen de la trampa, que puede ser el disco del cliente, y un
+      atacante que sube en bucle no tiene que llenarlo.
 
     Solo ficheros normales de esa carpeta, sin seguir enlaces. Devuelve los
     nombres borrados.
     """
     ahora = reloj()
-    ficheros: list[tuple[float, str, str]] = []
+    ficheros: list[tuple[float, str, str, int]] = []
     try:
         with os.scandir(carpeta) as entradas:
             for e in entradas:
@@ -945,10 +949,11 @@ def podar_descargas(
                 except OSError:
                     continue
                 if stat.S_ISREG(st.st_mode):
-                    ficheros.append((st.st_mtime, e.path, e.name))
+                    ficheros.append((st.st_mtime, e.path, e.name, st.st_size))
     except OSError:
         return []
     ficheros.sort()
+    total = sum(f[3] for f in ficheros)
 
     def libre() -> int:
         try:
@@ -958,13 +963,12 @@ def podar_descargas(
         return s.f_bavail * s.f_frsize
 
     borrados: list[str] = []
-    for mtime, ruta, nombre in ficheros:
+    for mtime, ruta, nombre, tam in ficheros:
         viejo = ahora - mtime >= conservar
-        sin_sitio = (
-            bool(minimo_libre)
-            and not nombre.startswith("tmp")
-            and ahora - mtime >= gracia
-            and libre() < minimo_libre
+        terminado = not nombre.startswith("tmp") and ahora - mtime >= gracia
+        sin_sitio = terminado and (
+            (bool(minimo_libre) and libre() < minimo_libre)
+            or (bool(maximo_total) and total > maximo_total)
         )
         if not (viejo or sin_sitio):
             continue
@@ -972,5 +976,6 @@ def podar_descargas(
             os.unlink(ruta)
         except OSError:
             continue
+        total -= tam
         borrados.append(nombre)
     return borrados

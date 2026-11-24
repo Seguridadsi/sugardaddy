@@ -30,7 +30,11 @@ import { EN_ESPERA, enEspera } from '../espera';
 import { coberturaLicencia, licenciaGuardada, revocacionesGuardadas } from './candado';
 import { esDePago } from './modulos-gratis';
 import { esDePartner, motivoPartnerFuera } from './catalogo-partner';
-import { autorizados, honeycosas } from './catalogo';
+import { autorizados, honeycosas, traductorDeTrampa } from './catalogo';
+import { costeDe } from './coste';
+import { puertoPublicado, textoMigas, type Miga } from './migas';
+import { ipDeLaMaquina } from './hechos';
+import { hechosDeSensor } from '@sugardaddy/contrato';
 import { comprobarConEvento, trasDescarte, trasEstado, type FilaColocacion } from './colocacion';
 import { db, schema as s } from './db';
 import { clavesCredencial, guardable, preparar } from './credenciales';
@@ -39,11 +43,12 @@ import {
 	anotarPrueba,
 	pruebasAbiertas,
 	pruebasDe,
-	sesionDe,
-	sesionesDePrueba,
-	sesionesGuardadas
+	cercaDeUnaPrueba,
+	marcadosDePrueba,
+	marcadosGuardados
 } from './pruebas';
 import { normalizarIp } from './buscar-ip';
+import { alertaMarca, marcaDeTrampa, prepararMarcas } from './marca-secretos-nodo';
 import { aplicarTriajeAuto } from './triaje-auto';
 
 export const LIMITE_LINEAS = 500;
@@ -124,6 +129,17 @@ export type TrampaPlan = {
 	 * dice sensor.escuchaPorTrampa.
 	 */
 	escucha?: string;
+	/*
+	 * La clave con que la trampa marca los secretos cebo que reparte (${sd.marca};
+	 * marca-secretos-nodo.ts). No va en el manifiesto. Sin clave del nodo, sin el
+	 * campo, y la trampa no marca. Un sensor anterior no la lee.
+	 */
+	marca?: string;
+	/*
+	 * Las demás trampas de este sensor, para la que las nombra en sus documentos
+	 * (${sd.migas}; migas.ts): «modulo,direccion,puerto;…». Solo a la que lo pide.
+	 */
+	migas?: string;
 };
 
 /*
@@ -210,6 +226,23 @@ export async function plan(sensor: string, registroPrivado: boolean, versionSens
 
 	const trampas: TrampaPlan[] = [];
 	const descartados: Descarte[] = [];
+	/* Las trampas que podría nombrar otra (migas.ts), y la IP de la máquina del sensor. */
+	const migas: (Miga & { id: string })[] = [];
+	const [maquina] = await db
+		.select({ capacidades: s.sensores.capacidades, red: s.sensores.red })
+		.from(s.sensores)
+		.where(eq(s.sensores.id, sensor));
+	const ipMaquina = maquina
+		? ipDeLaMaquina(hechosDeSensor(maquina.capacidades)['red.direcciones']?.valor, maquina.red)
+		: null;
+	const pide = (m: ManifiestoTrampa, hueco: string) =>
+		JSON.stringify(m.contenedor?.entorno ?? {}).includes(hueco);
+	/* La clave de marca, solo a la trampa que la pide (${sd.marca} en su entorno). */
+	const conMarca = (id: string, m: ManifiestoTrampa) => {
+		if (!JSON.stringify(m.contenedor?.entorno ?? {}).includes('${sd.marca}')) return {};
+		const marca = marcaDeTrampa(id);
+		return marca ? { marca } : {};
+	};
 	const descartar = (id: string, codigo: CodigoMotivo, datos?: DatosMotivo) =>
 		descartados.push({ id, codigo, motivo: textoDescarte(codigo, datos) });
 	for (const f of filas) {
@@ -287,6 +320,10 @@ export async function plan(sensor: string, registroPrivado: boolean, versionSens
 			descartar(f.id, 'parametros.invalidos', { errores: p.errores.join('; ') });
 			continue;
 		}
+		/* Con su propia IP («IP propia») no se sabe aquí su dirección: no se nombra. */
+		const direccion = m.red ? null : (f.escucha ?? ipMaquina);
+		const puerto = puertoPublicado(m.contenedor?.puertos, p.valor);
+		if (direccion && puerto) migas.push({ id: f.id, modulo: h.id, direccion, puerto });
 		trampas.push({
 			id: f.id,
 			nombre: f.nombre,
@@ -294,9 +331,15 @@ export async function plan(sensor: string, registroPrivado: boolean, versionSens
 			parametros: p.valor,
 			/* Las del partner no llevan nuestro candado: no se les monta la licencia. */
 			licencia: esDePago(h.id) && !esDePartner(h.id),
-			...(f.escucha ? { escucha: f.escucha } : {})
+			...(f.escucha ? { escucha: f.escucha } : {}),
+			...conMarca(f.id, m)
 		});
 	}
+	for (const t of trampas)
+		if (pide(t.manifiesto, '${sd.migas}')) {
+			const texto = textoMigas(t.id, migas);
+			if (texto) t.migas = texto;
+		}
 	await anotarEspera(sensor, filas, trampas, descartados);
 	/*
 	 * La licencia de pago (la que coteja el candado), para que el sensor la
@@ -605,7 +648,12 @@ export type Recepcion = { ok: true; aceptadas: number; ultimoHash: string };
  */
 export async function recibirEventos(sensor: string, lineas: string[]): Promise<Recepcion> {
 	const credencial = await preparar();
-	const { recepcion, nuevos } = await guardarEntrega(sensor, lineas, credencial);
+	/* Sin poder mirar las marcas, la entrega sigue: solo se pierde esa alerta. */
+	const marcas = await prepararMarcas().catch((err) => {
+		console.error('could not prepare the marked bait secrets', err);
+		return async () => null;
+	});
+	const { recepcion, nuevos } = await guardarEntrega(sensor, lineas, credencial, marcas);
 	/* Triaje automático (gratis): marca los eventos nuevos que casen una regla. */
 	aplicarTriajeAuto(nuevos);
 	return recepcion;
@@ -648,10 +696,83 @@ export class MapaConDeshacer<K, V> extends Map<K, V> {
 	}
 }
 
+/* Un evento con un id ya guardado y otro contenido: puede ser una línea cambiada. */
+export const MOTIVO_REPETIDO = 'repeats an event already received';
+/* El mismo evento, solo en otro punto de la cadena: lo ha vuelto a leer su sensor. */
+export const MOTIVO_DUPLICADO =
+	'repeats an event already received, only its place in the chain differs';
+
+/*
+ * Si la línea que llega con el id de un evento ya guardado es ese mismo evento salvo
+ * su hashAnterior. Pasa cuando el sensor vuelve a leer una línea del registro de su
+ * trampa (un estado que se quedó atrás o se perdió): le da el mismo id, que sale de
+ * la línea nativa, pero la encadena donde va ahora. El sensor ya no lo hace
+ * (sensor/cmd/sensor/emitidos.go); esto es para los de antes y por si acaso.
+ *
+ * ¿Debilita la prueba que es la cadena? No:
+ *  - La línea se guarda igual, en la cuarentena, con su hash y su hashAnterior: la
+ *    cadena se sigue verificando juntando eventos y cuarentena, eslabón a eslabón.
+ *  - Una ruptura (un hashAnterior que no es el esperado) se anota aparte, antes y
+ *    pase lo que pase con la línea: marcarla como duplicada no la tapa.
+ *  - Solo cambia la clase: no cuenta como anomalía del sensor (no lo deja degradado).
+ *    Y solo si el contenido es idéntico campo a campo, también lo que escribió el
+ *    atacante: no aporta nada que no esté ya en el evento guardado ni lo contradice.
+ *    Un repetido con cualquier otra diferencia (una línea alterada, un evento falso
+ *    con un id robado) sigue siendo un repetido que cuenta.
+ *  - El evento guardado no se toca, ni pasa otra vez a avisos, motor ni salidas.
+ *
+ * Se compara la línea como se guarda (con las credenciales enmascaradas, guardable),
+ * que es lo que tiene la fila guardada. En su propio punto de guardado y sin fallar
+ * nunca: si no se puede saber, no es duplicado (va como repetido, lo de siempre).
+ */
+async function mismoSalvoCadena(
+	tx: Pick<typeof db, 'transaction'>,
+	sensor: string,
+	id: string,
+	guardada: string
+): Promise<boolean> {
+	try {
+		const [x] = await tx.transaction((sp) =>
+			sp
+				.select({ sensor: s.eventos.sensor, linea: s.eventos.linea })
+				.from(s.eventos)
+				.where(eq(s.eventos.id, id))
+		);
+		const a = x && x.sensor === sensor ? sinCadena(x.linea) : null;
+		return a !== null && a === sinCadena(guardada);
+	} catch {
+		return false;
+	}
+}
+
+/* La línea sin su hashAnterior, con las claves en orden: dos iguales dan lo mismo. Null si no es JSON. */
+function sinCadena(linea: string): string | null {
+	let x: unknown;
+	try {
+		x = JSON.parse(linea);
+	} catch {
+		return null;
+	}
+	if (!x || typeof x !== 'object' || Array.isArray(x)) return null;
+	const { hashAnterior: _, ...resto } = x as Record<string, unknown>;
+	const ordenar = (v: unknown): unknown =>
+		Array.isArray(v)
+			? v.map(ordenar)
+			: v && typeof v === 'object'
+				? Object.fromEntries(
+						Object.keys(v as object)
+							.sort()
+							.map((k) => [k, ordenar((v as Record<string, unknown>)[k])])
+					)
+				: v;
+	return JSON.stringify(ordenar(resto));
+}
+
 async function guardarEntrega(
 	sensor: string,
 	lineas: string[],
-	credencial: Awaited<ReturnType<typeof preparar>>
+	credencial: Awaited<ReturnType<typeof preparar>>,
+	marcas: Awaited<ReturnType<typeof prepararMarcas>> = async () => null
 ): Promise<{ recepcion: Recepcion; nuevos: Evento[] }> {
 	return db.transaction(async (tx) => {
 		const [fila] = await tx
@@ -673,6 +794,7 @@ async function guardarEntrega(
 			.from(s.trampas);
 		const deQuien = new Map(trampas.map((x) => [x.id, x.sensor]));
 		const viaDeTrampa = new Map(trampas.map((x) => [x.id, x.via]));
+		const catalogoCoste = new Map(honeycosas().map((h) => [h.id, h]));
 		/* Para fijar «comprobada» con el primer evento, sin consultar por cada línea. */
 		const colocacion = new MapaConDeshacer<string, FilaColocacion>(trampas.map((x) => [x.id, x]));
 		/*
@@ -685,11 +807,12 @@ async function guardarEntrega(
 			(await tx.execute<{ ahora: string | Date }>(sql`select now() as ahora`))[0].ahora
 		);
 		/*
-		 * Las sesiones de una prueba con marca: sus otros eventos (conectar, negociar,
-		 * cerrar) también son de prueba. Una pasada antes, porque la marca llega en medio.
+		 * Los eventos con la marca de una prueba (de esta entrega y ya guardados): lo que
+		 * los rodea (misma trampa e IP, a menos de un minuto) también es de la prueba. Una
+		 * pasada antes, porque la marca llega en medio de la conexión.
 		 */
-		const deSesionDePrueba = abiertas.some((p) => p.marca)
-			? sesionesDePrueba(
+		const marcados = abiertas.some((p) => p.marca)
+			? marcadosDePrueba(
 					lineas.flatMap((l) => {
 						if (l.length > LIMITE_LINEA) return [];
 						try {
@@ -700,10 +823,9 @@ async function guardarEntrega(
 						}
 					}),
 					recibidoAhora,
-					abiertas,
-					await sesionesGuardadas(tx, abiertas)
-				)
-			: new Set<string>();
+					abiertas
+				).concat(await marcadosGuardados(tx, abiertas))
+			: [];
 		const nuevos: Evento[] = [];
 		let anterior = fila.ultimoHash;
 		let aceptadas = 0;
@@ -729,6 +851,8 @@ async function guardarEntrega(
 
 			let e: Evento | null = null;
 			let motivo: string | null = null;
+			/* Un evento ya recibido que vuelve igual salvo su sitio en la cadena (mismoSalvoCadena). */
+			let duplicado = false;
 			if (linea.length > LIMITE_LINEA) motivo = 'line too long';
 			else {
 				let dato: unknown = null;
@@ -793,17 +917,35 @@ async function guardarEntrega(
 					 * tokens, así que un evento es de prueba solo por «Probar».
 					 */
 					const deLaPrueba = e && !motivo ? pruebasDe(e, recibidoAhora, abiertas) : [];
-					const sesion = e && !motivo ? sesionDe(e) : null;
-					const prueba = deLaPrueba.length > 0 || (sesion !== null && deSesionDePrueba.has(sesion));
+					const prueba =
+						deLaPrueba.length > 0 ||
+						(e !== null && !motivo && marcados.length > 0 && cercaDeUnaPrueba(e, marcados));
 
 					if (e && !motivo) {
 						const evento = e;
 						const leida = credencial(evento, viaDeTrampa.get(evento.trampa.id));
-						const c = prueba ? { ...leida, alerta: null, severidad: evento.severidad } : leida;
+						let c = prueba ? { ...leida, alerta: null, severidad: evento.severidad } : leida;
+						/*
+						 * Un secreto cebo que repartió una trampa (marcado): quien lo usa lo
+						 * sacó de nuestras trampas, sea escáner o no. Crítico, con a quién se dio.
+						 */
+						const marca = prueba ? null : await marcas(evento);
+						if (marca)
+							c = {
+								...c,
+								alerta: alertaMarca(marca, normalizarIp(evento.origen.ip)),
+								severidad: 'critica'
+							};
 						/* En su propio punto de guardado: si falla (p. ej. un id repetido), solo cae esta línea. */
 						let recibido: Date | null = null;
 						/* Con sus credenciales cifradas y enmascaradas en la línea; el hash es el de como llegó. */
 						const g = guardable(linea, hash, c);
+						/* Lo que le costó al atacante, con los campos que declara su manifiesto. */
+						const hc = catalogoCoste.get(evento.trampa.modulo);
+						const coste = costeDe(
+							evento.detalle,
+							hc ? traductorDeTrampa(hc, viaDeTrampa.get(evento.trampa.id))?.coste : undefined
+						);
 						try {
 							recibido = await lt.transaction(async (sp) => {
 								const [x] = await sp
@@ -827,7 +969,9 @@ async function guardarEntrega(
 										usuario: evento.origen.usuario ? sinNulos(evento.origen.usuario) : null,
 										conexionEstablecida: evento.conexionEstablecida,
 										alerta: c.alerta ? sinNulos(c.alerta) : null,
-										prueba
+										prueba,
+										retenidoMs: coste.retenidoMs,
+										bytesEnviados: coste.bytesEnviados
 									})
 									.returning({ recibido: s.eventos.recibido });
 								return x.recibido;
@@ -839,10 +983,10 @@ async function guardarEntrega(
 								constraint_name?: string;
 								message?: string;
 							};
-							motivo =
-								causa.code === '23505' && causa.constraint_name === 'eventos_pkey'
-									? 'repeats an event already received'
-									: `could not be saved: ${String(causa.message ?? err).slice(0, 200)}`;
+							if (causa.code === '23505' && causa.constraint_name === 'eventos_pkey') {
+								duplicado = await mismoSalvoCadena(lt, sensor, evento.id, g.linea);
+								motivo = duplicado ? MOTIVO_DUPLICADO : MOTIVO_REPETIDO;
+							} else motivo = `could not be saved: ${String(causa.message ?? err).slice(0, 200)}`;
 						}
 						/*
 						 * El primer evento real de su trampa la comprueba (§8.3). En su propio
@@ -901,7 +1045,8 @@ async function guardarEntrega(
 					hashAnterior: e?.hashAnterior ?? null,
 					/* Tal cual llegó salvo las credenciales: enmascaradas, como en los eventos (B-09). */
 					linea: sinNulos(enmascararLinea(linea.slice(0, LIMITE_LINEA), clavesDeLaEntrega())),
-					motivo: sinNulos(motivo)
+					motivo: sinNulos(motivo),
+					duplicado
 				};
 				/*
 				 * También en su punto de guardado: la cuarentena es el último destino

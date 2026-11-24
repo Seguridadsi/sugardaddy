@@ -491,7 +491,10 @@ describe('ARTEX, el agente de IA de ataque', () => {
 		'Mozilla/5.0 (X11; Linux x86_64) artex-verify/1.0',
 		'artex-i21861-canary',
 		'ARTEX-worker/1.0',
-		'norma/0.4'
+		'norma/0.4',
+		/* Dragos (HD Moore, 19-nov-2026) los vio usando claves AWS robadas de prompts. */
+		'artex-agent',
+		'artex-judge-r121'
 	])('%s → ARTEX', (ua) => {
 		expect(de(ua)).toMatchObject({ clase: 'ia', nombre: 'ARTEX' });
 	});

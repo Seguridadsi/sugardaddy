@@ -199,7 +199,11 @@ describe('los campos de la consola y del panel', () => {
 		expect(css).toContain(
 			"body:not( :has( input[data-con-gestor], input[autocomplete]:not([autocomplete='off'], [autocomplete='new-password']) ) )"
 		);
-		expect(css).toMatch(/\[data-lastpass-icon-root\][^{]*\{ display: none !important; \}/);
+		const regla = css.match(/\[data-lastpass-icon-root\][^{]*\{([^}]*)\}/)?.[1] ?? '';
+		/* LastPass pone «display: initial !important» en línea, que gana: no vale display. */
+		expect(regla).not.toMatch(/(^|;)\s*display:/);
+		for (const p of ['visibility: hidden', 'pointer-events: none', 'clip-path: inset(50%)'])
+			expect(regla).toContain(`${p} !important`);
 		/* Un campo con gestor en un +layout estaría en todas las páginas y el icono no se escondería nunca. */
 		expect(Object.keys(CON_GESTOR).filter((f) => f.endsWith('+layout.svelte'))).toEqual([]);
 	});

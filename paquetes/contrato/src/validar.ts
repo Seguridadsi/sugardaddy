@@ -57,7 +57,22 @@ function huecos(texto: string): string[] {
  *    (LOCATION de SSDP, XAddrs de WS-Discovery): dentro del contenedor solo ve
  *    la IP interna de Docker, que la delataría.
  */
-export const HUECOS_DEL_SENSOR = ['sd.ipsAnfitrion', 'sd.desplazamiento'] as const;
+/*
+ *  - sd.marca: la clave con que la trampa marca los secretos cebo que reparte
+ *    (64 hex; marca_nodo.go). La saca la consola de la suya con el id de la
+ *    trampa; vacía con una consola anterior, y la trampa no marca.
+ */
+/*
+ *  - sd.migas: las demás trampas del mismo sensor, para nombrarlas en sus
+ *    documentos («modulo,direccion,puerto;…»; migas.ts). Vacía con una consola
+ *    anterior o si no hay ninguna.
+ */
+export const HUECOS_DEL_SENSOR = [
+	'sd.ipsAnfitrion',
+	'sd.desplazamiento',
+	'sd.marca',
+	'sd.migas'
+] as const;
 
 function huecosSinParametro(
 	textos: string[],
@@ -112,9 +127,13 @@ function puertosBajos(c: Contenedor | undefined): string[] {
 }
 
 function fallosDeTraductor(ev: Traductor): string[] {
-	return ev.contrasena && !ev.detalle?.includes(ev.contrasena)
-		? [`contrasena: ${ev.contrasena} tiene que estar en detalle`]
-		: [];
+	const fuera = (nombre: string, campo: string | undefined) =>
+		campo && !ev.detalle?.includes(campo) ? [`${nombre}: ${campo} tiene que estar en detalle`] : [];
+	return [
+		...fuera('contrasena', ev.contrasena),
+		...fuera('coste.tiempo', ev.coste?.tiempo),
+		...fuera('coste.bytes', ev.coste?.bytes)
+	];
 }
 
 /* Todo lo que nombra un parámetro tiene que nombrar uno que exista. */

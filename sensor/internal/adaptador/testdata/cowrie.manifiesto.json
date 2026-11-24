@@ -22,7 +22,7 @@
     "licencia": "BSD-3-Clause"
   },
   "contenedor": {
-    "imagen": "ghcr.io/seguridadsi/sugardaddy-trampa-cowrie:3.1.2-sd13@sha256:afbd0d034aa4708554c10284bdb65863534b441d3a6e583795d0bf773174d42a",
+    "imagen": "ghcr.io/seguridadsi/sugardaddy-trampa-cowrie:3.1.2-sd14@sha256:5debb8206e6c6e3a59e8d7219df1c87992c0f3018b872548079578f4ca17bf69",
     "puertos": [
       {
         "interno": 2222,
@@ -41,7 +41,7 @@
       "COWRIE_TELNET_ENABLED": "${telnet}",
       "COWRIE_HONEYPOT_ETC_PATH": "/cowrie/sd-etc",
       "COWRIE_HONEYPOT_DOWNLOAD_LIMIT_SIZE": "10485760",
-      "COWRIE_HONEYPOT_DOWNLOAD_PATH": "/tmp",
+      "COWRIE_HONEYPOT_DOWNLOAD_PATH": "/cowrie/cowrie-git/var/lib/cowrie/downloads",
       "COWRIE_HONEYPOT_TTYLOG": "false",
       "COWRIE_HONEYPOT_TTYLOG_PATH": "/tmp",
       "COWRIE_OUTPUT_JSONLOG_MAX_BYTES_DAY": "52428800",
@@ -243,6 +243,9 @@
       }
     },
     "conexionEstablecida": true,
+    "coste": {
+      "tiempo": "duration"
+    },
     "detalle": [
       "eventid",
       "session",

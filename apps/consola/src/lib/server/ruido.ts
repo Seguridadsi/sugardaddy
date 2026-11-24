@@ -19,7 +19,7 @@ export async function ruidoPorTrampa(dias = DIAS_RUIDO): Promise<RuidoDeTrampa[]
 		select t.id, t.nombre, t.modulo,
 			count(e.id)::int as eventos,
 			count(e.id) filter (where e.escaner is not null)::int as escaner,
-			count(e.id) filter (where tr.estado = 'falso-positivo' and e.escaner is null)::int as falsos,
+			count(e.id) filter (where tr.estado = 'falso-positivo' and tr.via <> 'api' and e.escaner is null)::int as falsos,
 			count(e.id) filter (where tr.estado = 'interesante')::int as confirmados
 		from ${s.trampas} t
 		left join ${s.eventos} e

@@ -9,8 +9,10 @@
  *   - memoria: menos del 10 % disponible durante 5 minutos seguidos;
  *   - CPU: más del 90 % durante 15 minutos seguidos;
  *   - una trampa que el motor reinicia 3 veces o más en media hora;
- *   - una trampa que se calla: con 14 eventos o más en la semana anterior y
- *     ninguno en las últimas 48 horas (una que nunca recibe nada no avisa).
+ *   - una trampa que se calla: con 14 eventos o más en la semana anterior,
+ *     repartidos en 3 días distintos como poco, y ninguno en las últimas 48
+ *     horas. Una que nunca recibe nada no avisa, y tampoco una que solo tuvo
+ *     una ráfaga (una prueba, un escaneo de un día): no había tráfico que perder.
  */
 import { and, desc, eq, gte, inArray, isNull, lt, sql } from 'drizzle-orm';
 import { db, schema as s } from './db';
@@ -29,6 +31,11 @@ export const REINICIOS_BUCLE = 3;
 export const MINUTOS_REINICIOS = 30;
 export const HORAS_CALLADA = 48;
 export const EVENTOS_ANTES_CALLADA = 14;
+export const DIAS_ANTES_CALLADA = 3;
+/* La tubería: la cola sin quedar al día un cuarto de hora, y el reloj a más de 2 minutos 5 muestras seguidas. */
+export const MINUTOS_COLA = 15;
+export const RELOJ_MAXIMO = 120;
+export const MUESTRAS_RELOJ = 5;
 /* Una muestra más vieja que esto no dice cómo está la máquina ahora. */
 const VIGENTE = 10 * MINUTO;
 /* El sensor manda una por minuto: lo que llegue más deprisa se ignora. */
@@ -55,6 +62,11 @@ export type Muestra = {
 	discoTotal: number | null;
 	discoLibre: number | null;
 	trampas: SaludTrampaMuestra[];
+	/* La tubería: su cola de salida y su reloj (opcionales: los sensores anteriores no la mandan). */
+	colaPendiente?: number | null;
+	colaSinEntregar?: number | null;
+	colaDescartando?: boolean | null;
+	reloj?: number | null;
 };
 
 const numero = (x: unknown, max: number): number | null =>
@@ -101,6 +113,15 @@ export function leerMuestra(x: unknown, ahora = new Date()): Muestra | null {
 			});
 		}
 	const cpus = numero(m.cpus, 4096);
+	const cola =
+		m.cola && typeof m.cola === 'object' ? (m.cola as Record<string, unknown>) : undefined;
+	const pendiente = cola ? numero(cola.pendiente, ENTERO_BYTES) : null;
+	const sinEntregar = cola ? numero(cola.sinEntregar, 10 * 365 * 86_400) : null;
+	/* El reloj se compara solo si el sensor manda la cola (los anteriores mandan su hora, sin más). */
+	const suHora = cola && typeof m.cuando === 'string' ? Date.parse(m.cuando) : NaN;
+	const reloj = Number.isFinite(suHora)
+		? Math.max(-(2 ** 31), Math.min(2 ** 31 - 1, Math.round((suHora - ahora.getTime()) / 1000)))
+		: null;
 	return {
 		cuando: ahora,
 		cpu: numero(m.cpu, 100),
@@ -110,7 +131,11 @@ export function leerMuestra(x: unknown, ahora = new Date()): Muestra | null {
 		memoriaLibre: mem?.libre ?? null,
 		discoTotal: disco?.total ?? null,
 		discoLibre: disco?.libre ?? null,
-		trampas
+		trampas,
+		colaPendiente: pendiente === null ? null : Math.round(pendiente),
+		colaSinEntregar: sinEntregar === null ? null : Math.round(sinEntregar),
+		colaDescartando: cola ? cola.descartando === true : null,
+		reloj
 	};
 }
 
@@ -146,7 +171,10 @@ export type ProblemaMaquina = {
 		| 'salud.memoria'
 		| 'salud.cpu'
 		| 'salud.trampa-reinicios'
-		| 'salud.trampa-callada';
+		| 'salud.trampa-callada'
+		| 'salud.cola-atascada'
+		| 'salud.cola-descartando'
+		| 'salud.reloj';
 	sobre: { tipo: 'sensor' | 'trampa'; id: string; nombre: string };
 	severidad: 'baja' | 'media' | 'alta';
 	titulo: string;
@@ -154,6 +182,8 @@ export type ProblemaMaquina = {
 };
 
 const pct = (f: number) => `${Math.round(f * 100)} %`;
+const bytesTexto = (n: number) =>
+	n >= 2 ** 20 ? `${Math.round(n / 2 ** 20)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`;
 
 /*
  * Los problemas de máquina y de reinicios, puros: de las muestras recientes de
@@ -214,6 +244,42 @@ export function problemasDeMuestras(
 				titulo: `Sensor "${x.nombre}" has been at full CPU for ${MINUTOS_CPU} minutes`,
 				texto: `Its processor has stayed above ${CPU_ALTA} %. Honeypots may answer slowly, which an attacker can notice. Check what else runs on its machine or give it more processors.`
 			});
+		/* La tubería: lo que la trampa ve y no llega a la consola. */
+		if ((ultima.colaSinEntregar ?? 0) >= MINUTOS_COLA * 60)
+			r.push({
+				clave: `cola:${x.id}`,
+				codigo: 'salud.cola-atascada',
+				sobre,
+				severidad: 'alta',
+				titulo: `Events from sensor "${x.nombre}" are not reaching the console`,
+				texto: `Its outgoing queue has not been fully delivered for ${Math.round((ultima.colaSinEntregar ?? 0) / 60)} minutes (${bytesTexto(ultima.colaPendiente ?? 0)} waiting). Its honeypots detect, but you do not see it here yet. Check the network between the sensor and this console.`
+			});
+		if (ultima.colaDescartando)
+			r.push({
+				clave: `descarte:${x.id}`,
+				codigo: 'salud.cola-descartando',
+				sobre,
+				severidad: 'alta',
+				titulo: `Sensor "${x.nombre}" is discarding events`,
+				texto:
+					'Its outgoing queue is full: new events are counted in a summary but their detail is lost. Free up disk on its machine or check why the console does not collect them.'
+			});
+		const relojes = ms.slice(0, MUESTRAS_RELOJ);
+		if (
+			relojes.length === MUESTRAS_RELOJ &&
+			relojes.every((m) => m.reloj != null && Math.abs(m.reloj) > RELOJ_MAXIMO)
+		) {
+			const d = ultima.reloj ?? 0;
+			r.push({
+				clave: `reloj:${x.id}`,
+				codigo: 'salud.reloj',
+				sobre,
+				severidad: 'media',
+				titulo: `The clock of sensor "${x.nombre}" is ${Math.round(Math.abs(d) / 60)} minutes ${d > 0 ? 'ahead' : 'behind'}`,
+				texto:
+					'The times of its events are wrong, which breaks timelines and correlation in your SIEM. Turn on time synchronisation (NTP) on its machine.'
+			});
+		}
 		/* Reinicios: la muestra más vieja de la media hora frente a la de ahora. */
 		const vieja = enVentana(MINUTOS_REINICIOS).at(-1);
 		if (vieja && vieja !== ultima) {
@@ -273,7 +339,7 @@ async function muestrasRecientes(ahora: number) {
 let calladas: { cuando: number; lista: ProblemaMaquina[] } | null = null;
 
 export function trampasCalladas(
-	cuentas: { trampa: string; recientes: number; antes: number }[],
+	cuentas: { trampa: string; recientes: number; antes: number; dias: number }[],
 	trampas: { id: string; nombre: string; creado: Date }[],
 	ahora: number
 ): ProblemaMaquina[] {
@@ -283,7 +349,8 @@ export function trampasCalladas(
 		/* Una recién puesta no tiene semana anterior con la que comparar. */
 		if (ahora - t.creado.getTime() < (HORAS_CALLADA + 7 * 24) * 60 * MINUTO) continue;
 		const c = por.get(t.id);
-		if (!c || c.recientes > 0 || c.antes < EVENTOS_ANTES_CALLADA) continue;
+		if (!c || c.recientes > 0 || c.antes < EVENTOS_ANTES_CALLADA || c.dias < DIAS_ANTES_CALLADA)
+			continue;
 		r.push({
 			clave: `callada:${t.id}`,
 			codigo: 'salud.trampa-callada',
@@ -309,7 +376,11 @@ async function calcularCalladas(ahora: number): Promise<ProblemaMaquina[]> {
 			antes:
 				sql<number>`count(*) filter (where ${s.eventos.recibido} < ${corte}::timestamptz)`.mapWith(
 					Number
-				)
+				),
+			/* En cuántos días (UTC) de la semana anterior recibió algo: una ráfaga no es tráfico. */
+			dias: sql<number>`count(distinct date_trunc('day', ${s.eventos.recibido} at time zone 'UTC')) filter (where ${s.eventos.recibido} < ${corte}::timestamptz)`.mapWith(
+				Number
+			)
 		})
 		.from(s.eventos)
 		.where(
@@ -422,7 +493,16 @@ export async function ultimasMuestras(): Promise<Map<string, Muestra>> {
 }
 
 /* Las claves de avisos_salud que vienen de aquí (salidas/salud.ts). */
-const CLAVES_MAQUINA = ['disco', 'memoria', 'cpu', 'reinicios', 'callada'];
+const CLAVES_MAQUINA = [
+	'disco',
+	'memoria',
+	'cpu',
+	'cola',
+	'descarte',
+	'reloj',
+	'reinicios',
+	'callada'
+];
 
 /*
  * Lo que el latido lleva al panel (docs/diseno/salud.md): lo peor de las máquinas

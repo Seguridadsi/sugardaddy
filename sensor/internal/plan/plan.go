@@ -87,6 +87,15 @@ type TrampaPlan struct {
 	// manifiesto, que es lo firmado: el sensor la comprueba contra las
 	// direcciones que él mismo ha medido (despliegue.config).
 	Escucha string `json:"escucha,omitempty"`
+	// Marca es la clave (64 hex) con que la trampa marca los secretos cebo que
+	// reparte, para que la consola reconozca dónde reaparecen. Rellena
+	// ${sd.marca}; no va en el manifiesto. Vacía (una consola anterior): la
+	// trampa no marca.
+	Marca string `json:"marca,omitempty"`
+	// Migas son las demás trampas del sensor, para la que las nombra en sus
+	// documentos («modulo,direccion,puerto;…»). Rellena ${sd.migas}; el sensor
+	// solo deja pasar ese formato. Vacía (una consola anterior): ninguna.
+	Migas string `json:"migas,omitempty"`
 }
 
 type Manifiesto struct {

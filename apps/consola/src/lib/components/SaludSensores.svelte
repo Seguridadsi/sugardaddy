@@ -19,6 +19,10 @@
 		discoTotal: number | null;
 		discoLibre: number | null;
 		trampas: { id: string; enMarcha: boolean; estado: string; reinicios: number; desde?: string }[];
+		colaPendiente?: number | null;
+		colaSinEntregar?: number | null;
+		colaDescartando?: boolean | null;
+		reloj?: number | null;
 	};
 	let {
 		salud,
@@ -150,6 +154,24 @@
 					ultima.discoTotal
 				)}
 			</p>
+			{#if ultima.colaPendiente != null}
+				{@const atascada = (ultima.colaSinEntregar ?? 0) >= 15 * 60}
+				{@const reloj = ultima.reloj ?? 0}
+				<p class="tenue">
+					Events waiting for the console:
+					<span class={atascada || ultima.colaDescartando ? 'mal' : ''}
+						>{ultima.colaPendiente ? bytes(ultima.colaPendiente) : 'none'}{atascada
+							? `, for ${Math.round((ultima.colaSinEntregar ?? 0) / 60)} min`
+							: ''}{ultima.colaDescartando ? ' (discarding: queue full)' : ''}</span
+					>
+					· clock
+					<span class={Math.abs(reloj) > 120 ? 'mal' : ''}
+						>{Math.abs(reloj) <= 2
+							? 'in sync with the console'
+							: `${Math.abs(reloj)} s ${reloj > 0 ? 'ahead' : 'behind'}`}</span
+					>
+				</p>
+			{/if}
 		{/if}
 		<div class="series">
 			<SerieSalud
@@ -204,8 +226,10 @@
 		<p class="tenue nota">
 			{community ? 'With Cloud, ' : ''}Alerts and SIEM sends a health alert when the disk passes 85
 			% (and again at 95 %), when less than 10 % of memory is available for 5 minutes, when the CPU
-			stays above 90 % for 15 minutes, when a honeypot restarts 3 times in half an hour, and when a
-			honeypot that used to receive events receives none for 48 hours. Samples are kept for 7 days.
+			stays above 90 % for 15 minutes, when its events wait more than 15 minutes for this console or
+			are being discarded, when its clock is more than 2 minutes off, when a honeypot restarts 3
+			times in half an hour, and when a honeypot that used to receive events receives none for 48
+			hours. Samples are kept for 7 days.
 		</p>
 	</section>
 {/if}

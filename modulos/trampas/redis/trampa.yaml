@@ -126,6 +126,7 @@ eventos:
       redis.session.connect: baja
       redis.session.closed: baja
   conexionEstablecida: true
+  coste: { tiempo: duration }
   detalle:
     - eventid
     - comando

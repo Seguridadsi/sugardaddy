@@ -299,35 +299,27 @@ describe('pruebasDe', () => {
 		expect(de(mcp('otra'), T, a)).toEqual([]);
 	});
 
-	it('los demás eventos de la sesión de una prueba con marca también son de la prueba', () => {
+	it('lo que rodea al evento con la marca (misma trampa e IP, menos de un minuto) es de la prueba', () => {
 		const a = [abierta({ marca: { campo: 'detalle.password', igual: 'sdpruebaabcd1234' } })];
-		const conectar = evento({
-			accion: 'conexion',
-			origen: { ip: '10.40.0.9' },
-			detalle: { session: 's1' }
-		});
-		const login = evento({ detalle: { session: 's1', password: 'sdpruebaabcd1234' } });
-		const otraSesion = evento({
-			accion: 'conexion',
-			origen: { ip: '10.40.0.9' },
-			detalle: { session: 's2' }
-		});
-		const ses = p.sesionesDePrueba([conectar, login, otraSesion], new Date(T + min), a);
-		expect(ses.has(p.sesionDe(conectar)!)).toBe(true);
-		expect(ses.has(p.sesionDe(otraSesion)!)).toBe(false);
-		/* La misma sesión en otra trampa es otra. */
-		const enOtra = evento({
-			trampa: { id: 'smb-2', modulo: 'smb', tipo: 'contenedor' },
-			detalle: { session: 's1' }
-		});
-		expect(ses.has(p.sesionDe(enOtra)!)).toBe(false);
-		/* Sin la marca en la entrega ni guardada, nada; las guardadas cuentan. */
-		expect(p.sesionesDePrueba([conectar], new Date(T + min), a).size).toBe(0);
-		expect(p.sesionesDePrueba([conectar], new Date(T + min), a, [p.sesionDe(conectar)!]).size).toBe(
-			1
-		);
-		/* Sin sesión en el evento, no hay clave. */
-		expect(p.sesionDe(evento())).toBeNull();
+		const a_las = (s: number) => new Date(T + s * 1000).toISOString();
+		const conectar = evento({ accion: 'conexion', origen: { ip: '10.40.0.9' }, cuando: a_las(0) });
+		const login = evento({ cuando: a_las(1), detalle: { password: 'sdpruebaabcd1234' } });
+		const marcados = p.marcadosDePrueba([conectar, login], new Date(T + min), a);
+		expect(marcados).toHaveLength(1);
+		expect(p.cercaDeUnaPrueba(conectar, marcados)).toBe(true);
+		/* Pasado el minuto, desde otra IP o en otra trampa: no. */
+		expect(p.cercaDeUnaPrueba({ ...conectar, cuando: a_las(62) }, marcados)).toBe(false);
+		expect(p.cercaDeUnaPrueba({ ...conectar, origen: { ip: '10.40.0.10' } }, marcados)).toBe(false);
+		expect(
+			p.cercaDeUnaPrueba(
+				{ ...conectar, trampa: { id: 'smb-2', modulo: 'smb', tipo: 'contenedor' } },
+				marcados
+			)
+		).toBe(false);
+		/* Otro inicio de sesión al lado no: va por su credencial. */
+		expect(p.cercaDeUnaPrueba({ ...conectar, accion: 'autenticacion' }, marcados)).toBe(false);
+		/* Sin el evento con la marca, nada. */
+		expect(p.marcadosDePrueba([conectar], new Date(T + min), a)).toEqual([]);
 	});
 });
 
