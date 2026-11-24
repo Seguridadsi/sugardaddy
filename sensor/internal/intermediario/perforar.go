@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -33,25 +34,27 @@ type RespuestaPerforar struct {
 }
 
 // RegistroDeTrampa: la ruta es un fichero bajo la carpeta de registros de una
-// trampa (la de la máquina o la de su disco), sin «..» ni salir por enlaces.
-func (r Reglas) RegistroDeTrampa(ruta string) error {
+// trampa (la de la máquina o la de su disco), sin «..». Devuelve la ruta relativa
+// a la carpeta del sensor. Solo mira la cadena: los enlaces los decide la apertura
+// (registro.AbrirEn), con el mismo anclaje con que se perfora, porque el sensor
+// puede cambiar una carpeta por un enlace entre una comprobación y la apertura.
+func (r Reglas) RegistroDeTrampa(ruta string) (string, error) {
 	if !filepath.IsAbs(ruta) || filepath.Clean(ruta) != ruta {
-		return rechazar("invalid log path")
+		return "", rechazar("invalid log path")
 	}
 	datos := filepath.Clean(r.Datos)
 	rel, err := filepath.Rel(datos, ruta)
 	if err != nil || strings.HasPrefix(rel, "..") {
-		return rechazar("the log is outside the sensor folder")
+		return "", rechazar("the log is outside the sensor folder")
 	}
 	partes := strings.Split(rel, string(filepath.Separator))
 	switch {
 	case len(partes) >= 3 && partes[0] == "registros" && idValido.MatchString(partes[1]):
 	case len(partes) >= 4 && partes[0] == discos.Carpeta && idValido.MatchString(partes[1]) && partes[2] == "registros":
 	default:
-		return rechazar("only a decoy log can be freed")
+		return "", rechazar("only a decoy log can be freed")
 	}
-	// La carpeta en la que está, sin enlaces que lleven fuera (el fichero se abre sin seguirlos).
-	return sinEnlaceFuera(filepath.Dir(ruta), datos)
+	return rel, nil
 }
 
 func (s *Servidor) perforar(w http.ResponseWriter, r *http.Request) error {
@@ -60,11 +63,12 @@ func (s *Servidor) perforar(w http.ResponseWriter, r *http.Request) error {
 	if err != nil || json.Unmarshal(b, &p) != nil {
 		return rechazar("the request is not JSON")
 	}
-	if err := s.Reglas.RegistroDeTrampa(p.Ruta); err != nil {
+	rel, err := s.Reglas.RegistroDeTrampa(p.Ruta)
+	if err != nil {
 		return err
 	}
 	var res RespuestaPerforar
-	if err := liberar(p.Ruta, p.Hasta); err != nil {
+	if err := s.liberarEn(rel, p.Hasta); err != nil {
 		res.Error = err.Error()
 		var en syscall.Errno
 		if errors.As(err, &en) {
@@ -77,5 +81,25 @@ func (s *Servidor) perforar(w http.ResponseWriter, r *http.Request) error {
 	return json.NewEncoder(w).Encode(res)
 }
 
+// liberarEn abre el registro dentro de la carpeta del sensor (os.Root, sin salir
+// por enlaces) y perfora el descriptor abierto: lo que se comprueba es lo que se
+// perfora, no una ruta que se vuelve a resolver.
+func (s *Servidor) liberarEn(rel string, hasta int64) error {
+	if !registro.HayQueLiberar(hasta) {
+		return nil
+	}
+	raiz, err := os.OpenRoot(s.Reglas.Datos)
+	if err != nil {
+		return err
+	}
+	defer raiz.Close()
+	f, err := registro.AbrirEn(raiz, rel)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return liberar(f, hasta)
+}
+
 // liberar, variable para las pruebas.
-var liberar = registro.LiberarLeido
+var liberar = registro.PerforarLeido

@@ -1,7 +1,8 @@
 # Construye desde su fuente y publica en el registro de contenedores de GitHub
 # (ghcr.io/<org>): cowrie, la trampa de código libre (y fija su digest real en su
 # manifiesto) y las 3 imágenes del nodo (consola, sensor, actualizador), etiquetadas con la
-# versión de despliegue/nodo/VERSION. Usa el GITHUB_TOKEN propio del repositorio:
+# versión de despliegue/nodo/VERSION. Todas llevan procedencia firmada de este Action, y
+# una etiqueta que ya existe sin ella no se adopta. Usa el GITHUB_TOKEN propio del repositorio:
 # no hace falta ningún token ni secreto aparte. Se lanza a mano (workflow_dispatch)
 # para no entrar en bucle con el commit de los digests.
 #
@@ -28,8 +29,17 @@ jobs:
       contents: write # el commit con el digest de cowrie
       packages: write
       actions: write # volver a lanzarse sobre ese commit
+      # Procedencia firmada de la imagen de la trampa, como las del nodo: antes de firmar
+      # la versión, publicar-community.sh comprueba con «gh attestation verify» que la
+      # construyó este Action (SUP-4).
+      id-token: write
+      attestations: write
     outputs:
       fijado: ${{ steps.confirmar.outputs.fijado }}
+    env:
+      # Las trampas de registro son cerradas: no se construyen aquí. Una sola trampa
+      # gratis por trabajo: su procedencia va en el paso siguiente, con su digest.
+      TRAMPA: cowrie
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -39,36 +49,57 @@ jobs:
       - name: Entrar en ghcr.io
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
-      - name: Construir, publicar y fijar los digests
+      - name: Construir y publicar la imagen de la trampa
+        id: trampa
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           org=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-          # Las trampas de registro son cerradas: no se construyen aquí.
-          for t in cowrie; do
-            etq=$(tr -d '[:space:]' < "modulos/trampas/$t/imagen/etiqueta")
-            repo="ghcr.io/$org/sugardaddy-trampa-$t"
-            echo "::group::$t -> $repo:$etq"
-            # Una etiqueta publicada no se reescribe: para otra imagen, otra etiqueta.
-            if docker manifest inspect "$repo:$etq" >/dev/null 2>&1; then
-              echo "$repo:$etq is already published: it is not overwritten"
-              digest=$(docker buildx imagetools inspect "$repo:$etq" --format '{{.Manifest.Digest}}')
-            else
-              tmp=$(mktemp -d)
-              "modulos/trampas/$t/imagen/preparar.sh" "$tmp/fuente"
-              df="$tmp/fuente/Dockerfile"; [ -f "$df" ] || df="$tmp/fuente/docker/Dockerfile"
-              docker build --platform linux/amd64 -t "$repo:$etq" -f "$df" "$tmp/fuente"
-              docker push "$repo:$etq"
-              digest=$(docker inspect --format='{{index .RepoDigests 0}}' "$repo:$etq" | sed 's/^[^@]*@//')
-              rm -rf "$tmp"
+          t="$TRAMPA"
+          etq=$(tr -d '[:space:]' < "modulos/trampas/$t/imagen/etiqueta")
+          repo="ghcr.io/$org/sugardaddy-trampa-$t"
+          echo "::group::$t -> $repo:$etq"
+          # Una etiqueta publicada no se reescribe: para otra imagen, otra etiqueta. Y solo
+          # se adopta si la construyó este Action desde main (su procedencia firmada): una
+          # subida a mano, o desde otro sitio, no entra en una versión firmada.
+          if docker manifest inspect "$repo:$etq" >/dev/null 2>&1; then
+            digest=$(docker buildx imagetools inspect "$repo:$etq" --format '{{.Manifest.Digest}}')
+            if ! gh attestation verify "oci://$repo@$digest" -R "${{ github.repository }}" \
+              --signer-workflow "${{ github.repository }}/.github/workflows/publicar-imagenes.yml" \
+              --source-ref refs/heads/main >/dev/null; then
+              echo "::error::$repo:$etq is already published without this workflow's provenance: bump modulos/trampas/$t/imagen/etiqueta" >&2
+              exit 1
             fi
-            case "$digest" in sha256:*) ;; *) echo "No digest for $repo:$etq" >&2; exit 1 ;; esac
-            # El manifiesto queda con ESTA etiqueta y ESTE digest, diga lo que diga: si
-            # nombraba otra etiqueta, la imagen que pide no existe aquí.
-            perl -pi -e "s{(imagen(?:Publica)?:\s*\Q$repo\E):[^\@\s]+\@sha256:[0-9a-f]{64}}{\${1}:$etq\@$digest}" "modulos/trampas/$t/trampa.yaml"
-            grep -qF "imagen: $repo:$etq@$digest" "modulos/trampas/$t/trampa.yaml" \
-              || { echo "modulos/trampas/$t/trampa.yaml does not name $repo:$etq@$digest" >&2; exit 1; }
-            echo "::endgroup::"
-          done
+            echo "$repo:$etq is already published by this workflow: it is not overwritten"
+            echo "construida=no" >> "$GITHUB_OUTPUT"
+          else
+            tmp=$(mktemp -d)
+            "modulos/trampas/$t/imagen/preparar.sh" "$tmp/fuente"
+            df="$tmp/fuente/Dockerfile"; [ -f "$df" ] || df="$tmp/fuente/docker/Dockerfile"
+            docker build --platform linux/amd64 -t "$repo:$etq" -f "$df" "$tmp/fuente"
+            docker push "$repo:$etq"
+            digest=$(docker inspect --format='{{index .RepoDigests 0}}' "$repo:$etq" | sed 's/^[^@]*@//')
+            rm -rf "$tmp"
+            echo "construida=si" >> "$GITHUB_OUTPUT"
+          fi
+          case "$digest" in sha256:*) ;; *) echo "No digest for $repo:$etq" >&2; exit 1 ;; esac
+          echo "repo=$repo" >> "$GITHUB_OUTPUT"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          # El manifiesto queda con ESTA etiqueta y ESTE digest, diga lo que diga: si
+          # nombraba otra etiqueta, la imagen que pide no existe aquí.
+          perl -pi -e "s{(imagen(?:Publica)?:\s*\Q$repo\E):[^\@\s]+\@sha256:[0-9a-f]{64}}{\${1}:$etq\@$digest}" "modulos/trampas/$t/trampa.yaml"
+          grep -qF "imagen: $repo:$etq@$digest" "modulos/trampas/$t/trampa.yaml" \
+            || { echo "modulos/trampas/$t/trampa.yaml does not name $repo:$etq@$digest" >&2; exit 1; }
+          echo "::endgroup::"
+
+      - name: Procedencia firmada de la trampa
+        if: steps.trampa.outputs.construida == 'si'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ steps.trampa.outputs.repo }}
+          subject-digest: ${{ steps.trampa.outputs.digest }}
+          push-to-registry: true
 
       - name: Confirmar los digests reales en los manifiestos
         id: confirmar

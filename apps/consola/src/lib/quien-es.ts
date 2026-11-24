@@ -15,6 +15,7 @@
  * honeypots ni la base.
  */
 import { agenteIaDe } from './agente-ia';
+import { OOB, clienteMcpDe, marcaDe, textoDelAtacante } from './quien-es-agentes';
 import {
 	HASSH,
 	huellaTlsDe,
@@ -68,6 +69,13 @@ const IA: Regla[] = [
 	[/browser-use|Stagehand|AgentQL/i, 'AI browser agent'],
 	/* Datadog lo vio en ataques reales contra AWS: artex-pentest/1.0, Mozilla/5.0 ARTeX… */
 	[/\bart[e3]x\b/i, 'ARTEX'],
+	/* Elastic lo vio en ataques de ARTEX (13-nov-2026): norma/0.4. */
+	[/^norma\/\d/i, 'ARTEX'],
+	/*
+	 * Agent Zero descarga documentos con el User-Agent por defecto de la librería de
+	 * mixedbread (helpers/network.py). Otras herramientas pueden usar el mismo: pista.
+	 */
+	[/^@mixedbread-ai\/unstructured$/i, 'Agent Zero?'],
 	/* El gestor de webshells de CyberStrikeAI: si llega, ya hay una webshell dentro. */
 	[/CyberStrikeAI-WebShell/i, 'CyberStrikeAI (webshell already planted)'],
 	/* CyberStrike y PentestCode repiten con su nombre a secas tras un reto de Cloudflare. */
@@ -186,9 +194,12 @@ const RUTAS_IA: Regla[] = [
  */
 /*
  * La página inventada que ARTEX pide para ver cómo responde el servidor a un 404
- * antes de lanzar el fuzzing (Datadog vio /zzz-nonexistent-xyz123).
+ * antes de lanzar el fuzzing (Datadog vio /zzz-nonexistent-xyz123, y en S3 las claves
+ * zzz_nonexistent_abc.txt y Notexist-xyz).
  */
-const PRUEBA_404_ARTEX = /zzz[-_]?non-?exist/i;
+/* Y las que da MalwareMustDie (MMD-072-2026): /zz-notexist-*, /artx-nonexistent, /artx2909-zzq7. */
+const PRUEBA_404_ARTEX =
+	/zzz[-_]?non-?exist|\/zz-notexist|artx-nonexistent|artx2909-zzq7|notexist-xyz/i;
 /* Lo mismo sin la marca de ARTEX: también lo hacen otros escáneres, por eso va detrás de ellos. */
 const PRUEBA_404 = /non-?existent|not-?exist/i;
 
@@ -400,7 +411,43 @@ function noEsNavegador(ja4: NonNullable<Tls['ja4']>): string | null {
 	return null;
 }
 
+/* Un framework de ataque con IA, por una marca que deja (quien-es-agentes.ts). */
+function porMarca(detalle: Record<string, unknown>, ua: string): Quien | null {
+	const hallada = marcaDe(ua, textoDelAtacante(detalle), clienteMcpDe(detalle));
+	if (!hallada) return null;
+	const { marca, visto } = hallada;
+	const duda = marca.agente.endsWith('?');
+	return {
+		clase: 'ia',
+		nombre: marca.agente,
+		motivo:
+			`It carries "${visto}", ${marca.que}. ` +
+			`${duda ? `${PISTA}: other tools can send it too.` : `${PISTA}: the mark can be copied.`}`
+	};
+}
+
+/* Una carga que llama a un dominio de pruebas a ciegas (interactsh, Burp Collaborator…). */
+function porOob(detalle: Record<string, unknown>): Quien | null {
+	const m = OOB.exec(textoDelAtacante(detalle));
+	if (!m) return null;
+	return {
+		clase: 'ataque',
+		nombre: 'Blind injection test',
+		motivo:
+			`It carries ${m[0].slice(0, 80)}, an out-of-band testing domain (interactsh, Burp Collaborator, dnslog): ` +
+			`a payload that calls that domain if it runs, used by AI attack agents and classic scanners alike.`
+	};
+}
+
 export function quienEs(detalle: Record<string, unknown> | null | undefined): Quien | null {
+	const q = quienEsBase(detalle);
+	/* La prueba a ciegas dice más que «un guion» o «un navegador», y menos que una herramienta con nombre. */
+	if (detalle && (!q || q.clase === 'programa' || q.clase === 'navegador'))
+		return porOob(detalle) ?? q;
+	return q;
+}
+
+function quienEsBase(detalle: Record<string, unknown> | null | undefined): Quien | null {
 	/* Lo que dice el honeypot va por delante de lo que diga el atacante de sí mismo. */
 	const dicho = agenteIaDe(detalle);
 	if (dicho) {
@@ -421,8 +468,13 @@ export function quienEs(detalle: Record<string, unknown> | null | undefined): Qu
 						? `The honeypot recognised ${herramienta} by how it behaves, not by what it says about itself.`
 						: `It behaves like ${herramienta}. ${PISTA}.`)
 			};
+		/* Una marca de un framework conocido le pone nombre al agente. */
+		const marca = detalle
+			? porMarca(detalle, texto(detalle.agente) || texto(detalle.user_agent))
+			: null;
+		if (marca) return marca;
 		/* El cliente MCP se presenta al hablar el protocolo (portal-agentes): da nombre al agente. */
-		const mcp = texto(detalle?.cliente_mcp).slice(0, 80);
+		const mcp = detalle ? clienteMcpDe(detalle) : '';
 		if (mcp)
 			return {
 				clase: 'ia',
@@ -444,6 +496,20 @@ export function quienEs(detalle: Record<string, unknown> | null | undefined): Qu
 	const ruta = (texto(detalle.ruta) || texto(detalle.path)).split('?')[0];
 	const tls = tlsDe(detalle);
 	const como = `It presents itself as "${ua.slice(0, 120)}"; that text is chosen by whoever connects.`;
+
+	const marca = porMarca(detalle, ua);
+	if (marca) return marca;
+	/*
+	 * La trampa mcp (H54) guarda el clientInfo pero no marca agente_ia: hablar MCP ya
+	 * dice que al otro lado hay un agente de IA o sus herramientas.
+	 */
+	const mcp = clienteMcpDe(detalle);
+	if (mcp)
+		return {
+			clase: 'ia',
+			nombre: mcp,
+			motivo: `It spoke the MCP protocol, which only AI agents and their tooling use, and introduced itself as "${mcp}"; that name is chosen by whoever connects.`
+		};
 
 	const cli = ua ? casa(CLI_IA, ua) : null;
 	if (cli && RUTA_SENSIBLE.test(ruta))

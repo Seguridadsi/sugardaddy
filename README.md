@@ -11,15 +11,44 @@ The console, the sensor, the updater and the SSH decoy (Cowrie) are open source
 and require no registration. With your confirmed email you enable, at no cost, more decoys
 (closed-source) and automatic updates.
 
+![The Sugardaddy console showing events from an SSH decoy](docs/img/console-events.png)
+
 ## Get started
 
-- **Install in your environment:** [docs/INSTALL.md](docs/INSTALL.md)
+You need an always-on **Linux x86_64 machine** (physical or virtual) with its own IP on the network
+you want to watch. On the machine:
+
+```bash
+git clone https://github.com/Seguridadsi/sugardaddy.git
+cd sugardaddy
+sudo despliegue/nodo/instalar.sh
+```
+
+A setup assistant checks the machine, asks four questions and shows a summary before it changes
+anything. When it finishes, open the console in your browser and sign in as `admin` with the
+one-time password it prints. **Local sign-in** (username and password on the node itself) is the
+default and needs no Microsoft or cloud account; you can add sign-in with your company's
+**Microsoft Entra ID** later.
+
+- **Step by step:** [docs/INSTALL.md](docs/INSTALL.md)
 - **Operate and maintain (deploy decoys, update, backups):**
   [docs/OPERATIONS.md](docs/OPERATIONS.md)
+- **What changed in each version:** [CHANGELOG.md](CHANGELOG.md)
 
-In short: an always-on **Linux machine with Docker** and its own IP on your network;
-the installer brings your console up, you sign in with your Microsoft Entra
-ID account, deploy decoys and see the events in the web UI.
+### Requirements
+
+|          |                                                                                                                    |
+| -------- | ------------------------------------------------------------------------------------------------------------------ |
+| Machine  | Linux on x86_64 (amd64), physical or a VM, always on. Ubuntu Server 22.04 or later, or Debian, is the easy path    |
+| Docker   | Docker Engine with the Compose plugin. On Ubuntu and Debian the installer installs it if it is missing             |
+| Memory   | 2 GB minimum; 4 GB or more if you run several decoys                                                               |
+| Disk     | 10 GB free where Docker keeps its images (`/var/lib/docker`)                                                       |
+| Network  | Its own IP on your endpoints' network, not behind NAT, so attackers can reach the decoys and you see their real IP |
+| Internet | Outbound HTTPS, to download images and updates. An outbound proxy is supported                                     |
+
+**Not supported for real use:** Docker Desktop, WSL and OrbStack. They hide the attacker's source
+IP, and OrbStack does not apply the network rule that keeps decoys from reaching each other. Use a
+Linux machine or VM with regular Docker.
 
 ## What a node is
 
@@ -62,15 +91,53 @@ never events, IPs or anything that happens on your decoys.
   risks we accept, in [THREATMODEL.md](THREATMODEL.md).
 - **Signed updates:** a node applies only versions signed by SeguridadSI, with every image pinned
   by digest. Keep the updater on.
+- **Check a version yourself:** `despliegue/nodo/verificar-version.sh` checks the signatures of
+  the latest version (`ultima-community.json`) against the keys in this repository, the same
+  check the updater makes, and lists the image digests it pins. With the GitHub CLI installed it
+  also checks that this repository's GitHub Action built each image. It needs `openssl` 3 and
+  `python3`, and changes nothing.
 - **Isolated decoys:** each decoy runs without capabilities, with a read-only filesystem and no
-  outbound access. The sensor itself runs without root and without the Docker socket.
-- **Console access:** restrict it to your admins' IPs in **Settings → Console access**. The
-  node's firewall enforces it.
-- **Separate machines:** for anything beyond a first test, put the decoys on remote sensors in
-  other networks and keep the console on a management network. An intruder who finds a decoy
-  should not be next to the console.
+  outbound access, and cannot reach the other decoys. The sensor itself runs without root and
+  without the Docker socket.
 - **The host is yours:** root or the Docker socket on the host is control of the node. Keep it
   minimal, patched and with few administrators.
+
+### What not to do
+
+- **Do not expose the console to the internet.** Restrict it to your admins' IPs in **Settings →
+  Console access** (the node's firewall enforces it) and reach it from your management network or
+  a VPN.
+- **Do not keep the console next to the decoys beyond a first test.** An intruder who finds a
+  decoy should not be one step from the console: put the decoys on remote sensors in other
+  networks and keep the console on a management network.
+- **Do not install it on a machine that does other work.** The node needs root on its host; a
+  shared server gives the node's administrators that server, and that server's administrators the
+  node.
+- **Do not turn the updater off.** Fixes reach nodes only through signed versions.
+
+## Versions and fixes
+
+Every version is listed, with what it changes, in [CHANGELOG.md](CHANGELOG.md). Fixes ship in the
+**latest version** only, and they keep coming for at least five years (see
+[SECURITY.md](SECURITY.md)): with the free registration the node installs each signed version by
+itself; without it, the console tells you when there is a new one and
+[docs/INSTALL.md](docs/INSTALL.md#update) shows how to update by hand. A node never installs a
+version older than the one it has.
+
+## Uninstall
+
+`sudo despliegue/nodo/desinstalar.sh` removes the node and everything it left on the machine:
+containers, decoys, networks, volumes, images, the decoy disks, the firewall rules it added, the
+AppArmor profile, the services it installed and its folders. It does not uninstall Docker.
+
+```bash
+sudo despliegue/nodo/desinstalar.sh --dry-run   # list what would go, change nothing
+sudo despliegue/nodo/desinstalar.sh             # remove it; asks you to type the folder to confirm
+```
+
+All the node's data goes with it. If you may want it back, make a backup first and keep it, with
+its key, off the machine (see [docs/OPERATIONS.md](docs/OPERATIONS.md)); `--keep-backups` leaves
+the backups folder in place.
 
 ## Security and contributions
 

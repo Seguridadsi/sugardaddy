@@ -1,9 +1,12 @@
 /*
  * El OIDC propio contra una base de datos de verdad: guardar (pendiente, con el
  * secreto cifrado), activar tras la prueba, la identidad con roles y MFA, y que
- * quitarlo no deje la consola sin entrada. DATABASE_URL; si no hay, se salta.
+ * quitarlo no deje la consola sin entrada (y cierre las sesiones que abrió).
+ * DATABASE_URL; si no hay, se salta.
  */
+import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import type { Cookies } from '@sveltejs/kit';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 try {
@@ -22,7 +25,8 @@ vi.mock('$app/environment', () => ({ building: false, dev: true }));
 
 const { db, schema: s } = hayBase ? await import('../db') : ({} as never);
 const oidc = hayBase ? await import('./oidc-propio') : ({} as never);
-const { eq } = await import('drizzle-orm');
+const sesion = hayBase ? await import('./sesion') : ({} as never);
+const { eq, like } = await import('drizzle-orm');
 
 const DATOS = {
 	emisor: 'https://idp.example.com/realms/banco/',
@@ -39,7 +43,29 @@ const vale = async () => ({});
 
 async function limpiar() {
 	await db.delete(s.ajustes).where(eq(s.ajustes.clave, oidc.AJUSTE_OIDC));
+	await db.delete(s.sesiones).where(like(s.sesiones.correo, 'zz-oidc-propio%'));
 }
+
+/* Una sesión abierta a mano y unas cookies que la llevan, para sesion.leer. */
+async function sesionAbierta(oid: string) {
+	const id = randomBytes(32).toString('base64url');
+	await db.insert(s.sesiones).values({
+		id: sesion.huella(id),
+		oid,
+		correo: `zz-oidc-propio-${oid}@example.com`,
+		nombre: oid,
+		roles: ['admin']
+	});
+	const m = new Map([[sesion.COOKIE_SESION, id]]);
+	const cookies = {
+		get: (n: string) => m.get(n),
+		set: (n: string, v: string) => void m.set(n, v),
+		delete: (n: string) => void m.delete(n)
+	} as unknown as Cookies;
+	return { huella: sesion.huella(id), cookies };
+}
+const cerrada = async (huella: string) =>
+	(await db.select().from(s.sesiones).where(eq(s.sesiones.id, huella)))[0].cerrada;
 
 describe.skipIf(!hayBase)('OIDC propio contra base de datos', () => {
 	const antes = { LOGIN_LOCAL: process.env.LOGIN_LOCAL, EDICION: process.env.EDICION };
@@ -123,5 +149,28 @@ describe.skipIf(!hayBase)('OIDC propio contra base de datos', () => {
 		process.env.LOGIN_LOCAL = '1';
 		expect((await oidc.quitarOidc('admin')).ok).toBe(true);
 		expect(await oidc.estadoOidc()).toBeNull();
+	});
+
+	it('quitarlo cierra las sesiones abiertas con él, salvo la de quien lo quita', async () => {
+		process.env.LOGIN_LOCAL = '1';
+		expect((await oidc.guardarOidc('admin', DATOS, vale)).ok).toBe(true);
+		await oidc.activarOidc('admin', 'admin@example.com');
+		const federada = await sesionAbierta('oidc:abcd1234:sub-1');
+		const otraFederada = await sesionAbierta('oidc:abcd1234:sub-2');
+		const local = await sesionAbierta('local:zz-oidc-admin');
+		const saml = await sesionAbierta('saml:eeff5678:nameid-1');
+		/* Con el proveedor puesto, la sesión federada vale. */
+		expect(await sesion.leer(federada.cookies)).toMatchObject({ oid: 'oidc:abcd1234:sub-1' });
+
+		expect((await oidc.quitarOidc('admin', otraFederada.huella)).ok).toBe(true);
+		expect(await cerrada(federada.huella)).toBeInstanceOf(Date);
+		expect(await cerrada(local.huella)).toBeNull();
+		expect(await cerrada(saml.huella)).toBeNull();
+		expect(await sesion.leer(federada.cookies)).toBeNull();
+		/* La de quien lo quita no se cierra al quitarlo, pero tampoco vale ya: sin proveedor no hay sesión oidc. */
+		expect(await cerrada(otraFederada.huella)).toBeNull();
+		expect(await sesion.leer(otraFederada.cookies)).toBeNull();
+		expect(await cerrada(otraFederada.huella)).toBeInstanceOf(Date);
+		expect(await sesion.leer(saml.cookies)).toMatchObject({ oid: 'saml:eeff5678:nameid-1' });
 	});
 });

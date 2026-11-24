@@ -22,7 +22,7 @@
     "licencia": "BSD-3-Clause"
   },
   "contenedor": {
-    "imagen": "ghcr.io/seguridadsi/sugardaddy-trampa-cowrie:3.1.2-sd11@sha256:dff073b714e9a3e6a37bc456d527944b3184cfcb59c561f61a1850b495de59a2",
+    "imagen": "ghcr.io/seguridadsi/sugardaddy-trampa-cowrie:3.1.2-sd13@sha256:afbd0d034aa4708554c10284bdb65863534b441d3a6e583795d0bf773174d42a",
     "puertos": [
       {
         "interno": 2222,

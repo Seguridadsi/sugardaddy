@@ -2,6 +2,7 @@
 	import CopiarTexto from '$lib/components/CopiarTexto.svelte';
 	import DireccionesSensor from '$lib/components/DireccionesSensor.svelte';
 	import Pestanas from '$lib/components/Pestanas.svelte';
+	import SaludSensores from '$lib/components/SaludSensores.svelte';
 	import { pestanaDe } from '$lib/pestanas';
 	import { enhance } from '$app/forms';
 	import { sinVaciar } from '$lib/guardar';
@@ -20,6 +21,7 @@
 	/* Lo que hay por un lado y dar de alta por otro: nunca uno debajo del otro. */
 	const PESTANAS = $derived([
 		{ id: 'sensors', texto: 'Sensors' },
+		{ id: 'health', texto: 'Health' },
 		...(data.community ? [] : [{ id: 'targets', texto: 'Targets without a sensor' }]),
 		...(data.cuarentena.length ? [{ id: 'quarantine', texto: 'Quarantine' }] : []),
 		...(admin ? [{ id: 'install', texto: 'Install a remote sensor' }] : [])
@@ -85,6 +87,15 @@
 {#if form?.error}<p class="error" role="alert">{form.error}</p>{/if}
 
 <Pestanas pestanas={PESTANAS} actual={pestana} etiqueta="Sensor sections" />
+
+{#if pestana === 'health' && data.salud}
+	<SaludSensores
+		salud={data.salud}
+		sensores={data.sensores}
+		ahora={data.ahora}
+		community={data.community}
+	/>
+{/if}
 
 {#if data.sinCertificado && pestana === 'sensors'}
 	<p class="aviso-mtls" role="status">

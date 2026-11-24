@@ -33,6 +33,7 @@ import { eq, inArray, lt, or, sql } from 'drizzle-orm';
 import { db, schema as s } from './db';
 import { auditar } from './consultas';
 import { CREDENCIAL_CADUCADA } from './credenciales-protegidas';
+import { podarSalud } from './salud-maquina';
 
 export const DIAS_POR_DEFECTO = 365;
 export const DIAS_MINIMO = 30;
@@ -315,6 +316,8 @@ export async function purgar(ahora = new Date()) {
 	const listas = await borrarListasVencidasAntesDe(ahora);
 	if (listas) await auditar('node', 'expired list entries deleted', { entradas: listas });
 	await borrarSesionesMuertas(ahora);
+	/* La salud de los sensores (salud-maquina.ts): 7 días, al margen del plazo de los eventos. */
+	await podarSalud(ahora.getTime());
 	const c = await conservacion(ahora);
 	const cc = await conservacionCredenciales(ahora);
 	const limiteCred = limiteDeCredenciales(cc, c, ahora);

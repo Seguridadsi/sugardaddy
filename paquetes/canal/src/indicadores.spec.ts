@@ -5,6 +5,8 @@ import {
 	firmarLista,
 	firmarListaTor,
 	generarClaves,
+	MAXIMO_PAISES_SENSOR,
+	sensoresValidos,
 	verificarLista,
 	verificarListaTor
 } from './index.ts';
@@ -214,5 +216,39 @@ describe('los agentes de IA de un indicador', () => {
 		expect(agentesValidos(['ARTEX?', 'ARTEX', 'ARTEX'])).toEqual(['ARTEX', 'ARTEX?']);
 		expect(agentesValidos(['GPTBot', 'my-agent "x"', 7, null, ''])).toEqual([]);
 		expect(agentesValidos('ARTEX')).toEqual([]);
+	});
+});
+
+describe('sensoresValidos', () => {
+	it('suma por país, descarta lo malformado y no pasa del total del indicador', () => {
+		expect(
+			sensoresValidos(
+				[
+					{ pais: 'FR', eventos: 4, modulos: ['redis'] },
+					{ pais: 'US', eventos: 3, modulos: ['rdp', 'MAL'] },
+					{ pais: 'FR', eventos: 2, modulos: ['vnc'] },
+					{ pais: 'fr', eventos: 1 },
+					{ pais: 'ES', eventos: 0 },
+					{ pais: 'DE', eventos: 1.5 },
+					'US',
+					null
+				],
+				8
+			)
+		).toEqual([
+			{ pais: 'FR', eventos: 6, modulos: ['redis', 'vnc'] },
+			{ pais: 'US', eventos: 2, modulos: ['rdp'] }
+		]);
+	});
+	it('sin lista, nada', () => {
+		expect(sensoresValidos(undefined, 5)).toEqual([]);
+		expect(sensoresValidos({ pais: 'FR', eventos: 1 }, 5)).toEqual([]);
+	});
+	it('como mucho 20 países', () => {
+		const muchos = Array.from({ length: 30 }, (_, i) => ({
+			pais: String.fromCharCode(65 + Math.floor(i / 26), 65 + (i % 26)),
+			eventos: 1
+		}));
+		expect(sensoresValidos(muchos, 100)).toHaveLength(MAXIMO_PAISES_SENSOR);
 	});
 });

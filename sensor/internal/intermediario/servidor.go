@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -156,6 +157,11 @@ func (s *Servidor) decidir(w http.ResponseWriter, r *http.Request, ruta string) 
 		}
 		if err := s.esNuestro(r.Context(), g[1], w); err != nil {
 			return err
+		}
+		if accion == "start" {
+			if err := s.revalidarMontajes(r.Context(), g[1]); err != nil {
+				return err
+			}
 		}
 	case m == http.MethodPost && ruta == "/images/create":
 		if err := ValidarImagen(r.URL.Query().Get("fromImage")); err != nil {
@@ -313,6 +319,46 @@ func (s *Servidor) esNuestro(ctx context.Context, id string, w http.ResponseWrit
 	}
 	if !EtiquetasNuestras(et) {
 		return rechazar("container %q is not the sensor's", recortar(id, 40))
+	}
+	return nil
+}
+
+// revalidarMontajes: Docker resuelve el origen de los binds (y la carpeta de los
+// volúmenes de disco) al arrancar el contenedor, no al crearlo, y entre una cosa y
+// otra el sensor puede cambiar una carpeta suya por un enlace. Al arrancar se miran
+// otra vez, con la misma regla que al crear (sinEnlaceFuera).
+func (s *Servidor) revalidarMontajes(ctx context.Context, id string) error {
+	var c struct {
+		HostConfig struct {
+			Mounts []struct {
+				Type          string `json:"Type"`
+				Source        string `json:"Source"`
+				VolumeOptions *struct {
+					DriverConfig *struct {
+						Options map[string]string `json:"Options"`
+					} `json:"DriverConfig"`
+				} `json:"VolumeOptions"`
+			} `json:"Mounts"`
+		} `json:"HostConfig"`
+	}
+	if _, err := s.pedir(ctx, http.MethodGet, "/containers/"+url.PathEscape(id)+"/json", &c); err != nil {
+		return err
+	}
+	datos := filepath.Clean(s.Reglas.Datos)
+	for _, m := range c.HostConfig.Mounts {
+		ruta := ""
+		switch {
+		case m.Type == "bind":
+			ruta = m.Source
+		case m.Type == "volume" && m.VolumeOptions != nil && m.VolumeOptions.DriverConfig != nil:
+			ruta = m.VolumeOptions.DriverConfig.Options["device"]
+		}
+		if ruta == "" {
+			continue
+		}
+		if err := sinEnlaceFuera(ruta, datos); err != nil {
+			return err
+		}
 	}
 	return nil
 }

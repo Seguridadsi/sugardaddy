@@ -13,8 +13,9 @@ there. Everything happens on your machine; **no event is sent to SeguridadSI**.
 
 ## 1. What you need
 
-- **A Linux machine** (for example Ubuntu Server 22.04 or later), physical or
-  a virtual machine of your own, **always on**.
+- **A Linux x86_64 (amd64) machine** (for example Ubuntu Server 22.04 or later), physical
+  or a virtual machine of your own, **always on**, with at least **2 GB of memory** (4 GB or
+  more for several decoys) and **10 GB free** where Docker keeps its images.
 - **Docker** and **Docker Compose** installed (`docker --version`,
   `docker compose version`). The commands below use `sudo`; if you'd rather not
   type it every time, add your user to the docker group once
@@ -230,16 +231,33 @@ and install again (it doesn't touch your data):
 sudo rm /opt/sugardaddy/versiones.env
 ```
 
-If you want to **start from scratch** (this deletes the node, its containers and ALL its
-data, with no way back):
+If you want to **start from scratch**, uninstall the node (this deletes it and ALL its
+data, with no way back) and install again as in step 4:
 
 ```bash
-cd /opt/sugardaddy && sudo docker compose -p sugardaddy down -v
-sudo docker ps -aq --filter name=sd-local- | xargs -r sudo docker rm -f
-sudo rm -rf /opt/sugardaddy
+sudo despliegue/nodo/desinstalar.sh
 ```
 
-Then install again as in step 4.
+## Uninstall
+
+`despliegue/nodo/desinstalar.sh` removes the node and everything the installer and the sensor
+left on the machine: the containers (console, sensor, updater, database, decoys, probes), their
+networks and volumes, the node's images and the database and web server images it pulled, the
+decoy disks, the firewall rules it added (chains `SD-CONSOLA` and `SD-TRAMPAS`, and the strict
+host firewall's `inet sugardaddy` table if you turned it on), the AppArmor profile `sugardaddy-trampa`, the systemd units and cron entry for the
+decoy disks and the nightly backups, the outbound proxy settings, and the folders
+`/opt/sugardaddy`, `/var/lib/sugardaddy` and `/usr/local/lib/sugardaddy`. It does not uninstall
+Docker, and it touches nothing that is not Sugardaddy's. If you built the images from source,
+the base images the build pulled stay; `sudo docker image prune -a` removes them.
+
+```bash
+sudo despliegue/nodo/desinstalar.sh --dry-run   # list what would go, change nothing
+sudo despliegue/nodo/desinstalar.sh             # remove it; asks you to type the folder
+```
+
+Options: a different node folder as the first argument, `--yes` for unattended runs and
+`--keep-backups` to leave `/opt/sugardaddy/copias` in place. Make a backup first if you may want
+the data back (see [OPERATIONS.md](OPERATIONS.md)).
 
 ## What is included and what is not
 
@@ -249,8 +267,8 @@ SSH decoy and viewing events in your console's web UI.
 **With your free registration:** additionally, SMB, RDP, Redis, web login, DNS/NTP, printer,
 SSH tarpit and web tarpit, plus automatic updates. These are closed-source decoys:
 they are not in the repository and don't start without a signed license. You enable them
-under **Settings → Free registration**: you enter your email, open the link you receive,
-get an activation code and paste it there. The license lasts a year and the node renews it itself.
+under **Settings → Free registration**: you enter your email, then type in the code you
+receive by email and accept the terms. The license lasts a year and the node renews it itself.
 If it stops renewing, those decoys stop and the console tells you how to fix it; the SSH
 decoy and the rest of the node carry on as before.
 
@@ -263,11 +281,27 @@ also reach you wherever you work. [Talk to SeguridadSI](https://www.seguridadsi.
 
 ## Build the images yourself
 
-Everything is **reproducible** from the repository's source, without depending on any
-registry or any SeguridadSI infrastructure. The node's three images
+Everything can be **built from the repository's source**, without depending on any
+registry or any SeguridadSI infrastructure. The builds are not bit-for-bit reproducible (see
+Risk-05 in the [threat model](https://github.com/Seguridadsi/sugardaddy/blob/main/THREATMODEL.md)): to check what we publish, use the signed
+provenance below. The node's three images
 are built by `despliegue/nodo/construir-imagenes-local.sh` (that is step 4). The SSH
 decoy is also built from its source (`modulos/trampas/cowrie/imagen/`). The
 registration decoys are closed-source images: they are downloaded from ghcr.io.
+
+### Check that a version is signed
+
+`despliegue/nodo/verificar-version.sh` checks the signatures of `ultima-community.json`, the
+signed version nodes install, against the publication keys in this repository
+(`despliegue/nodo/PUBLICACION_CLAVES` and `PUBLICACION_CLAVE_PUBLICA`), the same check the
+updater makes. It prints which key made each signature and the image digests the version pins,
+and, with the GitHub CLI installed and signed in, runs the provenance check below on each image.
+It needs `openssl` 3 and `python3` and changes nothing:
+
+```bash
+git pull
+despliegue/nodo/verificar-version.sh
+```
 
 ### Check where the published images come from
 
@@ -284,9 +318,11 @@ gh attestation verify oci://ghcr.io/seguridadsi/sugardaddy-consola@sha256:… \
   --source-ref refs/heads/main
 ```
 
-Do the same with `sugardaddy-sensor` and `sugardaddy-actualizador`. SeguridadSI runs this
+Do the same with `sugardaddy-sensor` and `sugardaddy-actualizador`, and with the open-source
+decoy images (`sugardaddy-trampa-cowrie`, digest in its `trampa.yaml`). SeguridadSI runs this
 check before it signs a Community version: it does not sign one if an image has no
-attestation, or if the three images come from different commits.
+attestation, if the three node images come from different commits, or if a decoy image was
+built from a commit that is not part of the signed one.
 
 ## If something fails
 

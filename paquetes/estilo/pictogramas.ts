@@ -118,6 +118,8 @@ const TIPO_DE_TRAMPA: Record<string, TipoDeServicio> = {
 	/* Servicio de certificados de AD (H111): inscripción web que imita AD CS */
 	'certificados-ad': 'directorio',
 	'controlador-dominio': 'directorio',
+	/* Servidor WSUS falso (H127): servicios web de Windows Update sobre IIS */
+	wsus: 'directorio',
 	bmc: 'directorio',
 	/* Certificado .pfx sembrado (H88): no corre servicio, su CDP es una baliza del relé */
 	'certificado-cebo': 'directorio',

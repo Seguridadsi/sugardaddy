@@ -82,6 +82,15 @@ export async function abrir(cookies: Cookies, identidad: Identidad, factor: stri
 	return id;
 }
 
+/* ¿Sigue configurado el OIDC propio? Es la clave AJUSTE_OIDC de oidc-propio.ts. */
+async function proveedorOidc() {
+	const [f] = await db
+		.select({ clave: s.ajustes.clave })
+		.from(s.ajustes)
+		.where(eq(s.ajustes.clave, 'oidc_propio'));
+	return !!f;
+}
+
 export async function leer(cookies: Cookies, ahora = Date.now()) {
 	const c = idDeCookie(cookies);
 	if (!c) {
@@ -101,6 +110,20 @@ export async function leer(cookies: Cookies, ahora = Date.now()) {
 			)
 		);
 	const emergencia = !!fila?.oid.startsWith('emergencia:');
+	/*
+	 * Una sesión abierta con el OIDC propio vale mientras ese proveedor siga
+	 * configurado: si se quita, se acaba (auditoría 2026-11-23 §4.7). quitarOidc ya
+	 * las cierra; esto cubre lo que se le escape (un borrado a mano, una carrera).
+	 * Se lee el ajuste directamente para no importar oidc-propio.ts aquí.
+	 */
+	if (fila?.oid.startsWith('oidc:') && !(await proveedorOidc())) {
+		await db
+			.update(s.sesiones)
+			.set({ cerrada: new Date(ahora) })
+			.where(eq(s.sesiones.id, id));
+		quitarCookies(cookies);
+		return null;
+	}
 	/* Una sesión de soporte vale lo que dure el soporte: si el cliente lo cierra, se acaba. */
 	if (
 		!fila ||

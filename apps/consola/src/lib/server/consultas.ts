@@ -33,6 +33,7 @@ import { geo, type Geo } from './geo';
 import { descifrar } from './secretos';
 import { ipsTor } from './tor';
 import { panelesDe, type PanelAtaque } from './paneles-ataque';
+import { informeDe, type Informe } from './agentes-ataque/listas';
 import type { CriterioTriaje } from './triaje-auto';
 
 export const SEVERIDADES = ['baja', 'media', 'alta', 'critica'] as const;
@@ -1336,16 +1337,23 @@ export async function modificarTrampa(
 /* Para pintar junto a cada evento de dónde viene su IP (solo las públicas). */
 export async function geoDe(
 	eventos: Evento[]
-): Promise<Record<string, Geo & { tor: boolean; panel?: PanelAtaque }>> {
+): Promise<Record<string, Geo & { tor: boolean; panel?: PanelAtaque; informe?: Informe }>> {
 	const tor = await ipsTor();
 	/* Si la IP aloja el panel de un agente de IA de ataque (paneles-ataque.ts): una pista. */
 	const paneles = panelesDe(eventos.flatMap((e) => (e.origen.ip ? [e.origen.ip] : [])));
-	const r: Record<string, Geo & { tor: boolean; panel?: PanelAtaque }> = {};
+	const r: Record<string, Geo & { tor: boolean; panel?: PanelAtaque; informe?: Informe }> = {};
 	for (const e of eventos) {
 		const g = e.origen.ip ? geo(e.origen.ip) : null;
 		const panel = e.origen.ip ? paneles.get(e.origen.ip) : undefined;
+		/* Un informe público ata la IP a un agente de IA de ataque (agentes-ataque/listas.ts). */
+		const informe = e.origen.ip ? informeDe(e.origen.ip) : null;
 		if (g && e.origen.ip)
-			r[e.origen.ip] = { ...g, tor: tor.has(e.origen.ip), ...(panel ? { panel } : {}) };
+			r[e.origen.ip] = {
+				...g,
+				tor: tor.has(e.origen.ip),
+				...(panel ? { panel } : {}),
+				...(informe ? { informe } : {})
+			};
 	}
 	return r;
 }

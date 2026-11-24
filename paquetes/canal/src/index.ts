@@ -945,7 +945,54 @@ export type Latido = {
 	 * todos sus sensores y en cuántos pasó. Opcional. No va en el mínimo.
 	 */
 	entrega?: LatidoEntrega;
+	/*
+	 * La salud de las máquinas de sus sensores (docs/diseno/salud.md): lo peor de todas,
+	 * de 0 a 1, cuántos sensores han mandado muestra en los últimos 10 minutos, cuántas
+	 * trampas no corren y cuántos avisos de máquina o de trampa hay abiertos. Solo números.
+	 * Opcional: los nodos anteriores no lo mandan. No va en el mínimo.
+	 */
+	salud?: LatidoSalud;
 };
+
+export type LatidoSalud = {
+	sensores: number;
+	disco: number | null;
+	memoria: number | null;
+	cpu: number | null;
+	trampasParadas: number;
+	avisos: number;
+};
+
+const FRACCION = (n: unknown): number | null | undefined =>
+	n === null
+		? null
+		: typeof n === 'number' && Number.isFinite(n) && n >= 0 && n <= 1
+			? Math.round(n * 1000) / 1000
+			: undefined;
+
+/* Lo que el panel acepta de la salud del latido: mal formada, se ignora. */
+export function leerSaludLatido(x: unknown): LatidoSalud | undefined {
+	if (!x || typeof x !== 'object') return undefined;
+	const m = x as Record<string, unknown>;
+	const disco = FRACCION(m.disco);
+	const memoria = FRACCION(m.memoria);
+	const cpu = FRACCION(m.cpu);
+	if (disco === undefined || memoria === undefined || cpu === undefined) return undefined;
+	if (
+		!ENTERO_LATIDO(m.sensores, 100_000) ||
+		!ENTERO_LATIDO(m.trampasParadas, 100_000) ||
+		!ENTERO_LATIDO(m.avisos, 100_000)
+	)
+		return undefined;
+	return {
+		sensores: m.sensores,
+		disco,
+		memoria,
+		cpu,
+		trampasParadas: m.trampasParadas,
+		avisos: m.avisos
+	};
+}
 
 export type LatidoIntegridad = { comprobado: string; desviaciones: number };
 export type LatidoEntrega = { apartadas: number; sensores: number };

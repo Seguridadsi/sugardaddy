@@ -3,6 +3,7 @@ package consola
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -179,6 +180,25 @@ func TestEntregarDistingueElFalloDeLaConsola(t *testing.T) {
 		srv.Close()
 		if err == nil || errors.Is(err, ErrFalloConsola) != fallo {
 			t.Errorf("%d: err %v, ErrFalloConsola esperado %v", codigo, err, fallo)
+		}
+	}
+}
+
+// §4.11 (auditoría 2026-11-23): las aceptadas fuera de [0, len(lineas)] son una
+// respuesta rota (error normal, sin pánico ni ErrFalloConsola); dentro, valen.
+func TestEntregarRechazaAceptadasImposibles(t *testing.T) {
+	lineas := [][]byte{[]byte("{}"), []byte("{}"), []byte("{}")}
+	for aceptadas, vale := range map[int]bool{-1: false, 0: true, 3: true, 4: false, 999999: false, -1 << 40: false} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			fmt.Fprintf(w, `{"ok":true,"aceptadas":%d}`, aceptadas)
+		}))
+		r, err := Nuevo(srv.URL, "t").Entregar(context.Background(), lineas)
+		srv.Close()
+		if vale && (err != nil || r.Aceptadas != aceptadas) {
+			t.Errorf("%d: err %v, aceptadas %d", aceptadas, err, r.Aceptadas)
+		}
+		if !vale && (err == nil || errors.Is(err, ErrFalloConsola) || r.Aceptadas != 0) {
+			t.Errorf("%d: quería un error normal y nada aceptado; err %v, aceptadas %d", aceptadas, err, r.Aceptadas)
 		}
 	}
 }

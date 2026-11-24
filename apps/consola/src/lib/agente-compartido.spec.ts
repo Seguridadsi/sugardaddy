@@ -33,3 +33,16 @@ describe('el agente de IA que se comparte', () => {
 		expect(agenteCompartido(null)).toBeNull();
 	});
 });
+
+describe('los frameworks nuevos se comparten con su nombre', () => {
+	it.each([
+		[{ ruta: '/?q=hexstrikeXSSTest123' }, 'HexStrike'],
+		[{ agente: '@mixedbread-ai/unstructured', ruta: '/' }, 'Agent Zero?'],
+		[{ agente: 'norma/0.4', ruta: '/' }, 'ARTEX'],
+		[{ input: 'export HERMES_YOLO_MODE=1' }, 'Hermes Agent'],
+		[{ ruta: '/a/xalgorix-missing-1/x' }, 'Xalgorix'],
+		[{ clientinfo: '{"name":"some-agent","version":"1"}' }, 'AI agent']
+	])('%o', (detalle, nombre) => {
+		expect(agenteCompartido(detalle)).toBe(nombre);
+	});
+});

@@ -141,6 +141,28 @@ func (c *Cliente) Informar(ctx context.Context, estados, motor any, hechos map[s
 	return nil
 }
 
+// ErrSinSalud: la consola es anterior a la pestaña «Health» y no sabe
+// recibir la salud del sensor (docs/diseno/salud.md).
+var ErrSinSalud = errors.New("the console does not take health samples")
+
+// InformarSalud manda a la consola la muestra de salud de la máquina y las
+// trampas del sensor.
+func (c *Cliente) InformarSalud(ctx context.Context, muestra any) error {
+	b, _ := json.Marshal(muestra)
+	resp, err := c.peticion(ctx, http.MethodPost, "/api/sensor/salud", "application/json", b)
+	if err != nil {
+		return err
+	}
+	resp.Body.Close()
+	switch resp.StatusCode {
+	case http.StatusOK:
+		return nil
+	case http.StatusNotFound, http.StatusMethodNotAllowed:
+		return ErrSinSalud
+	}
+	return fmt.Errorf("health: %d", resp.StatusCode)
+}
+
 // ErrDemasiadoGrande: la consola no admite una entrega de ese tamaño. Se
 // reintenta con menos líneas, nunca con las mismas.
 var ErrDemasiadoGrande = errors.New("delivery too large for the console")
@@ -188,7 +210,19 @@ func (c *Cliente) Entregar(ctx context.Context, lineas [][]byte) (Recepcion, err
 		}
 		return r, fmt.Errorf("events: %d %s", resp.StatusCode, b)
 	}
-	return r, json.NewDecoder(io.LimitReader(resp.Body, topeRespuesta)).Decode(&r)
+	if err := json.NewDecoder(io.LimitReader(resp.Body, topeRespuesta)).Decode(&r); err != nil {
+		return r, err
+	}
+	// Las aceptadas son un índice del lote: una consola tomada o rota no puede
+	// mandar una cifra fuera de [0, len(lineas)] y tumbar al sensor con un
+	// slice fuera de rango, ni correr lo entregado más allá de la cola
+	// (auditoría 2026-11-23 §4.11). Es una respuesta rota como cualquier otra:
+	// error normal (se reintenta con pausa), no ErrFalloConsola, que partiría el
+	// lote y podría acabar apartando líneas que no tienen la culpa.
+	if r.Aceptadas < 0 || r.Aceptadas > len(lineas) {
+		return Recepcion{}, fmt.Errorf("events: the console answered %d accepted lines for a delivery of %d", r.Aceptadas, len(lineas))
+	}
+	return r, nil
 }
 
 // ErrArtefactoRechazado: la consola no quiere esta copia y NO hay que

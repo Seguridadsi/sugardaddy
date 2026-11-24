@@ -15,7 +15,13 @@
 		'salud.sensor-sin-latido': 'Sensor not responding',
 		'salud.silencio': 'Sensor silent',
 		'salud.trampa-caida': 'Honeypot not working properly',
-		'salud.trampa-parada': 'Honeypot stopped'
+		'salud.trampa-parada': 'Honeypot stopped',
+		'salud.disco-casi-lleno': 'Sensor disk almost full',
+		'salud.disco-lleno': 'Sensor disk full',
+		'salud.memoria': 'Sensor out of memory',
+		'salud.cpu': 'Sensor at full CPU',
+		'salud.trampa-reinicios': 'Honeypot restarting',
+		'salud.trampa-callada': 'Honeypot gone quiet'
 	};
 </script>
 

@@ -621,9 +621,9 @@ export const actions = {
 		}
 		redirect(303, '/settings?tab=access&oidc=guardado#oidc');
 	},
-	oidcQuitar: async ({ locals }) => {
+	oidcQuitar: async ({ locals, cookies }) => {
 		const u = exigir(locals, 'ajustes');
-		const r = await quitarOidc(u.correo);
+		const r = await quitarOidc(u.correo, sesionActual(cookies));
 		if (!r.ok) return fail(400, { oidcError: r.error });
 		redirect(303, '/settings?tab=access#oidc');
 	},

@@ -383,13 +383,13 @@ func TestRegistroDeTrampa(t *testing.T) {
 	r := reglasPrueba()
 	for _, bien := range []string{datosPrueba + "/registros/cache-1/redis.jsonl", datosPrueba + "/registros/cowrie/log/cowrie.json",
 		datosPrueba + "/discos/cache-1/registros/redis.jsonl"} {
-		if err := r.RegistroDeTrampa(bien); err != nil {
+		if _, err := r.RegistroDeTrampa(bien); err != nil {
 			t.Errorf("%s: %v", bien, err)
 		}
 	}
 	for _, mal := range []string{"/etc/shadow", datosPrueba + "/estado.json", datosPrueba + "/registros/x", datosPrueba + "/registros/../estado.json",
 		datosPrueba + "/discos/cache-1/escribible-0/x", datosPrueba + "/config/cache-1/0", "relativa/registros/a/b", datosPrueba + "/registros/../../../etc/passwd"} {
-		if err := r.RegistroDeTrampa(mal); err == nil {
+		if _, err := r.RegistroDeTrampa(mal); err == nil {
 			t.Errorf("%s: tenía que rechazarse", mal)
 		}
 	}

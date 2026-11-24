@@ -53,7 +53,50 @@ export type IndicadorSubida = {
 	 * panel deduce lo que puede de sus módulos.
 	 */
 	tecnicas?: string[];
+	/*
+	 * En qué país están los sensores que la vieron, con sus eventos y módulos: solo para el
+	 * mapa público, que enseña dónde escucha la red. Lo calcula la consola con la IP desde la
+	 * que le llega cada sensor remoto; esa IP no sale, solo el país. Lo de los sensores sin
+	 * país (el local, los de red privada) no va aquí: el panel lo pone en el país desde el que
+	 * llama la consola. Opcional: los nodos anteriores no lo mandan.
+	 */
+	sensores?: SensorDeIndicador[];
 };
+
+export type SensorDeIndicador = { pais: string; eventos: number; modulos?: string[] };
+
+export const MAXIMO_PAISES_SENSOR = 20;
+const PAIS = /^[A-Z]{2}$/;
+
+/*
+ * Los países de sensor que se aceptan: código ISO de dos letras, eventos enteros positivos,
+ * sin repetir país (se suman) y como mucho 20. La suma no pasa de `total`, los eventos del
+ * indicador: lo que sobra se recorta, para que nadie infle el mapa por aquí.
+ */
+export function sensoresValidos(x: unknown, total: number): SensorDeIndicador[] {
+	if (!Array.isArray(x)) return [];
+	const por = new Map<string, { eventos: number; modulos: Set<string> }>();
+	for (const e of x) {
+		if (!e || typeof e !== 'object') continue;
+		const { pais, eventos, modulos } = e as Record<string, unknown>;
+		if (typeof pais !== 'string' || !PAIS.test(pais)) continue;
+		if (typeof eventos !== 'number' || !Number.isInteger(eventos) || eventos < 1) continue;
+		const v = por.get(pais) ?? { eventos: 0, modulos: new Set<string>() };
+		v.eventos += eventos;
+		for (const m of modulosValidos(modulos)) v.modulos.add(m);
+		por.set(pais, v);
+	}
+	let queda = Math.max(0, Math.floor(total));
+	const r: SensorDeIndicador[] = [];
+	for (const [pais, v] of [...por].sort(([a], [b]) => a.localeCompare(b))) {
+		if (r.length >= MAXIMO_PAISES_SENSOR || queda < 1) break;
+		const eventos = Math.min(v.eventos, queda);
+		queda -= eventos;
+		const modulos = modulosValidos([...v.modulos]);
+		r.push({ pais, eventos, ...(modulos.length ? { modulos } : {}) });
+	}
+	return r;
+}
 
 /* El vocabulario cerrado de agentes que se comparten. Los rastreadores de IA (GPTBot…) no. */
 export const AGENTES_IA = [
@@ -71,7 +114,29 @@ export const AGENTES_IA = [
 	'RedAmon',
 	'CAI?',
 	'Claude Code',
-	'Gemini CLI'
+	'Gemini CLI',
+	/* Los de ThreatDefence agentic-attack-detections (quien-es-agentes.ts en la consola). */
+	'AntiFox',
+	'PentAGI',
+	'Cairn',
+	'Strix',
+	'Hermes Agent',
+	'Hermes Agent?',
+	'Xalgorix',
+	'Pentest Swarm',
+	'Pentest Swarm?',
+	'Agent Zero?',
+	/* Los del informe de GitGuardian (quien-es-agentes.ts en la consola). */
+	'Cybermes',
+	'FORANG',
+	'ycode',
+	'cyber-harness',
+	'T3MP3ST',
+	'Pensar Apex',
+	'LuaN1aoAgent',
+	'AIRecon?',
+	'Incalmo',
+	'virga'
 ] as const;
 const AGENTES = new Set<string>(AGENTES_IA);
 

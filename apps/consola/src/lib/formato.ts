@@ -146,6 +146,14 @@ export type Geo = {
 	tor?: boolean;
 	/* La IP aloja el panel de un agente de IA de ataque (server/paneles-ataque.ts): una pista. */
 	panel?: { agente: string; version: string | null; visto: string | null };
+	/* Un informe público ata la IP a un agente de IA de ataque (server/agentes-ataque/listas.ts). */
+	informe?: {
+		agentes: string[];
+		actor: string;
+		fuente: string;
+		reportado: string | null;
+		confianza: string;
+	};
 };
 
 /* Las comunidades y ciudades autónomas, por su código de ISO 3166-2:ES. */

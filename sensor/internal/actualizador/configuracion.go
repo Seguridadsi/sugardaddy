@@ -395,8 +395,17 @@ func (a *Aplicacion) escribirYLevantar(ctx context.Context, r Release, c *Config
 	if a.Modo == ModoSensorRemoto {
 		montado = "ca-consola.crt"
 	}
-	if _, err := os.Stat(a.ruta(montado)); errors.Is(err, os.ErrNotExist) {
+	// Es una raíz pública y la lee el sensor, que no es root (65532): 0644 siempre. Una
+	// instalación con umask 077 la dejaba en 0600 y el sensor no arrancaba («open
+	// /ca/consola.crt: permission denied»); así se cura también con la versión siguiente.
+	// Con Lstat: un enlace (a .env, por ejemplo) no se sigue ni se toca aquí; lo sustituye
+	// el paso de la raíz (escribirEnSuSitio).
+	if fi, err := os.Lstat(a.ruta(montado)); errors.Is(err, os.ErrNotExist) {
 		if err := os.WriteFile(a.ruta(montado), nil, 0o644); err != nil {
+			return "", err
+		}
+	} else if err == nil && fi.Mode().IsRegular() && fi.Mode().Perm() != 0o644 {
+		if err := os.Chmod(a.ruta(montado), 0o644); err != nil {
 			return "", err
 		}
 	}

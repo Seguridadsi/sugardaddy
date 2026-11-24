@@ -298,6 +298,37 @@ describe('pruebasDe', () => {
 		expect(de(mcp('svc_mcpc7qoi4s1'), T, a)).toEqual([]);
 		expect(de(mcp('otra'), T, a)).toEqual([]);
 	});
+
+	it('los demás eventos de la sesión de una prueba con marca también son de la prueba', () => {
+		const a = [abierta({ marca: { campo: 'detalle.password', igual: 'sdpruebaabcd1234' } })];
+		const conectar = evento({
+			accion: 'conexion',
+			origen: { ip: '10.40.0.9' },
+			detalle: { session: 's1' }
+		});
+		const login = evento({ detalle: { session: 's1', password: 'sdpruebaabcd1234' } });
+		const otraSesion = evento({
+			accion: 'conexion',
+			origen: { ip: '10.40.0.9' },
+			detalle: { session: 's2' }
+		});
+		const ses = p.sesionesDePrueba([conectar, login, otraSesion], new Date(T + min), a);
+		expect(ses.has(p.sesionDe(conectar)!)).toBe(true);
+		expect(ses.has(p.sesionDe(otraSesion)!)).toBe(false);
+		/* La misma sesión en otra trampa es otra. */
+		const enOtra = evento({
+			trampa: { id: 'smb-2', modulo: 'smb', tipo: 'contenedor' },
+			detalle: { session: 's1' }
+		});
+		expect(ses.has(p.sesionDe(enOtra)!)).toBe(false);
+		/* Sin la marca en la entrega ni guardada, nada; las guardadas cuentan. */
+		expect(p.sesionesDePrueba([conectar], new Date(T + min), a).size).toBe(0);
+		expect(p.sesionesDePrueba([conectar], new Date(T + min), a, [p.sesionDe(conectar)!]).size).toBe(
+			1
+		);
+		/* Sin sesión en el evento, no hay clave. */
+		expect(p.sesionDe(evento())).toBeNull();
+	});
 });
 
 describe('IP y nonce', () => {

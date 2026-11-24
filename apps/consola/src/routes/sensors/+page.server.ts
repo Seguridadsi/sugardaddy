@@ -25,15 +25,46 @@ import { esLocal, quitarSensorDelAcceso } from '$lib/server/acceso';
 import { normalizarIp } from '$lib/server/pruebas';
 import { silenciosPorObjeto } from '$lib/server/alcance-ficha';
 import { coberturaDeAhora } from '$lib/server/mantenimiento';
+import { serieDe, ultimasMuestras } from '$lib/server/salud-maquina';
+import { db, schema as esquema } from '$lib/server/db';
+
+/*
+ * La pestaña «Health» (salud-maquina.ts): la última muestra de cada sensor y,
+ * del que se mira, su serie de 24 horas o 7 días. Solo si se abre esa pestaña.
+ */
+async function salud(url: URL, ids: string[]) {
+	if (url.searchParams.get('tab') !== 'health') return null;
+	const ultimas = await ultimasMuestras();
+	const pedido = url.searchParams.get('sensor');
+	const sensor = pedido && ids.includes(pedido) ? pedido : (ids[0] ?? null);
+	const rango = url.searchParams.get('range') === '7d' ? '7d' : '24h';
+	const trampas = await db
+		.select({ id: esquema.trampas.id, nombre: esquema.trampas.nombre })
+		.from(esquema.trampas);
+	return {
+		sensor,
+		rango: rango as '24h' | '7d',
+		ultimas: Object.fromEntries(
+			[...ultimas].map(([id, m]) => [id, { ...m, cuando: m.cuando.toISOString() }])
+		),
+		serie: sensor ? await serieDe(sensor, rango) : [],
+		nombresTrampa: Object.fromEntries(trampas.map((t) => [t.id, t.nombre]))
+	};
+}
 
 export const load = async ({ url }) => {
 	const destinos = await listaDestinos();
+	const lista = await sensores();
 	return {
+		salud: await salud(
+			url,
+			lista.map((x) => x.id)
+		),
 		ahora: Date.now(),
 		baja: url.searchParams.has('baja'),
 		/* En community no se añaden destinos a mano (no hay señuelos manuales): sin su sección. */
 		community: esCommunity(),
-		sensores: await sensores(),
+		sensores: lista,
 		/*
 		 * Para el alta de un sensor que no resuelve el nombre de la consola: la IP por
 		 * la que entra quien mira, si entra por IP (sensores-remotos.ts, ipDeConsola).

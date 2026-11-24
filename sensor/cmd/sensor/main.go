@@ -320,8 +320,10 @@ func main() {
 type sensor struct {
 	// motorSeguro: habla con sd-motor, no con Docker.
 	motorSeguro bool
-	consola     *consola.Cliente
-	toques      toques
+	// La pestaña «Health» de la consola: la máquina y las trampas, cada minuto (salud.go).
+	muestras saludSensor
+	consola  *consola.Cliente
+	toques   toques
 	// Por dónde sale a internet, preguntado a quien dice el plan (ip_publica.go).
 	ipPublica ipPublica
 	docker    *docker.Cliente
@@ -442,6 +444,9 @@ func (s *sensor) correr(ctx context.Context) {
 		}
 		s.leer()
 		s.entregar(ctx)
+		if time.Now().After(s.muestras.proxima) {
+			s.informarSalud(ctx, time.Now())
+		}
 		if time.Now().After(proximaCuota) {
 			s.vigilarCuota(time.Now())
 			proximaCuota = time.Now().Add(cadaCuota)

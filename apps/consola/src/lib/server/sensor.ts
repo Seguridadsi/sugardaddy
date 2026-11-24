@@ -35,7 +35,14 @@ import { comprobarConEvento, trasDescarte, trasEstado, type FilaColocacion } fro
 import { db, schema as s } from './db';
 import { clavesCredencial, guardable, preparar } from './credenciales';
 import { enmascararLinea } from './credenciales-protegidas';
-import { anotarPrueba, pruebasAbiertas, pruebasDe } from './pruebas';
+import {
+	anotarPrueba,
+	pruebasAbiertas,
+	pruebasDe,
+	sesionDe,
+	sesionesDePrueba,
+	sesionesGuardadas
+} from './pruebas';
 import { normalizarIp } from './buscar-ip';
 import { aplicarTriajeAuto } from './triaje-auto';
 
@@ -677,6 +684,26 @@ async function guardarEntrega(
 		const recibidoAhora = new Date(
 			(await tx.execute<{ ahora: string | Date }>(sql`select now() as ahora`))[0].ahora
 		);
+		/*
+		 * Las sesiones de una prueba con marca: sus otros eventos (conectar, negociar,
+		 * cerrar) también son de prueba. Una pasada antes, porque la marca llega en medio.
+		 */
+		const deSesionDePrueba = abiertas.some((p) => p.marca)
+			? sesionesDePrueba(
+					lineas.flatMap((l) => {
+						if (l.length > LIMITE_LINEA) return [];
+						try {
+							const v = validarEvento(JSON.parse(l));
+							return v.ok ? [v.valor] : [];
+						} catch {
+							return [];
+						}
+					}),
+					recibidoAhora,
+					abiertas,
+					await sesionesGuardadas(tx, abiertas)
+				)
+			: new Set<string>();
 		const nuevos: Evento[] = [];
 		let anterior = fila.ultimoHash;
 		let aceptadas = 0;
@@ -766,7 +793,8 @@ async function guardarEntrega(
 					 * tokens, así que un evento es de prueba solo por «Probar».
 					 */
 					const deLaPrueba = e && !motivo ? pruebasDe(e, recibidoAhora, abiertas) : [];
-					const prueba = deLaPrueba.length > 0;
+					const sesion = e && !motivo ? sesionDe(e) : null;
+					const prueba = deLaPrueba.length > 0 || (sesion !== null && deSesionDePrueba.has(sesion));
 
 					if (e && !motivo) {
 						const evento = e;

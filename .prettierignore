@@ -16,6 +16,10 @@ documentacion/.docusaurus/
 # Lo generan drizzle-kit y scripts/mapa-espana.ts: formatearlos a mano no sirve.
 apps/*/drizzle/meta/
 apps/consola/src/lib/mapa/espana.json
+# La escribe herramientas/paneles/threatdefence.py.
+apps/consola/src/lib/server/agentes-ataque/listas.json
+apps/consola/src/lib/server/agentes-ataque/informes-mmd.json
+apps/consola/src/lib/server/agentes-ataque/informes-talos.json
 .publicacion/
 # La escribe una prueba de Go (sensor/internal/despliegue/privilegios_test.go).
 docs/seguridad/privilegios-creados.json

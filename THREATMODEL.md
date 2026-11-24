@@ -236,6 +236,42 @@ employees).
   - Captured credentials have their own retention period, 90 days by default and never longer than
     the events. After it, the encrypted value is deleted and only the masked one stays.
 
+### T7: Known vulnerability in a third-party component
+
+**Attacker capability:** exploits a published vulnerability in a library, toolchain or base image
+that Sugardaddy ships (an npm package in the console, a Go module in a decoy, the web server in
+front of the console).
+
+**Impact:** depends on the component; in a decoy, the sensor or the console it can mean code
+execution on the node. Unlike T1, nobody has to tamper with anything: the vulnerable code was
+signed and shipped by us.
+
+- **Implemented:**
+  - Every dependency is pinned: lockfiles and `go.sum`, base and third-party images by digest,
+    GitHub Actions by commit. Nothing changes between builds unless we change it.
+  - Decoys are our own Go code and almost all are built `FROM scratch`: no operating system,
+    shell or package manager inside, only the binary.
+  - Every published image carries a signed CycloneDX **SBOM** and SLSA provenance; a version is not
+    signed without them. You can download and check them with `cosign`.
+  - Nightly scans: govulncheck, `npm audit` and osv-scanner on every dependency file in the
+    repository, and trivy on every published image. A critical issue with a fix fails the build.
+  - Exceptions (no fix yet, or the fix is only in a major version) are listed with their reason and
+    a review date of at most 90 days; after that date the scan fails again.
+  - Fix deadlines, counted until a signed version with the fix is published: **7 days** for
+    critical or actively exploited issues, **30** for high, **90** for medium (see
+    [SECURITY.md](SECURITY.md)). Severity is never lowered for components that receive attacker
+    traffic: decoys, sensor, beacon relay, console login.
+  - Fixes reach nodes through the signed update channel (T1), tested end to end and on a test ring
+    before the rest.
+  - Update pull requests are opened automatically every week, never for a release younger than 7
+    days (against freshly poisoned packages), and GitHub vulnerability alerts are on.
+- **Partial:**
+  - SBOMs are available through the registry, not yet as a plain download.
+  - The node's third-party images (web server, database) are still pulled from Docker Hub by
+    digest, not from our own registry.
+- **Your part:** keep automatic updates on, or set a short window. A node that never updates keeps
+  every vulnerability it had.
+
 ---
 
 ## 4. Risk register (accepted risks)

@@ -526,7 +526,9 @@ sd_politica_env "$DIR/.env"
 umask 022
 cp "$SD_DATOS/versiones.env" "$DIR/versiones.env"
 cp "$SD_DATOS/compose.yml" "$DIR/compose.yml"
-if [[ -s "$SD_DATOS/ca-consola.crt" ]]; then cp "$SD_DATOS/ca-consola.crt" "$DIR/ca-consola.crt"; else : > "$DIR/ca-consola.crt"; fi
+# La raíz de la consola la lee el sensor (usuario 65532): 0644 siempre. Con cp conservaba el
+# 0600 de los datos (escritos con umask 077) y el sensor no arrancaba.
+if [[ -s "$SD_DATOS/ca-consola.crt" ]]; then install -m 0644 "$SD_DATOS/ca-consola.crt" "$DIR/ca-consola.crt"; else install -m 0644 /dev/null "$DIR/ca-consola.crt"; fi
 # El certificado de cliente del sensor y su clave (mTLS con la consola). Lo leen el sensor
 # (usuario 65532) y el actualizador (root, grupo 0); nadie más en esta máquina.
 install -d -m 0711 "$DIR/tls"

@@ -636,6 +636,68 @@ export function pruebasDe(e: Evento, recibido: Date, abiertas: PruebaAbierta[]):
 }
 
 /*
+ * La sesión de un evento, si su trampa la da (detalle.session de Cowrie, MSSQL, PostgreSQL…),
+ * con su trampa delante: la misma sesión en dos trampas no es la misma.
+ */
+export function sesionDe(e: Pick<Evento, 'trampa' | 'detalle'>): string | null {
+	const v = e.detalle?.session ?? e.detalle?.session_uuid;
+	return typeof v === 'string' && v !== '' ? `${e.trampa.id}\u0000${v.slice(0, 200)}` : null;
+}
+
+/*
+ * Las sesiones que son de una prueba con marca: la de cada evento de la entrega que la cumple
+ * y, de antes, las ya guardadas como prueba (sesionesGuardadas). La marca solo la trae un
+ * evento (el inicio de sesión con la contraseña de la prueba); los demás de esa sesión
+ * (conectar, negociar, cerrar) son de la misma prueba. Sin esto, con una trampa «interno»,
+ * el que solo conecta abría un incidente al pulsar «Probar». Pura.
+ */
+export function sesionesDePrueba(
+	eventos: Evento[],
+	recibido: Date,
+	abiertas: PruebaAbierta[],
+	guardadas: Iterable<string> = []
+): Set<string> {
+	const sesiones = new Set(guardadas);
+	if (!abiertas.some((p) => p.marca)) return sesiones;
+	for (const e of eventos) {
+		const k = sesionDe(e);
+		if (k && pruebasDe(e, recibido, abiertas).some((p) => p.marca)) sesiones.add(k);
+	}
+	return sesiones;
+}
+
+/*
+ * Las sesiones de eventos ya guardados como prueba en la ventana de las pruebas con marca
+ * que siguen abiertas: lo que llega en una entrega posterior (el cierre de la sesión) también
+ * es de la prueba. Solo si hay alguna; con tope.
+ */
+export async function sesionesGuardadas(tx: Bd, abiertas: PruebaAbierta[]): Promise<string[]> {
+	const conMarca = abiertas.filter((p) => p.marca && p.de);
+	if (!conMarca.length) return [];
+	const desde = new Date(Math.min(...conMarca.map((p) => p.desde.getTime())));
+	const filas = await tx
+		.select({ linea: s.eventos.linea })
+		.from(s.eventos)
+		.where(
+			and(
+				eq(s.eventos.prueba, true),
+				inArray(s.eventos.trampa, [...new Set(conMarca.map((p) => p.de!))]),
+				sql`${s.eventos.recibido} >= ${desde.toISOString()}::timestamptz`
+			)
+		)
+		.limit(500);
+	return filas.flatMap((f) => {
+		try {
+			const { senuelo, ...dato } = JSON.parse(f.linea);
+			const k = sesionDe((senuelo ? { ...dato, trampa: senuelo } : dato) as Evento);
+			return k ? [k] : [];
+		} catch {
+			return [];
+		}
+	});
+}
+
+/*
  * Un evento de prueba ya guardado (con prueba = true): es el de cada prueba
  * que aún no tenía, y comprueba la trampa probada si no es la suya (la que
  * recibe la señal de otra). colocacion: lo leído de cada trampa al empezar la

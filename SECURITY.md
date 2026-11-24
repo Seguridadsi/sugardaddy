@@ -30,10 +30,26 @@ We accept reports in Spanish and English.
   report.
 - **Credit:** if you want, we name you in the security advisory.
 
+## Fix deadlines
+
+Counted until a signed version with the fix is published:
+
+| Severity                                  | Deadline             |
+| ----------------------------------------- | -------------------- |
+| Critical, or any actively exploited issue | 7 days               |
+| High                                      | 30 days              |
+| Medium                                    | 90 days              |
+| Low                                       | Next regular release |
+
+The same deadlines apply to vulnerabilities in the third-party components we
+ship (libraries, toolchains, base images): see T7 in
+[THREATMODEL.md](THREATMODEL.md).
+
 ## Which versions receive fixes
 
-Only the **latest published version**. Leave the updater on to
-receive them.
+Fixes ship in the **latest published version**, and we keep publishing them
+for a security support period of at least **5 years**. The latest version can
+always be installed over an older one: leave the updater on to receive them.
 
 ## What is not a vulnerability
 

@@ -1,6 +1,8 @@
 /*
- * ¿La IP que ha atacado aloja el panel de control de un agente de IA de ataque (ARTEX)?
- * La lista la tiene la central y no sale de allí (su paneles-ataque.ts): el nodo
+ * ¿La IP que ha atacado aloja el panel de control de un agente de IA de ataque?
+ * Primero se mira la lista de ThreatDefence que lleva el propio nodo
+ * (agentes-ataque/listas.ts), sin red. Lo que no está ahí se pregunta a la central, que
+ * tiene la lista de Shodan y no la reparte (su paneles-ataque.ts): el nodo
  * pregunta solo por las IP públicas que ya han tocado sus trampas, y guarda la
  * respuesta en memoria un día. Va por el canal firmado si a este nodo lo gestiona un
  * panel, o con el token del registro si es un Community registrado; si no, no
@@ -10,6 +12,7 @@
  * carga. Es una pista, no una prueba, y no se comparte (no va a los indicadores).
  */
 import { esIpPublica } from '@sugardaddy/canal';
+import { consolaEn } from './agentes-ataque/listas';
 
 export type PanelAtaque = { agente: string; version: string | null; visto: string | null };
 
@@ -93,6 +96,11 @@ export function panelesDe(ips: Iterable<string>): Map<string, PanelAtaque> {
 	const ahora = Date.now();
 	for (const ip of ips) {
 		if (!esIpPublica(ip)) continue;
+		const local = consolaEn(ip);
+		if (local) {
+			r.set(ip, local);
+			continue;
+		}
 		const s = sabido.get(ip);
 		if (s && s.hasta > ahora) {
 			if (s.p) r.set(ip, s.p);

@@ -223,6 +223,15 @@
 									? ` on ${p.visto.slice(0, 10)}`
 									: ''}. A hint, not proof: the panel and the attacker may not be the same machine."
 								>{p.agente} panel</span
+							>{/if}{#if e.origen.ip && geos[e.origen.ip]?.informe}{@const i =
+								geos[e.origen.ip].informe!}<span
+								class="tor panel-ataque"
+								title="A public report{i.fuente ? ` by ${i.fuente}` : ''}{i.reportado
+									? ` (${i.reportado})`
+									: ''} ties this address to attacks with {i.agentes.join(', ')}{i.actor
+									? `, by ${i.actor}`
+									: ''}. Confidence: {i.confianza}. A hint, not proof: hosting addresses are reassigned."
+								>Reported: {i.agentes[0]}</span
 							>{/if}{#if e.origen.oculta}<span class="motor" title={AVISO_IP_MOTOR}>Engine IP</span
 							>{/if}</span
 					>

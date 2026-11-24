@@ -177,6 +177,38 @@ func TestAplicarConfiguracion(t *testing.T) {
 	}
 }
 
+// La CA que monta el compose la lee el sensor, que no es root: una que quedó en 0600 (una
+// instalación con umask 077) vuelve a 0644 al aplicar, en el nodo y en el sensor remoto.
+func TestAplicarDejaLegibleLaCAMontada(t *testing.T) {
+	for _, c := range []struct{ modo, fichero string }{
+		{ModoNodo, "ca-raiz.crt"},
+		{ModoSensorRemoto, "ca-consola.crt"},
+	} {
+		n := nuevoNodo(t)
+		n.app.Modo = c.modo
+		r := releaseConConfiguracion("services: {}\n")
+		if c.modo == ModoSensorRemoto {
+			anadirEnv(t, n.dir, "EDICION=cloud\n")
+			r.Servicios = map[string]string{"sensor": "ejemplo.azurecr.io/sensor@sha256:" + strings.Repeat("a", 64)}
+			r.Actualizador = "ejemplo.azurecr.io/actualizador@sha256:" + strings.Repeat("b", 64)
+			r.SensorRemoto, r.Nodo = &Configuracion{Ficheros: map[string]string{"compose.yml": "services: {}\n"}}, nil
+		}
+		ruta := filepath.Join(n.dir, c.fichero)
+		if err := os.WriteFile(ruta, []byte("raiz\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if res := n.app.Aplicar(context.Background(), n.firmada(t, r)); res.Estado != "aplicada" {
+			t.Fatalf("%s: %+v", c.modo, res)
+		}
+		if fi, _ := os.Stat(ruta); fi.Mode().Perm() != 0o644 {
+			t.Fatalf("%s: %s tiene que quedar en 0644: %v", c.modo, c.fichero, fi.Mode().Perm())
+		}
+		if leer(t, n.dir, c.fichero) != "raiz\n" {
+			t.Fatalf("%s: el contenido no se toca", c.modo)
+		}
+	}
+}
+
 // Docker 29.0 a 29.2 no admiten la API 1.43 que antes iba fija: con la
 // versión negociada, la configuración se aplica.
 func TestAplicaConDocker29(t *testing.T) {

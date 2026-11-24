@@ -19,7 +19,9 @@ package intermediario
 import (
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"net/netip"
+	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -550,21 +552,40 @@ func dentro(ruta, dir string) bool {
 	return ruta == dir || strings.HasPrefix(ruta, dir+string(filepath.Separator))
 }
 
-// sinEnlaceFuera: si la ruta existe donde sd-motor la ve, que no salga de la
-// carpeta del sensor por un enlace simbólico (lo que escribe una trampa en sus
-// carpetas no puede llevar un bind a otra parte). Si no la ve, no decide: los
-// destinos ya están acotados por nombre.
+// sinEnlaceFuera: si la ruta existe donde sd-motor la ve, ninguna de sus partes
+// desde la carpeta del sensor es un enlace simbólico (lo que escribe una trampa o
+// el sensor en sus carpetas no puede llevar un bind a otra parte). Se mira parte a
+// parte con os.Root y Lstat, sin seguir nada: antes se resolvía la ruta entera
+// (EvalSymlinks) y se dejaban pasar enlaces que acababan dentro. Si no la ve, no
+// decide: los destinos ya están acotados por nombre.
+//
+// Docker vuelve a resolver la ruta al arrancar el contenedor, no al crearlo, así
+// que esto se repite al arrancarlo (revalidarMontajes). Entre esa comprobación y el
+// mount(2) del motor sigue habiendo una ventana: las carpetas del camino son del
+// sensor y él puede cambiarlas. Cerrarla del todo pide que no sean suyas
+// (pendiente de decidir el reparto de dueños de la carpeta del sensor).
 var sinEnlaceFuera = func(ruta, datos string) error {
-	real, err := filepath.EvalSymlinks(ruta)
+	rel, err := filepath.Rel(datos, ruta)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		return rechazar("%q is outside the sensor folder", recortar(ruta, 80))
+	}
+	if rel == "." {
+		return nil
+	}
+	raiz, err := os.OpenRoot(datos)
 	if err != nil {
 		return nil
 	}
-	base, err := filepath.EvalSymlinks(datos)
-	if err != nil {
-		base = datos
-	}
-	if !dentro(real, base) {
-		return rechazar("%q leads outside the sensor folder", recortar(ruta, 80))
+	defer raiz.Close()
+	partes := strings.Split(rel, string(filepath.Separator))
+	for i := range partes {
+		fi, err := raiz.Lstat(filepath.Join(partes[:i+1]...))
+		if err != nil {
+			return nil
+		}
+		if fi.Mode()&fs.ModeSymlink != 0 {
+			return rechazar("%q leads outside the sensor folder (it goes through a symbolic link)", recortar(ruta, 80))
+		}
 	}
 	return nil
 }

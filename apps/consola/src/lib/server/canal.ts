@@ -59,6 +59,7 @@ import { db, schema as s } from './db';
 import { auditar, autoActualizar, cabecera, comparticion, latidoMinimo } from './consultas';
 import { anfitrionParaLatido } from './anfitrion';
 import { entregaParaLatido, integridadParaLatido } from './integridad-latido';
+import { saludParaLatido } from './salud-maquina';
 import { mantenimientoParaLatido } from './mantenimiento';
 import { esperaActual } from './politica-actualizacion';
 import {
@@ -795,7 +796,9 @@ async function latido(panel: string | null = null): Promise<Latido> {
 		 * y lo que sus sensores apartaron de la entrega. No en el mínimo, como el sello.
 		 */
 		...(await integridadParaLatido()),
-		...entregaParaLatido(sensores.map((x) => x.capacidades?.hechos))
+		...entregaParaLatido(sensores.map((x) => x.capacidades?.hechos)),
+		/* La salud de las máquinas de los sensores, resumida (salud-maquina.ts). */
+		...(await saludParaLatido().catch(() => ({})))
 	};
 }
 

@@ -22,6 +22,7 @@ import {
 	jsonb,
 	pgTable,
 	primaryKey,
+	real,
 	smallint,
 	text,
 	timestamp,
@@ -1124,6 +1125,40 @@ export const avisosSalud = pgTable('avisos_salud', {
 	codigo: text('codigo').notNull(),
 	desde: timestamp('desde', { withTimezone: true }).notNull().defaultNow()
 });
+
+/*
+ * La salud de cada sensor, una muestra por minuto (docs/diseno/salud.md): la
+ * máquina (CPU, carga, memoria y disco, en bytes) y cómo está cada trampa
+ * (en marcha, estado y reinicios). Para la pestaña «Health» y sus avisos; se
+ * guarda 7 días (salud-maquina.ts, podarSalud). Solo números y estados.
+ */
+export type SaludTrampaMuestra = {
+	id: string;
+	enMarcha: boolean;
+	estado: string;
+	reinicios: number;
+	desde?: string;
+};
+
+export const saludMuestras = pgTable(
+	'salud_muestras',
+	{
+		id: bigserial('id', { mode: 'number' }).primaryKey(),
+		sensor: text('sensor')
+			.notNull()
+			.references(() => sensores.id, { onDelete: 'cascade' }),
+		cuando: timestamp('cuando', { withTimezone: true }).notNull(),
+		cpu: real('cpu'),
+		carga1: real('carga1'),
+		cpus: smallint('cpus'),
+		memoriaTotal: bigint('memoria_total', { mode: 'number' }),
+		memoriaLibre: bigint('memoria_libre', { mode: 'number' }),
+		discoTotal: bigint('disco_total', { mode: 'number' }),
+		discoLibre: bigint('disco_libre', { mode: 'number' }),
+		trampas: jsonb('trampas').$type<SaludTrampaMuestra[]>().notNull().default([])
+	},
+	(t) => [index('salud_muestras_sensor_cuando').on(t.sensor, t.cuando)]
+);
 
 /* Ajustes sueltos del nodo, como la compartición de indicadores. */
 export const ajustes = pgTable('ajustes', {

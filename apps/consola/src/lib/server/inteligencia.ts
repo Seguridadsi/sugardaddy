@@ -27,7 +27,8 @@ import {
 	modulosValidos,
 	verificarLista,
 	type IndicadorSubida,
-	type ListaFirmada
+	type ListaFirmada,
+	type SensorDeIndicador
 } from '@sugardaddy/canal';
 import { db, schema as s } from './db';
 import { agenteCompartido } from '$lib/agente-compartido';
@@ -39,6 +40,7 @@ import { migrados } from './origenes-comun';
 import { ipsDelDespliegue } from './ips-propias';
 import { diaDe, repartirListaComun, topeDia, topeValido } from './lista-comun-frenos';
 import { tecnicasPorIp } from './tecnicas-indicador';
+import { geo } from './geo';
 
 type Marca = { hasta: string };
 
@@ -142,6 +144,10 @@ export async function indicadoresPendientes() {
 		subibles,
 		subir.map((f) => f.ip!)
 	);
+	const sensores = await sensoresPorIp(
+		subibles,
+		subir.map((f) => f.ip!)
+	);
 	const indicadores: IndicadorSubida[] = subir.map((f) => ({
 		valor: f.ip!,
 		clase: 'ip',
@@ -152,9 +158,59 @@ export async function indicadoresPendientes() {
 		/* La consulta solo coge eventos con conexión establecida. */
 		conexion: 'tcp' as const,
 		...(agentes.get(f.ip!)?.size ? { agentes: agentesValidos([...agentes.get(f.ip!)!]) } : {}),
-		...(tecnicas.get(f.ip!)?.length ? { tecnicas: tecnicas.get(f.ip!) } : {})
+		...(tecnicas.get(f.ip!)?.length ? { tecnicas: tecnicas.get(f.ip!) } : {}),
+		...(sensores.get(f.ip!)?.length ? { sensores: sensores.get(f.ip!) } : {})
 	}));
 	return { indicadores, hasta };
+}
+
+/*
+ * En qué país está cada sensor remoto que vio cada IP, para el mapa público del panel
+ * (/attack-map), que enseña dónde escucha la red. El país sale de la IP desde la que el
+ * sensor llega a esta consola (sensores.direccion), con la base de DB-IP de la imagen: esa
+ * IP no sale del nodo, solo el país. El sensor local y los de red privada no tienen país
+ * aquí: el panel los pone en el país desde el que llama la consola.
+ */
+export async function sensoresPorIp(subibles: SQL | undefined, ips: string[]) {
+	const por = new Map<string, SensorDeIndicador[]>();
+	if (!ips.length) return por;
+	const filas = await db
+		.select({
+			ip: s.eventos.ip,
+			direccion: s.sensores.direccion,
+			modulo: s.eventos.modulo,
+			eventos: sql<number>`count(*)::int`
+		})
+		.from(s.eventos)
+		.innerJoin(s.sensores, eq(s.sensores.id, s.eventos.sensor))
+		.where(and(subibles, eq(s.sensores.remoto, true), isNotNull(s.sensores.direccion)))
+		.groupBy(s.eventos.ip, s.sensores.direccion, s.eventos.modulo);
+	const quiero = new Set(ips);
+	const paises = new Map<string, string | null>();
+	const acumulado = new Map<string, Map<string, { eventos: number; modulos: Set<string> }>>();
+	for (const f of filas) {
+		if (!f.ip || !f.direccion || !quiero.has(f.ip)) continue;
+		if (!paises.has(f.direccion))
+			paises.set(f.direccion, esIpPublica(f.direccion) ? (geo(f.direccion)?.pais ?? null) : null);
+		const pais = paises.get(f.direccion);
+		if (!pais) continue;
+		const deIp = acumulado.get(f.ip) ?? new Map();
+		const v = deIp.get(pais) ?? { eventos: 0, modulos: new Set<string>() };
+		v.eventos += f.eventos;
+		v.modulos.add(f.modulo);
+		deIp.set(pais, v);
+		acumulado.set(f.ip, deIp);
+	}
+	for (const [ip, deIp] of acumulado)
+		por.set(
+			ip,
+			[...deIp].map(([pais, v]) => ({
+				pais,
+				eventos: v.eventos,
+				modulos: modulosValidos([...v.modulos])
+			}))
+		);
+	return por;
 }
 
 /* Como mucho, cuántos eventos se leen enteros para buscar agentes de IA en una vuelta. */

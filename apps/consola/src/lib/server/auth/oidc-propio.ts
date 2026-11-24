@@ -19,7 +19,7 @@
  * SAML 2.0: saml-propio.ts, con el mismo patrón.
  */
 import { createHash } from 'node:crypto';
-import { eq } from 'drizzle-orm';
+import { and, eq, isNull, like, ne } from 'drizzle-orm';
 import type { JWTPayload } from 'jose';
 import {
 	correoOidc,
@@ -37,7 +37,7 @@ import { configuradoEnEntorno, type Identidad } from './entra';
 import { ROLES, type Rol } from './permisos';
 import { loginLocalHabilitado } from './local';
 
-/* Lo lee también entra-propio.ts (sin importar este módulo): si cambia aquí, allí. */
+/* Lo leen también entra-propio.ts y sesion.ts (sin importar este módulo): si cambia aquí, allí. */
 export const AJUSTE_OIDC = 'oidc_propio';
 const CONTEXTO = 'oidc-propio';
 export const COOKIE_OIDC_PROPIO = 'sd_oidc_propio';
@@ -251,7 +251,8 @@ export async function activarOidc(quien: string, probadoCon: string) {
 
 /* Quitarlo no puede dejar la consola sin entrada (solo con la llave de emergencia). */
 export async function quitarOidc(
-	quien: string
+	quien: string,
+	salvo: string | null = null
 ): Promise<{ ok: true } | { ok: false; error: string }> {
 	const g = await leer();
 	if (!g) return { ok: true };
@@ -268,6 +269,23 @@ export async function quitarOidc(
 				'This is the only way to sign in to this console: removing it would leave only the emergency sign-in. Change it instead.'
 		};
 	await db.delete(s.ajustes).where(eq(s.ajustes.clave, AJUSTE_OIDC));
+	/*
+	 * Las sesiones abiertas con él se cierran con él (como el SAML propio y el
+	 * Entra propio), salvo la de quien lo quita: quitarlo suele ser para cortar el
+	 * acceso (proveedor comprometido, baja). Auditoría 2026-11-23 §4.7. Aunque
+	 * quedara alguna, sesion.ts:leer ya no da por buena una sesión oidc: sin
+	 * proveedor.
+	 */
+	await db
+		.update(s.sesiones)
+		.set({ cerrada: new Date() })
+		.where(
+			and(
+				isNull(s.sesiones.cerrada),
+				like(s.sesiones.oid, 'oidc:%'),
+				...(salvo ? [ne(s.sesiones.id, salvo)] : [])
+			)
+		);
 	await auditar(quien, 'OIDC sign-in removed', { emisor: g.emisor });
 	return { ok: true };
 }
