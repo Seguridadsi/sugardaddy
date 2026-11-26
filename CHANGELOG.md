@@ -7,6 +7,10 @@ latest version yourself, run `despliegue/nodo/verificar-version.sh`.
 Fixes go into the latest version only (see [SECURITY.md](SECURITY.md)): keep the updater on, or
 update by hand as described in [docs/INSTALL.md](docs/INSTALL.md#update).
 
+## 0.33.6 — 2026-11-24
+
+Fixes how large figures are written ("3.2MB", not "3.2mB").
+
 ## 0.33.5 — 2026-11-24
 
 New Health tab under Sensors: CPU, memory and disk of each sensor's machine over 24 hours or 7

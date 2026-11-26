@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { costeDe, duracionLegible, textoCoste, tokensEstimados } from './coste';
+import { compacto, costeDe, duracionLegible, textoCoste, tokensEstimados } from './coste';
 
 describe('coste causado al atacante', () => {
 	const campos = { tiempo: 'duration', bytes: 'bytes' };
@@ -41,6 +41,12 @@ describe('coste causado al atacante', () => {
 		expect(duracionLegible((2 * 60 + 14) * 60_000)).toBe('2 h 14 min');
 		expect(duracionLegible(50 * 3600_000)).toBe('2 d 2 h');
 		expect(tokensEstimados(4000)).toBe(1000);
+		/* Sin depender de los datos de idioma de la máquina (Intl compacto daba «3.2m»). */
+		expect(compacto(3_200_000)).toBe('3.2M');
+		expect(compacto(800_000)).toBe('800K');
+		expect(compacto(999_960)).toBe('1M');
+		expect(compacto(1_500)).toBe('1.5K');
+		expect(compacto(12)).toBe('12');
 		expect(textoCoste(0, 0)).toBeNull();
 		expect(textoCoste(500, 100)).toBeNull();
 		expect(textoCoste(8_040_000, 0)).toBe('Held the attacker for 2 h 14 min');

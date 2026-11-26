@@ -53,8 +53,26 @@ export function duracionLegible(ms: number): string {
 	return h % 24 ? `${d} d ${h % 24} h` : `${d} d`;
 }
 
-const compacto = (n: number) =>
-	new Intl.NumberFormat('en-GB', { notation: 'compact', maximumFractionDigits: 1 }).format(n);
+/*
+ * 3.2M, 800K, 12: a mano y no con Intl compacto, que según los datos de idioma de la máquina
+ * da «3.2m» y «800k» (pasó en el CI del repositorio público con la 0.33.5).
+ */
+const ESCALAS = [
+	[1e12, 'T'],
+	[1e9, 'B'],
+	[1e6, 'M'],
+	[1e3, 'K']
+] as const;
+export function compacto(n: number): string {
+	for (const [i, [v, s]] of ESCALAS.entries()) {
+		const x = Math.round((n / v) * 10) / 10;
+		/* 999.96K se redondea a 1000K: mejor 1M, con la escala de arriba. */
+		if (x >= 1000 && i > 0)
+			return `${Math.round((n / ESCALAS[i - 1][0]) * 10) / 10}${ESCALAS[i - 1][1]}`;
+		if (n >= v) return `${x}${s}`;
+	}
+	return String(Math.round(n));
+}
 
 /*
  * La frase del coste para un incidente o un origen, o null si no hay nada que
